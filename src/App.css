@@ -1,0 +1,61 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.header {
+  padding: 1.25rem 1.5rem;
+  background: #f4f1ea;
+  border-bottom: 1px solid #ddd6c8;
+}
+
+.header h1 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.4rem;
+  color: #2b2b26;
+}
+
+.header p {
+  margin: 0;
+  color: #6b6b63;
+  font-size: 0.95rem;
+}
+
+.map-wrapper {
+  flex: 1;
+  min-height: 0;
+}
+
+.status-panel {
+  padding: 1rem 1.5rem;
+  background: #fff;
+  border-top: 1px solid #ddd6c8;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.status-ready {
+  color: #3f6212;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+}
+
+.status-empty {
+  color: #6b6b63;
+  margin: 0;
+}
+
+.next-step-note {
+  color: #6b6b63;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}
+
+pre {
+  background: #f4f1ea;
+  padding: 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
