@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { MapContainer, TileLayer } from 'react-leaflet'
-import DrawControl from './DrawControl.jsx'
+import DrawTool from './DrawTool.jsx'
 import 'leaflet/dist/leaflet.css'
-import 'leaflet-draw/dist/leaflet.draw.css'
 import './App.css'
 
 // Starting map view — centered on the user's own property as a sensible
@@ -11,8 +10,97 @@ import './App.css'
 const DEFAULT_CENTER = [40.642485, -79.981816]
 const DEFAULT_ZOOM = 16
 
+// The backend API's local address. Once deployed (Render/Railway), this
+// would change to that live URL instead — worth pulling into an
+// environment variable at that point rather than hardcoding, but a
+// plain constant is fine for local development.
+const API_URL = 'http://localhost:5000'
+
 function App() {
-  const [boundary, setBoundary] = useState(null)
+  // Points are stored as [latitude, longitude] — Leaflet's native order —
+  // while drawing/editing. Converted to [longitude, latitude] only when
+  // sending to the backend, since that's the order soil_data.py,
+  // elevation_data.py, etc. expect.
+  const [points, setPoints] = useState([])
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [isFinished, setIsFinished] = useState(false)
+
+  const [report, setReport] = useState(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const handleStartDrawing = () => {
+    setPoints([])
+    setIsDrawing(true)
+    setIsFinished(false)
+    setReport(null)
+    setError(null)
+  }
+
+  const handleUndoLastPoint = () => {
+    setPoints(points.slice(0, -1))
+  }
+
+  const handleFinishDrawing = () => {
+    setIsDrawing(false)
+    setIsFinished(true)
+  }
+
+  const handleRedraw = () => {
+    setPoints([])
+    setIsDrawing(true)
+    setIsFinished(false)
+    setReport(null)
+    setError(null)
+  }
+
+  const handlePointsChange = (newPoints) => {
+    setPoints(newPoints)
+    // Editing an already-finished shape should clear a stale report,
+    // same reasoning as before — old results shouldn't linger next to
+    // an adjusted boundary.
+    if (isFinished) {
+      setReport(null)
+      setError(null)
+    }
+  }
+
+  const handleGenerateReport = async () => {
+    setIsLoading(true)
+    setError(null)
+    setReport(null)
+
+    // Convert to [longitude, latitude] here, right before sending —
+    // everywhere else in the frontend works in Leaflet's native
+    // [latitude, longitude] order.
+    const boundary = points.map(([lat, lng]) => [lng, lat])
+
+    try {
+      const response = await fetch(`${API_URL}/api/generate-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ boundary }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Something went wrong generating the report.')
+      }
+
+      setReport(data.report)
+    } catch (err) {
+      if (err instanceof TypeError) {
+        setError(
+          'Could not reach the backend. Make sure api.py is running locally (python3 api.py).'
+        )
+      } else {
+        setError(err.message)
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
     <div className="page">
@@ -32,29 +120,89 @@ function App() {
             attribution="Tiles &copy; Esri"
             maxZoom={19}
           />
-          <DrawControl onBoundaryChange={setBoundary} />
+          <DrawTool
+            isDrawing={isDrawing}
+            isFinished={isFinished}
+            points={points}
+            onPointsChange={handlePointsChange}
+          />
         </MapContainer>
       </div>
 
       <div className="status-panel">
-        {boundary ? (
+        {!isDrawing && !isFinished && (
+          <>
+            <p className="status-empty">
+              Click "Start Drawing" then click points on the map to trace your boundary.
+            </p>
+            <button className="generate-button" onClick={handleStartDrawing}>
+              Start Drawing Boundary
+            </button>
+          </>
+        )}
+
+        {isDrawing && (
           <>
             <p className="status-ready">
-              Boundary drawn — {boundary.length} points captured.
+              {points.length} point{points.length !== 1 ? 's' : ''} placed
+              {points.length < 3 && ' — need at least 3 to finish'}.
             </p>
-            <details>
-              <summary>View raw coordinates</summary>
-              <pre>{JSON.stringify(boundary, null, 2)}</pre>
-            </details>
-            <p className="next-step-note">
-              Next: this boundary will be sent to the backend to generate a
-              Scale of Permanence report, once the backend is deployed.
-            </p>
+            <div className="button-row">
+              <button
+                className="generate-button secondary"
+                onClick={handleUndoLastPoint}
+                disabled={points.length === 0}
+              >
+                Undo Last Point
+              </button>
+              <button
+                className="generate-button"
+                onClick={handleFinishDrawing}
+                disabled={points.length < 3}
+              >
+                Finish Boundary
+              </button>
+            </div>
           </>
-        ) : (
-          <p className="status-empty">
-            Use the polygon tool (top-right of the map) to draw your boundary.
+        )}
+
+        {isFinished && !report && !isLoading && (
+          <>
+            <p className="status-ready">
+              Boundary set — {points.length} points. Drag any point on the map to adjust it.
+            </p>
+            <div className="button-row">
+              <button className="generate-button secondary" onClick={handleRedraw}>
+                Redraw
+              </button>
+              <button className="generate-button" onClick={handleGenerateReport}>
+                Generate Scale of Permanence Report
+              </button>
+            </div>
+          </>
+        )}
+
+        {isLoading && (
+          <p className="status-loading">
+            Analyzing your land — fetching climate, soil, elevation, and water
+            data, then generating your report. This takes about 30-60 seconds.
           </p>
+        )}
+
+        {error && <p className="status-error">{error}</p>}
+
+        {report && (
+          <div className="report">
+            <div className="button-row">
+              <button className="generate-button secondary" onClick={handleRedraw}>
+                Redraw
+              </button>
+              <button className="generate-button secondary" onClick={handleGenerateReport}>
+                Regenerate Report
+              </button>
+            </div>
+            <pre className="report-text">{report}</pre>
+          </div>
         )}
       </div>
     </div>

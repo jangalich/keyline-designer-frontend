@@ -31,7 +31,7 @@
   padding: 1rem 1.5rem;
   background: #fff;
   border-top: 1px solid #ddd6c8;
-  max-height: 30vh;
+  max-height: 55vh;
   overflow-y: auto;
 }
 
@@ -58,4 +58,71 @@ pre {
   border-radius: 4px;
   font-size: 0.8rem;
   overflow-x: auto;
+}
+
+.generate-button {
+  background: #5a7247;
+  color: white;
+  border: none;
+  padding: 0.65rem 1.25rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 0.5rem;
+}
+
+.generate-button:hover {
+  background: #4a5f3a;
+}
+
+.generate-button.secondary {
+  background: transparent;
+  color: #5a7247;
+  border: 1px solid #5a7247;
+  margin-bottom: 0.75rem;
+}
+
+.status-loading {
+  color: #8a6d1d;
+  margin: 0;
+}
+
+.status-error {
+  color: #b3261e;
+  margin: 0;
+}
+
+.report {
+  display: flex;
+  flex-direction: column;
+}
+
+.report-text {
+  white-space: pre-wrap;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  max-height: none;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.generate-button:disabled {
+  background: #b8b8ac;
+  cursor: not-allowed;
+}
+
+/* Vertex marker styling — a simple visible dot for each boundary point,
+   used instead of Leaflet's default marker icon (which needs extra
+   config to load correctly with Vite). */
+.vertex-marker {
+  background: #5a7247;
+  border: 2px solid white;
+  border-radius: 50%;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
 }
