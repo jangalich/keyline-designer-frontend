@@ -98,12 +98,92 @@ pre {
   flex-direction: column;
 }
 
-.report-text {
-  white-space: pre-wrap;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+.search-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  max-width: 480px;
+}
+
+.address-input {
+  flex: 1;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #ddd6c8;
+  border-radius: 6px;
   font-size: 0.9rem;
-  line-height: 1.5;
+}
+
+.address-input:focus {
+  outline: none;
+  border-color: #5a7247;
+}
+
+.report-text {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.6;
   max-height: none;
+  max-width: 680px;
+}
+
+.report-text h1 {
+  font-size: 1.4rem;
+  margin: 0 0 0.75rem 0;
+}
+
+.report-text h2 {
+  font-size: 1.15rem;
+  margin: 1.5rem 0 0.5rem 0;
+  color: #3f4f2f;
+  border-bottom: 1px solid #ddd6c8;
+  padding-bottom: 0.25rem;
+}
+
+.report-text h3 {
+  font-size: 1rem;
+  margin: 1.1rem 0 0.4rem 0;
+  color: #3f4f2f;
+}
+
+.report-text p {
+  margin: 0 0 0.85rem 0;
+}
+
+.report-text ul,
+.report-text ol {
+  margin: 0 0 0.85rem 0;
+  padding-left: 1.25rem;
+}
+
+.report-text li {
+  margin-bottom: 0.35rem;
+}
+
+.report-text strong {
+  color: #2b2b26;
+}
+
+.report-text hr {
+  border: none;
+  border-top: 1px solid #ddd6c8;
+  margin: 1.25rem 0;
+}
+
+.report-text table {
+  border-collapse: collapse;
+  margin-bottom: 0.85rem;
+  font-size: 0.9rem;
+}
+
+.report-text th,
+.report-text td {
+  border: 1px solid #ddd6c8;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+}
+
+.report-text th {
+  background: #f4f1ea;
 }
 
 .button-row {

@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { MapContainer, TileLayer } from 'react-leaflet'
+import ReactMarkdown from 'react-markdown'
 import DrawTool from './DrawTool.jsx'
+import MapRecenter from './MapRecenter.jsx'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 
-// Starting map view — centered on the user's own property as a sensible
-// default. Once this connects to a real backend, this could instead
-// start from the address the user types in (via geocode.py).
+// Starting map view — a sensible default before anyone searches an
+// address. This used to be hardcoded to one specific property; now it's
+// just a fallback starting point.
 const DEFAULT_CENTER = [40.642485, -79.981816]
 const DEFAULT_ZOOM = 16
 
@@ -28,6 +30,44 @@ function App() {
   const [report, setReport] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
+
+  const [addressInput, setAddressInput] = useState('')
+  const [mapCenter, setMapCenter] = useState(null)
+  const [isGeocoding, setIsGeocoding] = useState(false)
+  const [geocodeError, setGeocodeError] = useState(null)
+
+  const handleAddressSearch = async (e) => {
+    e.preventDefault()
+
+    if (!addressInput.trim()) return
+
+    setIsGeocoding(true)
+    setGeocodeError(null)
+
+    try {
+      const response = await fetch(`${API_URL}/api/geocode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: addressInput }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Could not find that address.')
+      }
+
+      setMapCenter([data.latitude, data.longitude])
+    } catch (err) {
+      if (err instanceof TypeError) {
+        setGeocodeError('Could not reach the backend. Make sure api.py is running.')
+      } else {
+        setGeocodeError(err.message)
+      }
+    } finally {
+      setIsGeocoding(false)
+    }
+  }
 
   const handleStartDrawing = () => {
     setPoints([])
@@ -107,6 +147,19 @@ function App() {
       <header className="header">
         <h1>Keyline Designer</h1>
         <p>Draw the boundary of the area you want to design — this can be your whole property or just the section you plan to farm.</p>
+        <form className="search-row" onSubmit={handleAddressSearch}>
+          <input
+            type="text"
+            className="address-input"
+            placeholder="Enter an address to center the map..."
+            value={addressInput}
+            onChange={(e) => setAddressInput(e.target.value)}
+          />
+          <button type="submit" className="generate-button secondary" disabled={isGeocoding}>
+            {isGeocoding ? 'Searching...' : 'Go'}
+          </button>
+        </form>
+        {geocodeError && <p className="status-error">{geocodeError}</p>}
       </header>
 
       <div className="map-wrapper">
@@ -120,6 +173,7 @@ function App() {
             attribution="Tiles &copy; Esri"
             maxZoom={19}
           />
+          <MapRecenter center={mapCenter} zoom={18} />
           <DrawTool
             isDrawing={isDrawing}
             isFinished={isFinished}
@@ -201,7 +255,9 @@ function App() {
                 Regenerate Report
               </button>
             </div>
-            <pre className="report-text">{report}</pre>
+            <div className="report-text">
+              <ReactMarkdown>{report}</ReactMarkdown>
+            </div>
           </div>
         )}
       </div>
