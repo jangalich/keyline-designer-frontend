@@ -4,6 +4,9 @@ import ReactMarkdown from 'react-markdown'
 import DrawTool from './DrawTool.jsx'
 import MapRecenter from './MapRecenter.jsx'
 import AddressSearch from './AddressSearch.jsx'
+import MapLayers from './MapLayers.jsx'
+import LayerLegend from './LayerLegend.jsx'
+import { DEFAULT_VISIBLE_GROUP_KEYS } from './mapLayerConfig.js'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 
@@ -35,12 +38,33 @@ function App() {
 
   const [mapCenter, setMapCenter] = useState(null)
 
+  // The merged FeatureCollection of every backend map layer for the most
+  // recently generated report, plus a version counter that's bumped every
+  // time new layers arrive — see MapLayers.jsx for why the version is
+  // needed (react-leaflet's <GeoJSON> doesn't re-diff new data on its own).
+  const [mapLayers, setMapLayers] = useState(null)
+  const [layersVersion, setLayersVersion] = useState(0)
+  const [visibleGroupKeys, setVisibleGroupKeys] = useState(DEFAULT_VISIBLE_GROUP_KEYS)
+
+  const handleToggleLayerGroup = (groupKey) => {
+    setVisibleGroupKeys((current) => {
+      const next = new Set(current)
+      if (next.has(groupKey)) {
+        next.delete(groupKey)
+      } else {
+        next.add(groupKey)
+      }
+      return next
+    })
+  }
+
   const handleStartDrawing = () => {
     setPoints([])
     setIsDrawing(true)
     setIsFinished(false)
     setReport(null)
     setError(null)
+    setMapLayers(null)
   }
 
   const handleUndoLastPoint = () => {
@@ -58,6 +82,7 @@ function App() {
     setIsFinished(false)
     setReport(null)
     setError(null)
+    setMapLayers(null)
   }
 
   const handlePointsChange = (newPoints) => {
@@ -68,6 +93,7 @@ function App() {
     if (isFinished) {
       setReport(null)
       setError(null)
+      setMapLayers(null)
     }
   }
 
@@ -75,6 +101,7 @@ function App() {
     setIsLoading(true)
     setError(null)
     setReport(null)
+    setMapLayers(null)
 
     // Convert to [longitude, latitude] here, right before sending —
     // everywhere else in the frontend works in Leaflet's native
@@ -95,6 +122,8 @@ function App() {
       }
 
       setReport(data.report)
+      setMapLayers(data.layers || null)
+      setLayersVersion((v) => v + 1)
     } catch (err) {
       if (err instanceof TypeError) {
         setError(
@@ -134,7 +163,17 @@ function App() {
             points={points}
             onPointsChange={handlePointsChange}
           />
+          <MapLayers
+            layers={mapLayers}
+            visibleGroupKeys={visibleGroupKeys}
+            layersVersion={layersVersion}
+          />
         </MapContainer>
+        <LayerLegend
+          layers={mapLayers}
+          visibleGroupKeys={visibleGroupKeys}
+          onToggleGroup={handleToggleLayerGroup}
+        />
       </div>
 
       <div className="status-panel">

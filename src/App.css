@@ -23,6 +23,7 @@
 }
 
 .map-wrapper {
+  position: relative;
   flex: 1;
   min-height: 0;
 }
@@ -206,4 +207,98 @@ pre {
   border: 2px solid white;
   border-radius: 50%;
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Layer legend/toggle control — sits over the top-right corner of the
+   map, same visual language as Leaflet's own built-in controls. */
+.layer-legend {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #ddd6c8;
+  border-radius: 6px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+  padding: 0.6rem 0.75rem;
+  max-height: calc(100% - 20px);
+  overflow-y: auto;
+  font-size: 0.85rem;
+  min-width: 210px;
+}
+
+.layer-legend-title {
+  font-weight: 600;
+  color: #2b2b26;
+  margin-bottom: 0.4rem;
+}
+
+.layer-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0;
+  cursor: pointer;
+  color: #3f3f38;
+}
+
+.layer-legend-swatch {
+  --swatch-color: #999;
+  display: inline-block;
+  width: 16px;
+  height: 0;
+  border-top: 3px solid var(--swatch-color);
+  flex-shrink: 0;
+}
+
+.layer-legend-swatch-polygon {
+  height: 12px;
+  border-top: none;
+  background: var(--swatch-color);
+  opacity: 0.6;
+  border-radius: 2px;
+}
+
+.layer-legend-label {
+  flex: 1;
+}
+
+/* Feature inspection popup (Leaflet popup content, built as plain DOM
+   nodes in MapLayers.jsx — this just styles that content). */
+.feature-popup {
+  font-size: 0.85rem;
+  max-width: 260px;
+}
+
+.feature-popup h4 {
+  margin: 0 0 0.15rem 0;
+  font-size: 0.95rem;
+  color: #2b2b26;
+}
+
+.feature-popup-layer {
+  color: #6b6b63;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.4rem;
+}
+
+.feature-popup table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.feature-popup th,
+.feature-popup td {
+  border-top: 1px solid #ddd6c8;
+  padding: 0.25rem 0.4rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.feature-popup th {
+  font-weight: 600;
+  color: #4a5f3a;
+  white-space: nowrap;
 }
