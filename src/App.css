@@ -230,6 +230,12 @@ pre {
   margin-bottom: 0.4rem;
 }
 
+.layer-legend-title-spaced {
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #ddd6c8;
+}
+
 .layer-legend-row {
   display: flex;
   align-items: center;

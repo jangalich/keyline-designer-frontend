@@ -6,7 +6,7 @@ import MapRecenter from './MapRecenter.jsx'
 import AddressSearch from './AddressSearch.jsx'
 import MapLayers from './MapLayers.jsx'
 import LayerLegend from './LayerLegend.jsx'
-import { DEFAULT_VISIBLE_GROUP_KEYS } from './mapLayerConfig.js'
+import { DEFAULT_VISIBLE_GROUP_KEYS, BASEMAPS, DEFAULT_BASEMAP_KEY } from './mapLayerConfig.js'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 
@@ -45,6 +45,8 @@ function App() {
   const [mapLayers, setMapLayers] = useState(null)
   const [layersVersion, setLayersVersion] = useState(0)
   const [visibleGroupKeys, setVisibleGroupKeys] = useState(DEFAULT_VISIBLE_GROUP_KEYS)
+  const [basemapKey, setBasemapKey] = useState(DEFAULT_BASEMAP_KEY)
+  const activeBasemap = BASEMAPS.find((basemap) => basemap.key === basemapKey) ?? BASEMAPS[0]
 
   const handleToggleLayerGroup = (groupKey) => {
     setVisibleGroupKeys((current) => {
@@ -152,9 +154,10 @@ function App() {
           style={{ height: '100%', width: '100%' }}
         >
           <TileLayer
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-            attribution="Tiles &copy; Esri"
-            maxZoom={19}
+            key={activeBasemap.key}
+            url={activeBasemap.url}
+            attribution={activeBasemap.attribution}
+            maxZoom={activeBasemap.maxZoom}
           />
           <MapRecenter center={mapCenter} zoom={18} />
           <DrawTool
@@ -173,6 +176,8 @@ function App() {
           layers={mapLayers}
           visibleGroupKeys={visibleGroupKeys}
           onToggleGroup={handleToggleLayerGroup}
+          basemapKey={basemapKey}
+          onSelectBasemap={setBasemapKey}
         />
       </div>
 

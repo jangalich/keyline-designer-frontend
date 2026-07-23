@@ -101,6 +101,33 @@ export const DEFAULT_VISIBLE_GROUP_KEYS = new Set(
   LAYER_GROUPS.filter((group) => group.defaultVisible).map((group) => group.key)
 )
 
+/**
+ * Basemap tile services available underneath the overlay layers above.
+ * USGSImageryOnly is a cached ArcGIS tiled service backed by NAIP aerial
+ * photography (~0.6-1m resolution true color) at the zoom levels relevant
+ * to a farm property, falling back to lower-res Landsat/Blue Marble only
+ * at very zoomed-out scales. Same {z}/{y}/{x} tiled-service URL shape as
+ * the Esri layer this replaces as default, kept here as an alternate.
+ */
+export const BASEMAPS = [
+  {
+    key: 'naip',
+    label: 'USGS Imagery (NAIP)',
+    url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'USGS National Map: Orthoimagery (NAIP)',
+    maxZoom: 19,
+  },
+  {
+    key: 'esri',
+    label: 'Esri World Imagery',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 19,
+  },
+]
+
+export const DEFAULT_BASEMAP_KEY = 'naip'
+
 /** Features belonging to a given legend group, out of the full merged FeatureCollection. */
 export function featuresForGroup(featureCollection, group) {
   if (!featureCollection) return []
