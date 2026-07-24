@@ -1,6 +1,8 @@
 import { useState } from 'react'
 
-const API_URL = 'http://localhost:5000'
+// The backend API's address. Set VITE_API_URL at build/deploy time to
+// point at the live backend; falls back to the local dev server.
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 /**
  * AddressSearch

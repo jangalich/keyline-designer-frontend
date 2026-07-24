@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { MapContainer, TileLayer } from 'react-leaflet'
-import ReactMarkdown from 'react-markdown'
 import DrawTool from './DrawTool.jsx'
 import MapRecenter from './MapRecenter.jsx'
 import AddressSearch from './AddressSearch.jsx'
@@ -14,11 +13,9 @@ import './App.css'
 const DEFAULT_CENTER = [39.8283, -98.5795]
 const DEFAULT_ZOOM = 4
 
-// The backend API's local address. Once deployed (Render/Railway), this
-// would change to that live URL instead — worth pulling into an
-// environment variable at that point rather than hardcoding, but a
-// plain constant is fine for local development.
-const API_URL = 'http://localhost:5000'
+// The backend API's address. Set VITE_API_URL at build/deploy time to
+// point at the live backend; falls back to the local dev server.
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 function App() {
   // Points are stored as [latitude, longitude] — Leaflet's native order —
@@ -82,19 +79,28 @@ function App() {
     const boundary = points.map(([lat, lng]) => [lng, lat])
 
     try {
-      const response = await fetch(`${API_URL}/api/generate-report`, {
+      const response = await fetch(`${API_URL}/api/generate-report-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ boundary }),
       })
 
-      const data = await response.json()
-
       if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
         throw new Error(data.error || 'Something went wrong generating the report.')
       }
 
-      setReport(data.report)
+      const blob = await response.blob()
+      const downloadUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.download = 'scale_of_permanence_report.pdf'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(downloadUrl)
+
+      setReport(true)
     } catch (err) {
       if (err instanceof TypeError) {
         setError(
@@ -209,9 +215,9 @@ function App() {
                 Regenerate Report
               </button>
             </div>
-            <div className="report-text">
-              <ReactMarkdown>{report}</ReactMarkdown>
-            </div>
+            <p className="status-ready">
+              Your report downloaded as scale_of_permanence_report.pdf.
+            </p>
           </div>
         )}
       </div>
