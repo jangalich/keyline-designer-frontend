@@ -46,7 +46,7 @@ const CLOSE_POLYGON_THRESHOLD_PX = 15
  *    is responsible for converting to [longitude, latitude] when sending
  *    to the backend, since that's what the Python functions expect.
  */
-function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBoundary }) {
+function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBoundary, editingDisabled = false }) {
   const map = useMap()
 
   useMapEvents({
@@ -96,9 +96,9 @@ function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBounda
               ? closableVertexIcon
               : vertexIcon
           }
-          draggable={isFinished}
+          draggable={isFinished && !editingDisabled}
           eventHandlers={
-            isFinished ? { drag: (e) => handleMarkerDrag(index, e) } : {}
+            isFinished && !editingDisabled ? { drag: (e) => handleMarkerDrag(index, e) } : {}
           }
         />
       ))}

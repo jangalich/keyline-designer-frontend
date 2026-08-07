@@ -214,3 +214,13 @@ pre {
 .vertex-marker--closable {
   box-shadow: 0 0 0 3px rgba(90, 114, 71, 0.35), 0 0 2px rgba(0, 0, 0, 0.5);
 }
+
+/* Access point marker — a mustard tone, distinct from the green boundary
+   vertices, matching the fencing layer's earthy palette elsewhere in the
+   project while still standing out as a different kind of point. */
+.access-point-marker {
+  background: #c99a2e;
+  border: 2px solid white;
+  border-radius: 50%;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { MapContainer, TileLayer } from 'react-leaflet'
 import DrawTool from './DrawTool.jsx'
+import AccessPointTool from './AccessPointTool.jsx'
 import MapRecenter from './MapRecenter.jsx'
 import AddressSearch from './AddressSearch.jsx'
 import 'leaflet/dist/leaflet.css'
@@ -26,6 +27,13 @@ function App() {
   const [isDrawing, setIsDrawing] = useState(false)
   const [isFinished, setIsFinished] = useState(false)
 
+  // Access point: where the property connects to a road, picked as a
+  // point on the boundary line. Stored as [latitude, longitude], same
+  // convention as `points`, and required by the backend before a report
+  // can be generated.
+  const [accessPoint, setAccessPoint] = useState(null)
+  const [isSelectingAccessPoint, setIsSelectingAccessPoint] = useState(false)
+
   const [report, setReport] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -36,6 +44,8 @@ function App() {
     setPoints([])
     setIsDrawing(true)
     setIsFinished(false)
+    setAccessPoint(null)
+    setIsSelectingAccessPoint(false)
     setReport(null)
     setError(null)
   }
@@ -53,8 +63,26 @@ function App() {
     setPoints([])
     setIsDrawing(true)
     setIsFinished(false)
+    setAccessPoint(null)
+    setIsSelectingAccessPoint(false)
     setReport(null)
     setError(null)
+  }
+
+  const handleSelectAccessPoint = () => {
+    setIsSelectingAccessPoint(true)
+  }
+
+  const handleAccessPointPicked = (point) => {
+    setAccessPoint(point)
+  }
+
+  const handleConfirmAccessPoint = () => {
+    setIsSelectingAccessPoint(false)
+  }
+
+  const handleChangeAccessPoint = () => {
+    setIsSelectingAccessPoint(true)
   }
 
   const handlePointsChange = (newPoints) => {
@@ -77,12 +105,13 @@ function App() {
     // everywhere else in the frontend works in Leaflet's native
     // [latitude, longitude] order.
     const boundary = points.map(([lat, lng]) => [lng, lat])
+    const access_point = [accessPoint[1], accessPoint[0]]
 
     try {
       const response = await fetch(`${API_URL}/api/generate-report-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ boundary }),
+        body: JSON.stringify({ boundary, access_point }),
       })
 
       if (!response.ok) {
@@ -140,6 +169,13 @@ function App() {
             points={points}
             onPointsChange={handlePointsChange}
             onCloseBoundary={handleFinishDrawing}
+            editingDisabled={isSelectingAccessPoint}
+          />
+          <AccessPointTool
+            isSelecting={isSelectingAccessPoint}
+            boundaryPoints={points}
+            accessPoint={accessPoint}
+            onSelect={handleAccessPointPicked}
           />
         </MapContainer>
       </div>
@@ -181,14 +217,55 @@ function App() {
           </>
         )}
 
-        {isFinished && !report && !isLoading && (
+        {isFinished && !report && !isLoading && !isSelectingAccessPoint && !accessPoint && (
           <>
             <p className="status-ready">
-              Boundary set — {points.length} points. Drag any point on the map to adjust it.
+              Boundary set — {points.length} points. Click "Select Access Point" then click a
+              point on the boundary to indicate the preferred entry point for the property.
             </p>
             <div className="button-row">
               <button className="generate-button secondary" onClick={handleRedraw}>
                 Redraw
+              </button>
+              <button className="generate-button" onClick={handleSelectAccessPoint}>
+                Select Access Point
+              </button>
+            </div>
+          </>
+        )}
+
+        {isFinished && !report && !isLoading && isSelectingAccessPoint && (
+          <>
+            <p className="status-ready">
+              Click a point on the boundary to indicate the preferred entry point for the
+              property.
+            </p>
+            <div className="button-row">
+              <button className="generate-button secondary" onClick={handleRedraw}>
+                Redraw
+              </button>
+              <button
+                className="generate-button"
+                onClick={handleConfirmAccessPoint}
+                disabled={!accessPoint}
+              >
+                Confirm Access Point
+              </button>
+            </div>
+          </>
+        )}
+
+        {isFinished && !report && !isLoading && !isSelectingAccessPoint && accessPoint && (
+          <>
+            <p className="status-ready">
+              Boundary and access point set. Drag any boundary point on the map to adjust it.
+            </p>
+            <div className="button-row">
+              <button className="generate-button secondary" onClick={handleRedraw}>
+                Redraw
+              </button>
+              <button className="generate-button secondary" onClick={handleChangeAccessPoint}>
+                Change Access Point
               </button>
               <button className="generate-button" onClick={handleGenerateReport}>
                 Generate Scale of Permanence Report
