@@ -139,6 +139,7 @@ function App() {
             isFinished={isFinished}
             points={points}
             onPointsChange={handlePointsChange}
+            onCloseBoundary={handleFinishDrawing}
           />
         </MapContainer>
       </div>

@@ -1,4 +1,4 @@
-import { useMapEvents, Marker, Polygon, Polyline } from 'react-leaflet'
+import { useMapEvents, useMap, Marker, Polygon, Polyline } from 'react-leaflet'
 import L from 'leaflet'
 
 // A small circular marker for each boundary point — simpler and more
@@ -8,6 +8,18 @@ const vertexIcon = new L.DivIcon({
   className: 'vertex-marker',
   iconSize: [14, 14],
 })
+
+// Same marker, slightly larger — used only for the first point while
+// drawing, once there are enough points to close the ring, as a hint
+// that clicking it will finish the boundary.
+const closableVertexIcon = new L.DivIcon({
+  className: 'vertex-marker vertex-marker--closable',
+  iconSize: [20, 20],
+})
+
+// How close (in screen pixels) a click needs to land to the first point
+// before it's treated as "close the polygon" rather than "add a point".
+const CLOSE_POLYGON_THRESHOLD_PX = 15
 
 /**
  * DrawTool
@@ -20,7 +32,13 @@ const vertexIcon = new L.DivIcon({
  * is visible and under our control.
  *
  * How it works:
- *  - While `isDrawing` is true, clicking the map adds a new point.
+ *  - While `isDrawing` is true, clicking the map adds a new point — unless
+ *    there are already 3+ points and the click lands within ~15px (screen
+ *    space) of the first point, in which case it closes the ring instead
+ *    by calling `onCloseBoundary`. The points array itself never gets a
+ *    duplicate closing coordinate; Polygon (and Shapely, on the backend)
+ *    both close the ring implicitly by connecting the last point to the
+ *    first.
  *  - Once `isFinished` is true (set by the parent, via a "Finish" button),
  *    each point becomes a draggable marker so the shape can be adjusted.
  *  - All points are lifted up to the parent via onPointsChange, as
@@ -28,10 +46,24 @@ const vertexIcon = new L.DivIcon({
  *    is responsible for converting to [longitude, latitude] when sending
  *    to the backend, since that's what the Python functions expect.
  */
-function DrawTool({ isDrawing, isFinished, points, onPointsChange }) {
+function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBoundary }) {
+  const map = useMap()
+
   useMapEvents({
     click(e) {
       if (!isDrawing) return
+
+      if (points.length >= 3) {
+        const clickPixel = map.latLngToContainerPoint(e.latlng)
+        const firstPointPixel = map.latLngToContainerPoint(
+          L.latLng(points[0][0], points[0][1])
+        )
+        if (clickPixel.distanceTo(firstPointPixel) <= CLOSE_POLYGON_THRESHOLD_PX) {
+          onCloseBoundary()
+          return
+        }
+      }
+
       onPointsChange([...points, [e.latlng.lat, e.latlng.lng]])
     },
   })
@@ -59,7 +91,11 @@ function DrawTool({ isDrawing, isFinished, points, onPointsChange }) {
         <Marker
           key={index}
           position={point}
-          icon={vertexIcon}
+          icon={
+            isDrawing && index === 0 && points.length >= 3
+              ? closableVertexIcon
+              : vertexIcon
+          }
           draggable={isFinished}
           eventHandlers={
             isFinished ? { drag: (e) => handleMarkerDrag(index, e) } : {}

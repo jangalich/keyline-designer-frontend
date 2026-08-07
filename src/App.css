@@ -207,3 +207,10 @@ pre {
   border-radius: 50%;
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
 }
+
+/* First point, while drawing with 3+ points placed — same styling as a
+   regular vertex marker (sized up via iconSize), just with an added ring
+   in the same green to hint that clicking it closes the boundary. */
+.vertex-marker--closable {
+  box-shadow: 0 0 0 3px rgba(90, 114, 71, 0.35), 0 0 2px rgba(0, 0, 0, 0.5);
+}
