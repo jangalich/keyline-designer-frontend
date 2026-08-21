@@ -289,7 +289,7 @@ function App() {
               <button className="button button--secondary" onClick={handleRedraw}>
                 Redraw
               </button>
-              <button className="button" onClick={handleGenerateReport}>
+              <button className="button button--secondary" onClick={handleGenerateReport}>
                 Regenerate Report
               </button>
             </div>
