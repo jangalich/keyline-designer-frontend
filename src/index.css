@@ -105,8 +105,27 @@
   --text-lg: 1.125rem;
   --text-xl: 1.5rem;
   --text-2xl: 2rem;
+
+  /* NEW. The scale stopped at 2rem, which is a section heading, not a hero
+     headline — at 1440px a 2rem h1 reads as a subheading of itself. This is
+     the one step added, and only the hero uses it. Section headings stay on
+     --text-2xl. */
+  --text-3xl: 3rem;
+
   --leading-tight: 1.15;
   --leading-body: 1.6;
+
+  /* Measure — NEW. Two page widths, so neither is a repeated magic number.
+     --measure is prose at a comfortable reading line length; --measure-wide
+     is the outer page container, which the tool section fills and prose does
+     not. Both are content widths: --page-gutter is added outside them by
+     .shell, so the gutter is identical whichever width a section uses. */
+  --measure: 42.5rem;       /* 680px */
+  --measure-wide: 68rem;    /* 1088px */
+
+  /* NEW. The one horizontal page margin, shared by every section. Fluid so
+     small screens keep their content off the edge without a media query. */
+  --page-gutter: clamp(var(--space-4), 5vw, var(--space-8));
 
   /* Space — 0.25rem base */
   --space-1: 0.25rem;

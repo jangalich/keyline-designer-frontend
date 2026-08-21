@@ -3,44 +3,319 @@
    appear in this file. The token definitions live in index.css :root.
    --------------------------------------------------------------------------- */
 
-/* Uncontested now that index.css no longer also defines .page with a 640px
-   max-width and 4rem of content-box padding. */
+/* --- Page shell ------------------------------------------------------------
+   .page no longer sets height: 100vh. The page scrolls now, and a fixed-height
+   flex column would have clipped everything below the first screen.
+
+   It keeps z-index: 1 against the fixed contour background's z-index: 0. The
+   background deliberately does NOT sit at z-index: -1 — body carries a --stock
+   background, and a negative z-index would paint the linework behind it, which
+   looks exactly like the asset failing to load.
+   --------------------------------------------------------------------------- */
 .page {
+  position: relative;
+  z-index: 1;
+}
+
+/* The two page widths, as one rule. Gutters live outside the max-width, so a
+   prose section and the wider tool section hold the same page margin and
+   differ only in how far their content is allowed to run. */
+.shell {
+  width: 100%;
+  margin-inline: auto;
+  padding-inline: var(--page-gutter);
+}
+
+.shell--prose {
+  max-width: calc(var(--measure) + 2 * var(--page-gutter));
+}
+
+.shell--wide {
+  max-width: calc(var(--measure-wide) + 2 * var(--page-gutter));
+}
+
+/* The tool section needs a heading so the h1 -> h2 sequence has no gap, but a
+   visible "Design your land" above the map would just repeat the nav link.
+   Clipped rather than display: none, which screen readers skip entirely. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Contour background ----------------------------------------------------
+   Inlined into the DOM via svgr (see vite.config.js) because the asset uses
+   stroke="currentColor", which only resolves against this element's own
+   colour when the SVG is part of this document.
+   --------------------------------------------------------------------------- */
+.contour-bg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  color: var(--ink-muted);
+  opacity: 0.2;
+}
+
+/* Not optional, and not in the asset. The SVG's viewBox is the projected
+   extent in ground metres, so its default 1-unit stroke is one METRE — line
+   weight would scale with the viewport and the 0.2 opacity above, chosen at a
+   specific weight, would stop holding across screen sizes. */
+.contour-bg path {
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+/* --- Nav -------------------------------------------------------------------- */
+
+.nav {
   display: flex;
-  flex-direction: column;
-  height: 100vh;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-block: var(--space-5);
 }
 
-.header {
-  padding: var(--space-4) var(--space-5);
-  background: var(--stock);
-  border-bottom: var(--hairline);
-}
-
-.header h1 {
-  margin: 0 0 var(--space-1) 0;
-  font-size: var(--text-xl);
+.nav__mark {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-lg);
   color: var(--ink);
 }
 
-.header p {
+.nav__link {
+  font-family: var(--font-prose);
+  font-size: var(--text-base);
+  color: var(--ink-muted);
+  text-decoration: none;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: var(--space-1);
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.nav__link:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+/* --- Hero ------------------------------------------------------------------
+   min-height rather than height: the cap exists so a sliver of map shows below
+   the fold, and that only works if the hero cannot grow past it on a desktop
+   screen. Content taller than the cap (small phones) pushes it, which is the
+   correct failure direction — clipping the headline would be worse than losing
+   the peek on a device that cannot show it anyway.
+   --------------------------------------------------------------------------- */
+.hero {
+  min-height: 68vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-block: var(--space-7) var(--space-8);
+}
+
+.hero h1 {
+  font-size: var(--text-3xl);
+  max-width: 17ch;
+  letter-spacing: -0.015em;
+  margin: 0 0 var(--space-5);
+}
+
+.hero__subhead {
+  font-family: var(--font-prose);
+  font-size: var(--text-lg);
+  line-height: 1.5;
+  color: var(--ink-muted);
+  max-width: var(--measure);
+  margin: 0 0 var(--space-6);
+}
+
+/* Nothing sits between the subhead and the input, so the input's own top
+   margin would double the gap the subhead already set. */
+.hero .search-row {
+  margin-top: 0;
+  max-width: 34rem;
+}
+
+/* --- Tool section ----------------------------------------------------------
+   A single viewport unit: map plus panel fit one screen, so nothing scrolls
+   away mid-trace and no sticky positioning is needed.
+   --------------------------------------------------------------------------- */
+.tool {
+  padding-bottom: var(--space-8);
+  scroll-margin-top: var(--space-5);
+}
+
+.tool__frame {
+  border: var(--hairline);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--paper);
+}
+
+/* --- Prose sections --------------------------------------------------------- */
+
+.section {
+  padding-block: var(--space-8);
+  border-top: var(--hairline);
+}
+
+.section h2 {
+  font-size: var(--text-2xl);
+  margin: 0 0 var(--space-5);
+}
+
+.section p {
+  margin: 0 0 var(--space-4);
+}
+
+.section p:last-child {
+  margin-bottom: 0;
+}
+
+.section__lede {
+  font-size: var(--text-lg);
+  color: var(--ink-muted);
+}
+
+/* A marked slot, not a placeholder image — an <img> with no src is a broken
+   image, and a grey box pretending to be a photo reads as finished work. */
+.sample-slot {
+  border: 1px dashed var(--rule);
+  border-radius: var(--radius);
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  background: var(--paper);
+}
+
+/* The one place numbering is earned: the order of the Scale of Permanence
+   carries the meaning, so the numerals are content and not decoration. */
+.scale-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: factor;
+}
+
+.scale-list li {
+  counter-increment: factor;
+  display: grid;
+  grid-template-columns: 2.25rem 1fr;
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  border-top: var(--hairline);
+}
+
+.scale-list li:first-child {
+  border-top: none;
+}
+
+.scale-list li::before {
+  content: counter(factor);
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.scale-list h3 {
+  font-size: var(--text-base);
+  margin: 0 0 var(--space-1);
+}
+
+.scale-list p {
   margin: 0;
   color: var(--ink-muted);
   font-size: var(--text-sm);
 }
 
-.map-wrapper {
-  flex: 1;
-  min-height: 0;
+.source-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-/* --paper rather than --stock: the panel sits a step lighter than the header
-   above it, and that difference is what separates them without a second rule. */
+.source-list li {
+  padding-block: var(--space-3);
+  border-top: var(--hairline);
+}
+
+.source-list li:first-child {
+  border-top: none;
+}
+
+.source-list strong {
+  display: block;
+}
+
+.source-list span {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+/* --- Footer ----------------------------------------------------------------- */
+
+.footer {
+  border-top: var(--hairline);
+  padding-block: var(--space-6) var(--space-8);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+.footer p {
+  margin: 0;
+}
+
+/* --- Narrow screens --------------------------------------------------------
+   The tool section is the part that actually needs attention: 60vh of map on a
+   short phone in landscape leaves nothing for the panel, so the map takes a
+   floor in pixels and the panel keeps its own scroll.
+   --------------------------------------------------------------------------- */
+@media (max-width: 40rem) {
+  .hero h1 {
+    font-size: var(--text-2xl);
+    max-width: 100%;
+  }
+
+  .hero {
+    min-height: 60vh;
+  }
+
+  .nav {
+    gap: var(--space-3);
+  }
+}
+
+/* A DEFINITE height, not flex: 1. Leaflet's MapContainer is height: 100%, which
+   only resolves against a parent whose own height is resolved — inside the
+   scrolling page .page no longer provides one, and flex: 1 in an auto-height
+   parent would collapse the map to nothing. clamp keeps ~60vh on a normal
+   screen while flooring it on short viewports and capping it on tall ones. */
+.map-wrapper {
+  height: clamp(20rem, 60vh, 38rem);
+}
+
+/* --paper rather than --stock: the panel sits a step lighter than the surface
+   around it, and that difference is what separates them without a second rule.
+
+   max-height dropped from 55vh to 30vh: alongside the map's ~60vh the old
+   value could total 115vh, which is the opposite of "the pair fits one
+   screen". Only the height budget changed — every state branch, button class
+   and piece of panel logic is untouched. */
 .status-panel {
   padding: var(--space-4) var(--space-5);
   background: var(--paper);
   border-top: var(--hairline);
-  max-height: 55vh;
+  max-height: 30vh;
   overflow-y: auto;
 }
 

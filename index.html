@@ -3,7 +3,34 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Keyline Designer</title>
+
+    <!-- SVG only, no .ico and no PNG fallback. Safari has supported SVG
+         favicons since 16, and everything older degrades to a blank icon
+         rather than a broken one — which is what the missing favicon was
+         producing as a 404 on every page load. -->
+    <link rel="icon" type="image/svg+xml" href="/src/assets/favicon.svg" />
+
+    <title>Keyline Designer — conceptual farm planning from LiDAR and soil data</title>
+    <meta
+      name="description"
+      content="Trace your property and get a keyline design analysis: LiDAR elevation, soil survey, and hydrography worked through the Scale of Permanence, delivered as a PDF with a full-page layout map."
+    />
+    <meta name="theme-color" content="#f4f1ea" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Keyline Designer" />
+    <meta
+      property="og:description"
+      content="Conceptual farm planning, in the order the land decides. Trace your property and get a Scale of Permanence analysis from public elevation, soil, and hydrography data."
+    />
+    <meta property="og:site_name" content="Keyline Designer" />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Keyline Designer" />
+    <meta
+      name="twitter:description"
+      content="Conceptual farm planning, in the order the land decides. Trace your property and get a Scale of Permanence analysis from public elevation, soil, and hydrography data."
+    />
   </head>
   <body>
     <div id="root"></div>

@@ -4,6 +4,13 @@ import DrawTool from './DrawTool.jsx'
 import AccessPointTool from './AccessPointTool.jsx'
 import MapRecenter from './MapRecenter.jsx'
 import AddressSearch from './AddressSearch.jsx'
+// ?react is vite-plugin-svgr: the asset becomes a React component and lands
+// inline in the DOM. It has to be inline — the file draws with
+// stroke="currentColor", which resolves against .contour-bg's own colour only
+// while the SVG is part of this document. Referenced as a background-image or
+// an <img src> it is a separate document with no inherited colour, and the
+// linework renders black or not at all.
+import ContourBackground from './assets/contour-background.svg?react'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 
@@ -144,14 +151,34 @@ function App() {
   }
 
   return (
-    <div className="page">
-      <header className="header">
-        <h1>Keyline Designer</h1>
-        <p>Draw the boundary of the area you want to design — this can be your whole property or just the section you plan to farm.</p>
-        <AddressSearch onLocationSelected={setMapCenter} />
-      </header>
+    <>
+      {/* Decorative: real 3DEP contours of a dissected-plateau window, but
+          they carry no information the page depends on. */}
+      <ContourBackground className="contour-bg" aria-hidden="true" focusable="false" />
 
-      <div className="map-wrapper">
+      <div className="page">
+        <nav className="nav shell shell--wide">
+          <span className="nav__mark">Keyline Designer</span>
+          <a className="nav__link" href="#design">
+            Design your land
+          </a>
+        </nav>
+
+        <main>
+          <section className="hero shell shell--wide">
+            <h1>Conceptual farm planning, in the order the land decides.</h1>
+            <p className="hero__subhead">
+              Trace your property. Keyline Designer reads LiDAR elevation, soil survey,
+              and hydrography, then works the Scale of Permanence in order — climate
+              through soil.
+            </p>
+            <AddressSearch onLocationSelected={setMapCenter} />
+          </section>
+
+          <section id="design" className="tool shell shell--wide">
+            <h2 className="visually-hidden">Design your land</h2>
+            <div className="tool__frame">
+              <div className="map-wrapper">
         <MapContainer
           center={DEFAULT_CENTER}
           zoom={DEFAULT_ZOOM}
@@ -178,9 +205,9 @@ function App() {
             onSelect={handleAccessPointPicked}
           />
         </MapContainer>
-      </div>
+              </div>
 
-      <div className="status-panel">
+              <div className="status-panel">
         {!isDrawing && !isFinished && (
           <>
             <p className="status-empty">
@@ -298,8 +325,129 @@ function App() {
             </p>
           </div>
         )}
+              </div>
+            </div>
+          </section>
+
+          <section className="section shell shell--prose">
+            <h2>What you get</h2>
+            <p className="section__lede">
+              A PDF you can print, mark up, and take out onto the land with you.
+            </p>
+            <p>
+              The report is a written analysis of the property alongside a full-page
+              layout map with the recommended elements drawn on it — production areas,
+              water storage candidates, road corridors, tree lines, and the keypoints
+              the design is built around.
+            </p>
+            <p className="sample-slot">[ sample report page — image to come ]</p>
+          </section>
+
+          <section className="section shell shell--prose">
+            <h2>The Scale of Permanence</h2>
+            <p className="section__lede">
+              P. A. Yeomans&apos; ordering of the eight factors that shape a property,
+              from the ones you cannot change to the ones you can. The analysis works
+              them in order, because a decision made out of order has to be unmade.
+            </p>
+            <ol className="scale-list">
+              <li>
+                <h3>Climate</h3>
+                <p>Rainfall, frost, growing season. Fixed — everything else answers to it.</p>
+              </li>
+              <li>
+                <h3>Land shape</h3>
+                <p>Ridges, valleys, and the keypoints where a valley&apos;s grade breaks.</p>
+              </li>
+              <li>
+                <h3>Water supply</h3>
+                <p>Where water already collects, and where it could be held.</p>
+              </li>
+              <li>
+                <h3>Farm roads</h3>
+                <p>Access that follows the ridges and keylines rather than cutting across them.</p>
+              </li>
+              <li>
+                <h3>Trees</h3>
+                <p>Shelter, shade, and the lines that hold soil on a slope.</p>
+              </li>
+              <li>
+                <h3>Permanent buildings</h3>
+                <p>Sited once water and access are settled, not before.</p>
+              </li>
+              <li>
+                <h3>Subdivision fencing</h3>
+                <p>Paddock divisions that follow the pattern the land already has.</p>
+              </li>
+              <li>
+                <h3>Soil</h3>
+                <p>
+                  Last, and deliberately so. Soil is the most improvable factor on the
+                  list — poor soil today is a starting condition, not a constraint, and
+                  letting it drive the design would lock in a layout you will outgrow.
+                </p>
+              </li>
+            </ol>
+          </section>
+
+          <section className="section shell shell--prose">
+            <h2>Where the data comes from</h2>
+            <p className="section__lede">
+              Public, citable sources. Every recommendation traces back to a measurement
+              rather than an assumption.
+            </p>
+            <ul className="source-list">
+              <li>
+                <strong>USGS 3DEP</strong>
+                <span>LiDAR-derived elevation — slope, flow accumulation, keypoints.</span>
+              </li>
+              <li>
+                <strong>SSURGO soil survey</strong>
+                <span>USDA soil mapping — drainage class, erodibility, hydric soils.</span>
+              </li>
+              <li>
+                <strong>NHD hydrography</strong>
+                <span>Mapped streams, water bodies, and floodplain extents.</span>
+              </li>
+              <li>
+                <strong>Climate reanalysis</strong>
+                <span>Rainfall, temperature, and growing season for the location.</span>
+              </li>
+              <li>
+                <strong>Canopy height</strong>
+                <span>Existing tree cover, so standing woodland is not designed over.</span>
+              </li>
+              <li>
+                <strong>Satellite imagery</strong>
+                <span>Current ground conditions under the drawn boundary.</span>
+              </li>
+            </ul>
+          </section>
+
+          <section className="section shell shell--prose">
+            <h2>What this isn&apos;t</h2>
+            <p>
+              It is built for small properties — roughly a few acres up to thirty. Larger
+              ground has different problems and wants a different tool.
+            </p>
+            <p>
+              United States only, because every data source above is a US federal
+              dataset.
+            </p>
+            <p>
+              And it is a starting point for real decisions, not a replacement for
+              walking the land with someone who knows it. The analysis sees terrain and
+              soil classes; it does not see the wet corner that never dries out, or the
+              neighbour&apos;s tile drain, or where the deer come through.
+            </p>
+          </section>
+        </main>
+
+        <footer className="footer shell shell--wide">
+          <p>Keyline Designer — conceptual planning from public data.</p>
+        </footer>
       </div>
-    </div>
+    </>
   )
 }
 
