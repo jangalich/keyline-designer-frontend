@@ -186,7 +186,7 @@ function App() {
             <p className="status-empty">
               Click "Start Drawing" then click points on the map to trace your boundary.
             </p>
-            <button className="generate-button" onClick={handleStartDrawing}>
+            <button className="button" onClick={handleStartDrawing}>
               Start Drawing Boundary
             </button>
           </>
@@ -200,14 +200,14 @@ function App() {
             </p>
             <div className="button-row">
               <button
-                className="generate-button secondary"
+                className="button button--secondary"
                 onClick={handleUndoLastPoint}
                 disabled={points.length === 0}
               >
                 Undo Last Point
               </button>
               <button
-                className="generate-button"
+                className="button"
                 onClick={handleFinishDrawing}
                 disabled={points.length < 3}
               >
@@ -224,10 +224,10 @@ function App() {
               point on the boundary to indicate the preferred entry point for the property.
             </p>
             <div className="button-row">
-              <button className="generate-button secondary" onClick={handleRedraw}>
+              <button className="button button--secondary" onClick={handleRedraw}>
                 Redraw
               </button>
-              <button className="generate-button" onClick={handleSelectAccessPoint}>
+              <button className="button" onClick={handleSelectAccessPoint}>
                 Select Access Point
               </button>
             </div>
@@ -241,11 +241,11 @@ function App() {
               property.
             </p>
             <div className="button-row">
-              <button className="generate-button secondary" onClick={handleRedraw}>
+              <button className="button button--secondary" onClick={handleRedraw}>
                 Redraw
               </button>
               <button
-                className="generate-button"
+                className="button"
                 onClick={handleConfirmAccessPoint}
                 disabled={!accessPoint}
               >
@@ -261,13 +261,13 @@ function App() {
               Boundary and access point set. Drag any boundary point on the map to adjust it.
             </p>
             <div className="button-row">
-              <button className="generate-button secondary" onClick={handleRedraw}>
+              <button className="button button--secondary" onClick={handleRedraw}>
                 Redraw
               </button>
-              <button className="generate-button secondary" onClick={handleChangeAccessPoint}>
+              <button className="button button--secondary" onClick={handleChangeAccessPoint}>
                 Change Access Point
               </button>
-              <button className="generate-button" onClick={handleGenerateReport}>
+              <button className="button" onClick={handleGenerateReport}>
                 Generate Scale of Permanence Report
               </button>
             </div>
@@ -286,10 +286,10 @@ function App() {
         {report && (
           <div className="report">
             <div className="button-row">
-              <button className="generate-button secondary" onClick={handleRedraw}>
+              <button className="button button--secondary" onClick={handleRedraw}>
                 Redraw
               </button>
-              <button className="generate-button secondary" onClick={handleGenerateReport}>
+              <button className="button" onClick={handleGenerateReport}>
                 Regenerate Report
               </button>
             </div>

@@ -65,7 +65,7 @@ function AddressSearch({ onLocationSelected }) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      <button type="submit" className="generate-button secondary" disabled={isSearching}>
+      <button type="submit" className="button button--secondary" disabled={isSearching}>
         {isSearching ? 'Searching...' : 'Go'}
       </button>
       {error && <p className="status-error">{error}</p>}

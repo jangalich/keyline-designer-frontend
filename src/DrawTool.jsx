@@ -21,6 +21,28 @@ const closableVertexIcon = new L.DivIcon({
 // before it's treated as "close the polygon" rather than "add a point".
 const CLOSE_POLYGON_THRESHOLD_PX = 15
 
+// Leaflet draws its paths as SVG attributes and takes a plain JS color value,
+// so it cannot read a CSS custom property the way a stylesheet rule can. The
+// boundary line is map geometry, which means it must be --field — the same
+// token the vertex markers sitting on it use — so the token has to be read
+// out of the document and handed to Leaflet already resolved.
+//
+// Not at module load: main.jsx imports App.jsx (and through it this file)
+// before it imports index.css, so at module-evaluation time the token is not
+// defined yet and this would read an empty string. First render is after all
+// modules have evaluated, so the read happens then and is cached — the token
+// is static.
+let fieldColor = ''
+
+function getFieldColor() {
+  if (!fieldColor) {
+    fieldColor = getComputedStyle(document.documentElement)
+      .getPropertyValue('--field')
+      .trim()
+  }
+  return fieldColor
+}
+
 /**
  * DrawTool
  *
@@ -74,16 +96,18 @@ function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBounda
     onPointsChange(updated)
   }
 
+  const field = getFieldColor()
+
   return (
     <>
       {isFinished && points.length >= 3 && (
-        <Polygon positions={points} pathOptions={{ color: '#5a7247', weight: 2 }} />
+        <Polygon positions={points} pathOptions={{ color: field, weight: 2 }} />
       )}
 
       {!isFinished && points.length >= 2 && (
         <Polyline
           positions={points}
-          pathOptions={{ color: '#5a7247', weight: 2, dashArray: '6,6' }}
+          pathOptions={{ color: field, weight: 2, dashArray: '6,6' }}
         />
       )}
 

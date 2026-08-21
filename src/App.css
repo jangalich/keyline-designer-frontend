@@ -1,3 +1,10 @@
+/* ---------------------------------------------------------------------------
+   Component styling. Every color here is a token reference — no literal may
+   appear in this file. The token definitions live in index.css :root.
+   --------------------------------------------------------------------------- */
+
+/* Uncontested now that index.css no longer also defines .page with a 640px
+   max-width and 4rem of content-box padding. */
 .page {
   display: flex;
   flex-direction: column;
@@ -5,21 +12,21 @@
 }
 
 .header {
-  padding: 1.25rem 1.5rem;
-  background: #f4f1ea;
-  border-bottom: 1px solid #ddd6c8;
+  padding: var(--space-4) var(--space-5);
+  background: var(--stock);
+  border-bottom: var(--hairline);
 }
 
 .header h1 {
-  margin: 0 0 0.25rem 0;
-  font-size: 1.4rem;
-  color: #2b2b26;
+  margin: 0 0 var(--space-1) 0;
+  font-size: var(--text-xl);
+  color: var(--ink);
 }
 
 .header p {
   margin: 0;
-  color: #6b6b63;
-  font-size: 0.95rem;
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
 }
 
 .map-wrapper {
@@ -27,70 +34,119 @@
   min-height: 0;
 }
 
+/* --paper rather than --stock: the panel sits a step lighter than the header
+   above it, and that difference is what separates them without a second rule. */
 .status-panel {
-  padding: 1rem 1.5rem;
-  background: #fff;
-  border-top: 1px solid #ddd6c8;
+  padding: var(--space-4) var(--space-5);
+  background: var(--paper);
+  border-top: var(--hairline);
   max-height: 55vh;
   overflow-y: auto;
 }
 
+/* A state label, not a success message. It reports where you are in the
+   sequence — on most of the screens it appears on, nothing has succeeded —
+   so it carries no color of its own. */
 .status-ready {
-  color: #3f6212;
+  color: var(--ink);
   font-weight: 600;
-  margin: 0 0 0.5rem 0;
+  margin: 0 0 var(--space-2) 0;
 }
 
 .status-empty {
-  color: #6b6b63;
+  color: var(--ink-muted);
   margin: 0;
 }
 
-.next-step-note {
-  color: #6b6b63;
-  font-size: 0.9rem;
-  margin-top: 0.5rem;
-}
-
-pre {
-  background: #f4f1ea;
-  padding: 0.75rem;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  overflow-x: auto;
-}
-
-.generate-button {
-  background: #5a7247;
-  color: white;
-  border: none;
-  padding: 0.65rem 1.25rem;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  margin-top: 0.5rem;
-}
-
-.generate-button:hover {
-  background: #4a5f3a;
-}
-
-.generate-button.secondary {
-  background: transparent;
-  color: #5a7247;
-  border: 1px solid #5a7247;
-  margin-bottom: 0.75rem;
-}
-
 .status-loading {
-  color: #8a6d1d;
+  color: var(--ink-muted);
   margin: 0;
 }
 
 .status-error {
-  color: #b3261e;
+  color: var(--alert);
   margin: 0;
+}
+
+/* --- Buttons ---------------------------------------------------------------
+   Both variants carry a 1px border — transparent on the primary — so the two
+   render at identical width and height. Neither carries a margin: spacing
+   between buttons belongs to .button-row's gap, so that a row of them stays
+   even no matter which variants it holds.
+   --------------------------------------------------------------------------- */
+
+.button {
+  background: var(--oxide);
+  color: var(--on-oxide);
+  border: 1px solid transparent;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease,
+    color 120ms ease;
+}
+
+.button:hover {
+  background: var(--oxide-deep);
+}
+
+.button--secondary {
+  background: transparent;
+  color: var(--oxide);
+  border: 1px solid var(--oxide);
+}
+
+.button--secondary:hover {
+  background: transparent;
+  color: var(--oxide-deep);
+  border-color: var(--oxide-deep);
+}
+
+/* Higher specificity than .button--secondary, so a disabled secondary reads
+   the same as a disabled primary — as it did before the rename. */
+.button:disabled {
+  background: var(--disabled);
+  border-color: var(--disabled);
+  color: var(--ink);
+  cursor: not-allowed;
+}
+
+.button-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* --- Address search --------------------------------------------------------- */
+
+.search-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  max-width: 480px;
+}
+
+.address-input {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border: var(--hairline);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* Tints the border on focus but does not clear the outline — the global
+   :focus-visible ring in index.css still has to land here for keyboard users. */
+.address-input:focus {
+  border-color: var(--oxide);
+}
+
+.address-input::placeholder {
+  color: var(--ink-muted);
 }
 
 .report {
@@ -98,129 +154,34 @@ pre {
   flex-direction: column;
 }
 
-.search-row {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-  max-width: 480px;
-}
+/* --- Map markers -----------------------------------------------------------
+   Map geometry, so --field rather than the control accent. The halo is the
+   one pure white in the system: it has to hold up against arbitrary satellite
+   imagery underneath, which is a legibility requirement, not a palette one.
+   --------------------------------------------------------------------------- */
 
-.address-input {
-  flex: 1;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid #ddd6c8;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  box-sizing: border-box;
-}
-
-.address-input:focus {
-  outline: none;
-  border-color: #5a7247;
-}
-
-.report-text {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 0.95rem;
-  line-height: 1.6;
-  max-height: none;
-  max-width: 680px;
-}
-
-.report-text h1 {
-  font-size: 1.4rem;
-  margin: 0 0 0.75rem 0;
-}
-
-.report-text h2 {
-  font-size: 1.15rem;
-  margin: 1.5rem 0 0.5rem 0;
-  color: #3f4f2f;
-  border-bottom: 1px solid #ddd6c8;
-  padding-bottom: 0.25rem;
-}
-
-.report-text h3 {
-  font-size: 1rem;
-  margin: 1.1rem 0 0.4rem 0;
-  color: #3f4f2f;
-}
-
-.report-text p {
-  margin: 0 0 0.85rem 0;
-}
-
-.report-text ul,
-.report-text ol {
-  margin: 0 0 0.85rem 0;
-  padding-left: 1.25rem;
-}
-
-.report-text li {
-  margin-bottom: 0.35rem;
-}
-
-.report-text strong {
-  color: #2b2b26;
-}
-
-.report-text hr {
-  border: none;
-  border-top: 1px solid #ddd6c8;
-  margin: 1.25rem 0;
-}
-
-.report-text table {
-  border-collapse: collapse;
-  margin-bottom: 0.85rem;
-  font-size: 0.9rem;
-}
-
-.report-text th,
-.report-text td {
-  border: 1px solid #ddd6c8;
-  padding: 0.4rem 0.6rem;
-  text-align: left;
-}
-
-.report-text th {
-  background: #f4f1ea;
-}
-
-.button-row {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.generate-button:disabled {
-  background: #b8b8ac;
-  cursor: not-allowed;
-}
-
-/* Vertex marker styling — a simple visible dot for each boundary point,
-   used instead of Leaflet's default marker icon (which needs extra
-   config to load correctly with Vite). */
+/* A simple visible dot for each boundary point, used instead of Leaflet's
+   default marker icon (which needs extra config to load correctly with Vite). */
 .vertex-marker {
-  background: #5a7247;
-  border: 2px solid white;
+  background: var(--field);
+  border: 2px solid var(--halo);
   border-radius: 50%;
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-marker);
 }
 
-/* First point, while drawing with 3+ points placed — same styling as a
-   regular vertex marker (sized up via iconSize), just with an added ring
-   in the same green to hint that clicking it closes the boundary. */
+/* First point, while drawing with 3+ points placed — same styling as a regular
+   vertex marker (sized up via iconSize), just with an added ring in the same
+   green to hint that clicking it closes the boundary. */
 .vertex-marker--closable {
-  box-shadow: 0 0 0 3px rgba(90, 114, 71, 0.35), 0 0 2px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--field) 35%, transparent),
+    var(--shadow-marker);
 }
 
-/* Access point marker — a mustard tone, distinct from the green boundary
-   vertices, matching the fencing layer's earthy palette elsewhere in the
-   project while still standing out as a different kind of point. */
+/* Access point marker — ochre, distinct from the field-green boundary
+   vertices, standing out as a different kind of point. */
 .access-point-marker {
-  background: #c99a2e;
-  border: 2px solid white;
+  background: var(--ochre);
+  border: 2px solid var(--halo);
   border-radius: 50%;
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-marker);
 }

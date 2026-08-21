@@ -1,21 +1,198 @@
+/* ---------------------------------------------------------------------------
+   Foundation layer. This file holds three things and nothing else:
+   @font-face declarations, :root tokens, and a minimal reset.
+
+   No component styling belongs here — that lives in App.css. The .page and
+   .next rules that used to sit in this file were leftover Vite scaffold from
+   before there was a map, and .page in particular was silently wrapping the
+   whole application in a 640px content-box column.
+   --------------------------------------------------------------------------- */
+
+/* --- Typefaces -------------------------------------------------------------
+
+   Self-hosted from src/fonts/ — there is no request to fonts.googleapis.com
+   or fonts.gstatic.com anywhere in the app. Vite fingerprints these because
+   they are imported from src/ rather than served out of public/.
+
+   Bitter and Source Serif 4 are variable fonts, so one file per family covers
+   both weights we use and leaves the axis open. The declared font-weight range
+   is the range the file actually carries; the design uses only 400 and 600.
+
+   unicode-range is the Google Fonts latin subset, matching the subset these
+   files were built from — a codepoint outside it falls through to the stack's
+   next family instead of rendering tofu from an incomplete face.
+   --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Bitter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/bitter-latin-wght-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url('./fonts/source-serif-4-latin-wght-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* --- Tokens ----------------------------------------------------------------
+   The only place in the project where a color literal may appear. Everything
+   below :root, and everything in App.css, references these by name.
+   --------------------------------------------------------------------------- */
+
+:root {
+  /* Color */
+  --stock: #f4f1ea;        /* page background */
+  --paper: #fdfcf9;        /* panel surface, lighter than stock */
+  --rule: #ddd6c8;         /* hairlines, borders, dividers */
+  --ink: #2b2b26;          /* primary text */
+  --ink-muted: #8a8477;    /* secondary text, labels, captions */
+  --oxide: #9c4a2f;        /* the accent — primary actions only */
+  --oxide-deep: #7d3a25;   /* oxide hover/active */
+  --on-oxide: #fdfcf9;     /* text on oxide fill */
+  --ochre: #c99a2e;        /* secondary emphasis, access point marker */
+  --field: #4a5f3a;        /* map geometry and legend only, never a control */
+  --alert: #7a2418;        /* error text only */
+  --disabled: #c4bfb2;     /* disabled control surface */
+
+  /* Pure white, and the only pure white in the system. Map marker halos need
+     maximum luminance to stay legible against arbitrary satellite imagery —
+     that is a legibility problem, not a palette one, so it does not use
+     --paper. Nothing outside a map marker should reference this. */
+  --halo: #ffffff;
+
+  /* Type */
+  --font-display: 'Bitter', Georgia, serif;
+  --font-prose: 'Source Serif 4', Georgia, serif;
+  --font-data: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Scale */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+  --leading-tight: 1.15;
+  --leading-body: 1.6;
+
+  /* Space — 0.25rem base */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* Form */
+  --radius: 4px;
+  --hairline: 1px solid var(--rule);
+
+  /* A single unit — the shadow never needs its color set independently, so
+     this is a whole-shadow token rather than a color one. */
+  --shadow-marker: 0 0 2px rgba(0, 0, 0, 0.5);
+}
+
+/* --- Reset ------------------------------------------------------------------ */
+
+/* Nothing set this globally before; only .address-input opted in locally,
+   which is why .page's padding was adding to its width rather than fitting
+   inside it. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #f4f1ea;
-  color: #2b2b26;
+  font-family: var(--font-prose);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  color: var(--ink);
+  background: var(--stock);
+  -webkit-font-smoothing: antialiased;
 }
 
-.page {
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 4rem 1.5rem;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  margin: 0;
 }
 
-h1 {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
+/* Two weights across the whole system — 400 and 600. Headings default to 600
+   above; bold text resolves to the same 600 rather than introducing a third. */
+b,
+strong {
+  font-weight: 600;
 }
 
-.next {
-  color: #6b6b63;
+/* Controls do not inherit font by default. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* Keyboard users previously got nothing at all — .address-input was the only
+   element in the app with any focus treatment, and it removed the outline
+   without replacing it. This is a visible oxide ring on every focusable
+   element; component rules may restyle it but must not remove it. */
+:focus-visible {
+  outline: 2px solid var(--oxide);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
 }
