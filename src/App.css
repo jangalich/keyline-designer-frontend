@@ -96,14 +96,18 @@
   font-size: var(--text-base);
   color: var(--ink-muted);
   text-decoration: none;
-  border-bottom: 1px solid var(--rule);
+  /* Transparent rather than absent, so the rule appearing on hover cannot
+     shift the baseline. A persistent underline read as visited-or-active on
+     the page's only nav link. */
+  border-bottom: 1px solid transparent;
   padding-bottom: var(--space-1);
   transition: color 120ms ease, border-color 120ms ease;
 }
 
-.nav__link:hover {
+.nav__link:hover,
+.nav__link:focus-visible {
   color: var(--ink);
-  border-bottom-color: var(--ink);
+  border-bottom-color: currentColor;
 }
 
 /* --- Hero ------------------------------------------------------------------
@@ -112,29 +116,45 @@
    screen. Content taller than the cap (small phones) pushes it, which is the
    correct failure direction — clipping the headline would be worse than losing
    the peek on a device that cannot show it anyway.
+
+   RHYTHM. Four gaps at four deliberately different sizes, so the block groups
+   instead of reading as one evenly-spaced list:
+
+     above headline    generous — flex-end banks the leftover min-height here
+     headline→subhead  moderate — one thought, --space-4
+     subhead→input     generous — the claim ends and the action begins, --space-7
+     input→map         tight    — --space-5, so the peek reads as the next step
+                                  rather than as a separate screen
+
+   justify-content is flex-end, not center: centring split the leftover height
+   evenly above and below the block, which is what made it read loose.
    --------------------------------------------------------------------------- */
 .hero {
   min-height: 68vh;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding-block: var(--space-7) var(--space-8);
+  justify-content: flex-end;
+  padding-block: var(--space-7) var(--space-5);
 }
 
 .hero h1 {
   font-size: var(--text-3xl);
   max-width: 17ch;
   letter-spacing: -0.015em;
-  margin: 0 0 var(--space-5);
+  margin: 0 0 var(--space-4);
 }
 
+/* --ink, not --ink-muted. This is the only sentence on the page that makes the
+   actual claim — LiDAR, soil survey, hydrography — and a caption colour left
+   the most load-bearing line as the least legible one. Hierarchy under the
+   headline comes from size and measure instead of from colour. */
 .hero__subhead {
   font-family: var(--font-prose);
   font-size: var(--text-lg);
   line-height: 1.5;
-  color: var(--ink-muted);
+  color: var(--ink);
   max-width: var(--measure);
-  margin: 0 0 var(--space-6);
+  margin: 0 0 var(--space-7);
 }
 
 /* Nothing sits between the subhead and the input, so the input's own top
@@ -180,9 +200,12 @@
   margin-bottom: 0;
 }
 
+/* Body copy, not a caption — same reasoning as .hero__subhead. Size carries
+   the lede's prominence. --ink-muted stays only for genuinely secondary
+   text: the footer, the sample slot, the Scale numerals. */
 .section__lede {
   font-size: var(--text-lg);
-  color: var(--ink-muted);
+  color: var(--ink);
 }
 
 /* A marked slot, not a placeholder image — an <img> with no src is a broken
@@ -198,7 +221,13 @@
 }
 
 /* The one place numbering is earned: the order of the Scale of Permanence
-   carries the meaning, so the numerals are content and not decoration. */
+   carries the meaning, so the numerals are content and not decoration.
+
+   Every child is placed EXPLICITLY. The li holds three grid items —
+   ::before, h3, p — and in a two-column grid with implicit placement the p
+   wraps onto a second row in column 1, i.e. into the 2.25rem numeral
+   column, one word per line. Naming the row and column for each is what
+   keeps the definition beside its heading rather than under the numeral. */
 .scale-list {
   margin: 0;
   padding: 0;
@@ -210,7 +239,9 @@
   counter-increment: factor;
   display: grid;
   grid-template-columns: 2.25rem 1fr;
-  gap: var(--space-3);
+  /* Column gap only. The h3's own margin sets the gap to the definition
+     below it; a row gap here would double it. */
+  gap: 0 var(--space-3);
   padding-block: var(--space-3);
   border-top: var(--hairline);
 }
@@ -221,6 +252,8 @@
 
 .scale-list li::before {
   content: counter(factor);
+  grid-column: 1;
+  grid-row: 1;
   font-family: var(--font-display);
   font-weight: 600;
   color: var(--ink-muted);
@@ -228,13 +261,19 @@
 }
 
 .scale-list h3 {
+  grid-column: 2;
+  grid-row: 1;
   font-size: var(--text-base);
   margin: 0 0 var(--space-1);
 }
 
+/* The one-line definition of each factor IS this section's content, so it
+   reads at full strength; only the numeral beside it stays muted. */
 .scale-list p {
+  grid-column: 2;
+  grid-row: 2;
   margin: 0;
-  color: var(--ink-muted);
+  color: var(--ink);
   font-size: var(--text-sm);
 }
 
@@ -257,8 +296,10 @@
   display: block;
 }
 
+/* The credibility section — what each source actually provides is the
+   substance, not a caption on the source's name. */
 .source-list span {
-  color: var(--ink-muted);
+  color: var(--ink);
   font-size: var(--text-sm);
 }
 
