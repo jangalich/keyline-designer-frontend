@@ -373,15 +373,26 @@
   top: var(--space-3);
   left: var(--space-3);
   z-index: 400;
-  /* A two-column grid, and the first column is a FIXED width rather than a
-     minimum. That distinction is the whole thing: with min-width, a value
-     wider than the minimum expands the column, the column's right edge moves,
-     and the decimal point slides — measured at 212.8 / 216.4 / 223.6 px for
-     4.1 / 37.3 / 233.4 acres. A fixed 5ch column right-aligned holds the
-     decimal still for everything up to 999.9, which is far past the range
-     this tool is for. */
+  /* Two columns, and the value column's sizing is the whole trick.
+     minmax(6ch, max-content) does two jobs at once.
+
+     The 6ch FLOOR holds the decimal point still. A plain min-width does not:
+     the column grows with the content, its right edge moves, and the decimal
+     slides — measured at 212.8 / 216.4 / 223.6 px for 4.1 / 37.3 / 233.4
+     acres before this was a grid. A 6ch floor covers everything up to
+     9999.9, far past the range this tool is for, so in practice the decimal
+     never moves.
+
+     The max-content CEILING is what makes going past that graceful. A FIXED
+     track cannot grow, so an over-long value overflows its own track and
+     prints straight over the label in the next column — measured, 7028.8
+     closed the gap to "acres" entirely and 449822.5 rendered as
+     "449822a5res". Letting the track grow past its floor pushes the label
+     right instead, so an absurd value is merely wide rather than illegible.
+     Alignment is lost at that point, which is the correct thing to lose: at
+     five-digit acreage the number itself is the problem. */
   display: grid;
-  grid-template-columns: 5ch auto;
+  grid-template-columns: minmax(6ch, max-content) auto;
   align-items: baseline;
   gap: var(--space-1) var(--space-2);
   padding: var(--space-2) var(--space-3);
