@@ -1,9 +1,12 @@
-import { useState } from 'react'
-import { MapContainer, TileLayer } from 'react-leaflet'
+import { useCallback, useState } from 'react'
+import { MapContainer, TileLayer, ZoomControl } from 'react-leaflet'
 import DrawTool from './DrawTool.jsx'
 import AccessPointTool from './AccessPointTool.jsx'
 import MapRecenter from './MapRecenter.jsx'
 import AddressSearch from './AddressSearch.jsx'
+import AcreageChip from './AcreageChip.jsx'
+import ScrollZoomGate from './ScrollZoomGate.jsx'
+import BasemapControl, { BASEMAPS } from './BasemapControl.jsx'
 // ?react is vite-plugin-svgr: the asset becomes a React component and lands
 // inline in the DOM. It has to be inline — the file draws with
 // stroke="currentColor", which resolves against .contour-bg's own colour only
@@ -46,6 +49,34 @@ function App() {
   const [error, setError] = useState(null)
 
   const [mapCenter, setMapCenter] = useState(null)
+
+  // Scroll-wheel zoom starts off; see ScrollZoomGate for why and for how the
+  // activating click stays transparent.
+  const [isMapLive, setIsMapLive] = useState(false)
+  const [basemapId, setBasemapId] = useState(BASEMAPS[0].id)
+  const basemap = BASEMAPS.find((option) => option.id === basemapId) ?? BASEMAPS[0]
+
+  // Stable identity so ScrollZoomGate's document listener is not torn down
+  // and re-attached on every render.
+  const handleMapLiveChange = useCallback((live) => setIsMapLive(live), [])
+
+  // Four independent click listeners are attached to this map — the scroll
+  // gate, DrawTool, AccessPointTool, and Leaflet's own — and none of them
+  // stops propagation, so they all see every click. What keeps that safe is
+  // that DrawTool and AccessPointTool can never both act on one click:
+  // handleStartDrawing and handleRedraw set isDrawing true AND
+  // isSelectingAccessPoint false, and handleSelectAccessPoint is only
+  // reachable after handleFinishDrawing has set isDrawing false.
+  //
+  // That invariant is upstream of both tools and easy to break by adding one
+  // more state transition, so it is asserted rather than assumed.
+  if (import.meta.env.DEV && isDrawing && isSelectingAccessPoint) {
+    throw new Error(
+      'DrawTool and AccessPointTool are both armed: isDrawing and ' +
+        'isSelectingAccessPoint must be mutually exclusive, or a single click ' +
+        'will place a vertex and move the access point at the same time.'
+    )
+  }
 
   const handleStartDrawing = () => {
     setPoints([])
@@ -183,12 +214,26 @@ function App() {
           center={DEFAULT_CENTER}
           zoom={DEFAULT_ZOOM}
           style={{ height: '100%', width: '100%' }}
+          scrollWheelZoom={false}
+          zoomControl={false}
         >
+          {/* Top-left belongs to the chip, which is read continuously while
+              drawing; the zoom buttons are used occasionally. */}
+          <ZoomControl position="topright" />
+          <ScrollZoomGate active={isMapLive} onChange={handleMapLiveChange} />
           <TileLayer
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-            attribution="Tiles &copy; Esri"
+            key={basemap.id}
+            url={basemap.url}
+            attribution={basemap.attribution}
             maxZoom={19}
           />
+          {basemap.referenceUrl && (
+            <TileLayer
+              key={`${basemap.id}-reference`}
+              url={basemap.referenceUrl}
+              maxZoom={19}
+            />
+          )}
           <MapRecenter center={mapCenter} zoom={18} />
           <DrawTool
             isDrawing={isDrawing}
@@ -205,6 +250,16 @@ function App() {
             onSelect={handleAccessPointPicked}
           />
         </MapContainer>
+
+                <AcreageChip points={points} visible={isDrawing || isFinished} />
+
+                {!isMapLive && (
+                  <p className="map-hint" aria-hidden="true">
+                    Click the map to zoom with the scroll wheel
+                  </p>
+                )}
+
+                <BasemapControl value={basemapId} onChange={setBasemapId} />
               </div>
 
               <div className="status-panel">
@@ -222,7 +277,8 @@ function App() {
         {isDrawing && (
           <>
             <p className="status-ready">
-              {points.length} point{points.length !== 1 ? 's' : ''} placed
+              <span className="measure">{points.length}</span>{' '}
+              point{points.length !== 1 ? 's' : ''} placed
               {points.length < 3 && ' — need at least 3 to finish'}.
             </p>
             <div className="button-row">
@@ -247,8 +303,9 @@ function App() {
         {isFinished && !report && !isLoading && !isSelectingAccessPoint && !accessPoint && (
           <>
             <p className="status-ready">
-              Boundary set — {points.length} points. Click "Select Access Point" then click a
-              point on the boundary to indicate the preferred entry point for the property.
+              Boundary set — <span className="measure">{points.length}</span> points. Click
+              "Select Access Point" then click a point on the boundary to indicate the
+              preferred entry point for the property.
             </p>
             <div className="button-row">
               <button className="button button--secondary" onClick={handleRedraw}>
