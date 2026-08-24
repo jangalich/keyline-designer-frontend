@@ -87,6 +87,35 @@
   --alert: #7a2418;        /* error text only */
   --disabled: #c4bfb2;     /* disabled control surface */
 
+  /* NEW, two of them, both for the production-zone map layers. Flagged
+     rather than slipped in: these are the first tokens added since the
+     foundation, and neither could be borrowed from an existing one.
+
+     --eligible is the eligible-ground highlight. A LIGHT WARM TINT, drawn
+     as fill with no stroke at all: the highlight is the tonal treatment and
+     the suggested zones are the linear one, and giving this an outline
+     would put the two in the same register and let them compete. It answers
+     "where else could I farm", so it has to read as available rather than
+     as a warning -- which rules out --ochre (too saturated, reads as
+     emphasis) and --alert and --oxide outright.
+
+     Note this is NOT the case DrawTool's halo-casing rule covers. That rule
+     is about LINES, which have to beat the imagery underneath them and
+     cannot at any single colour. A translucent AREA fill does not compete
+     with the ground -- it tints it -- so presence comes from opacity, not
+     from a colour picked to win.
+
+     --scrim is the off-parcel dim. Deliberately the most neutral thing in
+     the palette: it is the one hard gate in the interface and the only
+     element that should read as forbidden, so it states that by removing
+     the ground rather than by colouring it. Not --ink, which is text and
+     carries a text meaning. Drawn flat, no pattern.
+
+     Both are used only through the map layers' own opacity, so neither has
+     a meaningful appearance as a solid. */
+  --eligible: #e8cf9f;
+  --scrim: #1c1a16;
+
   /* Pure white, and the only pure white in the system. Map marker halos need
      maximum luminance to stay legible against arbitrary satellite imagery —
      that is a legibility problem, not a palette one, so it does not use

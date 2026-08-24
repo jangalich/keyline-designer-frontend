@@ -131,3 +131,71 @@ export function polygonAreaAcres(points) {
 export function readToken(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
+
+/**
+ * How far past the drawn boundary the off-parcel scrim reaches, in degrees.
+ *
+ * The scrim only has to cover the visible viewport — it is a dim over
+ * everything that is not the parcel, not a real geometry with an outer edge
+ * anyone should ever see. 5 degrees is roughly 550 km, hundreds of times the
+ * viewport height at any zoom someone traces a property at, so the outer ring
+ * never comes into view and never has to be recomputed on pan or zoom.
+ *
+ * Not a world-covering ring, which would be the other way to guarantee this:
+ * a polygon spanning the full longitude range invites antimeridian-wrapping
+ * behaviour from Leaflet for no benefit on a tool that is US-only by
+ * construction.
+ */
+const SCRIM_SPAN_DEGREES = 5
+
+/**
+ * The off-parcel scrim's two rings, as Leaflet expects them for a polygon
+ * with a hole: [outerRing, holeRing], in [latitude, longitude] order.
+ *
+ * DERIVED CLIENT-SIDE from the boundary the user already drew — the backend
+ * does not ship this and should not. It is a statement about what the user
+ * selected, not a measurement of their land.
+ *
+ * Leaflet reads the second and subsequent rings of a polygon as holes
+ * regardless of winding order, so the boundary is passed through exactly as
+ * drawn rather than being rewound first. (GeoJSON's right-hand rule does
+ * govern the eligible union's holes, but that geometry arrives already
+ * conformant from the backend and is handed to Leaflet's own GeoJSON reader,
+ * not built here.)
+ *
+ * Returns null for fewer than 3 points — there is no enclosed parcel to
+ * exclude from the dim yet, and dimming the entire map would be wrong.
+ */
+export function offParcelScrimRings(points) {
+  if (points.length < 3) return null
+
+  let minLat = Infinity
+  let maxLat = -Infinity
+  let minLng = Infinity
+  let maxLng = -Infinity
+
+  for (const [lat, lng] of points) {
+    if (lat < minLat) minLat = lat
+    if (lat > maxLat) maxLat = lat
+    if (lng < minLng) minLng = lng
+    if (lng > maxLng) maxLng = lng
+  }
+
+  // Clamped to valid coordinates: Web Mercator is undefined at the poles, and
+  // a ring built off a boundary near one would otherwise carry a latitude the
+  // projection cannot place.
+  const south = Math.max(minLat - SCRIM_SPAN_DEGREES, -85)
+  const north = Math.min(maxLat + SCRIM_SPAN_DEGREES, 85)
+  const west = Math.max(minLng - SCRIM_SPAN_DEGREES, -180)
+  const east = Math.min(maxLng + SCRIM_SPAN_DEGREES, 180)
+
+  return [
+    [
+      [south, west],
+      [south, east],
+      [north, east],
+      [north, west],
+    ],
+    points,
+  ]
+}

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { MapContainer, TileLayer, ZoomControl } from 'react-leaflet'
 import DrawTool from './DrawTool.jsx'
 import AccessPointTool from './AccessPointTool.jsx'
@@ -7,6 +7,8 @@ import AddressSearch from './AddressSearch.jsx'
 import AcreageChip from './AcreageChip.jsx'
 import ScrollZoomGate from './ScrollZoomGate.jsx'
 import BasemapControl, { BASEMAPS } from './BasemapControl.jsx'
+import ProductionZoneLayers from './ProductionZoneLayers.jsx'
+import ProductionZonePanel from './ProductionZonePanel.jsx'
 // ?react is vite-plugin-svgr: the asset becomes a React component and lands
 // inline in the DOM. It has to be inline — the file draws with
 // stroke="currentColor", which resolves against .contour-bg's own colour only
@@ -48,6 +50,20 @@ function App() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  // Production zones: a parallel path off the finished boundary, not a stage
+  // of the report flow. Its own three pieces of state rather than a share of
+  // isLoading/error above — those belong to the PDF path, and reusing them
+  // would render a zone failure inside the report flow's own branches.
+  //
+  // `productionZones` is { id, data }. The id increments per successful
+  // fetch and exists for one reason: react-leaflet 4.2.1's GeoJSON ignores a
+  // changed `data` prop (it only diffs `style`), so a replaced payload has to
+  // arrive as a new component instance via a changed key.
+  const [productionZones, setProductionZones] = useState(null)
+  const [isLoadingZones, setIsLoadingZones] = useState(false)
+  const [zonesError, setZonesError] = useState(null)
+  const zoneRequestId = useRef(0)
+
   const [mapCenter, setMapCenter] = useState(null)
 
   // Scroll-wheel zoom starts off; see ScrollZoomGate for why and for how the
@@ -70,12 +86,26 @@ function App() {
   //
   // That invariant is upstream of both tools and easy to break by adding one
   // more state transition, so it is asserted rather than assumed.
+  // The production-zone step owns the panel whenever any of its three states
+  // is live. Derived rather than stored so it cannot drift out of step with
+  // the three values it summarises.
+  const inProductionZones = isLoadingZones || zonesError !== null || productionZones !== null
+
   if (import.meta.env.DEV && isDrawing && isSelectingAccessPoint) {
     throw new Error(
       'DrawTool and AccessPointTool are both armed: isDrawing and ' +
         'isSelectingAccessPoint must be mutually exclusive, or a single click ' +
         'will place a vertex and move the access point at the same time.'
     )
+  }
+
+  // Every production-zone result is computed FOR one specific boundary, so
+  // anything that changes the boundary has to drop it. Left behind, a
+  // highlight would sit over ground it was never measured against.
+  const clearProductionZones = () => {
+    setProductionZones(null)
+    setIsLoadingZones(false)
+    setZonesError(null)
   }
 
   const handleStartDrawing = () => {
@@ -86,6 +116,7 @@ function App() {
     setIsSelectingAccessPoint(false)
     setReport(null)
     setError(null)
+    clearProductionZones()
   }
 
   const handleUndoLastPoint = () => {
@@ -105,6 +136,7 @@ function App() {
     setIsSelectingAccessPoint(false)
     setReport(null)
     setError(null)
+    clearProductionZones()
   }
 
   const handleSelectAccessPoint = () => {
@@ -131,7 +163,54 @@ function App() {
     if (isFinished) {
       setReport(null)
       setError(null)
+      clearProductionZones()
     }
+  }
+
+  const handleGenerateProductionZones = async () => {
+    setIsLoadingZones(true)
+    setZonesError(null)
+    setProductionZones(null)
+
+    // [longitude, latitude] only at the wire, same as the report path.
+    const boundary = points.map(([lat, lng]) => [lng, lat])
+
+    try {
+      const response = await fetch(`${API_URL}/api/production-zones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ boundary }),
+      })
+
+      const data = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        // The backend names which layer failed, as a stable type plus display
+        // prose. Only the prose is carried into the panel; the status code
+        // and any message text stay here.
+        setZonesError({
+          layer: data?.failed_layer?.type ?? null,
+          layerLabel: data?.failed_layer?.label ?? null,
+        })
+        return
+      }
+
+      zoneRequestId.current += 1
+      setProductionZones({ id: zoneRequestId.current, data })
+    } catch {
+      // A thrown fetch is the backend being unreachable rather than a layer
+      // failing, so there is no layer to name.
+      setZonesError({ layer: null, layerLabel: null })
+    } finally {
+      setIsLoadingZones(false)
+    }
+  }
+
+  // Back to the finished-boundary state. The boundary itself is untouched —
+  // losing a traced boundary to a step that is a dead end for now would be
+  // the worst thing this panel could do.
+  const handleLeaveProductionZones = () => {
+    clearProductionZones()
   }
 
   const handleGenerateReport = async () => {
@@ -249,6 +328,11 @@ function App() {
             accessPoint={accessPoint}
             onSelect={handleAccessPointPicked}
           />
+          {/* Renders nothing until a payload arrives. Its three layers sit in
+              their own panes below Leaflet's overlayPane, which is what keeps
+              them under DrawTool's boundary and vertex markers without
+              anything in DrawTool changing — see ProductionZoneLayers. */}
+          <ProductionZoneLayers payload={productionZones} boundaryPoints={points} />
         </MapContainer>
 
                 <AcreageChip points={points} visible={isDrawing || isFinished} />
@@ -300,22 +384,40 @@ function App() {
           </>
         )}
 
-        {isFinished && !report && !isLoading && !isSelectingAccessPoint && !accessPoint && (
-          <>
-            <p className="status-ready">
-              Boundary set — <span className="measure">{points.length}</span> points. Click
-              "Select Access Point" then click a point on the boundary to indicate the
-              preferred entry point for the property.
-            </p>
-            <div className="button-row">
-              <button className="button button--secondary" onClick={handleRedraw}>
-                Redraw
-              </button>
-              <button className="button" onClick={handleSelectAccessPoint}>
-                Select Access Point
-              </button>
-            </div>
-          </>
+        {isFinished &&
+          !report &&
+          !isLoading &&
+          !isSelectingAccessPoint &&
+          !accessPoint &&
+          !inProductionZones && (
+            <>
+              <p className="status-ready">
+                Boundary set — <span className="measure">{points.length}</span> points. Pick
+                the entry point to carry on to a full report, or see where else this land
+                could be farmed.
+              </p>
+              <div className="button-row">
+                <button className="button button--secondary" onClick={handleRedraw}>
+                  Redraw
+                </button>
+                <button className="button" onClick={handleSelectAccessPoint}>
+                  Select Access Point
+                </button>
+                <button className="button" onClick={handleGenerateProductionZones}>
+                  Generate Production Zones
+                </button>
+              </div>
+            </>
+          )}
+
+        {inProductionZones && (
+          <ProductionZonePanel
+            payload={productionZones}
+            isLoading={isLoadingZones}
+            error={zonesError}
+            onRetry={handleGenerateProductionZones}
+            onBack={handleLeaveProductionZones}
+          />
         )}
 
         {isFinished && !report && !isLoading && isSelectingAccessPoint && (

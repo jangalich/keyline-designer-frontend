@@ -592,6 +592,160 @@
   margin: 0;
 }
 
+/* The shared panel caps itself at 30vh, which is right for the existing
+   flows -- a line of status and a row of buttons. This readout is the first
+   panel content that is genuinely LONG (summary, the standing caveat, and a
+   row per zone: measured at 587 px against a 270 px cap, so more than half of
+   it sat below the fold with nothing on screen saying so).
+
+   Scoped with :has() to the production-zone readout alone rather than raising
+   the shared cap: every other panel state keeps the 30vh it was designed
+   around. Capped rather than released so the map above it cannot be pushed
+   off screen on a short viewport, and the panel still scrolls past that. */
+.status-panel:has(.zone-readout) {
+  max-height: min(70vh, 40rem);
+}
+
+/* --- Production zone readout -------------------------------------------------
+   Every measured value in this block is mono with tabular figures and sits in
+   a fixed-width column, so a list of zones aligns on the decimal. Same
+   approach as .map-chip, arrived at for the same measured reason — see that
+   rule for why a plain min-width does not hold a decimal point still.
+   --------------------------------------------------------------------------- */
+
+.zone-readout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* The three totals, in the chip's two-column value/label form. The 5ch floor
+   covers up to 9999.9 acres, far past the range this tool is for, so the
+   decimal never moves across the three rows. */
+.zone-summary {
+  display: grid;
+  grid-template-columns: minmax(5ch, max-content) auto;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+}
+
+.zone-summary__value {
+  color: var(--ink);
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.zone-summary__label {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+/* Checks that did not run. NOT a footnote and not dismissible: ground that
+   was never tested is drawn exactly like ground that passed, so this line
+   changes what the highlight means and stays for as long as the step is open.
+   Carries --alert on its rule only — the copy is the warning, and colouring
+   the prose too would make it read as an error the user caused. */
+.zone-caveat {
+  border-left: 2px solid var(--alert);
+  padding-left: var(--space-3);
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.zone-caveat p {
+  margin: 0 0 var(--space-1) 0;
+}
+
+.zone-caveat__action {
+  color: var(--ink-muted);
+  margin-bottom: 0;
+}
+
+/* ONE grid for the whole list, with each row set to display: contents so
+   every row's figures share the same four tracks. A grid per row would size
+   its tracks independently and the decimals would drift row to row — exactly
+   the failure .map-chip documents.
+
+   Each track is minmax(<ch floor>, max-content), for the chip's two reasons:
+   the floor holds the decimal still at every value in range, and the
+   max-content ceiling lets an over-long figure push its neighbour right
+   rather than printing over it. The last track takes the remaining width so
+   the per-zone note has somewhere to wrap. */
+.zone-list {
+  display: grid;
+  grid-template-columns:
+    minmax(3ch, max-content)   /* rank        */
+    minmax(6ch, max-content)   /* acres       */
+    minmax(5ch, max-content)   /* score       */
+    minmax(5ch, max-content)   /* slope min   */
+    max-content                /* the dash    */
+    minmax(5ch, max-content);  /* slope max   */
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* display: contents is what lifts the four cells of a row into the list's own
+   grid. The rows stay real <li>s so the list is still a list to a screen
+   reader. */
+.zone-list__head,
+.zone-list__row {
+  display: contents;
+}
+
+.zone-list__head-span {
+  grid-column: span 3;
+}
+
+.zone-list__dash {
+  color: var(--ink-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+}
+
+.zone-list__head span {
+  color: var(--ink-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  text-align: right;
+  border-bottom: var(--hairline);
+  padding-bottom: var(--space-1);
+}
+
+.zone-list__value {
+  color: var(--ink);
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+/* The score band and aspect, spanning the full width under their row. Prose,
+   not a measured value, so it is deliberately NOT mono — the distinction is
+   what keeps the figures reading as figures. */
+.zone-list__note {
+  grid-column: 1 / -1;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-2);
+}
+
+.zone-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.zone-error__detail {
+  color: var(--ink-muted);
+  margin: 0;
+}
+
 /* --- Buttons ---------------------------------------------------------------
    Both variants carry a 1px border — transparent on the primary — so the two
    render at identical width and height. Neither carries a margin: spacing
