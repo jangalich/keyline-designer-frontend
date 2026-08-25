@@ -623,14 +623,27 @@
    THE RADIUS IS A CLAMPING DECISION, NOT ONLY A VISUAL ONE. Blur spreads the
    tint OUTSIDE the true eligible boundary, and that boundary is what a drawn
    polygon will be clamped against in the next branch. Every pixel of bleed is
-   ground the map offers and the server will refuse. 5 px is the smallest
-   radius that reads as feathered rather than as a soft-but-still-present
-   edge; measured bleed and its ground distance are reported with the branch.
+   ground the map offers that the server will refuse.
+
+   Set to 1 px deliberately, against the 5 px this branch first carried. Both
+   measured from pixels at the zoom someone traces a property at:
+
+       blur(5px)   8 px median, 20 px worst   =  7.2 m / 18.1 m
+       blur(1px)   2 px median,  3 px worst   =  1.8 m /  2.7 m
+
+   One DEM cell is 5 m, about 5.5 px at that zoom. At 5 px the halo reached
+   well past a whole cell of ground that is not eligible; at 1 px the worst
+   case is still inside one. That is the line worth holding: bleed finer than
+   the grain of the data underneath cannot offer ground the gates would
+   refuse, because the gates cannot resolve it either.
+
+   Bleed is constant in SCREEN pixels, so its ground distance halves with
+   every zoom step in -- 3.6 m at z16 down to 0.5 m at z19 for the median.
 
    will-change lifts the pane onto its own compositor layer so panning does
    not re-run the filter over the whole surface every frame. */
 .leaflet-production-eligible-pane {
-  filter: blur(5px);
+  filter: blur(1px);
   will-change: filter;
 }
 
