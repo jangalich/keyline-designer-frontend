@@ -1,4 +1,5 @@
 import { GeoJSON, Pane, Polygon } from 'react-leaflet'
+import ProductionHatchPattern from './ProductionHatchPattern.jsx'
 import { offParcelScrimRings, readToken } from './geo.js'
 
 // Same lazy-cached token read DrawTool.jsx uses, and a SEPARATE copy of it on
@@ -18,8 +19,6 @@ function getLayerColors() {
     layerColors = {
       eligible: readToken('--eligible'),
       scrim: readToken('--scrim'),
-      zone: readToken('--oxide'),
-      halo: readToken('--halo'),
     }
   }
   return layerColors
@@ -51,16 +50,26 @@ const SCRIM_OPACITY = 0.55
 // the halo-casing rule DrawTool established for LINES.
 const ELIGIBLE_OPACITY = 0.32
 
-// Suggested zones are drawn as CONTOUR LINEWORK — a linear treatment, held
-// deliberately apart in kind from the highlight's tonal one so the two never
-// compete. The mid-century convention this follows: contours are line, ground
-// cover is area fill.
+// Suggested zones are drawn as DIAGONAL HATCH, with no outline and no fill of
+// their own. All three parts of that matter:
 //
-// Cased with --halo underneath, the same trick DrawTool uses and for the same
-// measured reason — no single colour clears 3:1 against the full range of a
-// single aerial frame, so the line is cased rather than recoloured.
-const ZONE_LINE_WEIGHT = 1.75
-const ZONE_CASING_WEIGHT = 3.5
+//   NO STROKE. A hard edge reads as a surveyed line — a parcel boundary, a
+//   fence, something someone measured and agreed. These are recommendations
+//   about what ground is worth working, and their edge is the least certain
+//   thing about them. The zone's extent is where the hatch stops.
+//
+//   NO FILL OF ITS OWN. Suggested ground IS eligible ground; a second fill
+//   would imply a category that does not exist, and two translucent fills
+//   stacked would double the opacity exactly where the zones sit, making the
+//   suggestion read as MORE tinted rather than as differently marked. The
+//   eligible tint shows through from the pane below and stays one weight
+//   everywhere.
+//
+//   HATCH. Still the linear treatment against the highlight's tonal one, so
+//   the two never compete — but as texture across an area rather than as a
+//   line around one, which is what lets it have an extent without having a
+//   border. The paint comes from a <pattern> the CSS points the fill at; see
+//   ProductionHatchPattern.
 
 /**
  * ProductionZoneLayers
@@ -78,7 +87,7 @@ const ZONE_CASING_WEIGHT = 3.5
 function ProductionZoneLayers({ payload, boundaryPoints }) {
   if (!payload) return null
 
-  const { eligible: eligibleColor, scrim, zone, halo } = getLayerColors()
+  const { eligible: eligibleColor, scrim } = getLayerColors()
   const scrimRings = offParcelScrimRings(boundaryPoints)
   const zoneFeatures = payload.data?.suggested_zones?.features ?? []
   const eligibleUnion = payload.data?.eligible_union ?? null
@@ -130,34 +139,22 @@ function ProductionZoneLayers({ payload, boundaryPoints }) {
 
       {/* Suggested zones. One GeoJSON per feature rather than one for the
           whole collection: each zone stays a separately addressable layer,
-          which is what the next branch needs to make them selectable. Casing
-          first so it paints underneath — within one pane, later elements draw
-          on top. */}
+          which is what the next branch needs to make them selectable.
+
+          fill stays TRUE so Leaflet emits a fill attribute for App.css to
+          override with the pattern — fill: false would write fill="none",
+          which is a value rather than an absence and would leave nothing for
+          the stylesheet to replace. fillColor is never seen for the same
+          reason the rule exists: the stylesheet wins over the attribute. */}
       <Pane name="production-zones" style={{ zIndex: ZONE_PANE_Z }}>
-        {zoneFeatures.map((feature) => (
-          <GeoJSON
-            key={`zone-casing-${payload.id}-${feature.id}`}
-            data={feature}
-            style={{
-              color: halo,
-              weight: ZONE_CASING_WEIGHT,
-              fill: false,
-              interactive: false,
-            }}
-          />
-        ))}
         {zoneFeatures.map((feature) => (
           <GeoJSON
             key={`zone-${payload.id}-${feature.id}`}
             data={feature}
-            style={{
-              color: zone,
-              weight: ZONE_LINE_WEIGHT,
-              fill: false,
-              interactive: false,
-            }}
+            style={{ stroke: false, fill: true, interactive: false }}
           />
         ))}
+        <ProductionHatchPattern payload={payload} />
       </Pane>
     </>
   )
