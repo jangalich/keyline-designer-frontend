@@ -199,3 +199,175 @@ export function offParcelScrimRings(points) {
     points,
   ]
 }
+
+/**
+ * Index of the already-placed vertex a click landed on, or -1.
+ *
+ * EXTRACTED FROM DrawTool, which still calls it and behaves identically. The
+ * zone tool needs the same gesture — the same threshold, the same "landing on
+ * a vertex means close-the-ring or do nothing, never place a duplicate" rule —
+ * and two components sharing one pure function is the whole of what they need
+ * to share. Generalising the COMPONENT would have meant parameterising its
+ * colours (a module-level memo), its pane, and whether its vertices are
+ * draggable, on the one tool the existing boundary → report path depends on.
+ *
+ * Pixel-space, not degrees: `project` is the caller's map projection, so the
+ * gesture behaves the same at every zoom. A metre threshold would be unusably
+ * tight zoomed out and sloppy zoomed in.
+ */
+export function vertexAtPixel(clickPoint, points, project, radiusPx) {
+  const clickPixel = project(clickPoint)
+  for (let i = 0; i < points.length; i++) {
+    const vertexPixel = project(points[i])
+    const dx = clickPixel.x - vertexPixel.x
+    const dy = clickPixel.y - vertexPixel.y
+    if (Math.sqrt(dx * dx + dy * dy) <= radiusPx) return i
+  }
+  return -1
+}
+
+/* --- GeoJSON interop -------------------------------------------------------
+
+   Everything above this line works in [latitude, longitude] — Leaflet's order,
+   and the order every drawing tool in this app uses. Everything the backend
+   sends, and everything polygon-clipping returns, is GeoJSON [longitude,
+   latitude]. These four functions are the only places the two meet, so the
+   swap happens once per direction instead of at every call site.
+   --------------------------------------------------------------------------- */
+
+/** A ring of [lat, lng] points as a closed GeoJSON ring of [lng, lat]. */
+export function ringToGeoJSON(points) {
+  const ring = points.map(([lat, lng]) => [lng, lat])
+  ring.push(ring[0])
+  return ring
+}
+
+/** A GeoJSON ring of [lng, lat] as [lat, lng] points, closing coordinate
+ *  dropped — Leaflet closes a Polygon implicitly and a duplicate final point
+ *  renders a zero-length segment. */
+export function ringFromGeoJSON(ring) {
+  const points = ring.map(([lng, lat]) => [lat, lng])
+  const [firstLat, firstLng] = points[0]
+  const [lastLat, lastLng] = points[points.length - 1]
+  if (firstLat === lastLat && firstLng === lastLng) points.pop()
+  return points
+}
+
+/** Any GeoJSON Polygon or MultiPolygon geometry as polygon-clipping's own
+ *  shape: an array of polygons, each an array of rings. A Polygon is wrapped
+ *  rather than special-cased at every call site — the eligible union arrives
+ *  as either type depending on whether the parcel's eligible ground happens to
+ *  be one connected region. */
+export function toMultiPolygon(geometry) {
+  if (!geometry) return []
+  return geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates
+}
+
+/** polygon-clipping output as Leaflet positions: one [lat, lng] ring list per
+ *  polygon, holes included as later rings — which is exactly how Leaflet's
+ *  Polygon reads a positions array. */
+export function multiPolygonToLatLngs(multi) {
+  return multi.map((polygon) => polygon.map(ringFromGeoJSON))
+}
+
+/**
+ * Area in acres of a polygon-clipping MultiPolygon, WITH INTERIOR RINGS
+ * SUBTRACTED.
+ *
+ * A separate function from polygonAreaAcres() above rather than a widening of
+ * it, and the difference is not cosmetic: that one takes a single [lat, lng]
+ * ring and shoelaces it, with no concept of a hole. Every geometry on this
+ * path can have holes — the slope exclusion layer carries twelve — so an
+ * intersection against it measured by the old helper would report the hole's
+ * ground as excluded when the gate had already cleared it.
+ *
+ * Same longitude-scaled planar frame and the same reasoning: this is a live
+ * readout while someone is still placing vertices, so it has to be instant,
+ * and the backend recomputes properly in UTM for anything that is committed.
+ */
+export function multiPolygonAreaAcres(multi) {
+  if (!multi.length) return 0
+
+  // One scale for the whole geometry, taken from the first ring's mean
+  // latitude. Mixing scales between a polygon and its own hole would subtract
+  // an area measured in a different frame from the one it sits inside.
+  const first = multi[0][0]
+  const scale = longitudeScale(
+    first.reduce((sum, [, lat]) => sum + lat, 0) / first.length
+  )
+
+  let squareDegrees = 0
+  for (const polygon of multi) {
+    for (let r = 0; r < polygon.length; r++) {
+      const ring = polygon[r]
+      let doubleArea = 0
+      for (let i = 0; i < ring.length; i++) {
+        const [lng1, lat1] = ring[i]
+        const [lng2, lat2] = ring[(i + 1) % ring.length]
+        doubleArea += lat1 * (lng2 * scale) - lat2 * (lng1 * scale)
+      }
+      // Ring 0 is the exterior, every later ring is a hole.
+      squareDegrees += (r === 0 ? 1 : -1) * Math.abs(doubleArea) / 2
+    }
+  }
+
+  const squareMetres =
+    squareDegrees * METRES_PER_DEGREE_LATITUDE * METRES_PER_DEGREE_LONGITUDE_AT_EQUATOR
+  return squareMetres / SQUARE_METRES_PER_ACRE
+}
+
+/**
+ * A point to hang a caution icon on: the area-weighted centroid of the largest
+ * piece of an intersection, as [lat, lng].
+ *
+ * THE LARGEST PIECE, not the whole intersection. An intersection with a cell
+ * staircase is often several disjoint slivers, and the centroid of the SET
+ * would land in the gap between them — pointing at ground the drawn zone does
+ * not cross, which is the one thing the icon's position is there to avoid.
+ *
+ * A shoelace centroid can fall outside a sufficiently concave ring. Left as
+ * is: these pieces are blobby cell unions rather than crescents, and the icon
+ * is a location hint rather than a measurement.
+ */
+export function largestPieceCentroid(multi) {
+  if (!multi.length) return null
+
+  let best = null
+  let bestArea = -Infinity
+  for (const polygon of multi) {
+    const ring = polygon[0]
+    let doubleArea = 0
+    for (let i = 0; i < ring.length; i++) {
+      const [x1, y1] = ring[i]
+      const [x2, y2] = ring[(i + 1) % ring.length]
+      doubleArea += x1 * y2 - x2 * y1
+    }
+    const area = Math.abs(doubleArea) / 2
+    if (area > bestArea) {
+      bestArea = area
+      best = ring
+    }
+  }
+
+  let doubleArea = 0
+  let cx = 0
+  let cy = 0
+  for (let i = 0; i < best.length; i++) {
+    const [x1, y1] = best[i]
+    const [x2, y2] = best[(i + 1) % best.length]
+    const cross = x1 * y2 - x2 * y1
+    doubleArea += cross
+    cx += (x1 + x2) * cross
+    cy += (y1 + y2) * cross
+  }
+
+  // A degenerate ring (every vertex collinear) has zero area and no defined
+  // centroid; the vertex mean is the sensible stand-in.
+  if (doubleArea === 0) {
+    const mx = best.reduce((s, [x]) => s + x, 0) / best.length
+    const my = best.reduce((s, [, y]) => s + y, 0) / best.length
+    return [my, mx]
+  }
+
+  return [cy / (3 * doubleArea), cx / (3 * doubleArea)]
+}

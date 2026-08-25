@@ -613,6 +613,50 @@
   fill-opacity: 1;
 }
 
+/* A DESELECTED suggestion drops its hatch entirely — the hatch means "this is
+   ground to work", and a declined suggestion is not that. What is left is the
+   dotted edge set on the path itself.
+
+   pointer-events: all is what keeps it clickable. With no fill, an SVG path's
+   default visiblePainted hit region is the stroke alone, and the stroke here is
+   a 1 px dotted line — reselecting would mean hitting a dashed hairline. This
+   restores the interior as a target without painting anything into it. */
+.leaflet-production-zones-pane path.zone--deselected {
+  fill: none;
+  pointer-events: all;
+}
+
+/* A caution marker. Small, fixed screen size, and deliberately not a colour
+   the rest of the map uses for anything else — it is the only element on this
+   surface that reports a problem. --alert is that colour; --halo rings it for
+   the same reason every other marker here is ringed, so it survives whatever
+   the imagery underneath is doing.
+
+   pointer-events off: it sits over the map while a zone is being drawn and
+   must never swallow a click meant to place the next vertex. */
+.caution-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--alert);
+  color: var(--halo);
+  border: 2px solid var(--halo);
+  border-radius: 50%;
+  box-shadow: var(--shadow-marker);
+  font-family: var(--font-data);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* A drawn zone keeps the hatch and adds an outline — see ProductionDrawnZones
+   for why that is the rule rather than an exception to it. */
+.leaflet-production-drawn-pane path.zone--drawn {
+  fill: url(#production-hatch);
+  fill-opacity: 1;
+}
+
 /* Eligible highlight: a feathered edge, so it reads as suitability falling
    off rather than as a line someone drew.
 
@@ -790,6 +834,113 @@
   margin-bottom: var(--space-2);
 }
 
+/* Cautions, and the drawn-zone list they hang off. Both use the list-owns-the-
+   grid, row-is-display-contents pattern the zone list documents: one grid for
+   the whole list so every row shares the same tracks, because a grid per row
+   sizes independently and the decimals drift. minmax(<ch>, max-content) again,
+   for the floor that holds the decimal still and the ceiling that lets an
+   over-long figure push its neighbour right instead of printing over it. */
+.caution-list {
+  display: grid;
+  grid-template-columns: minmax(5ch, max-content) auto;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+  margin: var(--space-1) 0 0 0;
+  padding: 0 0 0 var(--space-3);
+  list-style: none;
+  border-left: 2px solid var(--alert);
+}
+
+/* The in-progress polygon's cautions sit a step out from the committed ones —
+   same treatment, but they are about something not yet decided. */
+.caution-list--live {
+  margin-top: var(--space-2);
+}
+
+.caution-line {
+  display: contents;
+}
+
+.caution-line__value {
+  color: var(--ink);
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.caution-line__label {
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.drawn-list {
+  display: grid;
+  grid-template-columns: minmax(5ch, max-content) auto max-content;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drawn-list__row {
+  display: contents;
+}
+
+.drawn-list__value {
+  color: var(--ink);
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.drawn-list__label {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
+/* A caution list nested under a drawn zone spans the row's full width rather
+   than sitting in one of its three tracks. */
+.drawn-list__row .caution-list {
+  grid-column: 1 / -1;
+  margin-bottom: var(--space-2);
+}
+
+.drawing-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* Said once, after a clamp actually removed something. Muted: it reports what
+   the tool did, it does not ask for anything. */
+.clamp-notice {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+/* ADVISORY, never blocking. Carries the caveat block's left rule so it reads
+   as the same class of statement — something true about the state that the
+   user is free to proceed past — but in --ochre rather than --alert, because
+   nothing here is wrong. */
+.ceiling-advisory {
+  border-left: 2px solid var(--ochre);
+  padding-left: var(--space-3);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+/* A deselected suggestion stays in the list at full legibility — it is still a
+   real recommendation with real figures, and the row has to stay readable to
+   be worth reconsidering. Only the note line says it is off. */
+.zone-list__row--off .zone-list__value {
+  color: var(--ink-muted);
+}
+
 .zone-error {
   display: flex;
   flex-direction: column;
@@ -835,6 +986,24 @@
   background: transparent;
   color: var(--oxide-deep);
   border-color: var(--oxide-deep);
+}
+
+/* A third button weight, quieter than --secondary: this one sits inside a list
+   row and repeats per zone, so at secondary weight a column of them would read
+   as the most important thing in the panel. Borderless, and it earns its hit
+   area from padding rather than from a box. */
+.button--quiet {
+  padding: var(--space-1) var(--space-2);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--oxide);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.button--quiet:hover {
+  border-color: var(--rule);
 }
 
 /* Higher specificity than .button--secondary, so a disabled secondary reads

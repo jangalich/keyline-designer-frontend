@@ -1,6 +1,6 @@
 import { useMapEvents, useMap, Marker, Polygon, Polyline } from 'react-leaflet'
 import L from 'leaflet'
-import { readToken } from './geo.js'
+import { readToken, vertexAtPixel } from './geo.js'
 
 // A small circular marker for each boundary point — simpler and more
 // reliable than Leaflet's default marker icon, which often has loading
@@ -116,16 +116,21 @@ function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBounda
       if (!isDrawing) return
 
       if (points.length > 0) {
-        const clickPixel = map.latLngToContainerPoint(e.latlng)
+        // The hit test moved to geo.js so the zone tool can share the gesture
+        // without sharing this component. Same threshold, same rule, same
+        // behaviour — see vertexAtPixel().
+        const hit = vertexAtPixel(
+          [e.latlng.lat, e.latlng.lng],
+          points,
+          (point) => map.latLngToContainerPoint(L.latLng(point[0], point[1])),
+          VERTEX_HIT_RADIUS_PX
+        )
 
-        for (let i = 0; i < points.length; i++) {
-          const vertexPixel = map.latLngToContainerPoint(L.latLng(points[i][0], points[i][1]))
-          if (clickPixel.distanceTo(vertexPixel) > VERTEX_HIT_RADIUS_PX) continue
-
+        if (hit !== -1) {
           // The first vertex closes the ring, but only once there is a ring
           // to close. Every other vertex — and the first one before three
           // points exist — swallows the click.
-          if (i === 0 && points.length >= 3) onCloseBoundary()
+          if (hit === 0 && points.length >= 3) onCloseBoundary()
           return
         }
       }
@@ -152,7 +157,22 @@ function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBounda
             positions={points}
             pathOptions={{ color: halo, weight: CASING_WEIGHT, fill: false, interactive: false }}
           />
-          <Polygon positions={points} pathOptions={{ color: field, weight: LINE_WEIGHT }} />
+          {/* interactive: false — the ONE change this branch makes to the
+              boundary flow, and it changes no boundary behaviour.
+
+              This polygon carries no click handler; dragging is handled by
+              the vertex markers, which are separate layers. What it did carry
+              was a FILL spanning the whole parcel, in Leaflet's overlayPane at
+              z 400 — above every production layer. Any click inside the
+              parcel hit this path first, so a suggested zone at z 370 could
+              never receive one and selection was unreachable.
+
+              Left interactive on the casing already; this brings the two into
+              line rather than introducing a new convention. */}
+          <Polygon
+            positions={points}
+            pathOptions={{ color: field, weight: LINE_WEIGHT, interactive: false }}
+          />
         </>
       )}
 

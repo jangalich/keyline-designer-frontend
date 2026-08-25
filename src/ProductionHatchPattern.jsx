@@ -32,9 +32,13 @@ const HATCH_STROKE_PX = 1
  * then pointed at it by CSS (App.css), which wins over the fill ATTRIBUTE
  * Leaflet sets because a stylesheet rule beats a presentation attribute.
  *
- * WHY IT WAITS. Leaflet creates a pane's <svg> lazily, when the first vector
- * layer is added to it. There is nothing to inject into until the zone layers
- * have mounted, so this runs on every payload change rather than once.
+ * WHERE IT LIVES. In its own hidden <svg> attached to the map container, NOT
+ * inside a Leaflet pane's own <svg>. Two reasons, both learned the hard way:
+ * Leaflet creates and destroys a pane's <svg> as layers come and go, so a
+ * pattern injected there disappears the moment the last suggested zone is
+ * deselected; and two different panes now reference it — suggested zones at
+ * 370 and drawn zones at 380 — so it cannot belong to either. url(#id)
+ * resolves document-wide, so one host serves both.
  *
  * PATTERN UNITS. userSpaceOnUse, deliberately. Leaflet's path coordinates are
  * pixels at the current zoom, so a pattern measured in user units is a pattern
@@ -51,24 +55,21 @@ function ProductionHatchPattern({ payload }) {
   const map = useMap()
 
   useEffect(() => {
-    const pane = map.getPane('production-zones')
-    if (!pane) return
-
-    const svg = pane.querySelector('svg')
-    if (!svg) return
+    const container = map.getContainer()
+    if (!container) return
 
     const svgNS = 'http://www.w3.org/2000/svg'
-    let defs = svg.querySelector('defs')
-    if (!defs) {
-      defs = document.createElementNS(svgNS, 'defs')
-      svg.insertBefore(defs, svg.firstChild)
-    }
+    const host = document.createElementNS(svgNS, 'svg')
+    // Present in the document so the paint server resolves, and occupying no
+    // space and catching no clicks so it is otherwise not there at all.
+    host.setAttribute('width', '0')
+    host.setAttribute('height', '0')
+    host.setAttribute('aria-hidden', 'true')
+    host.style.position = 'absolute'
+    host.style.pointerEvents = 'none'
 
-    // Leaflet tears its own <svg> down and rebuilds it as layers come and go,
-    // so the pattern is replaced rather than added to — otherwise a redraw
-    // leaves a stale one behind under the same id and the first match wins.
-    const existing = defs.querySelector(`#${HATCH_PATTERN_ID}`)
-    if (existing) existing.remove()
+    const defs = document.createElementNS(svgNS, 'defs')
+    host.appendChild(defs)
 
     const pattern = document.createElementNS(svgNS, 'pattern')
     pattern.setAttribute('id', HATCH_PATTERN_ID)
@@ -92,8 +93,9 @@ function ProductionHatchPattern({ payload }) {
     line.setAttribute('fill', 'none')
     pattern.appendChild(line)
     defs.appendChild(pattern)
+    container.appendChild(host)
 
-    return () => pattern.remove()
+    return () => host.remove()
   }, [map, payload])
 
   return null

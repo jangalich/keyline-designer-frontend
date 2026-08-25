@@ -19,6 +19,7 @@ function getLayerColors() {
     layerColors = {
       eligible: readToken('--eligible'),
       scrim: readToken('--scrim'),
+      zoneStroke: readToken('--oxide'),
     }
   }
   return layerColors
@@ -34,6 +35,12 @@ function getLayerColors() {
 //
 // Raising these above 400 instead would have put the highlight over the
 // boundary line and required reaching into DrawTool to lift it back.
+// A declined suggestion still has to be findable and clickable, so it keeps a
+// mark — but a faint one. Dotted rather than dashed: a dot carries no
+// direction, which is right for an edge that is no longer asserting anything.
+const DESELECTED_DASH = '1,4'
+const DESELECTED_STROKE_OPACITY = 0.55
+
 const SCRIM_PANE_Z = 350
 const ELIGIBLE_PANE_Z = 360
 const ZONE_PANE_Z = 370
@@ -84,10 +91,16 @@ const ELIGIBLE_OPACITY = 0.32
  * drawing crossed, and drawing all five at once would say five things where
  * the highlight already says the one that matters.
  */
-function ProductionZoneLayers({ payload, boundaryPoints }) {
+function ProductionZoneLayers({
+  payload,
+  boundaryPoints,
+  deselectedIds,
+  onToggleZone,
+  selectionEnabled,
+}) {
   if (!payload) return null
 
-  const { eligible: eligibleColor, scrim } = getLayerColors()
+  const { eligible: eligibleColor, scrim, zoneStroke } = getLayerColors()
   const scrimRings = offParcelScrimRings(boundaryPoints)
   const zoneFeatures = payload.data?.suggested_zones?.features ?? []
   const eligibleUnion = payload.data?.eligible_union ?? null
@@ -147,13 +160,48 @@ function ProductionZoneLayers({ payload, boundaryPoints }) {
           the stylesheet to replace. fillColor is never seen for the same
           reason the rule exists: the stylesheet wins over the attribute. */}
       <Pane name="production-zones" style={{ zIndex: ZONE_PANE_Z }}>
-        {zoneFeatures.map((feature) => (
-          <GeoJSON
-            key={`zone-${payload.id}-${feature.id}`}
-            data={feature}
-            style={{ stroke: false, fill: true, interactive: false }}
-          />
-        ))}
+        {zoneFeatures.map((feature) => {
+          const deselected = deselectedIds.has(feature.id)
+          return (
+            <GeoJSON
+              // The key carries the selection state as well as the payload, so
+              // a toggle remounts the layer. react-leaflet 4.2.1's GeoJSON
+              // only diffs `style` and ignores everything else on update, and
+              // the two states differ in more than style.
+              key={`zone-${payload.id}-${feature.id}-${deselected ? 'off' : 'on'}`}
+              data={feature}
+              style={
+                deselected
+                  ? {
+                      // A DELIBERATE EXCEPTION to this branch's no-outline
+                      // rule. That rule exists because a hard edge reads as a
+                      // surveyed line, and a suggestion's edge is the least
+                      // certain thing about it. A DECLINED suggestion is not
+                      // making that claim at all — it marks absence, and
+                      // absence needs its own vocabulary rather than a
+                      // quieter version of presence. Dotted, faint, no fill.
+                      stroke: true,
+                      color: zoneStroke,
+                      weight: 1,
+                      opacity: DESELECTED_STROKE_OPACITY,
+                      dashArray: DESELECTED_DASH,
+                      fill: false,
+                      className: 'zone--deselected',
+                      interactive: selectionEnabled,
+                    }
+                  : {
+                      stroke: false,
+                      fill: true,
+                      className: 'zone--selected',
+                      interactive: selectionEnabled,
+                    }
+              }
+              eventHandlers={
+                selectionEnabled ? { click: () => onToggleZone(feature.id) } : {}
+              }
+            />
+          )
+        })}
         <ProductionHatchPattern payload={payload} />
       </Pane>
     </>

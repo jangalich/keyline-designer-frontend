@@ -43,6 +43,14 @@ const UNAVAILABLE_CONSEQUENCE = {
 // drifted.
 const MEASURE_DP = 1
 
+// Past this share of the parcel, the panel says so. ADVISORY ONLY, never
+// blocking: the 80% figure was always a design judgment about leaving room for
+// water, roads and trees, and having handed that judgment to the user — the
+// same reasoning that made the parcel boundary the only hard gate — taking it
+// back at the gate would be incoherent. It is the same number the backend's
+// own ceiling trims toward, named here so the two cannot drift apart silently.
+const CEILING_ADVISORY_PCT = 80
+
 /**
  * A measured value at fixed width, or an em dash where the pipeline sent
  * null. null means "not known" throughout this contract and must never be
@@ -85,7 +93,38 @@ function scoreBandName(score, scales) {
   return null
 }
 
-function ProductionZonePanel({ payload, isLoading, error, onRetry, onBack }) {
+/**
+ * One caution line: the acreage, then the layer's own label verbatim.
+ *
+ * A sub-floor intersection never reaches here — cautionsFor() drops it, and
+ * with it the map marker, so the two stay consistent. See CAUTION_MIN_ACRES
+ * for the reasoning and for what that silence costs.
+ */
+function CautionLine({ caution }) {
+  return (
+    <li className="caution-line">
+      <span className="caution-line__value">{measure(caution.acres)}</span>
+      <span className="caution-line__label">acres — {caution.label}</span>
+    </li>
+  )
+}
+
+function ProductionZonePanel({
+  payload,
+  isLoading,
+  error,
+  onRetry,
+  onBack,
+  deselectedIds,
+  drawnZones,
+  liveCautions,
+  totals,
+  isDrawingZone,
+  onStartDrawZone,
+  onCancelDrawZone,
+  onDeleteDrawnZone,
+  clampNotice,
+}) {
   if (isLoading) {
     return (
       <p className="status-loading">
@@ -139,15 +178,25 @@ function ProductionZonePanel({ payload, isLoading, error, onRetry, onBack }) {
 
   return (
     <div className="zone-readout">
+      {/* Running totals, not the payload's own figures. What is SELECTED
+          changes as suggestions are toggled and zones are drawn, so the
+          numbers have to be recomputed from the current selection rather than
+          read off the recommendation the backend sent. eligible_acres is the
+          exception — it describes the ground, not the choice. */}
       <div className="zone-summary">
-        <span className="zone-summary__value">{measure(summary.selected_acres)}</span>
-        <span className="zone-summary__label">acres suggested</span>
+        <span className="zone-summary__value">{measure(totals.selectedAcres)}</span>
+        <span className="zone-summary__label">acres selected</span>
 
         <span className="zone-summary__value">{measure(summary.eligible_acres)}</span>
         <span className="zone-summary__label">acres eligible</span>
 
-        <span className="zone-summary__value">{measure(summary.selected_pct_of_parcel)}</span>
+        <span className="zone-summary__value">{measure(totals.pctOfParcel)}</span>
         <span className="zone-summary__label">% of parcel</span>
+
+        <span className="zone-summary__value">{totals.zoneCount}</span>
+        <span className="zone-summary__label">
+          zone{totals.zoneCount === 1 ? '' : 's'}
+        </span>
       </div>
 
       {unavailable.length > 0 && (
@@ -185,8 +234,14 @@ function ProductionZonePanel({ payload, isLoading, error, onRetry, onBack }) {
             </li>
             {zones.map((zone) => {
               const band = scoreBandName(zone.score, scales)
+              const deselected = deselectedIds.has(`production-area-${zone.id}`)
               return (
-                <li key={zone.id} className="zone-list__row">
+                <li
+                  key={zone.id}
+                  className={
+                    deselected ? 'zone-list__row zone-list__row--off' : 'zone-list__row'
+                  }
+                >
                   <span className="zone-list__value">{zone.rank}</span>
                   <span className="zone-list__value">{measure(zone.area_acres)}</span>
                   <span className="zone-list__value">{measure(zone.score)}</span>
@@ -198,6 +253,7 @@ function ProductionZonePanel({ payload, isLoading, error, onRetry, onBack }) {
                   <span className="zone-list__dash" aria-hidden="true">–</span>
                   <span className="zone-list__value">{measure(zone.slope_max_pct)}</span>
                   <span className="zone-list__note">
+                    {deselected ? 'not selected · ' : ''}
                     {band}
                     {/* aspect_available false means the ground is too flat for
                         a well-defined downhill direction, and the pipeline's
@@ -215,10 +271,75 @@ function ProductionZonePanel({ payload, isLoading, error, onRetry, onBack }) {
         </>
       )}
 
+      {/* Drawn zones: listed separately from suggestions because the two carry
+          different verbs. A suggestion is DESELECTED and stays on the map; a
+          drawn zone is DELETED and does not. Keeping each verb attached to one
+          kind of object is what stops "removed" meaning two things. */}
+      {drawnZones.length > 0 && (
+        <ol className="drawn-list">
+          {drawnZones.map((zone, index) => (
+            <li key={zone.id} className="drawn-list__row">
+              <span className="drawn-list__value">{measure(zone.acres)}</span>
+              <span className="drawn-list__label">
+                acres — zone {index + 1} you drew
+              </span>
+              <button
+                className="button button--quiet"
+                onClick={() => onDeleteDrawnZone(zone.id)}
+              >
+                Delete
+              </button>
+              {zone.cautions.length > 0 && (
+                <ul className="caution-list">
+                  {zone.cautions.map((caution) => (
+                    <CautionLine key={caution.type} caution={caution} />
+                  ))}
+                </ul>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {/* The in-progress polygon's own cautions, recomputed on each vertex
+          placed once there are three. Not on mousemove — this tool places
+          points on click and there is no rubber band to follow. */}
+      {isDrawingZone && (
+        <div className="drawing-state">
+          <p className="status-ready">
+            Click to place each corner. Click the first corner again to close.
+          </p>
+          {liveCautions.length > 0 && (
+            <ul className="caution-list caution-list--live">
+              {liveCautions.map((caution) => (
+                <CautionLine key={caution.type} caution={caution} />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {clampNotice && <p className="clamp-notice">{clampNotice}</p>}
+
+      {totals.pctOfParcel > CEILING_ADVISORY_PCT && (
+        <p className="ceiling-advisory">
+          Selecting this much leaves little room for water, roads, and trees.
+        </p>
+      )}
+
       <div className="button-row">
         <button className="button button--secondary" onClick={onBack}>
           Back
         </button>
+        {isDrawingZone ? (
+          <button className="button button--secondary" onClick={onCancelDrawZone}>
+            Cancel
+          </button>
+        ) : (
+          <button className="button" onClick={onStartDrawZone}>
+            Draw a Zone
+          </button>
+        )}
       </div>
     </div>
   )
