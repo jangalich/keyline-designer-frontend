@@ -40,12 +40,17 @@ import {
   COMMITTED,
   GENERATED,
   NOT_STARTED,
+  PROVENANCE_USER_ADDED,
   selectBaseRevision,
   selectDraft,
+  selectDraftIsTouched,
   selectFailedLayer,
+  selectHasDraft,
   selectJobForStep,
   selectStepError,
+  selectStepFeatures,
   selectStepProposals,
+  selectStepProvenance,
   selectStepRejections,
   selectStepsResetByReopen,
   useSession,
@@ -80,12 +85,24 @@ export const MACHINE_STATES = Object.freeze([
  * a cascade reset it, a hydration discarded it -- takes the panel back to
  * `reviewing` with no event needed.
  */
-function draftHasWork(draft) {
-  return (
-    draft.selectedFeatureIds.length > 0 ||
-    draft.drawnFeatures.length > 0 ||
-    Object.keys(draft.inputs).length > 0
-  )
+function draftHasWork(state, stepId) {
+  // THE QUESTION IS "HAS THE USER TOUCHED IT", NOT "IS THERE ANYTHING IN IT",
+  // and those two stopped being the same answer the moment selection was held
+  // as a SELECTED set.
+  //
+  // It used to count the draft's contents, which was right while an empty
+  // draft meant an untouched one. It no longer does, in both directions: the
+  // seed fills a draft nobody has touched (SessionStore's DRAFT_SEEDED), and
+  // deselecting every proposal EMPTIES a draft the user has worked hard on --
+  // and that second case is the one that matters, because "I have taken
+  // everything out" is precisely the state an empty commit records. Counting
+  // contents would send that panel back to `Review the proposals.` with the
+  // user's decision on screen and unacknowledged.
+  //
+  // `seeded` answers it directly: a draft exists only because the seed made
+  // one or the user did, and withDraft() clears the flag on every write that
+  // is not the seed. See selectDraftIsTouched.
+  return selectDraftIsTouched(state, stepId)
 }
 
 /**
@@ -116,6 +133,56 @@ export function deriveMachineState({ status, pending, isGenerating, hasProposals
   // was evicted while the user had already drawn something.
   if (hasDraftWork) return EDITING
   return IDLE
+}
+
+/**
+ * THE DRAFT A STEP OPENS WITH, from the server's own state and nothing else.
+ *
+ * TWO SOURCES, IN ORDER, AND THE ORDER IS THE WHOLE RULE:
+ *
+ *   1. THE DOCUMENT, when this step carries features. That is a REOPENED step
+ *      -- design_document.reopen_step() moves it back to `generated` keeping
+ *      its committed features as the editable starting point -- so the draft
+ *      opens on the decision the user last made, not on the recommendation
+ *      they edited away from. Selections come back by feature id (stable
+ *      across regenerates, asserted backend-side in test_step_commit.py
+ *      section 10) and drawn zones come back whole, since a regenerate has
+ *      nothing to say about geometry the user authored.
+ *
+ *   2. THE PROPOSALS otherwise: EVERY ONE SELECTED. This is the spike's
+ *      `deselectedIds` semantics, preserved through an inversion. The payload
+ *      IS the recommendation, so "all of it" is the correct starting point and
+ *      the user's gesture is to take things OUT. Seeding is what lets the
+ *      store hold that as a selected-set without the empty draft becoming
+ *      ambiguous.
+ *
+ * A SELECTED ID THE PAYLOAD NO LONGER CARRIES IS DROPPED, and dropped
+ * silently only because the backend asserts it cannot happen: proposal ids are
+ * stable across regenerates, including across a cache eviction and rebuild.
+ * step_orchestrator.restore_step_state() reports the same set as
+ * `missing_feature_ids` for the same reason.
+ */
+export function seedFor(state, definition, proposalFeatures) {
+  const stepId = definition.id
+  const committed = selectStepFeatures(state, stepId)
+  const provenance = selectStepProvenance(state, stepId) ?? {}
+  const committedFeatures = Array.isArray(committed?.features) ? committed.features : []
+
+  if (committedFeatures.length) {
+    const proposed = new Set(proposalFeatures.map((feature) => feature.id))
+    const selectedFeatureIds = []
+    const drawnFeatures = []
+    for (const feature of committedFeatures) {
+      if (provenance[feature.id] === PROVENANCE_USER_ADDED) drawnFeatures.push(feature)
+      else if (proposed.has(feature.id)) selectedFeatureIds.push(feature.id)
+    }
+    return { selectedFeatureIds, drawnFeatures }
+  }
+
+  return {
+    selectedFeatureIds: proposalFeatures.map((feature) => feature.id),
+    drawnFeatures: [],
+  }
 }
 
 /**
@@ -159,12 +226,35 @@ export function useStepMachine(definition) {
     [definition, proposals]
   )
 
+  /**
+   * SEED THE DRAFT THE MOMENT PROPOSALS EXIST AND NO DRAFT DOES.
+   *
+   * An effect rather than a branch in the reducer, because the seed VALUE is
+   * the definition's (`proposalFeatures` names the payload's collection) and
+   * the reducer must not learn a payload shape. The reducer's own guard makes
+   * the write idempotent, so a re-render cannot overwrite a user's selection.
+   *
+   * NOT ON A COMMITTED STEP. Its draft was discarded by the commit, on
+   * purpose: the decision is in the document now, and a draft re-seeded behind
+   * a collapsed panel would put `Unsaved changes.` on a step that has none.
+   */
+  const hasDraft = selectHasDraft(state, stepId)
+  useEffect(() => {
+    if (proposals == null || hasDraft || status === COMMITTED) return
+    const seed = seedFor(state, definition, proposalFeatures)
+    actions.seedDraft(stepId, seed.selectedFeatureIds, seed.drawnFeatures)
+    // `state` is read for the seed but is not a trigger: the guards above are
+    // the trigger, and depending on the whole store would re-run this on every
+    // unrelated dispatch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposals, hasDraft, status, stepId, definition, proposalFeatures])
+
   const machineState = deriveMachineState({
     status,
     pending,
     isGenerating,
     hasProposals: proposals != null,
-    hasDraftWork: draftHasWork(draft),
+    hasDraftWork: draftHasWork(state, stepId),
   })
 
   // What a commit would carry, counted rather than assembled: the panel wants
@@ -222,6 +312,14 @@ export function useStepMachine(definition) {
     status !== COMMITTED &&
     machineState !== GENERATING &&
     machineState !== COMMITTING
+
+  // The commit button's own words. A function when the step's commit can mean
+  // more than one thing -- landform's empty commit renames the button rather
+  // than letting a decision go in unnamed.
+  const commitLabel =
+    typeof definition.commit.label === 'function'
+      ? definition.commit.label(context)
+      : definition.commit.label
 
   const commitBlockedReason = definition.commit.blockedReason?.(context) ?? null
   const canCommit =
@@ -325,6 +423,7 @@ export function useStepMachine(definition) {
     canGenerate,
     canCommit,
     canReopen,
+    commitLabel,
     commitBlockedReason,
     confirmingReopen,
     stepsResetByReopen,

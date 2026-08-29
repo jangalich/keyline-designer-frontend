@@ -29,6 +29,7 @@ import {
   DOCUMENT_HYDRATED,
   DRAFT_DISCARDED,
   DRAFT_INPUT_SET,
+  DRAFT_SEEDED,
   DRAFT_SELECTION_SET,
   DRAFT_SELECTION_TOGGLED,
   DRAFT_SHAPE_ADDED,
@@ -869,6 +870,12 @@ describe('9. no derived design content', () => {
       [STEP_PROPOSALS_CLEARED]: { type: STEP_PROPOSALS_CLEARED, stepId: 'water' },
       [STEP_ERROR_SET]: { type: STEP_ERROR_SET, stepId: 'water', error: { kind: 'rejected' } },
       [STEP_ERROR_CLEARED]: { type: STEP_ERROR_CLEARED, stepId: 'water' },
+      [DRAFT_SEEDED]: {
+        type: DRAFT_SEEDED,
+        stepId: 'water',
+        selectedFeatureIds: ['pond-1'],
+        drawnFeatures: [],
+      },
       [DRAFT_SELECTION_SET]: { type: DRAFT_SELECTION_SET, stepId: 'water', featureIds: ['pond-1'] },
       [DRAFT_SELECTION_TOGGLED]: { type: DRAFT_SELECTION_TOGGLED, stepId: 'water', featureId: 'pond-1' },
       [DRAFT_SHAPE_ADDED]: {

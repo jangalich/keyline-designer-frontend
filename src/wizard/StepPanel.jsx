@@ -59,6 +59,7 @@ export default function StepPanel({ definition, definitions, isActive, onActivat
     canGenerate,
     canCommit,
     canReopen,
+    commitLabel,
     commitBlockedReason,
     confirmingReopen,
     stepsResetByReopen,
@@ -220,7 +221,7 @@ export default function StepPanel({ definition, definitions, isActive, onActivat
                 onClick={commit}
                 title={commitBlockedReason ?? undefined}
               >
-                {definition.commit.label}
+                {commitLabel}
               </button>
             )}
           </div>

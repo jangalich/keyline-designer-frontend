@@ -96,7 +96,12 @@ function rendererFor(layer, tools) {
  * being tested is this component's, and the leaves it picks are the real
  * registry's by default.
  */
-export default function StepTools({ definition, layers, gestures = TOOL_GESTURES }) {
+export default function StepTools({
+  definition,
+  layers,
+  references = EMPTY_REFERENCES,
+  gestures = TOOL_GESTURES,
+}) {
   const { armed } = useWizardCursor()
   if (!definition) return null
 
@@ -180,11 +185,20 @@ export default function StepTools({ definition, layers, gestures = TOOL_GESTURES
           armed={isArmed}
           renders={renders}
           stepId={layer.stepId}
+          // The definition, so a gesture can read the step's own `shape`
+          // rules rather than carrying a copy of them (see DrawGesture), and
+          // the resolved reference layers those rules read. Both are the
+          // DECLARATION reaching the tool, which is the only channel by which
+          // a step tells a generic gesture anything.
+          definition={definition}
+          references={references}
         />
       ))}
     </>
   )
 }
+
+const EMPTY_REFERENCES = Object.freeze({})
 
 const ARMED_LINES = {
   select: 'Selecting: click a proposal to include or exclude it.',

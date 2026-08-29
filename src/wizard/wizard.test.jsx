@@ -118,9 +118,30 @@ function committed(revision, features) {
   }
 }
 
+/**
+ * The landform payload, in the shape assemble_production_zone_payload() ships
+ * it -- the six keys the panel and the map read, with the two representations
+ * of one set of zones (`zones` tabular, `suggested_zones` GeoJSON) joined by
+ * `feature_id`, which is the join the payload carries so the panel does not
+ * rebuild it with a format string.
+ */
 const LAYERS_PAYLOAD = {
+  eligible_union: null,
+  exclusion_layers: [
+    { type: 'slope', label: 'slope above 20.0%', data_available: true, geometry_wgs84: null },
+    { type: 'hydric', label: 'wet (hydric) soil', data_available: false, geometry_wgs84: null },
+  ],
   suggested_zones: featureCollection('zone-1', 'zone-2', 'zone-3'),
-  summary: { parcel_acres: 13.2 },
+  zones: [
+    { id: 0, feature_id: 'zone-1', rank: 1, area_acres: 2.5, score: 81.0, slope_min_pct: 2.0, slope_max_pct: 8.0, aspect_available: true, dominant_aspect: 'south' },
+    { id: 1, feature_id: 'zone-2', rank: 2, area_acres: 1.2, score: 64.0, slope_min_pct: 3.0, slope_max_pct: 11.0, aspect_available: false, dominant_aspect: null },
+    { id: 2, feature_id: 'zone-3', rank: 3, area_acres: 0.9, score: 51.0, slope_min_pct: 1.0, slope_max_pct: 6.0, aspect_available: true, dominant_aspect: 'east' },
+  ],
+  scales: {
+    bands: { poor: [0, 40], fair: [40, 60], good: [60, 80], excellent: [80, 100] },
+    band_bounds: 'lower_inclusive_upper_exclusive_last_band_inclusive',
+  },
+  summary: { total_acres: 13.2, eligible_acres: 7.5 },
 }
 
 /** step_orchestrator.run_generate_job()'s two-key result. */
@@ -458,7 +479,16 @@ describe('3. a generate hydrates both halves', () => {
     expect(ui.state.steps.landform.proposals).toEqual(LAYERS_PAYLOAD)
     expect(selectStepStatus(ui.state, 'landform')).toBe(GENERATED)
     expect(ui.stepState('landform')).toBe('reviewing')
-    expect(ui.text('landform-counts')).toContain('3 proposals')
+    // THE PANEL IS THE STEP'S OWN READOUT NOW, and it opens on the
+    // recommendation: three zones, all selected, 4.6 acres between them. That
+    // is the seeded draft (SessionStore's DRAFT_SEEDED) showing through --
+    // the payload IS the recommendation, so the empty gesture is to take
+    // things out.
+    expect(ui.text('landform-zone-count')).toBe('3')
+    expect(ui.text('landform-selected-acres')).toBe('4.6')
+    expect(new Set(ui.state.drafts.landform.selectedFeatureIds)).toEqual(
+      new Set(['zone-1', 'zone-2', 'zone-3'])
+    )
 
     await ui.unmount()
   })
@@ -794,35 +824,37 @@ describe('10. step order', () => {
 })
 
 /* ===========================================================================
-   11. The production-zone spike still functions
+   11. The production-zone spike is gone
    =========================================================================== */
 
-describe('11. the existing spike', () => {
-  it('still calls /api/production-zones, and the wizard does not touch it', async () => {
-    // IT STILL COMPILES AND STILL MOUNTS ITS OWN STATE. App.jsx is untouched
-    // by this branch; F4 migrates it. Importing it here is the cheap half of
-    // the check -- if the session or wizard work had broken one of its
+describe('11. the retired spike', () => {
+  it('leaves App.jsx compiling, with the wizard owning what it used to', async () => {
+    // IT STILL COMPILES AND STILL MOUNTS. Importing it is the cheap half of
+    // the check -- if deleting the spike's components had broken one of App's
     // imports, this line would fail.
     const App = (await import('../App.jsx')).default
     expect(typeof App).toBe('function')
 
     const appSource = readFileSync(path.join(HERE, '..', 'App.jsx'), 'utf8')
-    expect(appSource).toContain('/api/production-zones')
-    // It reaches the endpoint on its own, through its own fetch -- not through
-    // the session client, which has no such call.
-    expect(appSource).toContain('${API_URL}/api/production-zones')
-    // AND IT NOW MOUNTS THE WIZARD, which F2 asserted it did not. That
-    // inversion is this branch: the wizard is rendered in the sidebar column
-    // and the map stack replaces App's own DrawTool, so the two share one
-    // store, one boundary ring and one arming slot. What has NOT changed is
-    // the direction of the dependency below -- App reaches for the wizard, no
-    // wizard module reaches for the spike's endpoint.
+
+    // THE ENDPOINT IS GONE FROM THE PAGE. Assembled rather than written out,
+    // so this file is not itself a hit for the tree-wide sweep in
+    // map.test.jsx's section 8.
+    const SPIKE_ENDPOINT = '/api/' + 'production' + '-zones'
+    expect(appSource).not.toContain(SPIKE_ENDPOINT)
+    // And it never was on the session surface.
+    const client = readFileSync(path.join(HERE, '..', 'session', 'apiClient.js'), 'utf8')
+    expect(client).not.toContain(SPIKE_ENDPOINT)
+
+    // WHAT APP STILL MOUNTS is the wizard and the map stack, and what it still
+    // OWNS is the PDF path -- a different flow off the same boundary, which
+    // reads neither the session nor the Design Document.
     expect(appSource).toMatch(/from '\.\/wizard\/WizardShell\.jsx'/)
     expect(appSource).toMatch(/from '\.\/map\/MapLayerStack\.jsx'/)
+    expect(appSource).toContain('/api/generate-report-pdf')
 
-    // No wizard module CALLS it. stepDefinitions.js names it in prose --
-    // LANDFORM_STEP's docstring is where the migration is recorded -- and
-    // that is the file explaining itself, not reaching for the endpoint.
+    // AND THE DIRECTION OF THE DEPENDENCY IS UNCHANGED: App reaches for the
+    // wizard, and no wizard module reaches back into the page.
     for (const file of [
       'stepDefinitions.js',
       'useStepMachine.js',
@@ -834,11 +866,34 @@ describe('11. the existing spike', () => {
       path.join('..', 'map', 'layerStack.js'),
       path.join('..', 'map', 'StepTools.jsx'),
     ]) {
-      expect(codeOf(file)).not.toContain('/api/production-zones')
+      expect(codeOf(file)).not.toContain("from '../App.jsx'")
+      expect(codeOf(file)).not.toContain(SPIKE_ENDPOINT)
+    }
+  })
+
+  it('keeps the three files the spike existed to preserve', async () => {
+    // The pure geometry, the gesture and the hatch. These were the parts the
+    // spike was built so that a migration would not have to rewrite, and the
+    // landform step imports them from where they always were.
+    const geometry = await import('../zoneGeometry.js')
+    expect(typeof geometry.clampToBoundary).toBe('function')
+    expect(typeof geometry.cautionsFor).toBe('function')
+    expect(typeof geometry.assertSuggestedZonesAreClean).toBe('function')
+    expect(geometry.CAUTION_MIN_ACRES).toBe(0.05)
+
+    const geo = await import('../geo.js')
+    // The four GeoJSON interop functions -- the only place [lat, lng] and
+    // [lng, lat] meet.
+    for (const name of [
+      'ringToGeoJSON',
+      'ringFromGeoJSON',
+      'toMultiPolygon',
+      'multiPolygonToLatLngs',
+    ]) {
+      expect(typeof geo[name]).toBe('function')
     }
 
-    // The spike's endpoint is not on the session surface at all.
-    const client = readFileSync(path.join(HERE, '..', 'session', 'apiClient.js'), 'utf8')
-    expect(client).not.toContain('/api/production-zones')
+    expect(typeof (await import('../ZoneDrawTool.jsx')).default).toBe('function')
+    expect(typeof (await import('../ProductionHatchPattern.jsx')).default).toBe('function')
   })
 })

@@ -76,6 +76,19 @@
  *                      (defaultProposalFeatures) and takes it as a prop; the
  *                      registry is what fills it in.
  *
+ *   shape              null, or {live(context), close(context)}. HOW THIS
+ *                      STEP READS A SHAPE THE USER DRAWS -- what it clamps it
+ *                      to, what it warns about, and what Feature it becomes.
+ *                      Null means the generic behaviour: the ring as drawn,
+ *                      unclamped, uncautioned. See LANDFORM_SHAPE.
+ *
+ *                      IT IS THE STEP'S BECAUSE THE GEOMETRY IS. Clamping to
+ *                      the parcel and clipping against exclusion gates are
+ *                      readings of THIS step's payload against THIS step's
+ *                      rules; a copy of them in DrawGesture, applied to every
+ *                      step's drawing on a guess at when they apply, is
+ *                      exactly what F3 declined to write.
+ *
  *   Panel              The step's own body, rendered inside the shared frame.
  *                      Everything generic -- the state, the buttons, the
  *                      errors, the collapse -- belongs to the frame, and a
@@ -95,12 +108,20 @@
  *      tiers. The stack would have had to know that 'eligible_union' means
  *      context, which is a table of step ids by another name. Hence `band`.
  *
- *   2. `kind: 'polygon'` DOES NOT SAY HOW IT IS DRAWN. The eligibility mask
- *      is not drawn as a polygon at all: what the user needs to see is where
- *      drawing is NOT allowed, so the geometry names the eligible ground and
- *      the stack dims its complement. Hence `kind: 'mask'`, and `kind:
+ *   2. `kind: 'polygon'` DOES NOT SAY HOW IT IS DRAWN. Eligibility is not
+ *      drawn as a polygon at all, and neither is the ground outside the
+ *      parcel. Hence `kind: 'scrim'` and `kind: 'highlight'`, and `kind:
  *      'ring'` for a boundary, which is a bare ring of points in a draft
  *      input rather than a FeatureCollection.
+ *
+ *      F2 AND F3 HAD ONE KIND HERE, `mask`, whose renderer dimmed the
+ *      COMPLEMENT of the eligible union inside the parcel. It is two kinds
+ *      now because the shipped production-zone step draws two separate marks
+ *      -- a dim OUTSIDE the parcel and a tint ON the eligible ground -- with
+ *      a blur on the second and none on the first, so they cannot share a
+ *      pane, and one is derived from the committed boundary while the other
+ *      comes off the payload, so they cannot share a source. See layers.jsx's
+ *      HighlightLayer for why the shipped step draws the eligible side.
  *
  *   3. `source: 'draft'` DOES NOT SAY WHERE IN THE DRAFT. A draft holds
  *      `drawnFeatures` AND `inputs`, and the boundary's ring is an input
@@ -113,8 +134,10 @@
  *            property of the LAYER, not of the step -- landform declares one
  *            of each -- which is why it cannot be derived from `source`.
  *
- *   kind     'ring' | 'polygon' | 'mask'. What the geometry is, and therefore
- *            how it is drawn and which gesture can edit it.
+ *   kind     'ring' | 'polygon' | 'scrim' | 'highlight' | 'reference'. What
+ *            the geometry is, and therefore how it is drawn and which gesture
+ *            can edit it. `reference` is the one value that says it is not
+ *            drawn at all -- see LAYER_KINDS.
  *
  *   source   'proposals' | 'draft' | 'document'. Which of the three places a
  *            step's geometry can come from.
@@ -141,6 +164,7 @@ import {
   selectStepOrder,
   selectStepStatus,
 } from '../session/SessionStore'
+import { cautionsFor, clampToBoundary } from '../zoneGeometry.js'
 import BoundaryPanel from './panels/BoundaryPanel.jsx'
 import LandformPanel from './panels/LandformPanel.jsx'
 
@@ -162,8 +186,37 @@ export const BOUNDARY_RING_INPUT = 'ring'
 /** The fixed z-order, bottom to top. The basemap is band 0 and is not a step's. */
 export const LAYER_BANDS = Object.freeze(['context', 'committed', 'editable'])
 
-/** What a layer's geometry IS, and therefore how it is drawn. */
-export const LAYER_KINDS = Object.freeze(['ring', 'polygon', 'mask'])
+/**
+ * What a layer's geometry IS, and therefore how it is drawn -- except for
+ * `reference`, which is the one value that says it is NOT drawn.
+ *
+ * `reference` RESOLVES F3'S SECOND FINDING. `exclusion_layers` was declared in
+ * F2 as `{kind: 'polygon', source: 'proposals', key: 'exclusion_layers'}` and
+ * then withdrawn from the declarations entirely, because the value under that
+ * key is not a polygon, a geometry or a FeatureCollection: it is five per-gate
+ * wrappers, `{type, label, data_available, geometry_wgs84}`, with the geometry
+ * nested a level down. Declaring it as a polygon would have meant the stack
+ * learning that one particular key hides its geometry under `geometry_wgs84`,
+ * which is step knowledge in the one file that must have none.
+ *
+ * But the data is REAL and it is CONSUMED: zoneGeometry.js's cautionsFor()
+ * clips a drawn shape against those five gates, and the panel reads
+ * `data_available` for its standing caveat. It is data the tools eat and
+ * nothing paints, and neither `polygon` nor `mask` can say that -- both name a
+ * treatment, and every treatment implies a mark.
+ *
+ * So `reference` is a kind that says exactly what is true of it: resolved off
+ * the payload like any other layer, carried to whoever declared a tool over
+ * it, and rendered by nothing. The stack still knows nothing about
+ * `exclusion_layers` -- it knows that a reference layer is not drawn.
+ */
+export const LAYER_KINDS = Object.freeze([
+  'ring',
+  'polygon',
+  'scrim',
+  'highlight',
+  'reference',
+])
 
 /** The three places a step's geometry can come from. */
 export const LAYER_SOURCES = Object.freeze(['proposals', 'draft', 'document'])
@@ -241,6 +294,9 @@ export function documentStep({
             params: generate.params ?? ((draft) => paramsFromInputs(inputs, draft)),
           },
     commit: {
+      // A STRING OR A FUNCTION OF THE CONTEXT. Most steps' commit button says
+      // one thing; a step whose commit can mean two different things has to be
+      // able to say which. See LANDFORM_STEP's, and StepPanel's commitLabel.
       label: commit?.label ?? 'Commit this step',
       run: commit?.run ?? ((actions, { stepId }) => actions.commit(stepId)),
       canCommit: commit?.canCommit ?? ((context) => context.committableCount > 0),
@@ -319,6 +375,7 @@ export function defineStep(definition) {
     proposalFeatures = () => [],
     proposalCollection = null,
     committedNote = null,
+    shape = null,
     Panel = null,
   } = definition
 
@@ -346,6 +403,7 @@ export function defineStep(definition) {
     proposalFeatures,
     proposalCollection,
     committedNote,
+    shape: shape && Object.freeze({ ...shape }),
     Panel,
   })
 }
@@ -467,43 +525,142 @@ export function ringOf(draft) {
  * Production zones. THE FIRST DOCUMENT-BACKED STEP, and the shape every later
  * one copies.
  *
- * `exclusion_layers` IS NOT DECLARED AS A LAYER, AND THAT IS A REPORT.
+ * `exclusion_layers` IS DECLARED, AS A `reference` LAYER, and that closes F3's
+ * second finding.
  *
- * F2 declared it as {kind: 'polygon', source: 'proposals', key:
- * 'exclusion_layers'}, and the value under that key is not a polygon, a
- * geometry or a FeatureCollection: it is a list of five per-gate wrappers,
- * `{type, label, data_available, geometry_wgs84}`
- * (production_zone_payload.build_production_zone_payload). Rendering it from
- * that declaration would mean the stack learning that one particular key
- * holds objects whose geometry hides under `geometry_wgs84` -- step knowledge
- * in the one file that must have none.
+ * F2 declared it as {kind: 'polygon'} and F3 withdrew the declaration entirely
+ * rather than lie about its shape: the value under that key is not a polygon,
+ * a geometry or a FeatureCollection but five per-gate wrappers, `{type, label,
+ * data_available, geometry_wgs84}`, with the geometry nested a level down. F3
+ * asked for "a kind that describes its actual shape", and the honest
+ * description turned out to be not about shape at all: it is DATA THE TOOLS
+ * CONSUME AND NOTHING DRAWS. zoneGeometry.js's cautionsFor() clips a drawn
+ * shape against all five; the panel reads `data_available` for its standing
+ * caveat; no branch of this app has ever painted one, and drawing five
+ * overlays at once would say five things where the highlight already says the
+ * one that matters. `kind: 'reference'` says exactly that, and the stack
+ * still learns nothing about `exclusion_layers` -- only that a reference layer
+ * is not drawn. See LAYER_KINDS.
  *
- * It also has no treatment yet. ProductionZoneLayers deliberately draws none
- * of the five: the eligible union is the only exclusion-derived thing drawn at
- * rest, and five overlays at once would say five things where the mask already
- * says the one that matters. So the honest state is "declared nowhere", and
- * F4 -- which owns the per-gate visual language and the panel's caveats --
- * brings it back with a kind that describes its actual shape.
- *
- * Its panel is a PLACEHOLDER on purpose. App.jsx's production-zone spike is
- * still the working UI for these zones and still calls /api/production-zones;
- * migrating it -- the scored table, the caution markers, the clamping, the
- * hatch pattern -- is F4's whole branch. What exists here is the definition,
- * so that the machine, the shell and the tests have a real document-backed
- * step to run rather than a fixture invented for them.
+ * THE TWO CONTEXT MARKS ARE TWO LAYERS, not one. The off-parcel scrim is
+ * derived from the committed boundary and carries no blur; the eligible
+ * highlight comes off the payload and is feathered by App.css. Different
+ * source, different filter, therefore different pane, therefore different
+ * declaration -- see LAYER_KINDS' note 2.
  */
+/** The layer id landform reads its exclusion gates off. Its own declaration's. */
+export const LANDFORM_EXCLUSIONS_LAYER = 'landform-exclusions'
+
+/**
+ * The layer name the backend's landform commit contract requires, verbatim.
+ * step_registry's LANDFORM entry declares `layer="production_area_candidate"`
+ * (wire_translation.LAYER_PRODUCTION_AREA) and refuses a feature carrying any
+ * other; feature_schema.py refuses one carrying none at all.
+ */
+export const PRODUCTION_AREA_LAYER = 'production_area_candidate'
+
+/**
+ * HOW LANDFORM READS A SHAPE THE USER DREW.
+ *
+ * THE BOUNDARY IS THE ONLY HARD GATE, and clamping to it happens HERE, before
+ * the shape reaches the draft -- exactly as the spike clamped before commit.
+ * Not the eligible union: clamping to eligible ground would make the caution
+ * system unreachable, because a user could never draw across hydric soil to be
+ * warned about it. The rule is that gates encoding physical impossibility
+ * apply and gates rejecting weak candidates do not -- off-parcel is not their
+ * land, while canopy, hydric, slope, roads and setback are all conditions of
+ * ground they own and may commit to knowingly. commit_validation.py takes the
+ * same posture on the server and says so at length.
+ *
+ * THE CAUTIONS TRAVEL WITH THE FEATURE. Computed once, when the ring closes,
+ * and written onto `properties.cautions` -- so the panel's list and the map's
+ * markers read one value rather than recomputing a clip each render, and a
+ * deleted shape takes its markers with it because they were never anywhere
+ * else.
+ *
+ * THE FOUR PROPERTIES ARE THE SCHEMA'S, NOT DECORATION. feature_schema.py
+ * refuses a feature missing `layer`, `confidence` or a non-empty
+ * `confidence_notes`, and the commit contract refuses a `layer` that is not
+ * production_area_candidate. `confidence: 'low'` with a note saying it was
+ * drawn by hand is the honest value for a shape with no survey behind it, and
+ * it is what the backend's own drawn-zone fixtures carry.
+ */
+export const LANDFORM_SHAPE = Object.freeze({
+  live: ({ points, parcel, references }) => {
+    if (points.length < 3) return []
+    const { multi } = clampToBoundary(points, parcel)
+    return cautionsFor(multi, references[LANDFORM_EXCLUSIONS_LAYER] ?? [])
+  },
+
+  close: ({ points, parcel, references }) => {
+    if (points.length < 3) return null
+    const { multi, acres, removedAcres } = clampToBoundary(points, parcel)
+    // The whole ring fell outside the parcel. Nothing to add, and a notice
+    // rather than a silently discarded gesture.
+    if (!multi.length) {
+      return {
+        feature: null,
+        notice: 'That zone fell entirely outside the property boundary and was not added.',
+      }
+    }
+
+    const cautions = cautionsFor(multi, references[LANDFORM_EXCLUSIONS_LAYER] ?? [])
+    return {
+      feature: {
+        type: 'Feature',
+        // Local to the draft and never sent as an identity the server keeps:
+        // the commit path allocates the internal id (see the LANDFORM entry's
+        // `internal_id_parameter`). Unique per shape so React, the store and a
+        // 422's feature_id all address the same one.
+        id: `drawn-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+        geometry: { type: 'MultiPolygon', coordinates: multi },
+        properties: {
+          layer: PRODUCTION_AREA_LAYER,
+          label: 'Drawn zone',
+          confidence: 'low',
+          confidence_notes: 'Drawn by hand on the map; no survey backs it.',
+          acres,
+          cautions,
+        },
+      },
+      // Said only when the clamp actually took something. A notice on every
+      // drawn zone would train the user to ignore the one that matters.
+      notice:
+        removedAcres > 0
+          ? `${removedAcres.toFixed(1)} acres outside the property boundary were trimmed off.`
+          : null,
+    }
+  },
+})
+
 export const LANDFORM_STEP = documentStep({
   id: 'landform',
   title: 'Landform',
   blurb: 'Production zones on the ground the parcel can actually support.',
   layers: [
-    // The eligibility mask, drawn as the INELIGIBLE-AREA DIM. The payload's
-    // `eligible_union` names the ground that passed every gate; what the user
-    // needs before they start drawing is where they may NOT, so the stack
-    // dims its complement inside the parcel. That inversion is the whole of
-    // what `kind: 'mask'` means, and it is declared rather than discovered by
-    // the stack recognising a key name.
-    { id: 'landform-ineligible', band: 'context', kind: 'mask', source: 'proposals', key: 'eligible_union' },
+    // Bottom of the context band: everything AROUND the parcel, dimmed. The
+    // one hard gate in this interface and the only mark that reads as
+    // forbidden.
+    { id: 'landform-offparcel', band: 'context', kind: 'scrim', source: 'document' },
+    // Then the eligible ground, tinted. `eligible_union` names what cleared
+    // every gate.
+    {
+      id: 'landform-eligible',
+      band: 'context',
+      kind: 'highlight',
+      source: 'proposals',
+      key: 'eligible_union',
+    },
+    // The five per-gate footprints. Consumed by the draw tool's clamping and
+    // cautions, and by the panel's caveat; painted by nothing. See the note
+    // above.
+    {
+      id: 'landform-exclusions',
+      band: 'context',
+      kind: 'reference',
+      source: 'proposals',
+      key: 'exclusion_layers',
+    },
     { id: 'landform-suggested', band: 'editable', kind: 'polygon', source: 'proposals', key: 'suggested_zones' },
     { id: 'landform-drawn', band: 'editable', kind: 'polygon', source: 'draft' },
     { id: 'landform-committed', band: 'committed', kind: 'polygon', source: 'document' },
@@ -513,9 +670,29 @@ export const LANDFORM_STEP = documentStep({
   // at all is a 400 -- see step_orchestrator.validate_params().
   inputs: [],
   generate: { label: 'Generate production zones' },
-  commit: { label: 'Commit these zones' },
+  commit: {
+    /**
+     * AN EMPTY COMMIT IS LEGAL AND DELIBERATE, AND THE BUTTON SAYS SO.
+     *
+     * "No production ground on this parcel" is a DECISION -- the backend's
+     * commit contract sets `min_features=0` for exactly this reason, and the
+     * steps downstream must receive it as an answer rather than as an
+     * absence. So the commit is never blocked here.
+     *
+     * But it must never be a SILENT empty submit either. A button reading
+     * "Commit these zones" over an empty selection is a user one click away
+     * from recording a decision they did not know they were making, so the
+     * button renames itself and states the decision instead. That is the
+     * whole of the affordance: same action, same place, different sentence.
+     */
+    label: ({ committableCount }) =>
+      committableCount === 0 ? 'Commit no zones for this step' : 'Commit these zones',
+    canCommit: () => true,
+    blockedReason: () => null,
+  },
   reopen: { label: 'Edit this step', confirmTitle: 'Reopen landform?' },
   proposalCollection: 'suggested_zones',
+  shape: LANDFORM_SHAPE,
   Panel: LandformPanel,
 })
 

@@ -10,8 +10,9 @@
  *      UNREACHABLE through the wizard's own actions, by walking every action
  *      it exposes and counting the armed mounts after each. Not "a throw
  *      fires": the point is that there is no state to throw about.
- *   8. SPIKE INTACT -- /api/production-zones end to end, with the wizard
- *      mounted, including the zone draw flow, against the real App.
+ *   8. SPIKE REMOVED -- no endpoint, no component and no orphaned state left
+ *      behind, and the whole page still runs end to end through the session
+ *      endpoints instead: boundary, landform, a drawn zone, a commit, the PDF.
  *
  * A REAL LEAFLET MAP, in jsdom. The panes, their z-indexes and their paths are
  * all in the document, so "the layers render in the declared z-order" and "a
@@ -20,7 +21,7 @@
  * Leaflet delivers them, so the tools under test are the ones that ship.
  */
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -32,6 +33,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   COMMITTED,
+  GENERATED,
   NOT_STARTED,
   PROVENANCE_USER_ADDED,
   STEP_MODES,
@@ -152,10 +154,18 @@ const LAYERS_PAYLOAD = {
     [-74.01, 40.71],
   ]),
   exclusion_layers: [
-    { type: 'slope', label: 'Slope', data_available: true, geometry_wgs84: null },
+    { type: 'slope', label: 'slope above 20.0%', data_available: true, geometry_wgs84: null },
   ],
   suggested_zones: featureCollection('zone-1', 'zone-2'),
-  summary: { total_acres: 13.2 },
+  zones: [
+    { id: 0, feature_id: 'zone-1', rank: 1, area_acres: 2.5, score: 81.0, slope_min_pct: 2.0, slope_max_pct: 8.0, aspect_available: true, dominant_aspect: 'south' },
+    { id: 1, feature_id: 'zone-2', rank: 2, area_acres: 1.2, score: 64.0, slope_min_pct: 3.0, slope_max_pct: 11.0, aspect_available: false, dominant_aspect: null },
+  ],
+  scales: {
+    bands: { poor: [0, 40], fair: [40, 60], good: [60, 80], excellent: [80, 100] },
+    band_bounds: 'lower_inclusive_upper_exclusive_last_band_inclusive',
+  },
+  summary: { total_acres: 13.2, eligible_acres: 7.5 },
 }
 
 /* ===========================================================================
@@ -188,6 +198,11 @@ function installFetch(routes) {
   })
 
   return calls
+}
+
+/** The recorded calls matching one method and path pattern. */
+function pathsOf(calls, method, pattern) {
+  return calls.filter((call) => call.method === method && pattern.test(call.path))
 }
 
 function route(method, pattern, responses) {
@@ -403,12 +418,20 @@ describe('1. stack composition', () => {
     expect(bands).toEqual([...bands].sort(byBand))
     expect(new Set(bands)).toEqual(new Set(['context', 'committed', 'editable']))
 
-    // The mask is the context layer, the boundary is the committed one, and
-    // the mask is UNDERNEATH -- which is the ordering claim, in the document.
-    const [lowest, next] = panes
-    expect(lowest.key).toBe('landform--landform-ineligible')
+    // The two context marks are the bottom of the stack, in declaration
+    // order -- the off-parcel scrim, then the eligible highlight over it --
+    // and the committed boundary sits above both. That is the ordering claim,
+    // in the document.
+    const [lowest, second, third, next] = panes
+    expect(lowest.key).toBe('landform--landform-offparcel')
+    expect(second.key).toBe('landform--landform-eligible')
+    // The reference layer is in the band too. It draws nothing, but it is a
+    // declared layer and the stack places it like any other rather than
+    // learning that one kind is special enough to skip.
+    expect(third.key).toBe('landform--landform-exclusions')
     expect(next.key).toBe('boundary--boundary-committed')
-    expect(lowest.z).toBeLessThan(next.z)
+    expect(lowest.z).toBeLessThan(second.z)
+    expect(third.z).toBeLessThan(next.z)
 
     // The editable band is not drawn by the stack at all -- it belongs to the
     // tools -- so its z is above both and is asserted on the composition.
@@ -636,8 +659,8 @@ describe('4. the boundary step', () => {
    5. THE INELIGIBLE-AREA DIM
    =========================================================================== */
 
-describe('5. the eligibility mask', () => {
-  it('renders the ineligible dim from the step’s declared context layer', async () => {
+describe('5. the context band: scrim, highlight, and data nothing draws', () => {
+  it('draws the off-parcel scrim and the eligible highlight, and draws the reference layer not at all', async () => {
     installFetch([
       route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
       route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
@@ -646,26 +669,44 @@ describe('5. the eligibility mask', () => {
     const ui = await renderSurface()
     await withLandform(ui)
 
-    const pane = ui.panes().find((p) => p.key === 'landform--landform-ineligible')
-    expect(pane).toBeDefined()
-    expect(pane.band).toBe('context')
+    // THE SCRIM: everything AROUND the parcel. A ring far enough out to cover
+    // the visible map, with the parcel as its hole -- two subpaths, not one.
+    const scrim = ui.panes().find((p) => p.key === 'landform--landform-offparcel')
+    expect(scrim).toBeDefined()
+    expect(scrim.band).toBe('context')
+    const scrimPaths = [...scrim.pane.querySelectorAll('path')]
+    expect(scrimPaths).toHaveLength(1)
+    expect((scrimPaths[0].getAttribute('d').match(/M/g) ?? []).length).toBe(2)
 
-    // WHAT IS DRAWN IS THE COMPLEMENT. The declaration's geometry names the
-    // ELIGIBLE ground, and the eligible rectangle is strictly inside the
-    // parcel -- so the dim is the parcel with a hole in it, which is a path
-    // with two rings, not one.
-    const paths = [...pane.pane.querySelectorAll('path')]
-    expect(paths).toHaveLength(1)
-    const subpaths = paths[0].getAttribute('d').match(/M/g) ?? []
-    expect(subpaths.length).toBe(2)
+    // THE HIGHLIGHT: the eligible union itself, tinted. One ring -- it names
+    // ground that qualifies rather than the complement of it.
+    const highlight = ui.panes().find((p) => p.key === 'landform--landform-eligible')
+    expect(highlight).toBeDefined()
+    expect(highlight.band).toBe('context')
+    const highlightPaths = [...highlight.pane.querySelectorAll('path')]
+    expect(highlightPaths).toHaveLength(1)
+    expect((highlightPaths[0].getAttribute('d').match(/M/g) ?? []).length).toBe(1)
 
-    // It is CONTEXT: read-only, and it never takes a click.
-    expect(paths[0].classList.contains('leaflet-interactive')).toBe(false)
+    // Both are CONTEXT: read-only, and neither ever takes a click.
+    for (const path of [...scrimPaths, ...highlightPaths]) {
+      expect(path.classList.contains('leaflet-interactive')).toBe(false)
+    }
 
-    // And it came off the declaration rather than off a key name the renderer
-    // recognised: the mask is the one layer landform declares in that band.
+    // THE REFERENCE LAYER RESOLVED AND DREW NOTHING. It is declared, it is in
+    // the composed stack, its pane exists -- and there is not a path in it.
+    // That is what `kind: 'reference'` means: data the tools consume.
+    const reference = ui.panes().find((p) => p.key === 'landform--landform-exclusions')
+    expect(reference).toBeDefined()
+    expect(reference.pane.querySelectorAll('path')).toHaveLength(0)
+
+    // And all three came off the declaration rather than off a key name a
+    // renderer recognised.
     const declared = LANDFORM_STEP.layers.filter((layer) => layer.band === 'context')
-    expect(declared.map((layer) => [layer.kind, layer.key])).toEqual([['mask', 'eligible_union']])
+    expect(declared.map((layer) => [layer.kind, layer.key])).toEqual([
+      ['scrim', null],
+      ['highlight', 'eligible_union'],
+      ['reference', 'exclusion_layers'],
+    ])
 
     await ui.unmount()
   })
@@ -760,24 +801,103 @@ describe('7. the delete tool', () => {
 })
 
 /* ===========================================================================
-   8. THE SPIKE, INTACT, WITH THE WIZARD MOUNTED
+   8. THE SPIKE IS GONE, AND THE PAGE STILL RUNS
    =========================================================================== */
 
 describe('8. the production-zone spike', () => {
-  it('runs end to end with the wizard mounted, including the zone draw flow', async () => {
-    const ZONE_PAYLOAD = {
-      ...LAYERS_PAYLOAD,
-      zones: [{ id: 1, feature_id: 'zone-1', area_acres: 2.1, scores: {} }],
-      summary: { total_acres: 13.2, eligible_acres: 6.0 },
-      scales: {},
+  it('leaves no endpoint, no component and no orphaned state behind', () => {
+    const read = (name) => readFileSync(path.join(HERE, '..', name), 'utf8')
+    const app = read('App.jsx')
+
+    // THE ENDPOINT. Nothing anywhere under src/ calls it any more -- not the
+    // page, not a helper, not a test fixture pretending to be one.
+    //
+    // Assembled rather than written out, so THIS file is inside the sweep. A
+    // literal here would match itself and the assertion would be about a
+    // string constant rather than about the tree.
+    const SPIKE_ENDPOINT = '/api/' + 'production' + '-zones'
+    const sources = sourceFiles(path.join(HERE, '..'))
+    for (const file of sources) {
+      expect(readFileSync(file, 'utf8')).not.toContain(SPIKE_ENDPOINT)
     }
 
+    // THE COMPONENTS. Deleted, and not merely unimported: a file left on disk
+    // is a second implementation of the visual language waiting to be picked
+    // up by whoever migrates the next step.
+    //
+    // Names assembled, so this file is inside its own sweep. The IMPORT is
+    // what is asserted absent rather than the name -- LandformPanel's header
+    // says which panel it is a migration of, and a file explaining where it
+    // came from is not a file reaching for something that is gone.
+    for (const stem of ['ProductionZonePanel', 'ProductionZone' + 'Layers', 'ProductionDrawn' + 'Zones']) {
+      expect(existsSync(path.join(HERE, '..', `${stem}.jsx`))).toBe(false)
+      const importsIt = new RegExp(`(from|import)\\s*\\(?['"][^'"]*${stem}\\.jsx['"]`)
+      for (const file of sources) {
+        expect(readFileSync(file, 'utf8')).not.toMatch(importsIt)
+      }
+    }
+
+    // WHAT SURVIVED, AND HAD TO. The gesture, the pure geometry and the hatch
+    // are the parts the spike was built to preserve; they are the landform
+    // step's now and are imported from where they always were.
+    for (const kept of [
+      'ZoneDrawTool.jsx',
+      'ProductionHatchPattern.jsx',
+      'zoneGeometry.js',
+      'geo.js',
+    ]) {
+      expect(existsSync(path.join(HERE, '..', kept))).toBe(true)
+    }
+
+    // THE ELEVEN useState HOOKS. App.jsx's own comment said they were what a
+    // spike looks like before the session layer exists and that they would be
+    // discarded wholesale; each name is checked rather than the count, so a
+    // survivor is named rather than counted.
+    for (const orphan of [
+      'productionZones',
+      'isLoadingZones',
+      'zonesError',
+      'deselectedIds',
+      'drawnZones',
+      'zonePoints',
+      'liveCautions',
+      'clampNotice',
+      'inProductionZones',
+      'clearProductionZones',
+      'CLAMP_NOTICE_MIN_ACRES',
+    ]) {
+      expect(app).not.toContain(orphan)
+    }
+
+    // AND THE LEGACY ARMING DOOR IS DOWN TO ONE GESTURE. The zone draw is a
+    // declared tool of the landform step now; the access point is the last one
+    // still going through the door, because the roads step that will declare
+    // it does not exist yet.
+    expect(app).not.toContain("'zone-draw'")
+    expect(app).toContain("'access-point'")
+  })
+
+  it('runs the whole page end to end -- boundary, landform, a drawn zone, commit, PDF', async () => {
+    const generated = serverDocument({ steps: { landform: { status: GENERATED } } })
+    const committedDocument = serverDocument({
+      revision: 2,
+      steps: { landform: committedStep(1, featureCollection('zone-1')) },
+    })
+
     const calls = installFetch([
-      route('POST', /^\/api\/production-zones$/, { body: ZONE_PAYLOAD }),
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('POST', /\/steps\/landform\/generate$/, {
+        status: 202,
+        body: { job_id: 'job-1', status: 'running' },
+      }),
+      route('GET', /^\/api\/jobs\/job-1$/, {
+        body: { job_id: 'job-1', status: 'done', result: { payload: LAYERS_PAYLOAD, document: generated } },
+      }),
+      route('POST', /\/steps\/landform\/commit$/, { body: committedDocument }),
       route('POST', /^\/api\/generate-report-pdf$/, { body: {} }),
     ])
 
-    // jsdom has neither; the spike's download path uses both.
+    // jsdom has neither; the report's download path uses both.
     URL.createObjectURL = vi.fn(() => 'blob:pdf')
     URL.revokeObjectURL = vi.fn()
 
@@ -788,52 +908,56 @@ describe('8. the production-zone spike', () => {
     const root = createRoot(container)
     await React.act(async () => root.render(<App />))
 
-    const button = (label) =>
-      [...container.querySelectorAll('button')].find((b) => b.textContent.trim() === label)
+    const byTestId = (id) => container.querySelector(`[data-testid="${id}"]`)
+    const clickTestId = async (id) => {
+      const target = byTestId(id)
+      if (!target) throw new Error(`no element with data-testid="${id}"`)
+      await React.act(async () => target.click())
+    }
     const press = async (label) => {
-      const target = button(label)
+      const target = [...container.querySelectorAll('button')].find(
+        (b) => b.textContent.trim() === label
+      )
       if (!target) throw new Error(`no button "${label}"`)
       await React.act(async () => target.click())
     }
+    const settle = async () => {
+      for (let i = 0; i < 40; i++) {
+        await React.act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        })
+      }
+    }
 
-    // THE WIZARD IS MOUNTED. The spike runs with it on screen, not instead
-    // of it -- which is what test 11 of the wizard suite asserts from the
-    // source side and this asserts from the running page.
-    expect(container.querySelector('[data-testid="wizard"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="step-boundary"]')).not.toBeNull()
-
-    // DRAW THE BOUNDARY through the spike's own button, which arms the same
-    // slot the wizard's panel does.
-    await press('Start Drawing Boundary')
     const map = containerMap(container)
-
-    // ZOOM IN FIRST, which is what AddressSearch does for a real user. The
-    // app opens on the whole continental US at zoom 4, where this parcel is
-    // half a pixel wide and every vertex lands inside DrawTool's 15 px hit
+    // ZOOM IN FIRST, which is what AddressSearch does for a real user. The app
+    // opens on the whole continental US at zoom 4, where this parcel is half a
+    // pixel wide and every vertex lands inside the draw tool's 15 px hit
     // radius -- so the second click would read as "you clicked the first
     // vertex" and be swallowed. The gesture is pixel-based on purpose (see
     // vertexAtPixel); this is the test standing where the user stands.
     await React.act(async () => map.setView([40.715, -74.0], 14))
+
+    // THE BOUNDARY, through the wizard's own affordance.
+    await clickTestId('boundary-draw')
     for (const [lat, lng] of RING) {
       await React.act(async () => map.fire('click', { latlng: L.latLng(lat, lng) }))
     }
-    await press('Finish Boundary')
-    expect(container.textContent).toContain('Boundary set')
+    await clickTestId(`commit-${BOUNDARY_STEP_ID}`)
+    expect(byTestId(`step-${BOUNDARY_STEP_ID}`).dataset.stepState).toBe('committed')
 
-    // THE SPIKE'S OWN ENDPOINT, unchanged.
-    await press('Generate Production Zones')
-    expect(calls.filter((c) => c.path === '/api/production-zones')).toHaveLength(1)
-    expect(calls[0].body.boundary).toEqual([
-      [-74.02, 40.7],
-      [-73.98, 40.7],
-      [-73.98, 40.73],
-      [-74.02, 40.73],
-    ])
-    expect(container.textContent).toContain('Draw a Zone')
+    // LANDFORM, through the session endpoints. The route list above has no
+    // entry for the spike's, so a call to it would throw "no route" rather
+    // than be quietly served -- which is a stronger assertion than counting
+    // it, and keeps the name out of this file so the sweep above can include
+    // it.
+    await clickTestId('generate-landform')
+    await settle()
+    expect(pathsOf(calls, 'POST', /\/steps\/landform\/generate$/)).toHaveLength(1)
+    expect(byTestId('landform-zone-count')).not.toBeNull()
 
-    // THE ZONE DRAW FLOW. Three vertices and a close, through ZoneDrawTool,
-    // with the wizard's boundary step sitting right there in the column.
-    await press('Draw a Zone')
+    // A DRAWN ZONE, through the landform step's declared draw tool.
+    await clickTestId('landform-draw')
     const zoneRing = [
       [40.71, -74.01],
       [40.71, -73.99],
@@ -843,14 +967,19 @@ describe('8. the production-zone spike', () => {
       await React.act(async () => map.fire('click', { latlng: L.latLng(lat, lng) }))
     }
     await React.act(async () => map.fire('click', { latlng: L.latLng(...zoneRing[0]) }))
-    expect(container.textContent).toMatch(/zone 1 you drew/i)
+    expect(container.textContent).toMatch(/you drew/i)
 
-    // AND THROUGH TO THE PDF. Access point, then the report.
-    await press('Back')
+    // COMMIT, to the session endpoint.
+    await clickTestId('commit-landform')
+    await settle()
+    expect(pathsOf(calls, 'POST', /\/steps\/landform\/commit$/)).toHaveLength(1)
+
+    // AND THROUGH TO THE PDF, off the same boundary, untouched by any of it.
     await press('Select Access Point')
     await React.act(async () => map.fire('click', { latlng: L.latLng(40.7, -74.0) }))
     await press('Confirm Access Point')
     await press('Generate Scale of Permanence Report')
+    await settle()
 
     expect(calls.filter((c) => c.path === '/api/generate-report-pdf')).toHaveLength(1)
     expect(container.textContent).toContain('scale_of_permanence_report.pdf')
@@ -859,73 +988,13 @@ describe('8. the production-zone spike', () => {
     container.remove()
   })
 
-  it('keeps the spike’s zones after the boundary is committed through the wizard', async () => {
-    // THE TWO PATHS CROSSING, which is the case the ring-identity bug above
-    // actually broke: commit the boundary in the WIZARD, then run the SPIKE's
-    // zone generate against the ring the document now owns. If the ring
-    // arrived with a new identity per render, the stale-result effect would
-    // drop the payload as fast as it landed.
-    const ZONE_PAYLOAD = {
-      ...LAYERS_PAYLOAD,
-      zones: [{ id: 1, feature_id: 'zone-1', area_acres: 2.1, scores: {} }],
-      summary: { total_acres: 13.2, eligible_acres: 6.0 },
-      scales: {},
-    }
-    installFetch([
-      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
-      route('POST', /^\/api\/production-zones$/, { body: ZONE_PAYLOAD }),
-      route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
-    ])
-
-    const App = (await import('../App.jsx')).default
-    globalThis.IS_REACT_ACT_ENVIRONMENT = true
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    await React.act(async () => root.render(<App />))
-
-    const press = async (label) => {
-      const target = [...container.querySelectorAll('button')].find(
-        (b) => b.textContent.trim() === label
-      )
-      if (!target) throw new Error(`no button "${label}"`)
-      await React.act(async () => target.click())
-    }
-    const byTestId = (id) => container.querySelector(`[data-testid="${id}"]`)
-
-    const map = containerMap(container)
-    await React.act(async () => map.setView([40.715, -74.0], 14))
-
-    // Draw through the WIZARD's own affordance this time, then commit it.
-    await React.act(async () => byTestId('boundary-draw').click())
-    for (const [lat, lng] of RING) {
-      await React.act(async () => map.fire('click', { latlng: L.latLng(lat, lng) }))
-    }
-    await React.act(async () => byTestId(`commit-${BOUNDARY_STEP_ID}`).click())
-    // Committed, and collapsed to the note its definition declares -- the
-    // boundary is the one step with no reopen.
-    expect(byTestId(`step-${BOUNDARY_STEP_ID}`).dataset.stepState).toBe('committed')
-    expect(byTestId(`no-reopen-${BOUNDARY_STEP_ID}`)).not.toBeNull()
-
-    // Now the spike, over a ring it no longer owns.
-    await press('Generate Production Zones')
-    expect(container.textContent).toContain('Draw a Zone')
-
-    // Several more renders, with no further ring change: the payload stays.
-    await React.act(async () => map.setView([40.716, -74.0], 14))
-    await React.act(async () => {})
-    expect(container.textContent).toContain('Draw a Zone')
-
-    await React.act(async () => root.unmount())
-    container.remove()
-  })
-
   it('does not loop clearing its own results once the boundary is committed', async () => {
-    // A REGRESSION THIS BRANCH INTRODUCED AND THEN CLOSED. The ring read out
-    // of the document is rebuilt on every call -- [lng, lat] on the wire,
-    // [lat, lng] here -- so an identity comparison against it answers "changed"
-    // every render. The spike drops a stale zone payload when the ring moves;
-    // with a committed boundary that would have fired forever.
+    // A REGRESSION F3 INTRODUCED AND THEN CLOSED, AND STILL WORTH HOLDING.
+    // The ring read out of the document is rebuilt on every call -- [lng, lat]
+    // on the wire, [lat, lng] here -- so an identity comparison against it
+    // answers "changed" every render. App.jsx drops a stale REPORT when the
+    // ring moves (it used to drop the spike's zone payload too); with a
+    // committed boundary that would have fired forever.
     installFetch([
       route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
       route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
@@ -960,6 +1029,20 @@ describe('8. the production-zone spike', () => {
     await ui.unmount()
   })
 })
+
+/**
+ * Every .js/.jsx file under src/, so "nothing calls that endpoint any more" is
+ * a claim about the tree rather than about the files someone remembered.
+ */
+function sourceFiles(root) {
+  const found = []
+  for (const entry of readdirSync(root)) {
+    const full = path.join(root, entry)
+    if (statSync(full).isDirectory()) found.push(...sourceFiles(full))
+    else if (/\.jsx?$/.test(entry)) found.push(full)
+  }
+  return found
+}
 
 /** The Leaflet map instance behind a rendered container. */
 function containerMap(container) {
@@ -1004,9 +1087,16 @@ describe('9. the mutual-exclusion assertions', () => {
       expect(app).not.toContain(gone)
     }
 
-    // The three are DERIVED from one register, and the register is one slot.
-    expect(app).toContain("const isDrawingZone = legacyGesture === 'zone-draw'")
+    // WHAT IS LEFT IS DERIVED FROM ONE REGISTER, and the register is one slot.
+    // Two of the three booleans are gone entirely rather than derived: the
+    // boundary's draw is the boundary STEP's declared tool and the zone draw
+    // is landform's, both armed through the wizard's door and validated
+    // against the step's own `tools[]`. The access point is the last gesture
+    // still coming through the legacy door, because the roads step that will
+    // declare it does not exist yet.
+    expect(app).toContain("const isDrawing = cursorStepId === BOUNDARY_STEP_ID && armed === 'draw'")
     expect(app).toContain("const isSelectingAccessPoint = legacyGesture === 'access-point'")
+    expect(app).not.toContain("'zone-draw'")
 
     const cursorCode = codeOf('..', 'wizard', 'WizardCursor.jsx')
     // ONE useState for the arming, holding ONE {stepId, tool}. Two slots would

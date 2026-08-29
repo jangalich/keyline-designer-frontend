@@ -26,13 +26,14 @@
  * it would need.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { PROVENANCE_USER_ADDED, useSession } from '../../session/SessionStore'
 import DrawTool from '../../DrawTool.jsx'
 import ZoneDrawTool from '../../ZoneDrawTool.jsx'
 import { ringToGeoJSON } from '../../geo.js'
 import { useWizardCursor } from '../../wizard/WizardCursor.jsx'
+import { useDrawingProgress } from '../DrawingProgress.jsx'
 import { StackLayer } from '../layers.jsx'
 
 export default function DrawGesture(props) {
@@ -86,33 +87,72 @@ function RingDraw({ layer, armed, stepId }) {
  * THE IN-PROGRESS POINTS ARE LOCAL, AND ONLY THOSE. A half-placed ring is not
  * a decision -- it is a gesture in flight, with no meaning to the commit and
  * nothing to recover if the panel unmounts. What lands in the store is the
- * finished Feature, once. (The spike keeps its own zonePoints for the same
- * reason, and its clamping and cautions along with them; both are F4's to
- * bring across, and neither is reimplemented here.)
+ * finished Feature, once. They are MIRRORED to DrawingProgress rather than
+ * kept private, because the panel reads out what the polygon crosses as each
+ * vertex goes down and the caution pane marks each crossing, and neither of
+ * those is inside this tool.
  *
- * NO CLAMPING, deliberately. clampToBoundary() and cautionsFor() belong to the
- * production-zone step's own reading of a shape, and a second copy of them
- * here -- applied to every step's drawing, on this branch's guess at when they
- * apply -- is exactly the thing F4 would have to unpick first.
+ * THE STEP SAYS WHAT ITS SHAPES MEAN. `definition.shape` is where clamping,
+ * cautions and the Feature's own properties live -- landform clamps to the
+ * parcel and clips against its exclusion gates; a step that declares no
+ * `shape` gets the ring as drawn. That is the same posture F3 took when it
+ * declined to put clampToBoundary() here: the rules are a reading of one
+ * step's payload, and a copy of them in this file would apply them to every
+ * step's drawing on a guess at when they apply.
  */
-function ShapeDraw({ layer, armed, renders, stepId }) {
+function ShapeDraw({ layer, armed, renders, stepId, definition, references }) {
   const { actions } = useSession()
   const { disarm } = useWizardCursor()
+  const progress = useDrawingProgress()
   const [points, setPoints] = useState([])
+
+  const shape = definition?.shape ?? null
+  const parcel = layer.parcel ?? []
+
+  // The live readout, recomputed on each vertex placed once there are three.
+  // Not on mousemove -- this tool places points on click and there is no
+  // rubber band to follow.
+  useEffect(() => {
+    progress.report(points, shape ? shape.live({ points, parcel, references }) : [])
+    // `progress` is a stable pair of callbacks plus the value they set; adding
+    // it here would re-run this on its own output.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [points, parcel, references, shape])
+
+  // A gesture abandoned by unmounting -- the panel closed, the cursor moved --
+  // leaves nothing behind on the map.
+  useEffect(() => () => progress.clear(), []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const close = () => {
     setPoints([])
     disarm()
-    if (points.length < 3) return
-    actions.addDrawnFeature(stepId, {
-      type: 'Feature',
-      // Local to the draft and never sent as an identity: buildCommitBody
-      // sends drawn features as new geometry, and the server assigns the id
-      // it will be known by.
-      id: `drawn-${layer.layerId}-${Date.now()}`,
-      properties: { provenance: PROVENANCE_USER_ADDED },
-      geometry: { type: 'Polygon', coordinates: [ringToGeoJSON(points)] },
-    })
+    if (points.length < 3) {
+      progress.clear()
+      return
+    }
+
+    const prepared = shape
+      ? shape.close({ points, parcel, references })
+      : {
+          feature: {
+            type: 'Feature',
+            // Local to the draft and never sent as an identity: buildCommitBody
+            // sends drawn features as new geometry, and the server assigns the
+            // id it will be known by.
+            id: `drawn-${layer.layerId}-${Date.now()}`,
+            properties: { provenance: PROVENANCE_USER_ADDED },
+            geometry: { type: 'Polygon', coordinates: [ringToGeoJSON(points)] },
+          },
+          notice: null,
+        }
+
+    // The step may refuse a shape outright -- landform does, for a ring that
+    // fell entirely off the parcel -- and says why through the notice rather
+    // than by swallowing the gesture. The notice goes to DrawingProgress, NOT
+    // to the draft: a draft's inputs are sent with the commit, and a message
+    // about a gesture is not a decision. See NOTHING_IN_FLIGHT's `notice`.
+    progress.settle(prepared?.notice ?? null)
+    if (prepared?.feature) actions.addDrawnFeature(stepId, prepared.feature)
   }
 
   return (
@@ -131,3 +171,5 @@ function ShapeDraw({ layer, armed, renders, stepId }) {
     </>
   )
 }
+
+

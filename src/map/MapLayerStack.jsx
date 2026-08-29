@@ -29,6 +29,8 @@
 
 import { useSession } from '../session/SessionStore'
 import { useWizardCursor } from '../wizard/WizardCursor.jsx'
+import ProductionHatchPattern from '../ProductionHatchPattern.jsx'
+import CautionMarkers from './CautionMarkers.jsx'
 import StepTools from './StepTools.jsx'
 import { composeLayerStack } from './layerStack.js'
 import { StackLayer } from './layers.jsx'
@@ -44,8 +46,22 @@ export default function MapLayerStack() {
   const settled = stack.filter((layer) => layer.band !== 'editable')
   const editable = stack.filter((layer) => layer.band === 'editable')
 
+  // THE REFERENCE LAYERS, KEYED BY THEIR OWN DECLARED ID, handed to the tools.
+  // A reference layer is data a tool consumes and nothing paints (see
+  // LAYER_KINDS), so this is the whole of what it is for: the step declared
+  // it, the stack resolved it off the payload, and the step's own rules read
+  // it back by the id they declared it under.
+  const references = Object.fromEntries(
+    stack.filter((layer) => layer.kind === 'reference').map((layer) => [layer.layerId, layer.data])
+  )
+
   return (
     <>
+      {/* The hatch pattern's <defs>, once, on the map container rather than in
+          any pane -- Leaflet creates and destroys a pane's own <svg> as layers
+          come and go, and two panes reference this one pattern. See
+          ProductionHatchPattern for both reasons at length. */}
+      <ProductionHatchPattern />
       {settled.map((layer) => (
         <StackLayer
           key={layer.paneName}
@@ -54,7 +70,14 @@ export default function MapLayerStack() {
           onLayerClick={() => open(layer.stepId)}
         />
       ))}
-      <StepTools definition={definition} layers={editable} />
+      <StepTools definition={definition} layers={editable} references={references} />
+      {/* THE ONE PANE THE BAND SCHEME CANNOT PLACE. Caution markers have to
+          sit above Leaflet's markerPane at 600 so a boundary vertex or an
+          access-point pin cannot hide a warning, and every band z is below
+          400 by design (see BAND_BASE_Z). So this is a top-level pane at 610,
+          fed from the same composed stack -- not a step's layer, and not a
+          number any step can choose. */}
+      <CautionMarkers layers={stack} />
     </>
   )
 }
