@@ -6,16 +6,6 @@ import AddressSearch from './AddressSearch.jsx'
 import AcreageChip from './AcreageChip.jsx'
 import ScrollZoomGate from './ScrollZoomGate.jsx'
 import BasemapControl, { BASEMAPS } from './BasemapControl.jsx'
-import ProductionZoneLayers from './ProductionZoneLayers.jsx'
-import ProductionDrawnZones from './ProductionDrawnZones.jsx'
-import ProductionZonePanel from './ProductionZonePanel.jsx'
-import ZoneDrawTool from './ZoneDrawTool.jsx'
-import {
-  assertSuggestedZonesAreClean,
-  cautionsFor,
-  clampToBoundary,
-} from './zoneGeometry.js'
-import { multiPolygonToLatLngs } from './geo.js'
 import {
   SessionProvider,
   selectBoundaryRing,
@@ -48,31 +38,14 @@ const DEFAULT_ZOOM = 4
 // point at the live backend; falls back to the local dev server.
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
-// The smallest clamped-away area worth naming, in acres. Same value and same
-// reasoning as zoneGeometry's CAUTION_MIN_ACRES: below it a one-decimal figure
-// reads as 0.0, which states a measured zero about ground that was removed.
-const CLAMP_NOTICE_MIN_ACRES = 0.05
-
-// 4B's additions to 4A's pane order. Leaflet's own are tilePane 200,
-// overlayPane 400, markerPane 600, tooltipPane 650.
-//
-//   350 scrim · 360 eligible · 370 suggested   (4A)
-//   380 drawn zones      — above the suggestions, below the boundary at 400,
-//                          so a zone never covers the edge it was clamped to
-//   390 in-progress line — above the finished ones, still under the boundary
-//   610 caution markers  — above markerPane so a boundary vertex cannot hide
-//                          one, below tooltipPane
-const DRAWN_PANE_Z = 380
-const DRAWING_PANE_Z = 390
-const CAUTION_PANE_Z = 610
-
 /**
  * The page, and the session it runs in.
  *
- * The provider pair is mounted HERE rather than in main.jsx so that everything
- * on this page -- the map stack, the wizard column, and the production-zone
- * spike alike -- reads one store and one arming register. Two of anything here
- * would be the invariant this branch retired, back in a new place.
+ * The providers are mounted HERE rather than in main.jsx so that everything on
+ * this page -- the map stack, the wizard column and the report flow alike --
+ * reads one store, one arming register and one gesture-in-flight. Two of
+ * anything here would be the invariant this branch retired, back in a new
+ * place.
  */
 function App() {
   return (
@@ -133,7 +106,7 @@ function Designer() {
   const setRing = (ring) => actions.setDraftInput(BOUNDARY_STEP_ID, BOUNDARY_RING_INPUT, ring)
 
   /**
-   * THE THREE BOOLEANS, NOW THREE READINGS OF ONE SLOT.
+   * THE THREE BOOLEANS, NOW TWO READINGS OF ONE SLOT.
    *
    * isDrawing, isDrawingZone and isSelectingAccessPoint were three independent
    * `useState`s guarded by two DEV-only throws asserting that no two were ever
@@ -143,16 +116,20 @@ function Designer() {
    * Both throws are GONE, and not because the risk went away: the state they
    * guarded no longer exists. There is one slot in the arming register holding
    * one name, so "two tools armed" is not a state this component can hold and
-   * there is nothing left to assert. The boundary's draw arms through the
-   * wizard's door (validated against the step's declared `tools[]`); the
-   * spike's two gestures arm through the legacy door; both write the same slot.
+   * there is nothing left to assert.
+   *
+   * THE ZONE DRAW IS NOT ONE OF THESE ANY MORE. It was the spike's, armed
+   * through the legacy door; it is the landform step's declared `draw` tool
+   * now, armed through the wizard's -- validated against the step's own
+   * `tools[]`, mounted by the stack, and disarmed by the cursor moving. The
+   * ACCESS POINT is the last gesture still going through the legacy door,
+   * because the roads step that will declare it does not exist yet.
    *
    * `isDrawing` is qualified by the cursor because `armed` is scoped to the
    * step the wizard has open -- a `draw` armed on landform is not this
    * boundary's.
    */
   const isDrawing = cursorStepId === BOUNDARY_STEP_ID && armed === 'draw'
-  const isDrawingZone = legacyGesture === 'zone-draw'
   const isSelectingAccessPoint = legacyGesture === 'access-point'
 
   // Finished is DERIVED too: a closed ring with nothing placing points into
@@ -170,36 +147,28 @@ function Designer() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  // Production zones: a parallel path off the finished boundary, not a stage
-  // of the report flow. Its own three pieces of state rather than a share of
-  // isLoading/error above — those belong to the PDF path, and reusing them
-  // would render a zone failure inside the report flow's own branches.
-  //
-  // `productionZones` is { id, data }. The id increments per successful
-  // fetch and exists for one reason: react-leaflet 4.2.1's GeoJSON ignores a
-  // changed `data` prop (it only diffs `style`), so a replaced payload has to
-  // arrive as a new component instance via a changed key.
-  const [productionZones, setProductionZones] = useState(null)
-  const [isLoadingZones, setIsLoadingZones] = useState(false)
-  const [zonesError, setZonesError] = useState(null)
-  const zoneRequestId = useRef(0)
-
-  // 4B's editing state. THIS IS NOT A PATTERN TO COPY. Eleven useState hooks
-  // in one component is what a spike looks like before the session layer and
-  // step wizard exist to hold it; this plumbing is expected to be discarded
-  // wholesale rather than extended. The map layers, the visual language, and
-  // the caution logic in zoneGeometry.js are the parts meant to survive.
-  //
-  // Suggested zones are tracked by what is DESELECTED, not by what is
-  // selected: every zone starts selected because the payload IS the
-  // recommendation, so the empty set is the correct initial state and a newly
-  // arrived payload needs no seeding.
-  const [deselectedIds, setDeselectedIds] = useState(() => new Set())
-  const [drawnZones, setDrawnZones] = useState([])
-  const [zonePoints, setZonePoints] = useState([])
-  const [liveCautions, setLiveCautions] = useState([])
-  const [clampNotice, setClampNotice] = useState(null)
-  const drawnZoneId = useRef(0)
+  /**
+   * THE ELEVEN useState HOOKS THAT WERE HERE ARE GONE.
+   *
+   * They were the production-zone spike's editing state -- the payload, its
+   * loading and error flags, the deselected set, the drawn zones, the
+   * in-progress ring, its live cautions and the clamp notice -- and this file
+   * said of them, at length, that they were what a spike looks like before the
+   * session layer exists and that they were expected to be discarded
+   * wholesale. They have been.
+   *
+   * WHERE EACH WENT, because "discarded" would be the wrong word for most of
+   * them: the payload and the committed features are the store's mirror; the
+   * selection and the drawn zones are the landform step's DRAFT; the loading
+   * and error states are the step machine's, read off the store's job table
+   * and the step's own error. The in-progress ring and its cautions are the
+   * only two that did not belong to the session at all -- they are facts about
+   * a mouse, and they live in DrawingProgress, scoped to the map.
+   *
+   * The clamp notice went with them, and the acreage floor it was printed
+   * against with it: the landform step's own `shape` hook decides what to say
+   * about a clamp, beside the clamp that produced it.
+   */
 
   const [mapCenter, setMapCenter] = useState(null)
 
@@ -218,59 +187,6 @@ function Designer() {
   // them stops propagation, so they all still see every click. What keeps that
   // safe is no longer an assertion: at most one of them is ARMED, because
   // being armed means holding the register's single slot.
-  //
-  // The production-zone step owns the panel whenever any of its three states
-  // is live. Derived rather than stored so it cannot drift out of step with
-  // the three values it summarises.
-  const inProductionZones = isLoadingZones || zonesError !== null || productionZones !== null
-
-  const exclusionLayers = productionZones?.data?.exclusion_layers ?? []
-  const suggestedFeatures = productionZones?.data?.suggested_zones?.features ?? []
-
-  // Running totals over the CURRENT selection rather than the payload's own
-  // figures: selected suggestions plus everything drawn.
-  const selectedSuggestedAcres = suggestedFeatures
-    .filter((feature) => !deselectedIds.has(feature.id))
-    .reduce((sum, feature) => sum + feature.properties.area_acres, 0)
-  const drawnAcres = drawnZones.reduce((sum, zone) => sum + zone.acres, 0)
-  const parcelAcres = productionZones?.data?.summary?.total_acres ?? 0
-  const totals = {
-    selectedAcres: selectedSuggestedAcres + drawnAcres,
-    pctOfParcel:
-      parcelAcres > 0 ? ((selectedSuggestedAcres + drawnAcres) / parcelAcres) * 100 : 0,
-    zoneCount:
-      suggestedFeatures.filter((feature) => !deselectedIds.has(feature.id)).length +
-      drawnZones.length,
-  }
-
-  // A suggested zone is a strict subset of ground that already cleared every
-  // gate, so it cannot cross an exclusion. Verified empty across both
-  // reference fixtures; asserted here so a pipeline regression surfaces as a
-  // loud failure rather than as a caution nobody can explain.
-  if (import.meta.env.DEV && suggestedFeatures.length) {
-    assertSuggestedZonesAreClean(suggestedFeatures, exclusionLayers)
-  }
-
-  // Every production-zone result is computed FOR one specific boundary, so
-  // anything that changes the boundary has to drop it. Left behind, a
-  // highlight would sit over ground it was never measured against.
-  const clearProductionZones = () => {
-    setProductionZones(null)
-    setIsLoadingZones(false)
-    setZonesError(null)
-    // Every one of these is scoped to one payload for one boundary. Left
-    // behind, a drawn zone would sit over ground it was never clamped to and a
-    // deselection would apply to a suggestion that no longer exists.
-    setDeselectedIds(new Set())
-    setDrawnZones([])
-    setZonePoints([])
-    // Only if it is OURS to disarm. The slot is shared with the wizard's
-    // tools now, and clearing zones must not reach over and disarm a boundary
-    // draw that is halfway through a ring.
-    if (isDrawingZone) armLegacyGesture(null)
-    setLiveCautions([])
-    setClampNotice(null)
-  }
 
   /**
    * Start over on the boundary. One handler for both buttons now: "Start
@@ -288,7 +204,6 @@ function Designer() {
     setAccessPoint(null)
     setReport(null)
     setError(null)
-    clearProductionZones()
 
     if (selectSessionId(state)) {
       // ENDING A SESSION IS NOT A DRAWING ACTION, so this button no longer
@@ -348,137 +263,10 @@ function Designer() {
   useEffect(() => {
     if (lastRing.current === points) return
     lastRing.current = points
-    if (report === null && error === null && !inProductionZones) return
+    if (report === null && error === null) return
     setReport(null)
     setError(null)
-    clearProductionZones()
   })
-
-  const handleGenerateProductionZones = async () => {
-    setIsLoadingZones(true)
-    setZonesError(null)
-    setProductionZones(null)
-
-    // [longitude, latitude] only at the wire, same as the report path.
-    const boundary = points.map(([lat, lng]) => [lng, lat])
-
-    try {
-      const response = await fetch(`${API_URL}/api/production-zones`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ boundary }),
-      })
-
-      const data = await response.json().catch(() => null)
-
-      if (!response.ok) {
-        // The backend names which layer failed, as a stable type plus display
-        // prose. Only the prose is carried into the panel; the status code
-        // and any message text stay here.
-        setZonesError({
-          layer: data?.failed_layer?.type ?? null,
-          layerLabel: data?.failed_layer?.label ?? null,
-        })
-        return
-      }
-
-      zoneRequestId.current += 1
-      setProductionZones({ id: zoneRequestId.current, data })
-    } catch {
-      // A thrown fetch is the backend being unreachable rather than a layer
-      // failing, so there is no layer to name.
-      setZonesError({ layer: null, layerLabel: null })
-    } finally {
-      setIsLoadingZones(false)
-    }
-  }
-
-  const handleToggleZone = (featureId) => {
-    setDeselectedIds((current) => {
-      const next = new Set(current)
-      if (next.has(featureId)) next.delete(featureId)
-      else next.add(featureId)
-      return next
-    })
-  }
-
-  const handleStartDrawZone = () => {
-    armLegacyGesture('zone-draw')
-    setZonePoints([])
-    setLiveCautions([])
-    setClampNotice(null)
-  }
-
-  const handleCancelDrawZone = () => {
-    armLegacyGesture(null)
-    setZonePoints([])
-    setLiveCautions([])
-  }
-
-  // Live, on each vertex placed, once there are three — a ring needs three
-  // points before it encloses anything to intersect. Recomputed here rather
-  // than in an effect so the work is visibly tied to the gesture that causes
-  // it, and NOT on mousemove: this tool places points on click and there is no
-  // rubber band to track.
-  const handleZonePointsChange = (nextZonePoints) => {
-    setZonePoints(nextZonePoints)
-    // Clamped to the boundary FIRST, then intersected. Cautions describe
-    // ground the user is actually taking on, and off-parcel ground is never
-    // theirs to take on — warning about hydric soil on the neighbour's side of
-    // the line would be noise attached to land they cannot commit.
-    setLiveCautions(
-      nextZonePoints.length >= 3
-        ? cautionsFor(clampToBoundary(nextZonePoints, points).multi, exclusionLayers)
-        : []
-    )
-  }
-
-  const handleCloseZone = () => {
-    const { multi, acres, removedAcres } = clampToBoundary(zonePoints, points)
-
-    armLegacyGesture(null)
-    setZonePoints([])
-    setLiveCautions([])
-
-    if (!multi.length) {
-      // Every vertex landed off-parcel. Nothing to keep, and the notice has to
-      // say so rather than leaving a Draw button that appeared to do nothing.
-      setClampNotice('That shape fell entirely outside the parcel, so nothing was added.')
-      return
-    }
-
-    drawnZoneId.current += 1
-    setDrawnZones((current) => [
-      ...current,
-      {
-        id: drawnZoneId.current,
-        latLngs: multiPolygonToLatLngs(multi),
-        acres,
-        cautions: cautionsFor(multi, exclusionLayers),
-      },
-    ])
-
-    // Said once, with the figure, and only when the figure is real — the same
-    // floor the cautions use. A notice reading "0.0 acres outside the parcel
-    // was removed" describes a clip, not a decision the user made.
-    setClampNotice(
-      removedAcres >= CLAMP_NOTICE_MIN_ACRES
-        ? `${removedAcres.toFixed(1)} acres outside the parcel was removed.`
-        : null
-    )
-  }
-
-  const handleDeleteDrawnZone = (zoneId) => {
-    setDrawnZones((current) => current.filter((zone) => zone.id !== zoneId))
-    setClampNotice(null)
-  }
-
-  // Back to the finished-boundary state. The boundary itself is untouched —
-  // losing a traced boundary to a step that is a dead end for now would be
-  // the worst thing this panel could do.
-  const handleLeaveProductionZones = () => {
-    clearProductionZones()
-  }
 
   const handleGenerateReport = async () => {
     setIsLoading(true)
@@ -593,40 +381,6 @@ function Designer() {
             accessPoint={accessPoint}
             onSelect={handleAccessPointPicked}
           />
-          {/* Renders nothing until a payload arrives. Its three layers sit in
-              their own panes below Leaflet's overlayPane, which is what keeps
-              them under DrawTool's boundary and vertex markers without
-              anything in DrawTool changing — see ProductionZoneLayers. */}
-          <ProductionZoneLayers
-            payload={productionZones}
-            boundaryPoints={points}
-            deselectedIds={deselectedIds}
-            onToggleZone={handleToggleZone}
-            // Selection is off while ANYTHING is armed, not just while the
-            // zone tool is. A Leaflet path click also reaches the map, so an
-            // interactive zone under any armed tool would toggle itself AND
-            // place a vertex on one click — and now that the boundary's draw
-            // can be armed from the wizard's panel while zones are on screen,
-            // "the zone tool" is no longer the only tool that could be live.
-            // Reading the register's occupancy is what makes that one rule
-            // rather than a list of gestures to keep up to date.
-            selectionEnabled={inProductionZones && !anyArmed}
-          />
-          {inProductionZones && (
-            <ProductionDrawnZones
-              drawnZones={drawnZones}
-              liveCautions={liveCautions}
-              drawnPaneZ={DRAWN_PANE_Z}
-              cautionPaneZ={CAUTION_PANE_Z}
-            />
-          )}
-          <ZoneDrawTool
-            isDrawing={isDrawingZone}
-            points={zonePoints}
-            onPointsChange={handleZonePointsChange}
-            onClose={handleCloseZone}
-            paneZ={DRAWING_PANE_Z}
-          />
         </MapContainer>
 
                 <AcreageChip points={points} visible={isDrawing || isFinished} />
@@ -685,49 +439,28 @@ function Designer() {
           </>
         )}
 
-        {isFinished &&
-          !report &&
-          !isLoading &&
-          !isSelectingAccessPoint &&
-          !accessPoint &&
-          !inProductionZones && (
-            <>
-              <p className="status-ready">
-                Boundary set — <span className="measure">{points.length}</span> points. Pick
-                the entry point to carry on to a full report, or see where else this land
-                could be farmed.
-              </p>
-              <div className="button-row">
-                <button className="button button--secondary" onClick={handleRedraw}>
-                  Redraw
-                </button>
-                <button className="button" onClick={handleSelectAccessPoint}>
-                  Select Access Point
-                </button>
-                <button className="button" onClick={handleGenerateProductionZones}>
-                  Generate Production Zones
-                </button>
-              </div>
-            </>
-          )}
-
-        {inProductionZones && (
-          <ProductionZonePanel
-            payload={productionZones}
-            isLoading={isLoadingZones}
-            error={zonesError}
-            onRetry={handleGenerateProductionZones}
-            onBack={handleLeaveProductionZones}
-            deselectedIds={deselectedIds}
-            drawnZones={drawnZones}
-            liveCautions={liveCautions}
-            totals={totals}
-            isDrawingZone={isDrawingZone}
-            onStartDrawZone={handleStartDrawZone}
-            onCancelDrawZone={handleCancelDrawZone}
-            onDeleteDrawnZone={handleDeleteDrawnZone}
-            clampNotice={clampNotice}
-          />
+        {/* THE PRODUCTION ZONES ARE NOT OFFERED FROM HERE ANY MORE. They are
+            the wizard's landform step, above: generated from the session, held
+            in its draft, committed to the Design Document. What is left in
+            this column is the PDF path, which is a different flow off the same
+            boundary and is untouched -- it reads neither the session nor the
+            document, and /api/generate-report-pdf takes the ring on the wire
+            exactly as it always did. */}
+        {isFinished && !report && !isLoading && !isSelectingAccessPoint && !accessPoint && (
+          <>
+            <p className="status-ready">
+              Boundary set — <span className="measure">{points.length}</span> points. Pick
+              the entry point to carry on to a full report.
+            </p>
+            <div className="button-row">
+              <button className="button button--secondary" onClick={handleRedraw}>
+                Redraw
+              </button>
+              <button className="button" onClick={handleSelectAccessPoint}>
+                Select Access Point
+              </button>
+            </div>
+          </>
         )}
 
         {isFinished && !report && !isLoading && isSelectingAccessPoint && (

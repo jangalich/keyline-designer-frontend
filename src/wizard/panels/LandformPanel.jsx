@@ -23,6 +23,7 @@
  * gesture in flight. Nothing here computes geometry.
  */
 
+import { assertSuggestedZonesAreClean } from '../../zoneGeometry.js'
 import { useWizardCursor } from '../WizardCursor.jsx'
 import { useDrawingProgress } from '../../map/DrawingProgress.jsx'
 
@@ -161,6 +162,20 @@ export default function LandformPanel({ machine }) {
   if (!proposals) return null
 
   const { summary, zones, scales, exclusion_layers: exclusionLayers } = proposals
+
+  // A suggested zone is a strict subset of ground that already cleared every
+  // gate -- it is a morphological opening of a cell union -- so it cannot
+  // cross an exclusion. Verified empty across both reference fixtures;
+  // asserted here so a pipeline regression surfaces as a loud failure rather
+  // than as a caution nobody can explain.
+  //
+  // IT MOVED WITH THE PAYLOAD IT IS ABOUT. This ran in App.jsx while the spike
+  // held the payload; it runs where the payload is read now, which is the only
+  // place it could have gone without something else learning what a suggested
+  // zone is.
+  if (import.meta.env.DEV && proposals.suggested_zones?.features?.length) {
+    assertSuggestedZonesAreClean(proposals.suggested_zones.features, exclusionLayers ?? [])
+  }
   const selectedIds = new Set(draft.selectedFeatureIds)
   const drawnFeatures = draft.drawnFeatures
   const totals = totalsFor(proposals, selectedIds, drawnFeatures)
