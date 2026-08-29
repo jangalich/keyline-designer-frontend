@@ -20,10 +20,15 @@
  * cascade, and two tabs drifting apart are all "replace the mirror with the
  * server's document, decide whether the draft survives, re-render".
  *
- * It costs a round trip in one place, visibly: a finished generate returns the
- * step's payload but NOT a document, and the step's status has moved to
- * `generated` server-side. Patching that status locally would be one line. It
- * is not done -- the store re-reads the document instead. See onGenerated().
+ * IT NO LONGER COSTS A ROUND TRIP. It used to, visibly and in one place: a
+ * finished generate returned the step's payload but NOT a document, while the
+ * step's status had moved to `generated` server-side, so the store re-read the
+ * whole session to learn a fact the server had just produced. Patching the
+ * status locally would have been one line, and the standing cost of NOT doing
+ * it was that fetch. The backend now sends the document with the payload
+ * (step_orchestrator.run_generate_job), so the mirror is still only ever
+ * written by hydrating a server document and there is nothing left to trade
+ * for it. See onGenerated().
  *
  * RULE 2 -- NO DERIVED DESIGN CONTENT, EVER. This client never computes zones,
  * keypoints, eligibility or acreage-bearing analysis. It displays GeoJSON the
@@ -241,12 +246,13 @@ export function stepOrderFrom(document) {
  * longer exists; one whose revision moved was re-committed underneath them.
  *
  * THE PREVIOUS STATUS IS DELIBERATELY NOT CHECKED, and getting that wrong cost
- * a test. A generate lands its payload in the store BEFORE the re-read
- * document arrives (see onGenerated -- the store will not patch the status
+ * a test. A generate lands its payload in the store BEFORE the document that
+ * says `generated` (see onGenerated -- the store will not patch the status
  * itself), so at that moment the mirror still says `not_started` while the
  * proposals in hand are perfectly good. Requiring the old status to already be
- * `generated` threw away every freshly generated payload, one microtask after
- * fetching it.
+ * `generated` threw away every freshly generated payload, one dispatch after
+ * it arrived. That both halves now come out of the same job result rather than
+ * two responses changes the timing, not the rule.
  */
 function proposalsSurvive(previous, entry) {
   if (!previous || previous.proposals == null) return false
@@ -963,26 +969,46 @@ export function SessionProvider({
   )
 
   /**
-   * A finished generate landed. The payload goes into the store as proposals,
-   * and the DOCUMENT IS RE-READ rather than patched.
+   * A finished generate landed. BOTH HALVES OF ITS RESULT GO IN, and neither
+   * is invented here.
    *
-   * The step's status is now `generated` server-side and the store's mirror
-   * still says `not_started`. Setting it here would be one line and would be
-   * the first crack in rule 1: a status written from client knowledge of what
-   * a request should have done. It is also how the mirror and the document
-   * start to disagree in the cases nobody tests -- a job that succeeded while
-   * another tab reopened an upstream step, say. So: ask.
+   * The job's `done` result is {payload, document} -- the step's proposals and
+   * the document the generate moved to `generated`
+   * (step_orchestrator.run_generate_job). Rule 1 is satisfied the same way it
+   * always was: the status is written by hydrating a SERVER document. What is
+   * gone is the round trip. This used to GET /api/sessions/{id} immediately
+   * after every generate for the sole purpose of reading back a status the
+   * server had just told the job about, and that fetch was the standing
+   * argument for patching the status locally instead -- one line, no request,
+   * and the first crack in rule 1. The argument is gone with the fetch.
+   *
+   * PAYLOAD FIRST, THEN THE DOCUMENT, and the order is load-bearing rather
+   * than cosmetic: proposalsSurvive() keeps a step's proposals across a
+   * hydration only when the incoming entry is `generated` at the revision they
+   * were fetched against, so landing them before the document that says
+   * `generated` is what lets them survive it. The reverse order works too and
+   * is one more dispatch; this order is the one proposalsSurvive() documents.
+   *
+   * A RESULT WITH NO DOCUMENT IS A CONTRACT BREACH, not a case to fall back
+   * from. Silently re-fetching would hide a backend too old to send it behind
+   * an extra request per generate, which is the exact cost this change exists
+   * to remove; and skipping the hydration would leave a mirror saying
+   * `not_started` over proposals that exist. Same posture as stepOrderFrom():
+   * say so, loudly.
    */
   const onGenerated = useCallback(
-    async (stepId, sessionId, payload) => {
-      dispatchIfMounted({ type: STEP_PROPOSALS_LOADED, stepId, payload })
-      try {
-        hydrateDocument(await apiGetSession(sessionId))
-      } catch (error) {
-        handleFailure(error, stepId)
+    (stepId, result) => {
+      if (result?.document == null) {
+        throw new DocumentContractError(
+          "A generate job's result carried no 'document'. The store hydrates " +
+            'the step status from the job result rather than re-reading the ' +
+            'session; see step_orchestrator.run_generate_job().'
+        )
       }
+      dispatchIfMounted({ type: STEP_PROPOSALS_LOADED, stepId, payload: result.payload })
+      hydrateDocument(result.document)
     },
-    [dispatchIfMounted, handleFailure, hydrateDocument]
+    [dispatchIfMounted, hydrateDocument]
   )
 
   /**
@@ -1022,7 +1048,7 @@ export function SessionProvider({
         })
 
         if (terminal.status === JOB_DONE) {
-          await onGenerated(stepId, sessionId, terminal.result)
+          onGenerated(stepId, terminal.result)
           return true
         }
         if (terminal.status === JOB_EVICTED) {

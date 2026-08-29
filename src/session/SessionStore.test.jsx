@@ -125,6 +125,19 @@ const LAYERS_PAYLOAD = {
   summary: { parcel_acres: 13.2 },
 }
 
+/**
+ * A generate job's `done` result: BOTH HALVES.
+ *
+ * step_orchestrator.run_generate_job() returns {payload, document} -- the
+ * step's layers and the document the generate moved to `generated`, the
+ * latter byte-identical to what GET /api/sessions/{id} would serve. The store
+ * hydrates both from this one response, which is why nothing below routes a
+ * session GET after a generate.
+ */
+function generateResult(document = serverDocument({ steps: { landform: { status: GENERATED } } })) {
+  return { payload: LAYERS_PAYLOAD, document }
+}
+
 function hydrateInto(state, document) {
   return reducer(state, { type: DOCUMENT_HYDRATED, document })
 }
@@ -585,13 +598,11 @@ describe('5. job lifecycle', () => {
       route('POST', /\/steps\/landform\/generate$/, { status: 202, body: { job_id: 'job-1', status: 'running' } }),
       route('GET', /^\/api\/jobs\/job-1$/, [
         { body: { job_id: 'job-1', status: 'running' } },
-        { body: { job_id: 'job-1', status: 'done', result: LAYERS_PAYLOAD } },
+        { body: { job_id: 'job-1', status: 'done', result: generateResult() } },
       ]),
-      // A finished generate returns a payload, NOT a document -- so the store
-      // re-reads the document rather than patching the status itself.
-      route('GET', /^\/api\/sessions\/sess-1$/, {
-        body: serverDocument({ steps: { landform: { status: GENERATED } } }),
-      }),
+      // NO ROUTE FOR GET /api/sessions/sess-1, deliberately. installFetch()
+      // throws on an unrouted request, so a store that went back for the
+      // document fails here rather than passing quietly on a second fetch.
     ])
 
     const ui = await renderProvider({ autoResume: false })
@@ -610,11 +621,16 @@ describe('5. job lifecycle', () => {
 
     expect(ok).toBe(true)
     expect(selectJobForStep(ui.state, 'landform')).toMatchObject({ status: 'done', error: null })
-    expect(selectJobForStep(ui.state, 'landform').result).toEqual(LAYERS_PAYLOAD)
+    expect(selectJobForStep(ui.state, 'landform').result).toEqual(generateResult())
+    // The PAYLOAD half became the proposals; the document half was hydrated.
     expect(selectStepProposals(ui.state, 'landform')).toEqual(LAYERS_PAYLOAD)
 
-    // The status came from the re-read document, not from a local patch.
+    // The status came from the document the JOB carried -- still a server
+    // document, still never a local patch, and now with no second request.
     expect(selectStepStatus(ui.state, 'landform')).toBe(GENERATED)
+    expect(
+      globalThis.fetch.mock.calls.filter(([u]) => new URL(u).pathname === '/api/sessions/sess-1')
+    ).toHaveLength(0)
 
     await ui.unmount()
   })
@@ -629,10 +645,7 @@ describe('5. job lifecycle', () => {
         { status: 202, body: { job_id: 'job-2', status: 'running' } },
       ]),
       route('GET', /^\/api\/jobs\/job-1$/, { body: { job_id: 'job-1', status: 'running' } }),
-      route('GET', /^\/api\/jobs\/job-2$/, { body: { job_id: 'job-2', status: 'done', result: LAYERS_PAYLOAD } }),
-      route('GET', /^\/api\/sessions\/sess-1$/, {
-        body: serverDocument({ steps: { landform: { status: GENERATED } } }),
-      }),
+      route('GET', /^\/api\/jobs\/job-2$/, { body: { job_id: 'job-2', status: 'done', result: generateResult() } }),
     ])
 
     const ui = await renderProvider({ autoResume: false })
