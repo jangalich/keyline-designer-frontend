@@ -592,6 +592,101 @@
   margin: 0;
 }
 
+/* --- The step wizard --------------------------------------------------------
+   The panel column, sitting above the production-zone spike's own status
+   content in the same sidebar. Deliberately plain: the wizard's visual
+   language is F4's to settle alongside the migrated production-zone panel,
+   and a look invented here would be one more thing that branch has to undo.
+   What IS here is the structure a reader needs to tell the steps apart.
+   --------------------------------------------------------------------------- */
+.wizard {
+  margin: 0 0 var(--space-4) 0;
+}
+
+.wizard__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.step-panel {
+  border: var(--hairline);
+  border-radius: 2px;
+  padding: var(--space-3);
+  background: var(--paper);
+}
+
+/* A step whose upstream is not done reads as unavailable rather than as
+   broken: the panel still says what it is and why it is waiting. */
+.step-panel--unregistered,
+.step-panel__blocked {
+  color: var(--ink-muted);
+}
+
+.step-panel__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.step-panel__title {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.step-panel__state {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.step-panel__line {
+  margin: var(--space-2) 0 0 0;
+}
+
+.step-panel__error,
+.step-panel__failure,
+.step-panel__rejection {
+  color: var(--alert);
+  margin: var(--space-2) 0 0 0;
+}
+
+.step-panel__actions,
+.step-panel__collapsed,
+.step-panel__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-3);
+}
+
+/* A committed step collapses to its title and the one affordance that
+   reopens it, so a finished step costs a line rather than a panel. */
+.step-panel--collapsed {
+  background: transparent;
+}
+
+/* --- The map's tool mounts --------------------------------------------------
+   StepTools renders one node per tool it mounted, plus a status line naming
+   which one is live. The nodes are the mount record — they are `hidden`, so
+   they cost nothing visually — and the status line is the only place a screen
+   reader can learn that the map is in a drawing mode at all.
+
+   pointer-events: none because this sits inside the Leaflet container, and a
+   zero-height div over the map would still be the thing a click landed on.
+   --------------------------------------------------------------------------- */
+.map-tools {
+  position: absolute;
+  inset: 0 auto auto 0;
+  pointer-events: none;
+}
+
 /* --- Production zone map layers ---------------------------------------------
    The two rules Leaflet cannot express through pathOptions. Both act on a
    whole PANE, which is why the layers were given their own panes rather than

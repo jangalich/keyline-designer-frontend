@@ -190,7 +190,29 @@ export default function StepPanel({ definition, definitions, isActive, onActivat
               </button>
             ) : null}
 
-            {machineState === STEP_COMMITTED ? null : (
+              {/* A COMMITTED STEP THAT IS OPEN STILL OFFERS ITS REOPEN. It
+                used to appear only in the collapsed form, which was fine while
+                the only way to open a committed step was to expand it by hand.
+                A click on its geometry in the map's committed band opens it
+                too -- and an opened step with no affordance would be a
+                navigation that arrived nowhere. Same button, same testid: only
+                one of the two branches renders at a time. */}
+            {machineState === STEP_COMMITTED ? (
+              canReopen ? (
+                <button
+                  type="button"
+                  className="step-panel__edit"
+                  data-testid={`edit-${definition.id}`}
+                  onClick={requestReopen}
+                >
+                  {definition.reopen.label}
+                </button>
+              ) : (
+                <p className="step-panel__line" data-testid={`no-reopen-${definition.id}`}>
+                  {definition.committedNote ?? 'This step cannot be reopened.'}
+                </p>
+              )
+            ) : (
               <button
                 type="button"
                 data-testid={`commit-${definition.id}`}

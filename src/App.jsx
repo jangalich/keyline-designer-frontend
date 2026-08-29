@@ -1,6 +1,5 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, ZoomControl } from 'react-leaflet'
-import DrawTool from './DrawTool.jsx'
 import AccessPointTool from './AccessPointTool.jsx'
 import MapRecenter from './MapRecenter.jsx'
 import AddressSearch from './AddressSearch.jsx'
@@ -17,6 +16,16 @@ import {
   clampToBoundary,
 } from './zoneGeometry.js'
 import { multiPolygonToLatLngs } from './geo.js'
+import {
+  SessionProvider,
+  selectBoundaryRing,
+  selectSessionId,
+  useSession,
+} from './session/SessionStore'
+import MapLayerStack from './map/MapLayerStack.jsx'
+import WizardShell from './wizard/WizardShell.jsx'
+import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
+import { BOUNDARY_RING_INPUT, BOUNDARY_STEP_ID } from './wizard/stepDefinitions'
 // ?react is vite-plugin-svgr: the asset becomes a React component and lands
 // inline in the DOM. It has to be inline — the file draws with
 // stroke="currentColor", which resolves against .contour-bg's own colour only
@@ -56,21 +65,103 @@ const DRAWN_PANE_Z = 380
 const DRAWING_PANE_Z = 390
 const CAUTION_PANE_Z = 610
 
+/**
+ * The page, and the session it runs in.
+ *
+ * The provider pair is mounted HERE rather than in main.jsx so that everything
+ * on this page -- the map stack, the wizard column, and the production-zone
+ * spike alike -- reads one store and one arming register. Two of anything here
+ * would be the invariant this branch retired, back in a new place.
+ */
 function App() {
-  // Points are stored as [latitude, longitude] — Leaflet's native order —
-  // while drawing/editing. Converted to [longitude, latitude] only when
-  // sending to the backend, since that's the order soil_data.py,
-  // elevation_data.py, etc. expect.
-  const [points, setPoints] = useState([])
-  const [isDrawing, setIsDrawing] = useState(false)
-  const [isFinished, setIsFinished] = useState(false)
+  return (
+    <SessionProvider>
+      <WizardCursorProvider>
+        <Designer />
+      </WizardCursorProvider>
+    </SessionProvider>
+  )
+}
+
+function Designer() {
+  const { state, actions } = useSession()
+  const { armed, anyArmed, arm, disarm, cursorStepId, armLegacyGesture, legacyGesture } =
+    useWizardCursor()
+
+  /**
+   * THE DRAWN RING, FROM THE STORE. Not `useState` any more, and that is this
+   * branch's one real change to the spike's flow.
+   *
+   * It used to be App's own `points`, which meant the wizard's boundary step
+   * would have needed a copy of it -- and a copy is a second source of truth
+   * for the one geometry every later step is measured against. So the state
+   * MOVED rather than being mirrored: the ring lives in the boundary step's
+   * draft while it is being drawn and in the session's document once it is
+   * committed, and selectBoundaryRing is the one reader of both. Everything
+   * below sees the same `points` it always did, in the same [lat, lng] order,
+   * converted to [lng, lat] only at the wire.
+   *
+   * WHY NOT THE OTHER WAY ROUND -- the spike keeping it and the wizard
+   * mirroring? Because the mirror would have to be written on every vertex,
+   * and a mirror written per gesture IS a second source of truth however it is
+   * described. And why not migrate the spike outright? Because that is F4's
+   * branch: its panel, its layers, its clamping and its endpoint are untouched
+   * here, and moving the ring is the smallest change that lets both read one
+   * value.
+   */
+  const drawnRing = selectBoundaryRing(state, BOUNDARY_STEP_ID, BOUNDARY_RING_INPUT)
+
+  /**
+   * ...HELD STEADY BY ITS CONTENTS, not by where it came from.
+   *
+   * A ring read out of the DRAFT is the same array object until the user moves
+   * it. A ring read out of the DOCUMENT is rebuilt on every call -- it is
+   * [lng, lat] on the wire and [lat, lng] here, and the swap makes a new array
+   * -- so a committed boundary would arrive with a new identity on every
+   * render. Downstream, "the ring changed" is a question asked by identity:
+   * the stale-result effect below asks it, and react-leaflet 4.2.1 asks it of
+   * every path it re-renders. Answering "yes, always" once a session exists
+   * would clear the user's zones in a loop.
+   */
+  const ringSignature = drawnRing.map((point) => point.join()).join(';')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const points = useMemo(() => drawnRing, [ringSignature])
+
+  const setRing = (ring) => actions.setDraftInput(BOUNDARY_STEP_ID, BOUNDARY_RING_INPUT, ring)
+
+  /**
+   * THE THREE BOOLEANS, NOW THREE READINGS OF ONE SLOT.
+   *
+   * isDrawing, isDrawingZone and isSelectingAccessPoint were three independent
+   * `useState`s guarded by two DEV-only throws asserting that no two were ever
+   * true at once -- because four click listeners share this map and none stops
+   * propagation, so two armed tools mean one click does two things.
+   *
+   * Both throws are GONE, and not because the risk went away: the state they
+   * guarded no longer exists. There is one slot in the arming register holding
+   * one name, so "two tools armed" is not a state this component can hold and
+   * there is nothing left to assert. The boundary's draw arms through the
+   * wizard's door (validated against the step's declared `tools[]`); the
+   * spike's two gestures arm through the legacy door; both write the same slot.
+   *
+   * `isDrawing` is qualified by the cursor because `armed` is scoped to the
+   * step the wizard has open -- a `draw` armed on landform is not this
+   * boundary's.
+   */
+  const isDrawing = cursorStepId === BOUNDARY_STEP_ID && armed === 'draw'
+  const isDrawingZone = legacyGesture === 'zone-draw'
+  const isSelectingAccessPoint = legacyGesture === 'access-point'
+
+  // Finished is DERIVED too: a closed ring with nothing placing points into
+  // it. It was the third boolean, and it never held anything the ring and the
+  // slot did not already say.
+  const isFinished = !isDrawing && points.length >= 3
 
   // Access point: where the property connects to a road, picked as a
   // point on the boundary line. Stored as [latitude, longitude], same
   // convention as `points`, and required by the backend before a report
   // can be generated.
   const [accessPoint, setAccessPoint] = useState(null)
-  const [isSelectingAccessPoint, setIsSelectingAccessPoint] = useState(false)
 
   const [report, setReport] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -103,7 +194,6 @@ function App() {
   const [deselectedIds, setDeselectedIds] = useState(() => new Set())
   const [drawnZones, setDrawnZones] = useState([])
   const [zonePoints, setZonePoints] = useState([])
-  const [isDrawingZone, setIsDrawingZone] = useState(false)
   const [liveCautions, setLiveCautions] = useState([])
   const [clampNotice, setClampNotice] = useState(null)
   const drawnZoneId = useRef(0)
@@ -120,16 +210,12 @@ function App() {
   // and re-attached on every render.
   const handleMapLiveChange = useCallback((live) => setIsMapLive(live), [])
 
-  // Four independent click listeners are attached to this map — the scroll
-  // gate, DrawTool, AccessPointTool, and Leaflet's own — and none of them
-  // stops propagation, so they all see every click. What keeps that safe is
-  // that DrawTool and AccessPointTool can never both act on one click:
-  // handleStartDrawing and handleRedraw set isDrawing true AND
-  // isSelectingAccessPoint false, and handleSelectAccessPoint is only
-  // reachable after handleFinishDrawing has set isDrawing false.
+  // Four independent click listeners are still attached to this map — the
+  // scroll gate, DrawTool, AccessPointTool, and Leaflet's own — and none of
+  // them stops propagation, so they all still see every click. What keeps that
+  // safe is no longer an assertion: at most one of them is ARMED, because
+  // being armed means holding the register's single slot.
   //
-  // That invariant is upstream of both tools and easy to break by adding one
-  // more state transition, so it is asserted rather than assumed.
   // The production-zone step owns the panel whenever any of its three states
   // is live. Derived rather than stored so it cannot drift out of step with
   // the three values it summarises.
@@ -162,25 +248,6 @@ function App() {
     assertSuggestedZonesAreClean(suggestedFeatures, exclusionLayers)
   }
 
-  // Same class of invariant as the DrawTool/AccessPointTool one above, and it
-  // matters for the same reason: three tools now share this map's click
-  // stream, and two armed at once means one click does two things.
-  if (import.meta.env.DEV && isDrawingZone && (isDrawing || isSelectingAccessPoint)) {
-    throw new Error(
-      'ZoneDrawTool is armed alongside another tool: isDrawingZone must be ' +
-        'mutually exclusive with isDrawing and isSelectingAccessPoint, or one ' +
-        'click will place a boundary vertex and a zone vertex at once.'
-    )
-  }
-
-  if (import.meta.env.DEV && isDrawing && isSelectingAccessPoint) {
-    throw new Error(
-      'DrawTool and AccessPointTool are both armed: isDrawing and ' +
-        'isSelectingAccessPoint must be mutually exclusive, or a single click ' +
-        'will place a vertex and move the access point at the same time.'
-    )
-  }
-
   // Every production-zone result is computed FOR one specific boundary, so
   // anything that changes the boundary has to drop it. Left behind, a
   // highlight would sit over ground it was never measured against.
@@ -194,69 +261,87 @@ function App() {
     setDeselectedIds(new Set())
     setDrawnZones([])
     setZonePoints([])
-    setIsDrawingZone(false)
+    // Only if it is OURS to disarm. The slot is shared with the wizard's
+    // tools now, and clearing zones must not reach over and disarm a boundary
+    // draw that is halfway through a ring.
+    if (isDrawingZone) armLegacyGesture(null)
     setLiveCautions([])
     setClampNotice(null)
   }
 
+  /**
+   * Start over on the boundary. One handler for both buttons now: "Start
+   * Drawing Boundary" and "Redraw" only ever differed in which of the three
+   * booleans they had to set, and there are no booleans left to set.
+   *
+   * A COMMITTED BOUNDARY IS NOT REDRAWN, IT IS ABANDONED. Once a session
+   * exists the ring is the document's, there is no endpoint that moves it, and
+   * BOUNDARY_STEP declares `reopen: null` for exactly that reason -- every
+   * committed step was measured against this parcel. So the honest action is
+   * to end the session and start fresh, and it is taken here rather than
+   * offered as a redraw that would silently do nothing.
+   */
   const handleStartDrawing = () => {
-    setPoints([])
-    setIsDrawing(true)
-    setIsFinished(false)
     setAccessPoint(null)
-    setIsSelectingAccessPoint(false)
     setReport(null)
     setError(null)
     clearProductionZones()
+
+    if (selectSessionId(state)) {
+      // The store drops the document and every draft with it, which puts the
+      // wizard's cursor back on the boundary step. Arming has to wait for that
+      // render -- `arm` validates against the step the cursor is on NOW, which
+      // is still the committed session's.
+      actions.clearSession()
+      disarm()
+      return
+    }
+
+    setRing([])
+    arm('draw')
   }
+
+  // "Start Drawing Boundary" and "Redraw" are the same action from two states,
+  // and they were two functions only because each had its own three booleans to
+  // set. One name would read oddly on both buttons, so the alias stays.
+  const handleRedraw = handleStartDrawing
 
   const handleUndoLastPoint = () => {
-    setPoints(points.slice(0, -1))
+    setRing(points.slice(0, -1))
   }
 
-  const handleFinishDrawing = () => {
-    setIsDrawing(false)
-    setIsFinished(true)
-  }
+  // Disarming IS finishing. Same call the wizard's boundary panel makes.
+  const handleFinishDrawing = () => disarm()
 
-  const handleRedraw = () => {
-    setPoints([])
-    setIsDrawing(true)
-    setIsFinished(false)
-    setAccessPoint(null)
-    setIsSelectingAccessPoint(false)
-    setReport(null)
-    setError(null)
-    clearProductionZones()
-  }
-
-  const handleSelectAccessPoint = () => {
-    setIsSelectingAccessPoint(true)
-  }
+  const handleSelectAccessPoint = () => armLegacyGesture('access-point')
 
   const handleAccessPointPicked = (point) => {
     setAccessPoint(point)
   }
 
-  const handleConfirmAccessPoint = () => {
-    setIsSelectingAccessPoint(false)
-  }
+  const handleConfirmAccessPoint = () => armLegacyGesture(null)
 
-  const handleChangeAccessPoint = () => {
-    setIsSelectingAccessPoint(true)
-  }
+  const handleChangeAccessPoint = () => armLegacyGesture('access-point')
 
-  const handlePointsChange = (newPoints) => {
-    setPoints(newPoints)
-    // Editing an already-finished shape should clear a stale report,
-    // same reasoning as before — old results shouldn't linger next to
-    // an adjusted boundary.
-    if (isFinished) {
-      setReport(null)
-      setError(null)
-      clearProductionZones()
-    }
-  }
+  /**
+   * A MOVED RING INVALIDATES WHAT WAS MEASURED AGAINST IT.
+   *
+   * This was handlePointsChange's `if (isFinished)` branch. It is an effect
+   * now because the ring no longer arrives through a callback this component
+   * owns -- DrawTool writes it into the step's draft, and this reads it back.
+   * The `isFinished` guard is gone with it, and nothing is lost: a report or a
+   * zone payload can only exist over a ring that WAS finished, so any change
+   * to the ring while either is on screen is the same stale-result case.
+   */
+  const lastRing = useRef(points)
+  useEffect(() => {
+    if (lastRing.current === points) return
+    lastRing.current = points
+    if (report === null && error === null && !inProductionZones) return
+    setReport(null)
+    setError(null)
+    clearProductionZones()
+  })
 
   const handleGenerateProductionZones = async () => {
     setIsLoadingZones(true)
@@ -307,14 +392,14 @@ function App() {
   }
 
   const handleStartDrawZone = () => {
-    setIsDrawingZone(true)
+    armLegacyGesture('zone-draw')
     setZonePoints([])
     setLiveCautions([])
     setClampNotice(null)
   }
 
   const handleCancelDrawZone = () => {
-    setIsDrawingZone(false)
+    armLegacyGesture(null)
     setZonePoints([])
     setLiveCautions([])
   }
@@ -340,7 +425,7 @@ function App() {
   const handleCloseZone = () => {
     const { multi, acres, removedAcres } = clampToBoundary(zonePoints, points)
 
-    setIsDrawingZone(false)
+    armLegacyGesture(null)
     setZonePoints([])
     setLiveCautions([])
 
@@ -485,14 +570,12 @@ function App() {
             />
           )}
           <MapRecenter center={mapCenter} zoom={18} />
-          <DrawTool
-            isDrawing={isDrawing}
-            isFinished={isFinished}
-            points={points}
-            onPointsChange={handlePointsChange}
-            onCloseBoundary={handleFinishDrawing}
-            editingDisabled={isSelectingAccessPoint}
-          />
+          {/* THE LAYER STACK, in place of the DrawTool that used to be here.
+              It composes basemap → context → committed → active editable from
+              the store and the step definitions, and mounts the active step's
+              declared tools — DrawTool among them, wired to the boundary
+              step's draft rather than to state this component holds. */}
+          <MapLayerStack />
           <AccessPointTool
             isSelecting={isSelectingAccessPoint}
             boundaryPoints={points}
@@ -508,10 +591,15 @@ function App() {
             boundaryPoints={points}
             deselectedIds={deselectedIds}
             onToggleZone={handleToggleZone}
-            // Selection is off while drawing. A Leaflet path click also
-            // reaches the map, so an interactive zone under an armed draw tool
-            // would toggle itself AND place a vertex on one click.
-            selectionEnabled={inProductionZones && !isDrawingZone}
+            // Selection is off while ANYTHING is armed, not just while the
+            // zone tool is. A Leaflet path click also reaches the map, so an
+            // interactive zone under any armed tool would toggle itself AND
+            // place a vertex on one click — and now that the boundary's draw
+            // can be armed from the wizard's panel while zones are on screen,
+            // "the zone tool" is no longer the only tool that could be live.
+            // Reading the register's occupancy is what makes that one rule
+            // rather than a list of gestures to keep up to date.
+            selectionEnabled={inProductionZones && !anyArmed}
           />
           {inProductionZones && (
             <ProductionDrawnZones
@@ -542,6 +630,13 @@ function App() {
               </div>
 
               <div className="status-panel">
+        {/* THE WIZARD, in the sidebar column, reading the same store and the
+            same arming register as the spike below it. Both are on screen at
+            once on purpose: the wizard owns the boundary step (its Draw button
+            and the spike's Start Drawing arm the same slot), and the spike
+            still owns the production-zone flow until F4 migrates it. */}
+        <WizardShell />
+
         {!isDrawing && !isFinished && (
           <>
             <p className="status-empty">
