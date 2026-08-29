@@ -234,7 +234,15 @@ function ProductionZonePanel({
             </li>
             {zones.map((zone) => {
               const band = scoreBandName(zone.score, scales)
-              const deselected = deselectedIds.has(`production-area-${zone.id}`)
+              // The row's OWN wire id, carried by the payload. Selection is
+              // tracked by feature id (ProductionZoneLayers filters the map on
+              // feature.id), and this row used to rebuild that id with a
+              // template literal -- one identity with two sources of truth,
+              // joined by a format string nothing checks. Renaming the backend's
+              // prefix would have broken selection silently: rows would simply
+              // stop matching, with no error anywhere. `zone.id` is still the
+              // list key; only the JOIN moved to a carried value.
+              const deselected = deselectedIds.has(zone.feature_id)
               return (
                 <li
                   key={zone.id}
