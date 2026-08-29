@@ -11,28 +11,49 @@
  * ordering is a comment rather than a fact. It also means the composed order
  * is inspectable -- the panes are in the DOM, with their z-indexes on them.
  *
- * WHAT THIS FILE DOES NOT DO. It does not reimplement the production-zone
- * spike's visual language -- the hatch, the caution markers, the per-gate
- * overlays, the 350/360/370/380/390/610 panes. Those are F4's to migrate, and
- * a second copy of them written here against the same tokens would be the
- * thing F4 has to delete before it can start.
+ * THE PRODUCTION-ZONE VISUAL LANGUAGE LIVES HERE NOW, and this file's previous
+ * version said it would: "It does not reimplement the production-zone spike's
+ * visual language -- the hatch, the caution markers, the per-gate overlays, the
+ * 350/360/370/380/390/610 panes. Those are F4's to migrate."
+ *
+ * MIGRATED, NOT REDESIGNED. Every mark below is the spike's, with its rule and
+ * its reasoning carried over verbatim: the off-parcel scrim, the feathered
+ * eligible highlight, hatch with no outline for a suggestion, a dotted edge
+ * with no fill for a declined one, a cased outline plus hatch for a shape the
+ * user drew. What moved is the FILE, and it had to move: the spike drew scrim,
+ * highlight and zones from one component into three panes it numbered itself,
+ * and those three marks belong to three different BANDS of the composed stack
+ * (context, context, editable). A component that spans bands cannot be placed
+ * by a stack that composes them. See THE PANE NUMBERS below.
+ *
+ * THE PANE NUMBERS CHANGED AND THE ORDER DID NOT. The spike numbered its panes
+ * 350 scrim / 360 eligible / 370 suggested / 380 drawn / 390 in-progress, all
+ * between Leaflet's tilePane (200) and overlayPane (400), because it had to
+ * slot under a boundary DrawTool rendered into overlayPane. The stack numbers
+ * by band instead -- context 300, committed 310, editable 320, ten apart, in
+ * declaration order within each -- and the same five marks come out in the same
+ * relative order: scrim 300, highlight 301, suggested 320, drawn 321,
+ * in-progress 322.
+ *
+ * ONE PANE KEPT ITS OWN NUMBER: the caution markers, at 610. That one is not
+ * about this stack at all -- it is about Leaflet's markerPane at 600, which no
+ * band z can clear. MapLayerStack renders it at the top level for that reason.
  */
 
-import polygonClipping from 'polygon-clipping'
-import { GeoJSON, Pane, Polygon, Polyline } from 'react-leaflet'
+import { GeoJSON, Pane, Polygon, Polyline, Tooltip } from 'react-leaflet'
 
-import { multiPolygonToLatLngs, readToken, ringToGeoJSON, toMultiPolygon } from '../geo.js'
+import { offParcelScrimRings, readToken } from '../geo.js'
 
 /**
- * Its own lazily-filled token cache, for the reason DrawTool's and
- * ProductionZoneLayers' each have one: main.jsx imports App.jsx -- and through
- * it this file -- before index.css, so a module-evaluation read returns empty
- * strings. First render is after every module has evaluated.
+ * Its own lazily-filled token cache, for the reason DrawTool's has one:
+ * main.jsx imports App.jsx -- and through it this file -- before index.css, so
+ * a module-evaluation read returns empty strings. First render is after every
+ * module has evaluated.
  *
- * A THIRD COPY RATHER THAN AN IMPORT OF EITHER, deliberately and for the
- * reason ProductionZoneLayers already gives: each cache is scoped to the
- * geometry its own file draws, and widening one to serve another makes an
- * unrelated component the owner of these colours.
+ * A SECOND COPY RATHER THAN AN IMPORT OF DrawTool's, deliberately and for the
+ * reason the spike's own layer file gave: each cache is scoped to the geometry
+ * its own file draws, and widening one to serve another makes an unrelated
+ * component the owner of these colours.
  */
 let stackColors = null
 
@@ -44,6 +65,7 @@ function getStackColors() {
       scrim: readToken('--scrim'),
       ink: readToken('--ink-muted'),
       accent: readToken('--oxide'),
+      eligible: readToken('--eligible'),
     }
   }
   return stackColors
@@ -55,26 +77,44 @@ function getStackColors() {
 const LINE_WEIGHT = 2
 const CASING_WEIGHT = 4
 
-/**
- * The ineligible dim.
- *
- * LIGHTER THAN THE OFF-PARCEL SCRIM (0.55), and the difference is the point.
- * Off-parcel ground is not the user's to take, full stop; ineligible ground
- * inside the parcel is theirs and is merely unsuitable, which is a weaker
- * statement and should read as one. Same token, so the two are plainly the
- * same KIND of mark.
- */
-const DIM_OPACITY = 0.34
+// A drawn zone carries the SAME hatch as a suggested one -- it is the same kind
+// of thing, ground to work -- but unlike a suggestion it keeps an outline.
+//
+// That is not a contradiction of the no-outline rule, it is the reason for it.
+// The rule says a hard edge reads as a line someone measured and agreed, which
+// is wrong for a recommendation whose edge is its least certain part. A drawn
+// zone's edge is exactly that: placed vertex by vertex, deliberately, and
+// exact. The hatch says what the ground is for; the edge treatment says whether
+// its boundary is a suggestion or a decision.
+const DRAWN_LINE_WEIGHT = 1.5
+const DRAWN_CASING_WEIGHT = 3
+
+// A declined suggestion still has to be findable and clickable, so it keeps a
+// mark -- but a faint one. Dotted rather than dashed: a dot carries no
+// direction, which is right for an edge that is no longer asserting anything.
+const DESELECTED_DASH = '1,4'
+const DESELECTED_STROKE_OPACITY = 0.55
+
+// The scrim is the only hard gate in this interface and should be the only
+// thing that reads as forbidden. Opaque enough that off-parcel ground is
+// plainly out of play, short of hiding what is there -- someone still needs to
+// see the road their driveway meets.
+const SCRIM_OPACITY = 0.55
+
+// The highlight has to hold up over both dark canopy and bright bare soil.
+// Presence comes from opacity rather than from a colour picked to beat the
+// imagery -- see the --eligible token's own note for why that differs from the
+// halo-casing rule DrawTool established for LINES.
+const ELIGIBLE_OPACITY = 0.32
 
 /** Committed geometry is settled: no dash, no fill weight, nothing to invite a click. */
 const COMMITTED_FILL_OPACITY = 0.12
-const CONTEXT_FILL_OPACITY = 0.18
-const SELECTED_FILL_OPACITY = 0.3
 
 /**
- * A layer, drawn. The renderer is picked by `kind`; the band decides the
- * styling weight, so the same geometry reads differently as context, as
- * settled work, and as the thing being edited.
+ * A layer, drawn. The renderer is picked by `kind`; within `polygon`, the
+ * treatment is picked by the layer's BAND and SOURCE -- settled work, a server
+ * proposal being decided about, or a shape the user drew -- which are the
+ * declaration's own words and not a step's name.
  */
 export function StackLayer({ layer, interactive = false, onFeatureClick, onLayerClick }) {
   const Renderer = RENDERERS[layer.kind]
@@ -84,11 +124,21 @@ export function StackLayer({ layer, interactive = false, onFeatureClick, onLayer
 
   return (
     // The pane IS the composed order, in the DOM: its z-index is the stack's
-    // number and its class names the band, so "the layers render in the
-    // declared z-order" is a fact about the document rather than a comment.
+    // number and its classes name the band, the kind and the source, so "the
+    // layers render in the declared z-order" is a fact about the document
+    // rather than a comment.
+    //
+    // THE CLASSES ARE ALSO THE STYLING HOOK. App.css paints the hatch and
+    // feathers the highlight through paint servers and filters, neither of
+    // which a Leaflet pathOption can express -- and it now selects on these
+    // vocabulary classes rather than on the spike's hardcoded pane names, so
+    // the rules follow the declaration instead of following a step.
     <Pane
       name={layer.paneName}
-      className={`stack-layer stack-layer--${layer.band}`}
+      className={
+        `stack-layer stack-layer--${layer.band} ` +
+        `stack-layer--kind-${layer.kind} stack-layer--source-${layer.source}`
+      }
       style={{ zIndex: layer.zIndex }}
     >
       <Renderer
@@ -147,81 +197,161 @@ function RingLayer({ layer, interactive, onLayerClick }) {
 }
 
 /**
- * The INELIGIBLE-AREA DIM.
+ * THE OFF-PARCEL SCRIM: everything around the parcel, dimmed.
  *
- * The declaration's geometry names the ELIGIBLE ground; what is drawn is the
- * parcel MINUS it. Drawing the eligible side instead would be the same
- * information and the wrong message -- a highlight invites, and this layer's
- * job is to say where a draw will be refused BEFORE the user spends a gesture
- * finding out.
+ * The one hard gate in this interface, and the only mark that should read as
+ * forbidden. Off-parcel ground is not the user's to take, full stop -- unlike
+ * ineligible ground inside the parcel, which is theirs and merely unsuitable.
  *
- * Clipped to the parcel rather than to the viewport, so it never makes a claim
- * about the neighbour's land: off-parcel ground is out of play for a reason
- * this layer is not making, and the spike's own scrim already says that.
- *
- * Renders nothing when there is no parcel to clip to -- a dim with no hole in
- * it is a map with the lights off.
+ * A plain Polygon rather than GeoJSON: this is derived from the committed
+ * boundary, so it is already in Leaflet's [lat, lng] order and its hole is just
+ * a second ring. offParcelScrimRings() builds it, and returns null for fewer
+ * than three points -- there is no enclosed parcel to exclude from the dim yet,
+ * and dimming the entire map would be wrong.
  */
-function MaskLayer({ layer }) {
-  const parcel = layer.parcel ?? []
-  if (parcel.length < 3) return null
-
-  const eligible = toMultiPolygon(layer.geometry)
-  if (!eligible.length) return null
-
-  const ineligible = polygonClipping.difference([[ringToGeoJSON(parcel)]], eligible)
-  if (!ineligible.length) return null
+function ScrimLayer({ layer }) {
+  const rings = offParcelScrimRings(layer.parcel ?? [])
+  if (!rings) return null
 
   const { scrim } = getStackColors()
   return (
     <Polygon
-      positions={multiPolygonToLatLngs(ineligible)}
+      positions={rings}
       interactive={false}
-      pathOptions={{ stroke: false, fillColor: scrim, fillOpacity: DIM_OPACITY }}
+      pathOptions={{ stroke: false, fillColor: scrim, fillOpacity: SCRIM_OPACITY }}
     />
   )
 }
 
 /**
- * A FeatureCollection's features.
+ * THE ELIGIBLE HIGHLIGHT: the ground that cleared every gate, tinted.
+ *
+ * Fill only, no stroke -- see the --eligible token. Leaflet's GeoJSON reader
+ * honours MultiPolygon interior rings, so the union's holes render as holes
+ * with nothing done to them here. An unhighlighted island inside a highlighted
+ * region is excluded ground -- a canopy pocket or a wet spot -- and filling it
+ * would claim ground the gates rejected.
+ *
+ * KEYED ON THE GEOMETRY. react-leaflet 4.2.1's GeoJSON only diffs `style` on
+ * update and ignores a changed `data` prop entirely, so a new payload has to
+ * arrive as a new component instance.
+ *
+ * A HIGHLIGHT RATHER THAN A DIM OF ITS COMPLEMENT, which is a real choice and
+ * was made twice. The placeholder stack drew the INELIGIBLE side, reasoning
+ * that a highlight invites and the user needs to know where a draw will be
+ * refused. The shipped production-zone step draws the ELIGIBLE side, and it
+ * wins here for two reasons that only apply once both are on one map: the
+ * off-parcel scrim above is already a dim, and a second dim inside the parcel
+ * would make "not yours" and "not suitable" the same mark; and drawing IS
+ * allowed over ineligible ground -- clampToBoundary() clamps to the parcel and
+ * to nothing else, precisely so a user can cross an exclusion knowingly and be
+ * cautioned rather than stopped. Dimming ground you are allowed to draw on
+ * states a prohibition that is not there.
+ */
+function HighlightLayer({ layer }) {
+  const { eligible } = getStackColors()
+  return (
+    <GeoJSON
+      key={`highlight-${layer.paneName}`}
+      data={layer.geometry}
+      interactive={false}
+      style={{ stroke: false, fillColor: eligible, fillOpacity: ELIGIBLE_OPACITY }}
+    />
+  )
+}
+
+/**
+ * NOTHING. A `reference` layer is data the tools consume and no one paints --
+ * see LAYER_KINDS' note in stepDefinitions.js. It has a renderer only so that
+ * "every kind has one" stays true and StepTools' no-renderer warning does not
+ * fire on a layer that is correctly blank.
+ */
+function ReferenceLayer() {
+  return null
+}
+
+/**
+ * A FeatureCollection's features, in one of three treatments.
  *
  * INTERACTIVE ONLY WHEN A TOOL SAID SO. `interactive` is not a style prop here
  * -- it is whether these paths take clicks at all. A Leaflet path click also
  * reaches the map, so an interactive layer under an armed draw tool would
  * toggle itself AND place a vertex on one click. The arming register means
  * only one of the two can be live, and this prop is where that lands.
+ *
+ * THE TREATMENT COMES OFF THE DECLARATION, not off a step id:
+ *
+ *   band 'committed'    settled. A thin line and a light fill; nothing to
+ *                       invite a click except the navigation the stack offers.
+ *
+ *   source 'proposals'  a candidate being decided about. SELECTED is hatch
+ *                       with no outline and no fill of its own -- suggested
+ *                       ground IS eligible ground, so a second fill would
+ *                       imply a category that does not exist, and two
+ *                       translucent fills stacked would double the opacity
+ *                       exactly where the zones sit. DESELECTED is a dotted
+ *                       edge with no fill at all: a declined suggestion marks
+ *                       absence, and absence needs its own vocabulary rather
+ *                       than a quieter version of presence.
+ *
+ *   source 'draft'      a shape the user drew. Hatch, plus a cased outline,
+ *                       because its edge is a decision rather than a
+ *                       suggestion.
+ *
+ * ONE GeoJSON PER FEATURE rather than one for the whole collection: each stays
+ * a separately addressable layer, which is what makes them selectable and what
+ * lets a 422 colour exactly the offending one.
  */
 function FeatureLayer({ layer, interactive, onFeatureClick, onLayerClick }) {
-  const { field, accent, ink } = getStackColors()
+  const { field, accent, ink, halo } = getStackColors()
   const selected = new Set(layer.selectedFeatureIds ?? [])
+  const rejections = layer.rejections ?? {}
   const isEditable = layer.band === 'editable'
+  const isProposal = layer.source === 'proposals'
+  const isDrawn = layer.source === 'draft'
 
   return (
     <>
+      {/* THE CASING PASS, FIRST so it paints underneath -- within one SVG pane,
+          later elements draw on top. Only a drawn shape is cased: a
+          suggestion has no outline to case. */}
+      {isDrawn
+        ? layer.features.map((feature) => (
+            <GeoJSON
+              key={`casing-${feature.id}`}
+              data={feature}
+              interactive={false}
+              style={{ color: halo, weight: DRAWN_CASING_WEIGHT, fill: false }}
+            />
+          ))
+        : null}
       {layer.features.map((feature) => {
-        const isSelected = selected.has(feature.id)
-        const color = isEditable ? (isSelected ? accent : field) : ink
+        // A PROPOSAL IS SELECTED UNLESS IT WAS TAKEN OUT; a drawn shape is
+        // always in. The draft's selection set only ever names proposals --
+        // drawn features are committed by existing, not by being picked -- so
+        // asking the set about one would report every drawn zone deselected.
+        const isSelected = isDrawn || selected.has(feature.id)
+        const rejection = rejections[feature.id] ?? null
         return (
           <GeoJSON
             // react-leaflet 4.2.1's GeoJSON ignores a changed `data` prop --
             // it diffs only `style` -- so anything that changes the geometry
             // or the styling has to arrive as a new instance via the key.
-            key={`${feature.id}:${isSelected}:${interactive}`}
+            key={`${feature.id}:${isSelected}:${interactive}:${rejection ? 'bad' : 'ok'}`}
             data={feature}
             // Top-level, for the reason RingLayer gives: pathOptions is
             // applied with setStyle() and cannot make a path stop taking
             // clicks. The key above is what re-creates it when this flips.
             interactive={interactive}
-            pathOptions={{
-              color,
-              weight: isSelected ? LINE_WEIGHT : 1,
-              fillColor: color,
-              fillOpacity: isSelected
-                ? SELECTED_FILL_OPACITY
-                : isEditable
-                  ? CONTEXT_FILL_OPACITY
-                  : COMMITTED_FILL_OPACITY,
-            }}
+            style={styleFor({
+              feature,
+              isSelected,
+              isEditable,
+              isProposal,
+              isDrawn,
+              rejection,
+              colors: { field, accent, ink, halo },
+            })}
             eventHandlers={
               interactive
                 ? {
@@ -232,13 +362,92 @@ function FeatureLayer({ layer, interactive, onFeatureClick, onLayerClick }) {
                   }
                 : undefined
             }
-          />
+          >
+            {/* THE SERVER'S OWN REASON, ON THE OFFENDING FEATURE. A 422 is
+                rendered per feature and this is the map half of it: the
+                rejected shape is outlined in the alert colour above and says
+                why when you point at it. Never a banner -- see
+                session_api._rejection_payload(). */}
+            {/* PERMANENT, not on hover. A rejection is not extra detail for
+                someone who goes looking -- it is the reason the commit did not
+                happen, and it has to be readable off the map beside the shape
+                it is about. */}
+            {rejection ? (
+              <Tooltip permanent direction="center" className="zone-rejection-tip">
+                {rejection.reason}
+              </Tooltip>
+            ) : null}
+          </GeoJSON>
         )
       })}
     </>
   )
 }
 
-const RENDERERS = { ring: RingLayer, mask: MaskLayer, polygon: FeatureLayer }
+/**
+ * The style for one feature, by treatment.
+ *
+ * `className` is what App.css hangs the hatch on: a stylesheet rule beats the
+ * fill ATTRIBUTE Leaflet writes, which is the only way to point a Leaflet path
+ * at a paint server. `fill` stays TRUE wherever the hatch applies, because
+ * `fill: false` writes fill="none" -- a value rather than an absence, and there
+ * would be nothing left for the stylesheet to replace.
+ */
+function styleFor({ isSelected, isEditable, isProposal, isDrawn, rejection, colors }) {
+  if (rejection) {
+    // Rejected geometry is neither settled nor a candidate: it is the reason
+    // the commit did not happen. Solid, alert-coloured, and unmissable.
+    return {
+      stroke: true,
+      color: readToken('--alert'),
+      weight: LINE_WEIGHT,
+      fill: true,
+      fillColor: readToken('--alert'),
+      fillOpacity: 0.25,
+      className: 'zone--rejected',
+    }
+  }
 
-export { RingLayer, MaskLayer, FeatureLayer }
+  if (isDrawn) {
+    return {
+      stroke: true,
+      color: colors.accent,
+      weight: DRAWN_LINE_WEIGHT,
+      fill: true,
+      className: 'zone--drawn',
+    }
+  }
+
+  if (isProposal && isEditable) {
+    return isSelected
+      ? { stroke: false, fill: true, className: 'zone--selected' }
+      : {
+          stroke: true,
+          color: colors.accent,
+          weight: 1,
+          opacity: DESELECTED_STROKE_OPACITY,
+          dashArray: DESELECTED_DASH,
+          fill: false,
+          className: 'zone--deselected',
+        }
+  }
+
+  // Settled: the committed band, and any polygon layer a step declares that is
+  // neither a proposal nor a drawn shape.
+  return {
+    color: colors.ink,
+    weight: 1,
+    fillColor: colors.ink,
+    fillOpacity: COMMITTED_FILL_OPACITY,
+  }
+}
+
+const RENDERERS = {
+  ring: RingLayer,
+  scrim: ScrimLayer,
+  highlight: HighlightLayer,
+  polygon: FeatureLayer,
+  reference: ReferenceLayer,
+}
+
+export { RingLayer, ScrimLayer, HighlightLayer, FeatureLayer, ReferenceLayer }

@@ -152,10 +152,18 @@ const LAYERS_PAYLOAD = {
     [-74.01, 40.71],
   ]),
   exclusion_layers: [
-    { type: 'slope', label: 'Slope', data_available: true, geometry_wgs84: null },
+    { type: 'slope', label: 'slope above 20.0%', data_available: true, geometry_wgs84: null },
   ],
   suggested_zones: featureCollection('zone-1', 'zone-2'),
-  summary: { total_acres: 13.2 },
+  zones: [
+    { id: 0, feature_id: 'zone-1', rank: 1, area_acres: 2.5, score: 81.0, slope_min_pct: 2.0, slope_max_pct: 8.0, aspect_available: true, dominant_aspect: 'south' },
+    { id: 1, feature_id: 'zone-2', rank: 2, area_acres: 1.2, score: 64.0, slope_min_pct: 3.0, slope_max_pct: 11.0, aspect_available: false, dominant_aspect: null },
+  ],
+  scales: {
+    bands: { poor: [0, 40], fair: [40, 60], good: [60, 80], excellent: [80, 100] },
+    band_bounds: 'lower_inclusive_upper_exclusive_last_band_inclusive',
+  },
+  summary: { total_acres: 13.2, eligible_acres: 7.5 },
 }
 
 /* ===========================================================================
@@ -403,12 +411,20 @@ describe('1. stack composition', () => {
     expect(bands).toEqual([...bands].sort(byBand))
     expect(new Set(bands)).toEqual(new Set(['context', 'committed', 'editable']))
 
-    // The mask is the context layer, the boundary is the committed one, and
-    // the mask is UNDERNEATH -- which is the ordering claim, in the document.
-    const [lowest, next] = panes
-    expect(lowest.key).toBe('landform--landform-ineligible')
+    // The two context marks are the bottom of the stack, in declaration
+    // order -- the off-parcel scrim, then the eligible highlight over it --
+    // and the committed boundary sits above both. That is the ordering claim,
+    // in the document.
+    const [lowest, second, third, next] = panes
+    expect(lowest.key).toBe('landform--landform-offparcel')
+    expect(second.key).toBe('landform--landform-eligible')
+    // The reference layer is in the band too. It draws nothing, but it is a
+    // declared layer and the stack places it like any other rather than
+    // learning that one kind is special enough to skip.
+    expect(third.key).toBe('landform--landform-exclusions')
     expect(next.key).toBe('boundary--boundary-committed')
-    expect(lowest.z).toBeLessThan(next.z)
+    expect(lowest.z).toBeLessThan(second.z)
+    expect(third.z).toBeLessThan(next.z)
 
     // The editable band is not drawn by the stack at all -- it belongs to the
     // tools -- so its z is above both and is asserted on the composition.
@@ -636,8 +652,8 @@ describe('4. the boundary step', () => {
    5. THE INELIGIBLE-AREA DIM
    =========================================================================== */
 
-describe('5. the eligibility mask', () => {
-  it('renders the ineligible dim from the step’s declared context layer', async () => {
+describe('5. the context band: scrim, highlight, and data nothing draws', () => {
+  it('draws the off-parcel scrim and the eligible highlight, and draws the reference layer not at all', async () => {
     installFetch([
       route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
       route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
@@ -646,26 +662,44 @@ describe('5. the eligibility mask', () => {
     const ui = await renderSurface()
     await withLandform(ui)
 
-    const pane = ui.panes().find((p) => p.key === 'landform--landform-ineligible')
-    expect(pane).toBeDefined()
-    expect(pane.band).toBe('context')
+    // THE SCRIM: everything AROUND the parcel. A ring far enough out to cover
+    // the visible map, with the parcel as its hole -- two subpaths, not one.
+    const scrim = ui.panes().find((p) => p.key === 'landform--landform-offparcel')
+    expect(scrim).toBeDefined()
+    expect(scrim.band).toBe('context')
+    const scrimPaths = [...scrim.pane.querySelectorAll('path')]
+    expect(scrimPaths).toHaveLength(1)
+    expect((scrimPaths[0].getAttribute('d').match(/M/g) ?? []).length).toBe(2)
 
-    // WHAT IS DRAWN IS THE COMPLEMENT. The declaration's geometry names the
-    // ELIGIBLE ground, and the eligible rectangle is strictly inside the
-    // parcel -- so the dim is the parcel with a hole in it, which is a path
-    // with two rings, not one.
-    const paths = [...pane.pane.querySelectorAll('path')]
-    expect(paths).toHaveLength(1)
-    const subpaths = paths[0].getAttribute('d').match(/M/g) ?? []
-    expect(subpaths.length).toBe(2)
+    // THE HIGHLIGHT: the eligible union itself, tinted. One ring -- it names
+    // ground that qualifies rather than the complement of it.
+    const highlight = ui.panes().find((p) => p.key === 'landform--landform-eligible')
+    expect(highlight).toBeDefined()
+    expect(highlight.band).toBe('context')
+    const highlightPaths = [...highlight.pane.querySelectorAll('path')]
+    expect(highlightPaths).toHaveLength(1)
+    expect((highlightPaths[0].getAttribute('d').match(/M/g) ?? []).length).toBe(1)
 
-    // It is CONTEXT: read-only, and it never takes a click.
-    expect(paths[0].classList.contains('leaflet-interactive')).toBe(false)
+    // Both are CONTEXT: read-only, and neither ever takes a click.
+    for (const path of [...scrimPaths, ...highlightPaths]) {
+      expect(path.classList.contains('leaflet-interactive')).toBe(false)
+    }
 
-    // And it came off the declaration rather than off a key name the renderer
-    // recognised: the mask is the one layer landform declares in that band.
+    // THE REFERENCE LAYER RESOLVED AND DREW NOTHING. It is declared, it is in
+    // the composed stack, its pane exists -- and there is not a path in it.
+    // That is what `kind: 'reference'` means: data the tools consume.
+    const reference = ui.panes().find((p) => p.key === 'landform--landform-exclusions')
+    expect(reference).toBeDefined()
+    expect(reference.pane.querySelectorAll('path')).toHaveLength(0)
+
+    // And all three came off the declaration rather than off a key name a
+    // renderer recognised.
     const declared = LANDFORM_STEP.layers.filter((layer) => layer.band === 'context')
-    expect(declared.map((layer) => [layer.kind, layer.key])).toEqual([['mask', 'eligible_union']])
+    expect(declared.map((layer) => [layer.kind, layer.key])).toEqual([
+      ['scrim', null],
+      ['highlight', 'eligible_union'],
+      ['reference', 'exclusion_layers'],
+    ])
 
     await ui.unmount()
   })

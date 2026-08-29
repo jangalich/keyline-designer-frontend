@@ -118,9 +118,30 @@ function committed(revision, features) {
   }
 }
 
+/**
+ * The landform payload, in the shape assemble_production_zone_payload() ships
+ * it -- the six keys the panel and the map read, with the two representations
+ * of one set of zones (`zones` tabular, `suggested_zones` GeoJSON) joined by
+ * `feature_id`, which is the join the payload carries so the panel does not
+ * rebuild it with a format string.
+ */
 const LAYERS_PAYLOAD = {
+  eligible_union: null,
+  exclusion_layers: [
+    { type: 'slope', label: 'slope above 20.0%', data_available: true, geometry_wgs84: null },
+    { type: 'hydric', label: 'wet (hydric) soil', data_available: false, geometry_wgs84: null },
+  ],
   suggested_zones: featureCollection('zone-1', 'zone-2', 'zone-3'),
-  summary: { parcel_acres: 13.2 },
+  zones: [
+    { id: 0, feature_id: 'zone-1', rank: 1, area_acres: 2.5, score: 81.0, slope_min_pct: 2.0, slope_max_pct: 8.0, aspect_available: true, dominant_aspect: 'south' },
+    { id: 1, feature_id: 'zone-2', rank: 2, area_acres: 1.2, score: 64.0, slope_min_pct: 3.0, slope_max_pct: 11.0, aspect_available: false, dominant_aspect: null },
+    { id: 2, feature_id: 'zone-3', rank: 3, area_acres: 0.9, score: 51.0, slope_min_pct: 1.0, slope_max_pct: 6.0, aspect_available: true, dominant_aspect: 'east' },
+  ],
+  scales: {
+    bands: { poor: [0, 40], fair: [40, 60], good: [60, 80], excellent: [80, 100] },
+    band_bounds: 'lower_inclusive_upper_exclusive_last_band_inclusive',
+  },
+  summary: { total_acres: 13.2, eligible_acres: 7.5 },
 }
 
 /** step_orchestrator.run_generate_job()'s two-key result. */
@@ -458,7 +479,16 @@ describe('3. a generate hydrates both halves', () => {
     expect(ui.state.steps.landform.proposals).toEqual(LAYERS_PAYLOAD)
     expect(selectStepStatus(ui.state, 'landform')).toBe(GENERATED)
     expect(ui.stepState('landform')).toBe('reviewing')
-    expect(ui.text('landform-counts')).toContain('3 proposals')
+    // THE PANEL IS THE STEP'S OWN READOUT NOW, and it opens on the
+    // recommendation: three zones, all selected, 4.6 acres between them. That
+    // is the seeded draft (SessionStore's DRAFT_SEEDED) showing through --
+    // the payload IS the recommendation, so the empty gesture is to take
+    // things out.
+    expect(ui.text('landform-zone-count')).toBe('3')
+    expect(ui.text('landform-selected-acres')).toBe('4.6')
+    expect(new Set(ui.state.drafts.landform.selectedFeatureIds)).toEqual(
+      new Set(['zone-1', 'zone-2', 'zone-3'])
+    )
 
     await ui.unmount()
   })

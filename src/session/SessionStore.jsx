@@ -107,6 +107,7 @@ export const STEP_PROPOSALS_LOADED = 'step/proposalsLoaded'
 export const STEP_PROPOSALS_CLEARED = 'step/proposalsCleared'
 export const STEP_ERROR_SET = 'step/errorSet'
 export const STEP_ERROR_CLEARED = 'step/errorCleared'
+export const DRAFT_SEEDED = 'draft/seeded'
 export const DRAFT_SELECTION_SET = 'draft/selectionSet'
 export const DRAFT_SELECTION_TOGGLED = 'draft/selectionToggled'
 export const DRAFT_SHAPE_ADDED = 'draft/shapeAdded'
@@ -143,6 +144,7 @@ export const ALL_ACTIONS = Object.freeze([
   STEP_PROPOSALS_CLEARED,
   STEP_ERROR_SET,
   STEP_ERROR_CLEARED,
+  DRAFT_SEEDED,
   DRAFT_SELECTION_SET,
   DRAFT_SELECTION_TOGGLED,
   DRAFT_SHAPE_ADDED,
@@ -196,6 +198,15 @@ const EMPTY_DRAFT = Object.freeze({
   selectedFeatureIds: Object.freeze([]),
   drawnFeatures: Object.freeze([]),
   inputs: Object.freeze({}),
+  // IS THIS DRAFT STILL EXACTLY THE RECOMMENDATION? True only between
+  // DRAFT_SEEDED and the user's first gesture -- withDraft() clears it on
+  // every other write, so it cannot be left stale by an action that forgot.
+  //
+  // It exists because the seed put the server's proposal INTO the draft (see
+  // DRAFT_SEEDED), and `reviewing` vs `editing` asks whether the USER has
+  // touched the step. Without this flag every freshly generated step would
+  // read as `editing` with `Unsaved changes.` over changes nobody made.
+  seeded: false,
 })
 
 /** A step entry that is present in the order but absent from the mirror. */
@@ -347,8 +358,22 @@ function draftOf(state, stepId) {
   return state.drafts[stepId] ?? EMPTY_DRAFT
 }
 
-function withDraft(state, stepId, draft) {
-  return { ...state, drafts: { ...state.drafts, [stepId]: draft } }
+/**
+ * Write one step's draft. `seeded` is an EXPLICIT ARGUMENT defaulting to
+ * false, not a field read off the draft being written.
+ *
+ * The default is the safe direction: any write that is not the seed itself is
+ * a user gesture, so a draft action added later marks the draft touched
+ * without its author having to remember to. Reading the flag off the incoming
+ * object instead would carry `seeded: true` forward through every `{...draft}`
+ * spread -- which is every other case in this reducer -- and the flag would
+ * never clear.
+ */
+function withDraft(state, stepId, draft, seeded = false) {
+  return {
+    ...state,
+    drafts: { ...state.drafts, [stepId]: { ...draft, seeded } },
+  }
 }
 
 /**
@@ -405,6 +430,45 @@ function reduce(state, action) {
 
     case STEP_ERROR_CLEARED:
       return withStep(state, action.stepId, { error: null })
+
+    case DRAFT_SEEDED:
+      /**
+       * THE RECOMMENDATION, PUT INTO THE DRAFT. The one write in this reducer
+       * that fills a draft from something other than a user gesture, and it is
+       * here because of what the payload MEANS.
+       *
+       * The spike tracked `deselectedIds`, and its comment says why: every
+       * suggested zone starts SELECTED, because the payload IS the
+       * recommendation. An empty set was therefore the correct initial state
+       * and needed no seeding. This store holds the opposite polarity --
+       * `selectedFeatureIds`, which is what a commit body is assembled from --
+       * so the same semantics has to be written down rather than fallen into,
+       * and an unseeded empty draft would be ambiguous between "nothing
+       * selected yet" and "everything deselected".
+       *
+       * SEEDING IS A CONSEQUENCE OF PROPOSALS ARRIVING, not a user action --
+       * useStepMachine fires it whenever a step has proposals and no draft.
+       * That is what removes the ambiguity: after a payload lands there is
+       * ALWAYS a draft, so an empty `selectedFeatureIds` can only mean the
+       * user deselected everything. It is also why DRAFT_DISCARDED deletes the
+       * draft outright rather than emptying it -- discarding takes the user
+       * back to the recommendation, which is the honest meaning of "discard my
+       * changes" for a step whose starting point is a server proposal.
+       *
+       * NEVER OVER AN EXISTING DRAFT. A seed that overwrote one would undo the
+       * user's own selection on any re-render that happened to re-run it.
+       */
+      if (state.drafts[action.stepId] !== undefined) return state
+      return withDraft(
+        state,
+        action.stepId,
+        {
+          ...EMPTY_DRAFT,
+          selectedFeatureIds: [...action.selectedFeatureIds],
+          drawnFeatures: [...action.drawnFeatures],
+        },
+        true
+      )
 
     case DRAFT_SELECTION_SET:
       return withDraft(state, action.stepId, {
@@ -653,6 +717,25 @@ export function selectDownstreamSteps(state, stepId) {
  * threat to work that does not exist and trains them to click through the
  * warning that will one day be real.
  */
+/**
+ * Every step that currently holds work -- generated or committed.
+ *
+ * WHAT ENDING THE SESSION COSTS, named. There is no endpoint to move a
+ * committed boundary and there should not be: every committed step's geometry
+ * was computed against the parcel, so a different parcel is a different
+ * session rather than a cascade within one. That makes "redraw the boundary"
+ * the single most destructive action in this app, and the only honest way to
+ * offer it is to say what it discards first.
+ *
+ * NOT selectDownstreamSteps' full reach, for the same reason the reopen
+ * warning is not: naming steps the user has never reached reads as a threat to
+ * work that does not exist and trains them to click through the warning that
+ * will one day be real.
+ */
+export function selectStepsHoldingWork(state) {
+  return state.stepOrder.filter((stepId) => selectStepStatus(state, stepId) !== NOT_STARTED)
+}
+
 export function selectStepsResetByReopen(state, stepId) {
   return selectDownstreamSteps(state, stepId).filter(
     (downstreamId) => selectStepStatus(state, downstreamId) !== NOT_STARTED
@@ -663,6 +746,15 @@ export const selectDraft = (state, stepId) => state.drafts[stepId] ?? EMPTY_DRAF
 export const selectActiveDraft = (state) =>
   state.activeStep ? selectDraft(state, state.activeStep) : EMPTY_DRAFT
 export const selectHasDraft = (state, stepId) => state.drafts[stepId] !== undefined
+
+/**
+ * Has the USER touched this step's draft, as opposed to the seed having filled
+ * it with the server's recommendation? See EMPTY_DRAFT's `seeded`.
+ */
+export const selectDraftIsTouched = (state, stepId) => {
+  const draft = state.drafts[stepId]
+  return draft !== undefined && !draft.seeded
+}
 
 /**
  * The 422 rejections for a step, ADDRESSABLE BY FEATURE ID.
@@ -1174,6 +1266,8 @@ export function SessionProvider({
       reopen,
       loadLayers,
       setActiveStep: (stepId) => dispatch({ type: ACTIVE_STEP_SET, stepId }),
+      seedDraft: (stepId, selectedFeatureIds, drawnFeatures) =>
+        dispatch({ type: DRAFT_SEEDED, stepId, selectedFeatureIds, drawnFeatures }),
       setSelection: (stepId, featureIds) =>
         dispatch({ type: DRAFT_SELECTION_SET, stepId, featureIds }),
       toggleSelection: (stepId, featureId) =>

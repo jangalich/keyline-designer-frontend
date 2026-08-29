@@ -6,10 +6,10 @@
  *
  *   0. Basemap            not here -- App.jsx's BasemapControl owns it, and it
  *                         is not any step's layer.
- *   1. Context            server geometry, read-only, subdued. The step's
- *                         eligibility mask lives here, drawn as the
- *                         INELIGIBLE-AREA DIM so the user sees where drawing
- *                         is allowed before they try it.
+ *   1. Context            server geometry, read-only, subdued. The off-parcel
+ *                         scrim and the eligible highlight live here, in that
+ *                         order, so the user sees what is theirs and what
+ *                         qualifies before they try to draw on it.
  *   2. Committed          every committed step's features. Settled styling,
  *                         never editable. A click offers navigation to that
  *                         step and nothing else.
@@ -35,6 +35,7 @@ import {
   selectDraft,
   selectStepFeatures,
   selectStepProposals,
+  selectStepRejections,
 } from '../session/SessionStore'
 import { boundaryToLatLngs } from '../session/apiClient'
 import { LAYER_BANDS, wizardStepOrder } from '../wizard/stepDefinitions'
@@ -142,14 +143,29 @@ export function resolveLayer(state, definition, layer) {
     return ring.length || keepEmpty ? { ...base, ring } : null
   }
 
-  if (layer.kind === 'mask') {
-    // The geometry names the ELIGIBLE ground; the renderer dims its
-    // complement. The inversion is the mask's whole definition and it happens
-    // where the geometry is drawn, not here -- this stays a resolver.
-    // No `keepEmpty` here: a mask with no geometry is not an empty editable
+  if (layer.kind === 'reference') {
+    // NOT DRAWN, AND THAT IS THE DECLARATION SPEAKING. The value is carried
+    // through verbatim under `data` -- whatever shape the payload gives it --
+    // for the tools that consume it. See LAYER_KINDS' note on `reference`.
+    const data = fromProposals(state, stepId, layer)
+    return data ? { ...base, data } : null
+  }
+
+  if (layer.kind === 'scrim') {
+    // Derived from the committed boundary alone -- no payload key, nothing to
+    // fetch. The ring is the hole; the renderer builds the surround. Resolves
+    // to nothing before a boundary exists, because dimming the whole map is
+    // not a statement anyone asked for.
+    const parcel = boundaryToLatLngs(selectDocument(state))
+    return parcel.length >= 3 ? { ...base, parcel } : null
+  }
+
+  if (layer.kind === 'highlight') {
+    // Geometry naming ground that QUALIFIES, tinted where it is. No
+    // `keepEmpty`: a highlight with no geometry is not an empty editable
     // surface, it is a statement about eligibility that has not arrived.
     const geometry = fromProposals(state, stepId, layer)
-    return geometry ? { ...base, geometry, parcel: boundaryToLatLngs(selectDocument(state)) } : null
+    return geometry ? { ...base, geometry } : null
   }
 
   // 'polygon': a FeatureCollection, or the drawn features of a draft.
@@ -159,9 +175,20 @@ export function resolveLayer(state, definition, layer) {
   return {
     ...base,
     features,
+    // THE PARCEL, ON EVERY POLYGON LAYER. The mask arm already carries it for
+    // its own clip; a draw tool over an editable layer needs the same ring to
+    // clamp a drawn shape to, and a renderer needs it for the off-parcel
+    // scrim. Read through boundaryToLatLngs like every other reader of it, so
+    // there is one place the wire's [lng, lat] becomes the map's [lat, lng].
+    parcel: boundaryToLatLngs(selectDocument(state)),
     // Only meaningful for a selectable layer; carried for every polygon layer
     // so the renderer has one shape to read rather than two.
     selectedFeatureIds: selectDraft(state, stepId).selectedFeatureIds,
+    // THE 422s, KEYED BY feature_id, so the renderer can colour exactly the
+    // offending shapes and print the server's own reason on each. Carried on
+    // the layer rather than looked up per feature by the renderer, for the
+    // same reason `selectedFeatureIds` is: the renderer reads one shape.
+    rejections: selectStepRejections(state, stepId),
   }
 }
 

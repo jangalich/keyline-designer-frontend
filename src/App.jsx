@@ -23,6 +23,7 @@ import {
   useSession,
 } from './session/SessionStore'
 import MapLayerStack from './map/MapLayerStack.jsx'
+import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
 import { BOUNDARY_RING_INPUT, BOUNDARY_STEP_ID } from './wizard/stepDefinitions'
@@ -77,7 +78,9 @@ function App() {
   return (
     <SessionProvider>
       <WizardCursorProvider>
-        <Designer />
+        <DrawingProgressProvider>
+          <Designer />
+        </DrawingProgressProvider>
       </WizardCursorProvider>
     </SessionProvider>
   )
@@ -85,7 +88,7 @@ function App() {
 
 function Designer() {
   const { state, actions } = useSession()
-  const { armed, anyArmed, arm, disarm, cursorStepId, armLegacyGesture, legacyGesture } =
+  const { armed, anyArmed, arm, disarm, open, cursorStepId, armLegacyGesture, legacyGesture } =
     useWizardCursor()
 
   /**
@@ -288,12 +291,20 @@ function Designer() {
     clearProductionZones()
 
     if (selectSessionId(state)) {
-      // The store drops the document and every draft with it, which puts the
-      // wizard's cursor back on the boundary step. Arming has to wait for that
-      // render -- `arm` validates against the step the cursor is on NOW, which
-      // is still the committed session's.
-      actions.clearSession()
+      // ENDING A SESSION IS NOT A DRAWING ACTION, so this button no longer
+      // performs one. It used to call clearSession() on the click: a user who
+      // had generated and committed landform lost that work to a button
+      // labelled "Redraw". The boundary is fixed for the life of a session --
+      // every committed step was measured against it -- so what they actually
+      // want is a NEW session, and the affordance that offers one names what
+      // it discards first.
+      //
+      // Same posture as a click on committed geometry in the map's committed
+      // band: it OFFERS navigation to the step that owns the thing, and never
+      // hands the user an action they did not ask for. See BoundaryPanel's
+      // CommittedBoundary.
       disarm()
+      open(BOUNDARY_STEP_ID)
       return
     }
 
