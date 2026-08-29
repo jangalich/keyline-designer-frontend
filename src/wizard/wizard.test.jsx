@@ -46,6 +46,7 @@ import {
 } from './stepDefinitions'
 import { deriveMachineState } from './useStepMachine'
 import WizardShell from './WizardShell.jsx'
+import { WizardCursorProvider } from './WizardCursor.jsx'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -199,8 +200,10 @@ async function renderWizard({ definitions = STEP_DEFINITIONS, autoResume = false
   await React.act(async () => {
     root.render(
       <SessionProvider autoResume={autoResume}>
-        <Probe />
-        <WizardShell definitions={definitions} />
+        <WizardCursorProvider definitions={definitions}>
+          <Probe />
+          <WizardShell />
+        </WizardCursorProvider>
       </SessionProvider>
     )
   })
@@ -309,7 +312,7 @@ describe('1. step definitions', () => {
     // AN ARCHITECTURAL ASSERTION, written so it bites. The schema's claim is
     // that a step's differences are declared; the check is that the generic
     // code contains no step id to branch on.
-    const generic = ['useStepMachine.js', 'StepPanel.jsx', 'WizardShell.jsx']
+    const generic = ['useStepMachine.js', 'StepPanel.jsx', 'WizardShell.jsx', 'WizardCursor.jsx']
     for (const file of generic) {
       // Comments explain WHY boundary is shaped as it is; code must not test
       // for it.
@@ -808,9 +811,14 @@ describe('11. the existing spike', () => {
     // It reaches the endpoint on its own, through its own fetch -- not through
     // the session client, which has no such call.
     expect(appSource).toContain('${API_URL}/api/production-zones')
-    // And it knows nothing about the wizard: mounting one cannot change the
-    // other, which is what lets them coexist until F4.
-    expect(appSource).not.toMatch(/from '\.\/wizard/)
+    // AND IT NOW MOUNTS THE WIZARD, which F2 asserted it did not. That
+    // inversion is this branch: the wizard is rendered in the sidebar column
+    // and the map stack replaces App's own DrawTool, so the two share one
+    // store, one boundary ring and one arming slot. What has NOT changed is
+    // the direction of the dependency below -- App reaches for the wizard, no
+    // wizard module reaches for the spike's endpoint.
+    expect(appSource).toMatch(/from '\.\/wizard\/WizardShell\.jsx'/)
+    expect(appSource).toMatch(/from '\.\/map\/MapLayerStack\.jsx'/)
 
     // No wizard module CALLS it. stepDefinitions.js names it in prose --
     // LANDFORM_STEP's docstring is where the migration is recorded -- and
@@ -820,7 +828,11 @@ describe('11. the existing spike', () => {
       'useStepMachine.js',
       'StepPanel.jsx',
       'WizardShell.jsx',
+      'WizardCursor.jsx',
       path.join('panels', 'LandformPanel.jsx'),
+      path.join('..', 'map', 'MapLayerStack.jsx'),
+      path.join('..', 'map', 'layerStack.js'),
+      path.join('..', 'map', 'StepTools.jsx'),
     ]) {
       expect(codeOf(file)).not.toContain('/api/production-zones')
     }

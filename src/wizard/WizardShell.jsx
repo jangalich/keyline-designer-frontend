@@ -21,58 +21,34 @@
  * this branch. Dropping them would make the wizard silently shorter than the
  * pipeline; claiming them would mean inventing panels for payloads nobody has
  * seen. So they appear, in order, saying what they are.
+ *
+ * THE CURSOR IS NOT HELD HERE ANY MORE. It moved to WizardCursorProvider,
+ * because the MAP needs the same answer: the panel column and the map's
+ * editable band have to be showing one step, and two pieces of state that
+ * happen to agree are not one answer. See WizardCursor.jsx -- and see the note
+ * on `activeStep` in SessionStore's initialState for why the cursor is not
+ * kept in the store at all.
  */
 
-import { useCallback, useMemo, useState } from 'react'
-
-import { COMMITTED, selectStepStatus, useSession } from '../session/SessionStore'
 import StepPanel from './StepPanel.jsx'
-import { STEP_DEFINITIONS, definitionMap, wizardStepOrder } from './stepDefinitions'
+import { useWizardCursor } from './WizardCursor.jsx'
 
-export default function WizardShell({ definitions = STEP_DEFINITIONS }) {
-  const { state } = useSession()
-  const registry = useMemo(() => definitionMap(definitions), [definitions])
-  const order = wizardStepOrder(state)
-
-  /**
-   * WHICH PANEL IS OPEN.
-   *
-   * Held here rather than in the store, and the reason is boundary. The
-   * store's `activeStep` is validated against the DOCUMENT's step order --
-   * hydrate() nulls it for an id that is not in `step_order` -- and boundary
-   * is deliberately not in it. Putting the wizard's cursor there would mean
-   * the store dropping it the moment the session it just created arrived.
-   *
-   * `null` means "no explicit choice", and the fallback is derived rather than
-   * remembered: the first step that is not committed. So creating a session
-   * moves the wizard on to landform without anything having to say so, and a
-   * resume opens exactly where the document says the user left off.
-   */
-  const [openStep, setOpenStep] = useState(null)
-
-  const firstUncommitted =
-    order.find((stepId) => {
-      const definition = registry.get(stepId)
-      const status = definition ? definition.status(state) : selectStepStatus(state, stepId)
-      return status !== COMMITTED
-    }) ?? order[order.length - 1]
-
-  const activeStep = openStep && order.includes(openStep) ? openStep : firstUncommitted
-  const activate = useCallback((stepId) => setOpenStep(stepId), [])
+export default function WizardShell() {
+  const { order, definitions, cursorStepId, open } = useWizardCursor()
 
   return (
     <div className="wizard" data-testid="wizard">
       <ol className="wizard__steps" data-testid="wizard-order">
         {order.map((stepId) => {
-          const definition = registry.get(stepId)
+          const definition = definitions.get(stepId)
           return (
             <li key={stepId} className="wizard__step" data-step-id={stepId}>
               {definition ? (
                 <StepPanel
                   definition={definition}
-                  definitions={registry}
-                  isActive={activeStep === stepId}
-                  onActivate={activate}
+                  definitions={definitions}
+                  isActive={cursorStepId === stepId}
+                  onActivate={open}
                 />
               ) : (
                 <section

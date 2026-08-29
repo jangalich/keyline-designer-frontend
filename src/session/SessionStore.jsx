@@ -52,6 +52,7 @@ import {
   getSession as apiGetSession,
   getStepLayers as apiGetStepLayers,
   reopenStep as apiReopenStep,
+  boundaryToLatLngs,
   CommitRejectedError,
   NotFoundError,
   RevisionConflictError,
@@ -166,6 +167,20 @@ export const initialState = Object.freeze({
   stepOrder: [],
   // stepId -> {status, revision, features, provenance, inputs, proposals, error}
   steps: {},
+  // THE DOCUMENT'S CURSOR, and NOT the panel the user is looking at.
+  //
+  // Two similarly-named things exist and they answer different questions.
+  // This one is validated against `step_order` -- hydrate() nulls it for any
+  // id the document does not carry -- so it can only ever name a step the
+  // BACKEND runs. It cannot hold 'boundary', which is deliberately not in
+  // `step_order`, and it is nulled the moment a document arrives that does
+  // not carry whatever it held.
+  //
+  // The visible panel is the WIZARD'S CURSOR (wizard/WizardCursor.jsx's
+  // `cursorStepId`), which is held in React state, always names a step the
+  // wizard is actually rendering, and CAN be 'boundary'. A reader reaching
+  // for `activeStep` expecting the open panel gets a subtly wrong answer --
+  // usually null.
   activeStep: null,
   // stepId -> {selectedFeatureIds, drawnFeatures, inputs}. THE ONLY
   // CLIENT-AUTHORED STATE IN THIS STORE.
@@ -532,6 +547,10 @@ export function reducer(state, action) {
 export const selectSessionId = (state) => state.sessionId
 export const selectDocument = (state) => state.document
 export const selectStepOrder = (state) => state.stepOrder
+/**
+ * The document's cursor -- see `activeStep` in initialState. NOT the panel on
+ * screen: that is the wizard's own cursor, `useWizardCursor().cursorStepId`.
+ */
 export const selectActiveStep = (state) => state.activeStep
 export const selectResumeState = (state) => state.resume
 export const selectSessionError = (state) => state.error
@@ -557,6 +576,39 @@ export const selectIsStepCommitted = (state, stepId) =>
  * the conflict and lose the race a second time.
  */
 export const selectBaseRevision = (state, stepId) => selectStepRevision(state, stepId)
+
+/**
+ * THE DRAWN BOUNDARY, AS ONE VALUE, in Leaflet's [lat, lng].
+ *
+ * THE ONE PLACE THE RING LIVES, and it MOVES rather than being copied. Before
+ * the boundary step commits, the ring is client-authored and lives in that
+ * step's draft under its declared input. The instant the commit lands, the
+ * session's own document carries it and the draft's copy is gone -- hydrate()
+ * discards a draft for a step the document does not carry, and `boundary` is
+ * deliberately not in `step_order`.
+ *
+ * So this is not a fallback chain papering over two sources of truth. It is
+ * one source that the commit HANDS OVER to the server, which is the store's
+ * whole rule stated for a ring: the document wins as soon as there is one.
+ *
+ * THE CONSEQUENCE IS DELIBERATE. Once a session exists the ring is no longer
+ * writable -- there is no endpoint to move a committed boundary, and
+ * BOUNDARY_STEP declares `reopen: null` for exactly that reason. A caller that
+ * wants a different parcel starts a new session; it does not edit this.
+ *
+ * `stepId` and `inputKey` are passed in rather than imported: this file must
+ * not learn the boundary step's id, and the step definition already declares
+ * both.
+ */
+export function selectBoundaryRing(state, stepId, inputKey) {
+  const committed = boundaryToLatLngs(state.document)
+  if (committed.length) return committed
+  const drafted = selectDraft(state, stepId).inputs?.[inputKey]
+  return Array.isArray(drafted) ? drafted : EMPTY_RING
+}
+
+/** A stable empty ring, so a component reading it does not re-render on identity. */
+const EMPTY_RING = Object.freeze([])
 
 /**
  * Is this step reachable -- is everything before it committed?

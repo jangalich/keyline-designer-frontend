@@ -20,12 +20,14 @@
  *   title              What the panel header says.
  *   blurb              One line under it, for a step in its opening state.
  *
- *   layers             The map layers this step contributes, in draw order,
- *                      as {id, kind, source}. DATA ONLY: F3 owns the layer
- *                      stack and reads this; nothing here renders a map.
- *                      `source` names where the layer's geometry comes from
- *                      -- 'proposals', 'draft', 'document' -- so the stack
- *                      does not need a table of step ids either.
+ *   layers             The map layers this step contributes, as
+ *                      {id, band, kind, source, key?}. DATA ONLY: nothing
+ *                      here renders a map. See THE LAYER SCHEMA below -- it
+ *                      grew two fields when the stack was actually built,
+ *                      because {id, kind, source} could not be composed
+ *                      without the stack knowing which step it was looking
+ *                      at, and that is the schema failing rather than the
+ *                      stack's problem to absorb.
  *
  *   tools              The tools armed while this step is being edited, from
  *                      SessionStore's STEP_MODES vocabulary: 'select',
@@ -80,6 +82,49 @@
  *                      Panel that starts reproducing those is the schema
  *                      failing.
  *
+ * THE LAYER SCHEMA, and why it is five fields rather than three
+ *
+ * F2 declared layers as {id, kind, source, key?} with `kind: 'polygon'` on
+ * every one of them. Composing the stack out of that turned out to be
+ * impossible without step knowledge, in three separate places, and each is
+ * recorded here rather than fixed inside the stack:
+ *
+ *   1. `source: 'proposals'` DOES NOT SAY WHICH BAND. landform's
+ *      `eligible_union` is read-only context and its `suggested_zones` are
+ *      the step's editable, selectable candidates -- same source, opposite
+ *      tiers. The stack would have had to know that 'eligible_union' means
+ *      context, which is a table of step ids by another name. Hence `band`.
+ *
+ *   2. `kind: 'polygon'` DOES NOT SAY HOW IT IS DRAWN. The eligibility mask
+ *      is not drawn as a polygon at all: what the user needs to see is where
+ *      drawing is NOT allowed, so the geometry names the eligible ground and
+ *      the stack dims its complement. Hence `kind: 'mask'`, and `kind:
+ *      'ring'` for a boundary, which is a bare ring of points in a draft
+ *      input rather than a FeatureCollection.
+ *
+ *   3. `source: 'draft'` DOES NOT SAY WHERE IN THE DRAFT. A draft holds
+ *      `drawnFeatures` AND `inputs`, and the boundary's ring is an input
+ *      while landform's zones are drawn features. `key` answers it: present
+ *      means "this key inside the source", absent means the source's own
+ *      default collection.
+ *
+ *   band     'context' | 'committed' | 'editable'. The fixed z-order the
+ *            stack composes: basemap, context, committed, editable. It is a
+ *            property of the LAYER, not of the step -- landform declares one
+ *            of each -- which is why it cannot be derived from `source`.
+ *
+ *   kind     'ring' | 'polygon' | 'mask'. What the geometry is, and therefore
+ *            how it is drawn and which gesture can edit it.
+ *
+ *   source   'proposals' | 'draft' | 'document'. Which of the three places a
+ *            step's geometry can come from.
+ *
+ *   key      Optional. Within `proposals`, the payload key. Within `draft`,
+ *            the input key (absent = `drawnFeatures`). Unused for `document`.
+ *
+ * ONE LAYER F2 DECLARED IS NOT DECLARED HERE, and it is reported rather than
+ * absorbed: see LANDFORM_STEP's `exclusion_layers` note.
+ *
  * WHAT IS NOT IN HERE. No step registers water, roads, trees, structures or
  * fencing: those are later branches, and a definition written now against a
  * payload nobody has seen would be a guess dressed as a contract. The order
@@ -104,6 +149,53 @@ export const BOUNDARY_STEP_ID = 'boundary'
 
 /** The key the boundary's drawn ring is held under, in its draft's inputs. */
 export const BOUNDARY_RING_INPUT = 'ring'
+
+/* ---------------------------------------------------------------------------
+   The layer vocabulary. Closed, and enforced at definition time.
+   ---------------------------------------------------------------------------
+   Every value the stack branches on lives in one of these three lists, so a
+   layer the stack could not place fails HERE -- naming the step, the layer and
+   the field -- rather than rendering as nothing on a map and being found by
+   someone wondering where their zones went.
+   --------------------------------------------------------------------------- */
+
+/** The fixed z-order, bottom to top. The basemap is band 0 and is not a step's. */
+export const LAYER_BANDS = Object.freeze(['context', 'committed', 'editable'])
+
+/** What a layer's geometry IS, and therefore how it is drawn. */
+export const LAYER_KINDS = Object.freeze(['ring', 'polygon', 'mask'])
+
+/** The three places a step's geometry can come from. */
+export const LAYER_SOURCES = Object.freeze(['proposals', 'draft', 'document'])
+
+/**
+ * Normalise and check one layer declaration.
+ *
+ * THE CHECK IS THE POINT. The stack is written to know nothing about steps, so
+ * every question it asks of a layer has to be answerable from the declaration
+ * alone. A missing or unknown `band`/`kind`/`source` is the declaration
+ * failing, and it says so here rather than being guessed at down there.
+ */
+function defineLayer(stepId, layer) {
+  const { id, band, kind, source, key = null } = layer
+
+  if (!id) throw new Error(`Step '${stepId}' declares a layer with no id.`)
+  for (const [field, value, allowed] of [
+    ['band', band, LAYER_BANDS],
+    ['kind', kind, LAYER_KINDS],
+    ['source', source, LAYER_SOURCES],
+  ]) {
+    if (!allowed.includes(value)) {
+      throw new Error(
+        `Step '${stepId}' layer '${id}' declares ${field}='${value}'. ` +
+          `The stack places a layer by its declaration alone, so ${field} has ` +
+          `to be one of: ${allowed.join(', ')}.`
+      )
+    }
+  }
+
+  return Object.freeze({ id, band, kind, source, key })
+}
 
 /**
  * A step backed by an entry in the Design Document -- landform, and every
@@ -242,7 +334,7 @@ export function defineStep(definition) {
     id,
     title,
     blurb,
-    layers: Object.freeze(layers.map((layer) => Object.freeze({ ...layer }))),
+    layers: Object.freeze(layers.map((layer) => defineLayer(id, layer))),
     tools: Object.freeze([...tools]),
     inputs: Object.freeze(inputs.map((input) => Object.freeze({ ...input }))),
     generate: generate && Object.freeze({ ...generate }),
@@ -305,7 +397,23 @@ export const BOUNDARY_STEP = defineStep({
   id: BOUNDARY_STEP_ID,
   title: 'Property boundary',
   blurb: 'Trace the property outline. Everything after this is measured against it.',
-  layers: [{ id: 'boundary-draft', kind: 'polygon', source: 'draft' }],
+  // TWO DECLARATIONS OF ONE RING, because the ring MOVES on commit and the
+  // two halves of that are drawn differently. Before the commit it is the
+  // step's editable layer, held in the draft under the input below. After it,
+  // the session's document carries it and it is settled, read-only context
+  // for every step that follows -- which is what `band: 'committed'` says.
+  // Only one of the two ever resolves to anything: selectBoundaryRing is one
+  // value, not two.
+  layers: [
+    {
+      id: 'boundary-ring',
+      band: 'editable',
+      kind: 'ring',
+      source: 'draft',
+      key: BOUNDARY_RING_INPUT,
+    },
+    { id: 'boundary-committed', band: 'committed', kind: 'ring', source: 'document' },
+  ],
   // Draw it, or delete it and draw it again. There is nothing to select --
   // the server proposes nothing here -- and no vertex editing anywhere in
   // this app.
@@ -359,6 +467,24 @@ export function ringOf(draft) {
  * Production zones. THE FIRST DOCUMENT-BACKED STEP, and the shape every later
  * one copies.
  *
+ * `exclusion_layers` IS NOT DECLARED AS A LAYER, AND THAT IS A REPORT.
+ *
+ * F2 declared it as {kind: 'polygon', source: 'proposals', key:
+ * 'exclusion_layers'}, and the value under that key is not a polygon, a
+ * geometry or a FeatureCollection: it is a list of five per-gate wrappers,
+ * `{type, label, data_available, geometry_wgs84}`
+ * (production_zone_payload.build_production_zone_payload). Rendering it from
+ * that declaration would mean the stack learning that one particular key
+ * holds objects whose geometry hides under `geometry_wgs84` -- step knowledge
+ * in the one file that must have none.
+ *
+ * It also has no treatment yet. ProductionZoneLayers deliberately draws none
+ * of the five: the eligible union is the only exclusion-derived thing drawn at
+ * rest, and five overlays at once would say five things where the mask already
+ * says the one that matters. So the honest state is "declared nowhere", and
+ * F4 -- which owns the per-gate visual language and the panel's caveats --
+ * brings it back with a kind that describes its actual shape.
+ *
  * Its panel is a PLACEHOLDER on purpose. App.jsx's production-zone spike is
  * still the working UI for these zones and still calls /api/production-zones;
  * migrating it -- the scored table, the caution markers, the clamping, the
@@ -371,11 +497,16 @@ export const LANDFORM_STEP = documentStep({
   title: 'Landform',
   blurb: 'Production zones on the ground the parcel can actually support.',
   layers: [
-    { id: 'landform-eligible', kind: 'polygon', source: 'proposals', key: 'eligible_union' },
-    { id: 'landform-exclusions', kind: 'polygon', source: 'proposals', key: 'exclusion_layers' },
-    { id: 'landform-suggested', kind: 'polygon', source: 'proposals', key: 'suggested_zones' },
-    { id: 'landform-drawn', kind: 'polygon', source: 'draft' },
-    { id: 'landform-committed', kind: 'polygon', source: 'document' },
+    // The eligibility mask, drawn as the INELIGIBLE-AREA DIM. The payload's
+    // `eligible_union` names the ground that passed every gate; what the user
+    // needs before they start drawing is where they may NOT, so the stack
+    // dims its complement inside the parcel. That inversion is the whole of
+    // what `kind: 'mask'` means, and it is declared rather than discovered by
+    // the stack recognising a key name.
+    { id: 'landform-ineligible', band: 'context', kind: 'mask', source: 'proposals', key: 'eligible_union' },
+    { id: 'landform-suggested', band: 'editable', kind: 'polygon', source: 'proposals', key: 'suggested_zones' },
+    { id: 'landform-drawn', band: 'editable', kind: 'polygon', source: 'draft' },
+    { id: 'landform-committed', band: 'committed', kind: 'polygon', source: 'document' },
   ],
   tools: ['select', 'draw', 'delete'],
   // None. The backend's landform entry declares no user_inputs, so any params
