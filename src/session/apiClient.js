@@ -19,6 +19,7 @@
  *   POST   /api/sessions/{id}/steps/{step}/reopen     -> 200 document
  *   GET    /api/sessions/{id}/steps/{step}/layers     -> 200 step payload
  *   GET    /api/jobs/{id}                             -> 200 {status, result|error}
+ *                                                        (result: {payload, document})
  *
  * COORDINATE ORDER. Leaflet is [lat, lng]; GeoJSON and this API are
  * [lng, lat]. geo.js documents its four interop functions as the only places
@@ -312,6 +313,13 @@ export function getStepLayers(sessionId, stepId, { signal } = {}) {
 
 /**
  * One job poll. {job_id, status, result | error}.
+ *
+ * A DONE GENERATE'S `result` IS {payload, document} -- two sibling keys, the
+ * step's wire payload and the Design Document the generate moved to
+ * `generated`, byte-identical to what GET /api/sessions/{id} would return
+ * (step_orchestrator.run_generate_job). The second key is why nothing on this
+ * client fetches the session after a generate: the status transition arrives
+ * with the proposals that caused it.
  *
  * A FINISHED-WITH-FAILURE JOB IS A SUCCESSFUL POLL and comes back here as a
  * resolved promise with status 'failed', not a thrown error. The question this

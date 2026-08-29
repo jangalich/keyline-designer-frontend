@@ -1,0 +1,832 @@
+/**
+ * wizard.test.jsx
+ *
+ * The eleven tests this branch is answerable for. Three carry the weight:
+ *
+ *   3.  GENERATE HYDRATES BOTH HALVES WITH NO EXTRA GET -- asserted on the
+ *       fetch count, not on the resulting state, because the state was already
+ *       right when the round trip existed.
+ *   5.  THE REOPEN CONFIRMATION NAMES EXACTLY THE STEPS THAT LOSE WORK, and
+ *       is asserted to name no others.
+ *   10. THE STEP ORDER IS `step_order` AND IS NOT Object.keys(document.steps),
+ *       asserted against the alphabetised keys the wire actually delivers.
+ *
+ * Vitest through the app's own Vite config, React driven with React.act over a
+ * real createRoot -- the same harness F1's SessionStore.test.jsx uses, so the
+ * two files stay readable as one suite.
+ */
+
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import {
+  COMMITTED,
+  GENERATED,
+  NOT_STARTED,
+  SESSION_STORAGE_KEY,
+  STEP_MODES,
+  SessionProvider,
+  selectSessionId,
+  selectStepStatus,
+  useSession,
+} from '../session/SessionStore'
+import {
+  BOUNDARY_RING_INPUT,
+  BOUNDARY_STEP,
+  BOUNDARY_STEP_ID,
+  LANDFORM_STEP,
+  STEP_DEFINITIONS,
+  documentStep,
+  wizardStepOrder,
+} from './stepDefinitions'
+import { deriveMachineState } from './useStepMachine'
+import WizardShell from './WizardShell.jsx'
+
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+
+/**
+ * A module's CODE, with its prose removed.
+ *
+ * Every architectural assertion below is about what the code does, and this
+ * codebase's comments talk at length about the things the code must not do --
+ * step ids, the spike's endpoint. Searching the raw text would make a file
+ * fail for explaining itself.
+ */
+function codeOf(...parts) {
+  return readFileSync(path.join(HERE, ...parts), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+}
+
+/* ===========================================================================
+   Fixtures -- the wire's own shapes
+   =========================================================================== */
+
+const STEP_ORDER = ['landform', 'water', 'roads', 'trees', 'structures', 'fencing']
+
+function featureCollection(...ids) {
+  return {
+    type: 'FeatureCollection',
+    features: ids.map((id) => ({
+      type: 'Feature',
+      id,
+      properties: { name: id },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[[-74.01, 40.7], [-74.0, 40.7], [-74.0, 40.71], [-74.01, 40.7]]],
+      },
+    })),
+  }
+}
+
+/**
+ * A Design Document AS THE WIRE DELIVERS IT -- `steps` assembled
+ * ALPHABETICALLY, because that is what arrives. Flask's DefaultJSONProvider
+ * sets sort_keys = True, so the object the backend builds in pipeline order is
+ * serialised fencing-first. Every ordering assertion here is therefore a real
+ * test of `step_order` and not an accident of how the fixture was typed.
+ */
+function serverDocument({ sessionId = 'sess-1', steps = {}, revision = 0 } = {}) {
+  const entries = {}
+  for (const stepId of [...STEP_ORDER].sort()) {
+    entries[stepId] = steps[stepId] ?? { status: NOT_STARTED }
+  }
+  return {
+    schema_version: 1,
+    session_id: sessionId,
+    document_revision: revision,
+    created_at: '2026-01-01T00:00:00+00:00',
+    updated_at: '2026-01-01T00:00:00+00:00',
+    boundary: [[-74.01, 40.7], [-74.0, 40.7], [-74.0, 40.71], [-74.01, 40.71]],
+    step_order: [...STEP_ORDER],
+    steps: entries,
+  }
+}
+
+function committed(revision, features) {
+  return {
+    status: COMMITTED,
+    revision,
+    features,
+    provenance: Object.fromEntries(features.features.map((f) => [f.id, 'generated'])),
+  }
+}
+
+const LAYERS_PAYLOAD = {
+  suggested_zones: featureCollection('zone-1', 'zone-2', 'zone-3'),
+  summary: { parcel_acres: 13.2 },
+}
+
+/** step_orchestrator.run_generate_job()'s two-key result. */
+function generateResult(document) {
+  return { payload: LAYERS_PAYLOAD, document }
+}
+
+const RING = [
+  [40.7, -74.01],
+  [40.7, -74.0],
+  [40.71, -74.0],
+]
+
+/**
+ * A THIRD DEFINITION, WRITTEN HERE AND NOWHERE ELSE.
+ *
+ * The schema's whole claim is that adding a step is one definition object and
+ * no wizard code. This is that object, declared inside a test file -- if the
+ * shell, the frame or the machine needed to learn about `water`, nothing here
+ * would render. It also gives the suite a step with an uncommitted upstream,
+ * which landform (always first in the document's order) can never be.
+ */
+const WATER_STEP = documentStep({
+  id: 'water',
+  title: 'Water',
+  blurb: 'Ponds and dams.',
+  proposalCollection: 'suggested_zones',
+  Panel: null,
+})
+
+const WITH_WATER = [BOUNDARY_STEP, LANDFORM_STEP, WATER_STEP]
+
+/* ===========================================================================
+   Harness
+   =========================================================================== */
+
+function installFetch(routes) {
+  const calls = []
+  const cursors = new Map()
+
+  globalThis.fetch = vi.fn(async (rawUrl, init = {}) => {
+    const method = init.method ?? 'GET'
+    const url = new URL(rawUrl)
+    calls.push({ method, path: url.pathname, body: init.body ? JSON.parse(init.body) : null })
+
+    const route = routes.find((r) => r.method === method && r.pattern.test(url.pathname))
+    if (!route) throw new Error(`no route for ${method} ${url.pathname}`)
+
+    const responses = Array.isArray(route.responses) ? route.responses : [route.responses]
+    const index = Math.min(cursors.get(route) ?? 0, responses.length - 1)
+    cursors.set(route, index + 1)
+    const { status = 200, body } = responses[index]
+
+    return { ok: status >= 200 && status < 300, status, json: async () => body }
+  })
+
+  return calls
+}
+
+function route(method, pattern, responses) {
+  return { method, pattern, responses }
+}
+
+/** Render the wizard inside a provider, with live access to both. */
+async function renderWizard({ definitions = STEP_DEFINITIONS, autoResume = false } = {}) {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+
+  let latest = null
+  function Probe() {
+    latest = useSession()
+    return null
+  }
+
+  await React.act(async () => {
+    root.render(
+      <SessionProvider autoResume={autoResume}>
+        <Probe />
+        <WizardShell definitions={definitions} />
+      </SessionProvider>
+    )
+  })
+
+  return {
+    container,
+    get state() {
+      return latest.state
+    },
+    get actions() {
+      return latest.actions
+    },
+    find(testId) {
+      return container.querySelector(`[data-testid="${testId}"]`)
+    },
+    text(testId) {
+      return container.querySelector(`[data-testid="${testId}"]`)?.textContent ?? null
+    },
+    stepState(stepId) {
+      return container
+        .querySelector(`[data-testid="step-${stepId}"]`)
+        ?.getAttribute('data-step-state')
+    },
+    order() {
+      return [...container.querySelectorAll('[data-testid="wizard-order"] > li')].map((li) =>
+        li.getAttribute('data-step-id')
+      )
+    },
+    async click(testId) {
+      const element = container.querySelector(`[data-testid="${testId}"]`)
+      if (!element) throw new Error(`no element with data-testid="${testId}"`)
+      await React.act(async () => {
+        element.click()
+      })
+    },
+    async run(fn) {
+      let result
+      await React.act(async () => {
+        result = await fn(latest.actions)
+      })
+      return result
+    },
+    async unmount() {
+      await React.act(async () => root.unmount())
+      container.remove()
+    },
+  }
+}
+
+/** Get a wizard to the point where `sess-1` exists and landform is whatever. */
+async function withSession(ui, document_) {
+  await ui.run((a) => a.startSession(RING))
+  if (document_) await ui.run(async () => ui.actions.resume('sess-1'))
+  return ui
+}
+
+const pathsOf = (calls, method, matcher) =>
+  calls.filter((c) => c.method === method && matcher.test(c.path))
+
+beforeEach(() => {
+  window.localStorage.clear()
+  window.history.replaceState({}, '', '/')
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
+/* ===========================================================================
+   1. The step definitions, and a machine that does not know about steps
+   =========================================================================== */
+
+describe('1. step definitions', () => {
+  it('both parse, and declare every field the machine reads', () => {
+    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP]) {
+      expect(typeof definition.id).toBe('string')
+      expect(typeof definition.status).toBe('function')
+      expect(typeof definition.reachable).toBe('function')
+      expect(typeof definition.commit.run).toBe('function')
+      expect(typeof definition.commit.canCommit).toBe('function')
+      expect(Array.isArray(definition.layers)).toBe(true)
+      expect(Array.isArray(definition.inputs)).toBe(true)
+      // THE TOOL VOCABULARY IS THREE VERBS. There is no 'adjust' anywhere in
+      // this app -- a drawn shape is deleted and redrawn.
+      for (const tool of definition.tools) expect(STEP_MODES).toContain(tool)
+    }
+
+    // The declared absence that makes boundary a step rather than a special
+    // case: no generate, and no reopen.
+    expect(BOUNDARY_STEP.generate).toBeNull()
+    expect(BOUNDARY_STEP.reopen).toBeNull()
+    expect(LANDFORM_STEP.generate).not.toBeNull()
+    expect(LANDFORM_STEP.reopen).not.toBeNull()
+
+    // Landform declares no user inputs -- the backend 400s on any params at
+    // all against a step with no user_inputs.
+    expect(LANDFORM_STEP.inputs).toEqual([])
+    expect(LANDFORM_STEP.generate.params({ inputs: {} })).toBeNull()
+
+    // The boundary's one input IS the ring; its commit is made of it.
+    expect(BOUNDARY_STEP.inputs.map((i) => i.key)).toEqual([BOUNDARY_RING_INPUT])
+  })
+
+  it('the machine and the frame name no step, anywhere', () => {
+    // AN ARCHITECTURAL ASSERTION, written so it bites. The schema's claim is
+    // that a step's differences are declared; the check is that the generic
+    // code contains no step id to branch on.
+    const generic = ['useStepMachine.js', 'StepPanel.jsx', 'WizardShell.jsx']
+    for (const file of generic) {
+      // Comments explain WHY boundary is shaped as it is; code must not test
+      // for it.
+      const code = codeOf(file).replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      for (const stepId of [...STEP_ORDER, BOUNDARY_STEP_ID]) {
+        expect(code).not.toMatch(new RegExp(`['"\`]${stepId}['"\`]`))
+      }
+    }
+  })
+
+  it('derives every machine state from the mirror plus the draft', () => {
+    const base = {
+      status: NOT_STARTED,
+      pending: null,
+      isGenerating: false,
+      hasProposals: false,
+      hasDraftWork: false,
+    }
+    expect(deriveMachineState(base)).toBe('idle')
+    expect(deriveMachineState({ ...base, isGenerating: true })).toBe('generating')
+    expect(deriveMachineState({ ...base, status: GENERATED, hasProposals: true })).toBe('reviewing')
+    expect(
+      deriveMachineState({ ...base, status: GENERATED, hasProposals: true, hasDraftWork: true })
+    ).toBe('editing')
+    expect(deriveMachineState({ ...base, pending: 'committing' })).toBe('committing')
+    expect(deriveMachineState({ ...base, status: COMMITTED })).toBe('committed')
+    // The document wins over anything this client believes about a request.
+    expect(deriveMachineState({ ...base, status: COMMITTED, pending: 'committing' })).toBe(
+      'committed'
+    )
+  })
+
+  it('runs a definition it has never seen, with no wizard change', async () => {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+    ])
+    const ui = await renderWizard({ definitions: WITH_WATER })
+    await ui.run((a) => a.startSession(RING))
+
+    // Registered by nothing but the object above, and rendered by the shell.
+    expect(ui.find('step-water')).not.toBeNull()
+    expect(ui.order()).toContain('water')
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   2. BOUNDARY AS STEP 0
+   =========================================================================== */
+
+describe('2. boundary as step 0', () => {
+  it('draws, commits, creates the session, and lands the id in the URL and localStorage', async () => {
+    const calls = installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+    ])
+
+    const ui = await renderWizard()
+
+    // Before anything is drawn the wizard is ONE step long -- the client does
+    // not know the pipeline until a document tells it.
+    expect(ui.order()).toEqual([BOUNDARY_STEP_ID])
+    expect(ui.stepState(BOUNDARY_STEP_ID)).toBe('idle')
+    // No generate on this step: there is nothing to propose about a boundary.
+    expect(ui.find(`generate-${BOUNDARY_STEP_ID}`)).toBeNull()
+    expect(ui.find(`commit-${BOUNDARY_STEP_ID}`).disabled).toBe(true)
+
+    // THE DRAWING. The ring lands in the step's own draft, under the input the
+    // definition declares -- which is exactly where DrawTool will write it.
+    await ui.run((a) => a.setDraftInput(BOUNDARY_STEP_ID, BOUNDARY_RING_INPUT, RING))
+    expect(ui.stepState(BOUNDARY_STEP_ID)).toBe('editing')
+    expect(ui.text('boundary-ring-count')).toContain('3 points')
+    expect(ui.find(`commit-${BOUNDARY_STEP_ID}`).disabled).toBe(false)
+
+    await ui.click(`commit-${BOUNDARY_STEP_ID}`)
+
+    // ONE POST, and it is POST /api/sessions -- the step's commit CREATES the
+    // resource every later step commits into.
+    expect(pathsOf(calls, 'POST', /^\/api\/sessions$/)).toHaveLength(1)
+    // [lat, lng] in, [lng, lat] out, and the ring CLOSED -- geo.js's
+    // ringToGeoJSON is the one place the two coordinate orders meet, and the
+    // definition's commit goes through it rather than swapping at a call site.
+    expect(calls[0].body.boundary).toEqual([
+      [-74.01, 40.7],
+      [-74.0, 40.7],
+      [-74.0, 40.71],
+      [-74.01, 40.7],
+    ])
+
+    expect(selectSessionId(ui.state)).toBe('sess-1')
+    expect(ui.stepState(BOUNDARY_STEP_ID)).toBe('committed')
+
+    // The document was hydrated wholesale, and the id is durable both ways.
+    expect(ui.state.document.session_id).toBe('sess-1')
+    expect(window.localStorage.getItem(SESSION_STORAGE_KEY)).toBe('sess-1')
+    expect(new URLSearchParams(window.location.search).get('session')).toBe('sess-1')
+
+    // And the wizard is now as long as the pipeline.
+    expect(ui.order()).toEqual([BOUNDARY_STEP_ID, ...STEP_ORDER])
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   3. GENERATE -> DONE, WITH NO SECOND FETCH
+   =========================================================================== */
+
+describe('3. a generate hydrates both halves', () => {
+  it('takes the payload AND the document off the job result, with no extra GET', async () => {
+    const generatedDocument = serverDocument({ steps: { landform: { status: GENERATED } } })
+
+    const calls = installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('POST', /\/steps\/landform\/generate$/, {
+        status: 202,
+        body: { job_id: 'job-1', status: 'running' },
+      }),
+      route('GET', /^\/api\/jobs\/job-1$/, {
+        body: { job_id: 'job-1', status: 'done', result: generateResult(generatedDocument) },
+      }),
+      // NO ROUTE FOR GET /api/sessions/sess-1. installFetch throws on an
+      // unrouted request, so a client that went back for the document fails
+      // here rather than passing quietly on one more fetch.
+    ])
+
+    const ui = await renderWizard()
+    await ui.run((a) => a.startSession(RING))
+    const fetchesBefore = calls.length
+
+    await ui.click('generate-landform')
+
+    // THE FETCH COUNT IS THE ASSERTION. The resulting state was already
+    // correct when the round trip existed; its absence is the change.
+    const after = calls.slice(fetchesBefore)
+    expect(after.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'POST /api/sessions/sess-1/steps/landform/generate',
+      'GET /api/jobs/job-1',
+    ])
+    expect(pathsOf(calls, 'GET', /^\/api\/sessions\/sess-1$/)).toHaveLength(0)
+
+    // Both halves landed: the payload as proposals, the status from the
+    // document the job carried.
+    expect(ui.state.steps.landform.proposals).toEqual(LAYERS_PAYLOAD)
+    expect(selectStepStatus(ui.state, 'landform')).toBe(GENERATED)
+    expect(ui.stepState('landform')).toBe('reviewing')
+    expect(ui.text('landform-counts')).toContain('3 proposals')
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   4. A committed step collapses
+   =========================================================================== */
+
+describe('4. a committed step', () => {
+  it('renders collapsed, with an Edit affordance', async () => {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/sess-1$/, {
+        body: serverDocument({
+          steps: { landform: committed(1, featureCollection('zone-1')) },
+        }),
+      }),
+    ])
+
+    const ui = await renderWizard()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+
+    expect(ui.stepState('landform')).toBe('committed')
+    const panel = ui.find('step-landform')
+    expect(panel.getAttribute('data-collapsed')).toBe('true')
+    expect(panel.className).toContain('step-panel--collapsed')
+
+    const edit = ui.find('edit-landform')
+    expect(edit).not.toBeNull()
+    expect(edit.textContent).toBe('Edit this step')
+
+    // Collapsed means collapsed: the step's own body and its buttons are gone.
+    expect(ui.find('landform-placeholder')).toBeNull()
+    expect(ui.find('generate-landform')).toBeNull()
+    expect(ui.find('commit-landform')).toBeNull()
+
+    // Boundary is committed too, and declares no reopen -- so it says why
+    // instead of offering an affordance it would have to explain away.
+    expect(ui.find(`edit-${BOUNDARY_STEP_ID}`)).toBeNull()
+    expect(ui.text(`no-reopen-${BOUNDARY_STEP_ID}`)).toMatch(/fixed for the life of this session/)
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   5. THE REOPEN CONFIRMATION
+   =========================================================================== */
+
+describe('5. reopen confirmation', () => {
+  it('names exactly the downstream steps holding work, and no others', async () => {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/sess-1$/, {
+        body: serverDocument({
+          steps: {
+            landform: committed(1, featureCollection('zone-1')),
+            water: committed(1, featureCollection('pond-1')),
+          },
+        }),
+      }),
+    ])
+
+    const ui = await renderWizard({ definitions: WITH_WATER })
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+
+    await ui.click('edit-landform')
+
+    const dialog = ui.find('reopen-confirm-landform')
+    expect(dialog).not.toBeNull()
+    expect(ui.text('reopen-confirm-title-landform')).toBe('Reopen landform?')
+
+    // EXACTLY THE STEPS THAT LOSE WORK. water is committed; roads, trees,
+    // structures and fencing were never reached, and naming them would read as
+    // a threat to work that does not exist.
+    const named = [...dialog.querySelectorAll('[data-testid^="reopen-reset-"]')]
+      .filter((li) => li.tagName === 'LI')
+      .map((li) => li.getAttribute('data-testid').replace('reopen-reset-', ''))
+    expect(named).toEqual(['water'])
+
+    const body = ui.text('reopen-resets-landform')
+    expect(body).toContain('Water')
+    for (const untouched of ['roads', 'trees', 'structures', 'fencing']) {
+      expect(named).not.toContain(untouched)
+      expect(body.toLowerCase()).not.toContain(untouched)
+    }
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   6. Reopen hydrates, and downstream reverts
+   =========================================================================== */
+
+describe('6. reopen', () => {
+  it('hydrates the returned document and reverts the downstream panels', async () => {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/sess-1$/, {
+        body: serverDocument({
+          steps: {
+            landform: committed(1, featureCollection('zone-1')),
+            water: committed(1, featureCollection('pond-1')),
+          },
+        }),
+      }),
+      // The cascade, already applied by the server: landform back to
+      // generated, water reset outright.
+      route('POST', /\/steps\/landform\/reopen$/, {
+        body: serverDocument({
+          revision: 3,
+          steps: { landform: { status: GENERATED, revision: 1 } },
+        }),
+      }),
+      route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
+    ])
+
+    const ui = await renderWizard({ definitions: WITH_WATER })
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+
+    expect(ui.stepState('landform')).toBe('committed')
+    expect(ui.stepState('water')).toBe('committed')
+
+    await ui.click('edit-landform')
+    await ui.click('reopen-confirm-yes-landform')
+
+    // The document came back with the cascade in it; hydrating it wholesale
+    // IS the cascade handling.
+    expect(ui.state.document.document_revision).toBe(3)
+    expect(selectStepStatus(ui.state, 'landform')).toBe(GENERATED)
+    expect(selectStepStatus(ui.state, 'water')).toBe(NOT_STARTED)
+    expect(ui.state.steps.water.features).toBeNull()
+
+    // The panels moved with it: landform is editable again, and water has gone
+    // from committed to explaining that its upstream is not committed.
+    expect(ui.stepState('landform')).toBe('reviewing')
+    expect(ui.state.steps.landform.proposals).toEqual(LAYERS_PAYLOAD)
+    expect(ui.find('blocked-water')).not.toBeNull()
+    expect(ui.find('edit-water')).toBeNull()
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   7. 422, PER FEATURE
+   =========================================================================== */
+
+describe('7. commit rejections', () => {
+  it('reaches the step UI per feature, addressable by feature_id', async () => {
+    const rejection = {
+      error: 'Some features could not be committed.',
+      rejections: [
+        {
+          feature_id: 'zone-2',
+          code: 'outside_boundary',
+          reason: '0.67 acres of this feature lie outside the parcel boundary.',
+        },
+        {
+          feature_id: 'zone-3',
+          code: 'invalid_geometry',
+          reason: 'geometry is not valid -- Self-intersection.',
+        },
+      ],
+    }
+
+    const calls = installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('POST', /\/steps\/landform\/generate$/, {
+        status: 202,
+        body: { job_id: 'job-1', status: 'running' },
+      }),
+      route('GET', /^\/api\/jobs\/job-1$/, {
+        body: {
+          job_id: 'job-1',
+          status: 'done',
+          result: generateResult(serverDocument({ steps: { landform: { status: GENERATED } } })),
+        },
+      }),
+      route('POST', /\/steps\/landform\/commit$/, { status: 422, body: rejection }),
+    ])
+
+    const ui = await renderWizard()
+    await ui.run((a) => a.startSession(RING))
+    await ui.click('generate-landform')
+
+    await ui.run((a) => a.setSelection('landform', ['zone-1', 'zone-2', 'zone-3']))
+    await ui.click('commit-landform')
+
+    expect(pathsOf(calls, 'POST', /\/steps\/landform\/commit$/)).toHaveLength(1)
+
+    // PER FEATURE, ALL THE WAY THROUGH. Not a banner: each offending id
+    // carries the server's own reason, which is what lets the map (F3) colour
+    // that feature and print that sentence on it.
+    expect(ui.text('rejection-id-zone-2')).toBe('zone-2')
+    expect(ui.text('rejection-reason-zone-2')).toContain('outside the parcel boundary')
+    expect(ui.text('rejection-id-zone-3')).toBe('zone-3')
+    expect(ui.text('rejection-reason-zone-3')).toContain('Self-intersection')
+
+    // The feature that was fine is NOT named.
+    expect(ui.find('rejection-row-zone-1')).toBeNull()
+
+    // And the same per-feature data is on the step's own body, keyed by id --
+    // the shape the map layer reads.
+    expect(ui.text('rejection-zone-2')).toContain('outside the parcel boundary')
+
+    // Nothing was written: the step is still generated and still editable.
+    expect(selectStepStatus(ui.state, 'landform')).toBe(GENERATED)
+    expect(ui.stepState('landform')).toBe('editing')
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   8. An evicted job
+   =========================================================================== */
+
+describe('8. an evicted job', () => {
+  it('recovers through the layers endpoint, and does NOT regenerate', async () => {
+    const calls = installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('POST', /\/steps\/landform\/generate$/, {
+        status: 202,
+        body: { job_id: 'job-1', status: 'running' },
+      }),
+      // 404: an id this process never held, or one it finished and evicted.
+      route('GET', /^\/api\/jobs\/job-1$/, { status: 404, body: { error: 'unknown job' } }),
+      route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
+    ])
+
+    const ui = await renderWizard()
+    await ui.run((a) => a.startSession(RING))
+    await ui.click('generate-landform')
+
+    // ONE generate, and a layers fetch to recover. The payload is cached
+    // server-side and step_payload() regenerates on a miss, so asking for it
+    // is strictly cheaper than making the user redo work that is already done.
+    expect(pathsOf(calls, 'POST', /\/steps\/landform\/generate$/)).toHaveLength(1)
+    expect(pathsOf(calls, 'GET', /\/steps\/landform\/layers$/)).toHaveLength(1)
+
+    expect(ui.state.steps.landform.proposals).toEqual(LAYERS_PAYLOAD)
+    // Not reported as a failure: there is no failed_layer and no error line.
+    expect(ui.find('failed-layer-landform')).toBeNull()
+    expect(ui.find('error-landform')).toBeNull()
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   9. An unreachable step
+   =========================================================================== */
+
+describe('9. an unreachable step', () => {
+  it('explains why, and does not offer a generate that would fail', async () => {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/sess-1$/, {
+        body: serverDocument({ steps: { landform: { status: GENERATED } } }),
+      }),
+    ])
+
+    const ui = await renderWizard({ definitions: WITH_WATER })
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+
+    // landform is generated, NOT committed -- so water cannot start.
+    expect(ui.find('blocked-water')).not.toBeNull()
+    expect(ui.text('blocked-water')).toBe('Commit Landform before starting this step.')
+
+    // No button, disabled or otherwise: a disabled control teaches nothing and
+    // an enabled one buys a 409 that says the same thing a round trip later.
+    expect(ui.find('generate-water')).toBeNull()
+    expect(ui.find('commit-water')).toBeNull()
+
+    // Landform itself is reachable and offers both.
+    expect(ui.find('blocked-landform')).toBeNull()
+    expect(ui.find('generate-landform')).not.toBeNull()
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   10. THE STEP ORDER
+   =========================================================================== */
+
+describe('10. step order', () => {
+  it('comes from step_order, and is NOT Object.keys(document.steps)', async () => {
+    const document_ = serverDocument()
+
+    // What the wire actually delivers, and why reading the keys is a trap: six
+    // real step ids in a stable order that is not the pipeline's.
+    const alphabetical = Object.keys(document_.steps)
+    expect(alphabetical).toEqual([
+      'fencing',
+      'landform',
+      'roads',
+      'structures',
+      'trees',
+      'water',
+    ])
+    expect(alphabetical).not.toEqual(STEP_ORDER)
+
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: document_ }),
+    ])
+
+    const ui = await renderWizard({ definitions: WITH_WATER })
+    await ui.run((a) => a.startSession(RING))
+
+    const rendered = ui.order()
+    expect(rendered).toEqual([BOUNDARY_STEP_ID, ...STEP_ORDER])
+    expect(rendered).not.toEqual([BOUNDARY_STEP_ID, ...alphabetical])
+    expect(rendered.slice(1)).toEqual(document_.step_order)
+
+    // And the same answer through the selector the shell uses.
+    expect(wizardStepOrder(ui.state)).toEqual([BOUNDARY_STEP_ID, ...STEP_ORDER])
+
+    // A document with no step_order is refused rather than guessed at.
+    const noOrder = serverDocument()
+    delete noOrder.step_order
+    expect(() => ui.state && wizardStepOrder({ ...ui.state, stepOrder: [] })).not.toThrow()
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   11. The production-zone spike still functions
+   =========================================================================== */
+
+describe('11. the existing spike', () => {
+  it('still calls /api/production-zones, and the wizard does not touch it', async () => {
+    // IT STILL COMPILES AND STILL MOUNTS ITS OWN STATE. App.jsx is untouched
+    // by this branch; F4 migrates it. Importing it here is the cheap half of
+    // the check -- if the session or wizard work had broken one of its
+    // imports, this line would fail.
+    const App = (await import('../App.jsx')).default
+    expect(typeof App).toBe('function')
+
+    const appSource = readFileSync(path.join(HERE, '..', 'App.jsx'), 'utf8')
+    expect(appSource).toContain('/api/production-zones')
+    // It reaches the endpoint on its own, through its own fetch -- not through
+    // the session client, which has no such call.
+    expect(appSource).toContain('${API_URL}/api/production-zones')
+    // And it knows nothing about the wizard: mounting one cannot change the
+    // other, which is what lets them coexist until F4.
+    expect(appSource).not.toMatch(/from '\.\/wizard/)
+
+    // No wizard module CALLS it. stepDefinitions.js names it in prose --
+    // LANDFORM_STEP's docstring is where the migration is recorded -- and
+    // that is the file explaining itself, not reaching for the endpoint.
+    for (const file of [
+      'stepDefinitions.js',
+      'useStepMachine.js',
+      'StepPanel.jsx',
+      'WizardShell.jsx',
+      path.join('panels', 'LandformPanel.jsx'),
+    ]) {
+      expect(codeOf(file)).not.toContain('/api/production-zones')
+    }
+
+    // The spike's endpoint is not on the session surface at all.
+    const client = readFileSync(path.join(HERE, '..', 'session', 'apiClient.js'), 'utf8')
+    expect(client).not.toContain('/api/production-zones')
+  })
+})
