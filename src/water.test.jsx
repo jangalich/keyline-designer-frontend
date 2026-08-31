@@ -1148,6 +1148,127 @@ describe('the collapsed strip keeps the focused tab', () => {
 })
 
 /* ===========================================================================
+   RESUME: A GENERATED STEP COMES BACK WITH WHAT IT IS DECIDING ABOUT
+   =========================================================================== */
+
+describe('resuming into a generated water step', () => {
+  liveIt('fetches its own proposals, rather than offering an empty commit', async () => {
+    const first = await renderApp()
+    await throughWaterGenerate(first)
+    const sessionId = first.state.sessionId
+    const expected = surveyZoneFeatures(first.water).map((f) => f.id)
+    expect(expected.length).toBeGreaterThan(0)
+    await first.unmount()
+
+    // A SECOND CLIENT, sharing only the session id -- a reload, another tab, a
+    // bookmark. The document alone says where the wizard is.
+    const ui = await renderApp()
+    await ui.run((a) => a.resume(sessionId))
+    await ui.waitFor(
+      'the resumed document',
+      () => selectStepStatus(ui.state, 'water') === GENERATED
+    )
+    expect(ui.cursor.cursorStepId).toBe('water')
+
+    /**
+     * NOBODY ASKS FOR THEM HERE. The machine fetches the proposals of the step
+     * the cursor is on when the document says `generated` and none are in the
+     * store -- which is the whole of the fix, and the reason this waits rather
+     * than calling loadLayers.
+     *
+     * WHAT IT LOOKED LIKE BEFORE. `resume` hydrates the document and fetches
+     * no payload, and `loadLayers` was called by nothing but tests. So water
+     * came back `generated` with no proposals, deriveMachineState read
+     * `status === GENERATED` as REVIEWING, and the step rendered: no zones on
+     * the map, no tabs in the strip, and a primary button reading "Commit no
+     * water zones" -- a legal empty commit under min_features: 0, one click
+     * from recording "no water system on this parcel" on a parcel with six
+     * candidate survey areas.
+     */
+    await ui.waitFor(
+      'the proposals to arrive with nothing having asked for them',
+      () => ui.water != null
+    )
+    expect(surveyZoneFeatures(ui.water).map((f) => f.id)).toEqual(expected)
+
+    // THE STEP IS WHOLE AGAIN: tabs to decide with, and a commit button that
+    // names what it would actually do.
+    await ui.waitFor('the draft to be seeded', () => ui.state.drafts.water !== undefined)
+    expect(ui.all('[data-tab-id]').length).toBeGreaterThan(0)
+    expect(ui.find('commit-water').textContent).toContain('Commit water zones')
+    expect(ui.find('commit-water').textContent).not.toContain('no water zones')
+
+    await ui.unmount()
+  })
+
+  liveIt('asks once, and does not ask again once they are in the store', async () => {
+    const first = await renderApp()
+    await throughWaterGenerate(first)
+    const sessionId = first.state.sessionId
+    await first.unmount()
+
+    // COUNT THE FETCHES. A generated step with no proposals is a state the
+    // failure path leaves untouched, so an unguarded effect would re-fire on
+    // the very state change its own failure caused. One attempt per episode is
+    // what the ref in useStepMachine buys, and this is the assertion that it
+    // is actually one.
+    const real = globalThis.fetch
+    let layerCalls = 0
+    globalThis.fetch = (url, init) => {
+      if (String(url).endsWith('/steps/water/layers')) layerCalls++
+      return real(url, init)
+    }
+    try {
+      const ui = await renderApp()
+      await ui.run((a) => a.resume(sessionId))
+      await ui.waitFor('the proposals', () => ui.water != null)
+      // Several more store writes, each of which re-runs the effect.
+      const zones = surveyZoneFeatures(ui.water)
+      await ui.toggle(zones[0].id)
+      await ui.focus(zones[1].id)
+      await ui.toggle(zones[0].id)
+      expect(layerCalls).toBe(1)
+      await ui.unmount()
+    } finally {
+      globalThis.fetch = real
+    }
+  })
+
+  liveIt('leaves a committed step alone -- it has features, not proposals', async () => {
+    const first = await renderApp()
+    await throughWaterGenerate(first)
+    await first.click('commit-water')
+    await first.waitFor('water to commit', () => selectStepStatus(first.state, 'water') === COMMITTED)
+    const sessionId = first.state.sessionId
+    await first.unmount()
+
+    const real = globalThis.fetch
+    let layerCalls = 0
+    globalThis.fetch = (url, init) => {
+      if (String(url).endsWith('/steps/water/layers')) layerCalls++
+      return real(url, init)
+    }
+    try {
+      const ui = await renderApp()
+      await ui.run((a) => a.resume(sessionId))
+      await ui.waitFor(
+        'the resumed document',
+        () => selectStepStatus(ui.state, 'water') === COMMITTED
+      )
+      // A COMMITTED STEP'S GROUND IS IN THE DOCUMENT. Fetching its proposals
+      // would be a request for the recommendation it has already decided
+      // against, and the backend answers 409 for exactly that reason.
+      await ui.waitFor('a few renders to pass', () => true)
+      expect(layerCalls).toBe(0)
+      expect(selectStepFeatures(ui.state, 'water').features.length).toBeGreaterThan(0)
+      await ui.unmount()
+    } finally {
+      globalThis.fetch = real
+    }
+  })
+})
+
+/* ===========================================================================
    9 & 10. THE TWO MAP CONTROLS
    =========================================================================== */
 

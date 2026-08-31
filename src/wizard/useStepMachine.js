@@ -47,6 +47,7 @@ import {
   selectFailedLayer,
   selectHasDraft,
   selectJobForStep,
+  selectSessionId,
   selectStepError,
   selectStepFeatures,
   selectStepProposals,
@@ -225,6 +226,71 @@ export function useStepMachine(definition) {
     () => definition.proposalFeatures(proposals),
     [definition, proposals]
   )
+
+  /**
+   * FETCH THE PROPOSALS OF A GENERATED STEP THAT HAS NONE.
+   *
+   * THE HOLE THIS FILLS. `loadLayers` existed on the store, was documented as
+   * the resume path, and was called by NOTHING but tests. A generate carries
+   * its own payload back with the job result, so within one session the
+   * proposals were always already there and the gap was invisible. Reload the
+   * page and it was not: `resume` hydrates the document -- which says
+   * `generated` -- and fetches no payload, so the step came back with its
+   * status intact and its proposals gone.
+   *
+   * WHY THAT WAS WORSE THAN AN EMPTY MAP. deriveMachineState reads
+   * `hasProposals || status === GENERATED`, so the step landed in REVIEWING:
+   * the bar said to review the proposals, the strip had no tabs to review, and
+   * the primary button read "Commit no water zones" -- a legal empty commit,
+   * one click away, recording a decision the user never made. The status was
+   * right and everything derived from it was wrong.
+   *
+   * HERE RATHER THAN IN THE STORE OR IN `resume`. The store must not decide
+   * which step is worth fetching -- that is the cursor's business and the
+   * cursor is the shell's. `resume` cannot do it either: it hydrates a
+   * document listing six steps, and fetching every generated step's payload on
+   * every reload would be five requests for panels nobody is looking at. This
+   * hook already runs for exactly one step, the one the cursor names, and it
+   * already carries the sibling effect that seeds a draft the moment proposals
+   * arrive. The two belong together: one fetches what the step is deciding
+   * about, the other opens the decision on it.
+   *
+   * ONE ATTEMPT PER EPISODE, and the ref is what makes that true. A failed
+   * fetch leaves `proposals` null, so without a guard this would re-fire on
+   * the very state change its own failure caused, forever. The key resets the
+   * moment proposals exist, so a later loss of them -- a cascade, an eviction
+   * -- gets its own single attempt rather than being locked out by an
+   * attempt made against a different episode.
+   *
+   * A FAILURE IS NOT RETRIED AUTOMATICALLY and that is deliberate: the store's
+   * own failure path has already put the reason in the step's error, the bar
+   * shows it, and a hook retrying behind that message would make the error
+   * flicker rather than mean anything. Moving the cursor away and back
+   * remounts this chrome and spends a fresh attempt, which is a gesture a user
+   * can actually make.
+   *
+   * NOT WHILE A GENERATE IS RUNNING. That job's result carries the payload
+   * itself; fetching alongside it would be a second answer to the same
+   * question, racing the first.
+   */
+  const sessionId = selectSessionId(state)
+  const layersRequested = useRef(null)
+  useEffect(() => {
+    if (proposals != null) {
+      layersRequested.current = null
+      return
+    }
+    if (!sessionId || status !== GENERATED || isGenerating) return
+
+    const attempt = `${sessionId}:${stepId}`
+    if (layersRequested.current === attempt) return
+    layersRequested.current = attempt
+    actions.loadLayers(stepId)
+    // `actions` is in the deps rather than silenced: its identity changes on
+    // every store write, so this effect re-runs often, and the guards above
+    // are three comparisons. Depending on it is what keeps `loadLayers` from
+    // closing over a session id the store has since replaced.
+  }, [actions, sessionId, stepId, status, proposals, isGenerating])
 
   /**
    * SEED THE DRAFT THE MOMENT PROPOSALS EXIST AND NO DRAFT DOES.
