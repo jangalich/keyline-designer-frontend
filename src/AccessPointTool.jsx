@@ -70,7 +70,8 @@ const MAX_SNAP_DISTANCE_PX = 44
  * cos(latitude) first — see that file for why raw degrees skew the result.
  *
  * This component's click handler is one of several attached to the same map;
- * see ScrollZoomGate for how they coexist. It never stops propagation, and
+ * and none of them stops propagation, so they all see every click. It never
+ * stops propagation itself, and
  * it can never fire on the same click as DrawTool's — App.jsx's state
  * transitions make `isDrawing` and `isSelecting` mutually exclusive.
  */

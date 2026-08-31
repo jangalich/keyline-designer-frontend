@@ -14,10 +14,28 @@
  * measurements behind it; the chip that used to sit over the map's top-left is
  * gone, and the boundary's tab is exactly it.
  *
- * DISPLAY ONLY IN THIS BRANCH. No tab takes a click, carries an eye, or offers
- * an ×; nothing here selects, hides, or deletes. Landform's selection is still
- * changed exactly where it always was -- by clicking a zone on the map -- and
- * a tab showing `selected` is reporting that, not offering it.
+ * THREE THINGS A TAB DOES, AND THEY ARE THREE DIFFERENT VERBS ON PURPOSE.
+ *
+ *   THE BODY FOCUSES.  Clicking the tab is the same act as clicking the shape
+ *                      on the map: it marks the feature, activates the tab and
+ *                      opens the detail panel. It commits nothing and changes
+ *                      nothing about what a commit would send.
+ *
+ *   THE EYE INCLUDES.  Whether the feature is in the commit. Eye-off hides it
+ *                      from the map entirely and leaves it out of the commit
+ *                      body; the tab stays, which is the whole reason the map
+ *                      no longer needs a declined treatment of its own.
+ *
+ *   THE × DESTROYS.    Only on a tab whose definition declares `removable`,
+ *                      which is only ever a shape the user drew. A suggestion
+ *                      has no × because it cannot be destroyed -- the server
+ *                      will regenerate it -- and the asymmetry is meant to be
+ *                      visible at a glance rather than explained.
+ *
+ * The × deletes immediately and offers an UNDO in the instruction bar for a
+ * few seconds. No confirmation dialogue: a modal is heavy for a small object,
+ * and undo keeps the flow moving where a modal stops it to ask about something
+ * the user can simply take back.
  *
  *
  * THE CAP, AND WHY IT SCROLLS RATHER THAN WRAPS
@@ -38,6 +56,8 @@
 
 import { useState } from 'react'
 
+import { useWizardCursor } from '../WizardCursor.jsx'
+
 /**
  * The grid, in tabs. Fixed rather than measured: there is no layout to measure
  * in a test environment, and a cap that changes with the viewport would make
@@ -50,9 +70,10 @@ export const TAB_ROWS_MAX = 3
 /** How many real tabs a collapsed strip shows: one row, less the "+N more". */
 export const COLLAPSED_TAB_CAP = TAB_COLUMNS - 1
 
-export default function TabStrip({ machine }) {
+export default function TabStrip({ machine, onRemove }) {
   const [expanded, setExpanded] = useState(false)
-  const { definition, stepId } = machine
+  const { focusedFeatureId, focusFeature } = useWizardCursor()
+  const { definition, stepId, actions } = machine
 
   const tabs = definition.tabs(machine.context)
   if (!tabs.length) return null
@@ -69,28 +90,79 @@ export default function TabStrip({ machine }) {
       data-expanded={expanded ? 'true' : 'false'}
     >
       <ul className="chrome-tabs__list">
-        {shown.map((tab) => (
-          <li
-            key={tab.id}
-            className={
-              'chrome-tab' +
-              (tab.selected === false ? ' chrome-tab--off' : '') +
-              (tab.drawn ? ' chrome-tab--drawn' : '')
-            }
-            data-testid={`tab-${tab.id}`}
-            data-tab-id={tab.id}
-          >
-            <span className="chrome-tab__name">{tab.name}</span>
-            {/* Value and label spans are emitted FLAT rather than wrapped per
-                row, so they are direct children of the tab's two-column grid
-                -- that is what makes every value in a tab share one
-                fixed-width column and read as a column of figures rather than
-                as independent rows. */}
-            {tab.rows.map((row) => (
-              <Row key={row.label} row={row} />
-            ))}
-          </li>
-        ))}
+        {shown.map((tab) => {
+          const focused = tab.id === focusedFeatureId
+          const off = tab.eye && tab.selected === false
+          return (
+            <li
+              key={tab.id}
+              className={
+                'chrome-tab' +
+                (off ? ' chrome-tab--off' : '') +
+                (focused ? ' chrome-tab--focused' : '') +
+                (tab.drawn ? ' chrome-tab--drawn' : '')
+              }
+              data-testid={`tab-${tab.id}`}
+              data-tab-id={tab.id}
+              data-eye={tab.eye ? (tab.selected === false ? 'off' : 'on') : undefined}
+              data-focused={focused ? 'true' : 'false'}
+            >
+              {/* THE BODY IS THE FOCUS TARGET, and it is a button so that a
+                  keyboard reaches it -- the map's own click on the same
+                  feature has no keyboard equivalent, so the strip is the
+                  accessible half of selection sync. */}
+              <button
+                type="button"
+                className="chrome-tab__body"
+                aria-pressed={focused}
+                data-testid={`tab-focus-${tab.id}`}
+                onClick={() => focusFeature(focused ? null : tab.id)}
+              >
+                <span className="chrome-tab__name">{tab.name}</span>
+                {/* Value and label spans are emitted FLAT rather than wrapped
+                    per row, so they are direct children of the tab's
+                    two-column grid -- that is what makes every value in a tab
+                    share one fixed-width column and read as a column of
+                    figures rather than as independent rows. */}
+                {tab.rows.map((row) => (
+                  <Row key={row.label} row={row} />
+                ))}
+              </button>
+
+              {tab.eye ? (
+                <button
+                  type="button"
+                  className="chrome-tab__eye"
+                  aria-pressed={tab.selected !== false}
+                  aria-label={
+                    tab.selected === false
+                      ? `Include ${tab.name} in this step`
+                      : `Leave ${tab.name} out of this step`
+                  }
+                  data-testid={`tab-eye-${tab.id}`}
+                  onClick={() => actions.toggleSelection(stepId, tab.id)}
+                >
+                  <Eye open={tab.selected !== false} />
+                </button>
+              ) : null}
+
+              {/* HALF OUTSIDE THE CORNER, which is the familiar close gesture
+                  and is also what keeps it from reading as a third figure in
+                  the tab's own grid. */}
+              {tab.removable ? (
+                <button
+                  type="button"
+                  className="chrome-tab__remove"
+                  aria-label={`Delete ${tab.name}`}
+                  data-testid={`tab-remove-${tab.id}`}
+                  onClick={() => onRemove?.(tab.id)}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              ) : null}
+            </li>
+          )
+        })}
 
         {hidden > 0 ? (
           <li className="chrome-tab chrome-tab--more">
@@ -119,6 +191,33 @@ export default function TabStrip({ machine }) {
         ) : null}
       </ul>
     </div>
+  )
+}
+
+/**
+ * The eye, drawn rather than typed.
+ *
+ * An SVG because the two states have to be the SAME MARK with one stroke
+ * added -- an open eye and the same eye struck through. A glyph pair (👁 and a
+ * crossed-out something) would be two different drawings at two different
+ * weights, and the toggle would read as two unrelated icons rather than as one
+ * control in two positions. currentColor throughout, so it inherits the tab's
+ * own state colour and defines nothing.
+ */
+function Eye({ open }) {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+      <path
+        d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.25"
+      />
+      <circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" strokeWidth="1.25" />
+      {open ? null : (
+        <path d="M2.5 13.5 13.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.25" />
+      )}
+    </svg>
   )
 }
 

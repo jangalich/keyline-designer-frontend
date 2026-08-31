@@ -415,15 +415,23 @@ describe('2. landform in the new shell', () => {
     // No "+N more": three is under the cap.
     expect(ui.find('tabs-more-landform')).toBeNull()
 
-    // THE SELECTION IS STILL CHANGED BY CLICKING A ZONE ON THE MAP, which
-    // dispatches exactly this. The tabs are display-only in this branch and
-    // take no click; what they do is REPORT the selection.
-    expect(ui.find('tab-zone-2').className).not.toContain('chrome-tab--off')
-    await ui.run((a) => a.toggleSelection('landform', 'zone-2'))
+    // THE EYE IS WHAT INCLUDES A FEATURE IN THE COMMIT, and it is the same
+    // store action a click used to make from the map. Off, and the tab says so
+    // and stays -- which is what lets the map stop drawing a declined
+    // suggestion at all.
+    expect(ui.find('tab-zone-2').dataset.eye).toBe('on')
+    await ui.click('tab-eye-zone-2')
+    expect(ui.find('tab-zone-2').dataset.eye).toBe('off')
     expect(ui.find('tab-zone-2').className).toContain('chrome-tab--off')
-    expect(ui.find('tab-zone-2').querySelector('button')).toBeNull()
+    expect(ui.state.drafts.landform.selectedFeatureIds).not.toContain('zone-2')
+    await ui.click('tab-eye-zone-2')
+    expect(ui.find('tab-zone-2').dataset.eye).toBe('on')
 
-    // ...and the toggle put the machine in `editing` while nothing is armed,
+    // A SUGGESTION HAS NO ×. It cannot be destroyed -- the server will
+    // regenerate it -- so the eye is its only removal.
+    expect(ui.find('tab-remove-zone-2')).toBeNull()
+
+    // ...and the eye put the machine in `editing` while nothing is armed,
     // which the chrome reads as reviewing: the user is choosing among
     // proposals, not placing points.
     expect(ui.find('step-landform').dataset.stepState).toBe(EDITING)
@@ -723,14 +731,12 @@ describe('6. the map fills the viewport height', () => {
     ])
     const ui = await renderShell()
     const chrome = ui.container.querySelector('.chrome')
-    for (const region of [
-      'step-rail',
-      `step-${BOUNDARY_STEP_ID}`,
-      `detail-${BOUNDARY_STEP_ID}`,
-      `banner-${BOUNDARY_STEP_ID}`,
-    ]) {
+    for (const region of ['step-rail', `step-${BOUNDARY_STEP_ID}`, `banner-${BOUNDARY_STEP_ID}`]) {
       expect(chrome.contains(ui.find(region))).toBe(true)
     }
+    // The detail panel is not in the document at all with nothing selected --
+    // see the deletions suite. When it is, it is inside the same overlay.
+    expect(ui.find(`detail-${BOUNDARY_STEP_ID}`)).toBeNull()
     await ui.unmount()
   })
 })

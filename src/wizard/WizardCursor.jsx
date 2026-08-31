@@ -11,6 +11,21 @@
  *   THE ARMING   Which of that step's declared tools is live. ONE SLOT
  *                holding ONE NAME.
  *
+ *   THE FOCUS    Which ONE feature the user is looking at. The map draws it
+ *                marked, the tab strip draws its tab active, the detail panel
+ *                shows its measurements, and the caution markers narrow to it.
+ *                One slot, one feature.
+ *
+ * THE FOCUS IS NOT THE SELECTION, AND CONFLATING THE TWO WOULD BE THE WORST
+ * MISTAKE AVAILABLE HERE. The store's `selectedFeatureIds` is the set of
+ * features a COMMIT WILL CARRY -- what the tab strip's eye toggles, held in
+ * the draft, sent on the wire, and surviving a reload. This is a POINTER AT
+ * ONE OF THEM for the purpose of looking at it: it commits nothing, changes
+ * nothing about what a commit would send, and is thrown away when the cursor
+ * moves. A feature can be focused and eye-off at once, and that is a real and
+ * useful state -- it is how you read the measurements of something you have
+ * just taken out.
+ *
  * WHY THEY LIVE TOGETHER. The arming is only meaningful against a step's
  * `tools[]`, and it must not survive the step it was armed for -- an armed
  * `draw` carried into a step that declares no draw would be a live map-click
@@ -91,6 +106,12 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
   // cannot outlive the step it belongs to.
   const [armedSlot, setArmedSlot] = useState(NOTHING_ARMED)
 
+  // THE FOCUS SLOT, held the same way and for the same reason: {stepId,
+  // featureId}, so a focus cannot outlive the step whose feature it names. A
+  // bare id carried into another step would point the detail panel at a
+  // feature that step has never heard of.
+  const [focusSlot, setFocusSlot] = useState(NOTHING_FOCUSED)
+
   /**
    * Where the wizard is, DERIVED rather than remembered: the first step that
    * is not committed. So creating a session moves the wizard on without
@@ -144,6 +165,29 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
   const disarm = useCallback(() => setArmedSlot(NOTHING_ARMED), [])
 
   /**
+   * FOCUSED ONLY WHILE THE CURSOR STILL NAMES ITS STEP -- the same derivation
+   * that disarms a tool on a cursor move, and it needs no effect either.
+   */
+  const focusedFeatureId = focusSlot.stepId === cursorStepId ? focusSlot.featureId : null
+
+  /**
+   * Look at one feature. ONE AT A TIME: focusing another replaces it, because
+   * the slot holds one value and there is nothing to replace it with but this.
+   *
+   * Takes no step id. The cursor's step is the only step whose features are on
+   * screen, so "which step's feature is this" has one answer and it is not the
+   * caller's to give.
+   */
+  const focusFeature = useCallback(
+    (featureId) =>
+      setFocusSlot(featureId ? { stepId: cursorStepId, featureId } : NOTHING_FOCUSED),
+    [cursorStepId]
+  )
+
+  /** Look at nothing. What a click on bare map does. */
+  const blurFeature = useCallback(() => setFocusSlot(NOTHING_FOCUSED), [])
+
+  /**
    * Is ANYTHING live on this map.
    *
    * The one question a component asks when it needs to stand down rather than
@@ -181,6 +225,7 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
    */
   const advance = useCallback(() => {
     setArmedSlot(NOTHING_ARMED)
+    setFocusSlot(NOTHING_FOCUSED)
     setOpenStepId(null)
   }, [])
 
@@ -197,6 +242,9 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
       arm,
       disarm,
       anyArmed,
+      focusedFeatureId,
+      focusFeature,
+      blurFeature,
     }),
     [
       cursorStepId,
@@ -210,11 +258,17 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
       arm,
       disarm,
       anyArmed,
+      focusedFeatureId,
+      focusFeature,
+      blurFeature,
     ]
   )
 
   return <WizardCursorContext.Provider value={value}>{children}</WizardCursorContext.Provider>
 }
+
+/** The focus slot's empty value. Frozen, so `focusedFeatureId` is never undefined. */
+const NOTHING_FOCUSED = Object.freeze({ stepId: null, featureId: null })
 
 const EMPTY_TOOLS = Object.freeze([])
 

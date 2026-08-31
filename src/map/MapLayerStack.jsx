@@ -4,8 +4,8 @@
  * THE STACK, ON THE MAP. Rendered inside the MapContainer, above the basemap
  * and below nothing.
  *
- *   1. Basemap             App.jsx's BasemapControl. Not a step's layer and
- *                          not this component's.
+ *   1. Basemap             App.jsx's tile layer. Not a step's layer and not
+ *                          this component's.
  *   2. Context             read-only server geometry, subdued. Never takes a
  *                          click -- there is nothing to say about it.
  *   3. Committed           every committed step's features. A click OFFERS
@@ -27,6 +27,8 @@
  * should not silently hand you a pencil.
  */
 
+import { useMapEvent } from 'react-leaflet'
+
 import { useSession } from '../session/SessionStore'
 import { useWizardCursor } from '../wizard/WizardCursor.jsx'
 import ProductionHatchPattern from '../ProductionHatchPattern.jsx'
@@ -37,7 +39,8 @@ import { StackLayer } from './layers.jsx'
 
 export default function MapLayerStack() {
   const { state } = useSession()
-  const { cursorStepId, definition, definitions, open } = useWizardCursor()
+  const { cursorStepId, definition, definitions, open, focusedFeatureId, blurFeature } =
+    useWizardCursor()
 
   const stack = composeLayerStack({ state, definitions, cursorStepId })
 
@@ -70,6 +73,13 @@ export default function MapLayerStack() {
           onLayerClick={() => open(layer.stepId)}
         />
       ))}
+      {/* A CLICK ON BARE MAP MEANS "NOTHING, THANKS". It is the only way to
+          put the detail panel away, and it has to be the map's own click
+          rather than a close button on the panel: the panel is describing
+          something on the map, so the map is where the gesture that stops
+          describing it belongs. Every feature click stops propagating (see
+          FeatureLayer), so this fires only when the click reached nothing. */}
+      <BackgroundClick onClick={blurFeature} />
       <StepTools definition={definition} layers={editable} references={references} />
       {/* THE ONE PANE THE BAND SCHEME CANNOT PLACE. Caution markers have to
           sit above Leaflet's markerPane at 600 so a boundary vertex or a
@@ -77,7 +87,20 @@ export default function MapLayerStack() {
           400 by design (see BAND_BASE_Z). So this is a top-level pane at 610,
           fed from the same composed stack -- not a step's layer, and not a
           number any step can choose. */}
-      <CautionMarkers layers={stack} />
+      <CautionMarkers layers={stack} focusedFeatureId={focusedFeatureId} />
     </>
   )
+}
+
+/**
+ * The map's own click, and nothing else.
+ *
+ * Not a component with any opinion about focus -- it is a listener, and what
+ * it calls is the caller's. Separate from MapLayerStack only because
+ * useMapEvent has to run inside the MapContainer and MapLayerStack already
+ * does; keeping it as its own leaf makes the subscription's lifetime obvious.
+ */
+function BackgroundClick({ onClick }) {
+  useMapEvent('click', onClick)
+  return null
 }

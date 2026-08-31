@@ -644,12 +644,20 @@ describe('8. reopen', () => {
     // asserts it across a cache eviction -- which is the whole reason this can
     // be a lookup rather than a stored copy.
     const draft = selectDraft(ui.state, 'landform')
-    expect(new Set(draft.selectedFeatureIds)).toEqual(
-      new Set(proposalIds.filter((id) => id !== dropped))
-    )
     // AND THE DRAWN ZONE, whole. It was never a proposal, so a regenerate has
     // nothing to say about it: it comes back from the document directly.
     expect(draft.drawnFeatures).toHaveLength(1)
+    const restoredDrawnId = draft.drawnFeatures[0].id
+
+    // THE SELECTION COVERS BOTH KINDS. `selectedFeatureIds` is what a commit
+    // body is assembled from and it names every feature in the draft, not just
+    // the proposals -- that is what lets the tab strip's eye take a drawn zone
+    // out of the commit without destroying it. So a reopen restores the
+    // proposals the user kept AND puts the drawn zone back eye-on; a drawn
+    // shape missing from the set would come back invisible and uncommittable.
+    expect(new Set(draft.selectedFeatureIds)).toEqual(
+      new Set([...proposalIds.filter((id) => id !== dropped), restoredDrawnId])
+    )
     expect(draft.drawnFeatures[0].properties.exclusion_crossings.map((c) => c.type)).toContain(
       'hydric'
     )

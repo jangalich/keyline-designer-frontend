@@ -800,10 +800,17 @@ describe('7. the delete tool', () => {
     await ui.run((a) => a.addDrawnFeature('landform', drawn))
     expect(selectDraft(ui.state, 'landform').drawnFeatures.map((f) => f.id)).toEqual(['drawn-1'])
 
-    // UNARMED, the shape is on the map and takes no clicks -- otherwise it
-    // would swallow the vertex an armed draw tool was placing on top of it.
+    // WITH NOTHING ARMED the shape is on the map and DOES take clicks -- but
+    // the click focuses it rather than deleting it. Focus is navigation, like
+    // the click committed geometry takes, and nothing arms it.
     const drawnPane = () => ui.pane('landform--landform-drawn').pane
     expect(drawnPane().querySelectorAll('path').length).toBeGreaterThan(0)
+    expect(drawnPane().querySelectorAll('path.leaflet-interactive').length).toBeGreaterThan(0)
+
+    // WITH ANOTHER TOOL ARMED it takes none, which is the collision the arming
+    // register exists to prevent: a drawn shape that swallowed clicks under a
+    // live draw would eat the vertex being placed on top of it.
+    await ui.run((_a, cursor) => cursor.arm('draw'))
     expect(drawnPane().querySelectorAll('path.leaflet-interactive')).toHaveLength(0)
 
     await ui.run((_a, cursor) => cursor.arm('delete'))

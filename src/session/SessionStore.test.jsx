@@ -454,7 +454,13 @@ describe('3. 409 reconciliation', () => {
     // THE DRAFT SURVIVED, both halves of it. Its base step came back
     // `committed` rather than reset, so the user's work is still the user's
     // and the re-prompt has something to offer them.
-    expect(ui.state.drafts.landform.selectedFeatureIds).toEqual(['zone-1', 'zone-3'])
+    // THE DRAWN SHAPE IS IN THE SELECTION TOO. `selectedFeatureIds` is the set
+    // a commit body is assembled from, and it covers every feature in the
+    // draft rather than only the proposals -- so the tab strip's eye can take
+    // a drawn zone out of the commit without destroying it. A drawn shape
+    // joins the set the moment it is added: someone who has just drawn
+    // something has said they want it.
+    expect(ui.state.drafts.landform.selectedFeatureIds).toEqual(['zone-1', 'zone-3', 'drawn-1'])
     expect(ui.state.drafts.landform.drawnFeatures.map((f) => f.id)).toEqual(['drawn-1'])
 
     // And the re-prompt has a marker to render.

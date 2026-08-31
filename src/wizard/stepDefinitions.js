@@ -122,16 +122,45 @@
  *                      written. See measured().
  *
  *   tabs(context)      One tab per feature this step is carrying, as
- *                      [{id, name, rows: [{value, label}], selected?, drawn?}].
- *                      `rows` is the acreage chip's treatment generalised: a
- *                      right-aligned monospace value and a left-aligned label,
- *                      one per row.
+ *                      [{id, name, rows: [{value, label}], eye?, removable?,
+ *                      drawn?}]. `rows` is the acreage chip's treatment
+ *                      generalised: a right-aligned monospace value and a
+ *                      left-aligned label, one per row.
  *
  *                      IT IS THE STEP'S BECAUSE THE FIGURES ARE. A boundary
  *                      counts points and encloses acres; a landform zone has
  *                      acres and a score. No reading of a Feature reaches
  *                      either, so a generic strip would have had to learn
  *                      which step it was drawing.
+ *
+ *                      `eye`         The feature is in the commit and may be
+ *                                    taken out. Omitted for a tab whose
+ *                                    feature is not a commit decision at all
+ *                                    -- the boundary's ring is the step, not a
+ *                                    candidate within it.
+ *
+ *                      `removable`   The feature can be DESTROYED, and the tab
+ *                                    carries an ×. Declared, never inferred
+ *                                    from `drawn`: the strip must not decide
+ *                                    on its own what may be destroyed. Only a
+ *                                    shape the USER authored is removable -- a
+ *                                    suggestion cannot be destroyed because
+ *                                    the server will regenerate it, so its
+ *                                    only removal is the eye, and the
+ *                                    asymmetry is honest and meant to be
+ *                                    visible at a glance.
+ *
+ *   detail(context,    What the DETAIL PANEL shows for one feature, or null
+ *          featureId)  when this step has nothing to say about that id:
+ *                      {name, fields: [{label, value, measured}], cautions}.
+ *
+ *                      THE FIELDS ARE THE ONES THE TAB HAD NO ROOM FOR. A tab
+ *                      is three rows; the panel is where the rest of what the
+ *                      pipeline measured goes. `cautions` are carried through
+ *                      as the payload shipped them -- {type, label, acres} --
+ *                      because a caution's LABEL IS THE LAYER'S OWN WORDS and
+ *                      re-writing it client-side would put this app's
+ *                      vocabulary in front of the backend's.
  *
  *   Panel              RESERVED, and filled by nothing in this branch. It was
  *                      the step's body inside the panel column, and the panel
@@ -646,6 +675,7 @@ export function defineStep(definition) {
     buttons = {},
     notices = () => [],
     tabs = () => [],
+    detail = () => null,
     Panel = null,
   } = definition
 
@@ -703,6 +733,7 @@ export function defineStep(definition) {
     }),
     notices,
     tabs,
+    detail,
     Panel,
   })
 }
@@ -951,6 +982,9 @@ export const BOUNDARY_STEP = defineStep({
     if (ring.length >= 3) {
       rows.push({ value: polygonAreaAcres(ring).toFixed(MEASURE_DP), label: 'acres' })
     }
+    // NO EYE AND NO ×. The ring is not a candidate within the step, it IS the
+    // step -- there is nothing to include it in, and clearing it is what the
+    // banner's "Clear and redraw" is for.
     return [{ id: BOUNDARY_RING_INPUT, name: 'Boundary', rows }]
   },
 })
@@ -1360,9 +1394,16 @@ export const LANDFORM_STEP = documentStep({
    */
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
+
+    // THE SUGGESTIONS. Every one carries an eye and none carries an ×: a
+    // suggestion cannot be destroyed, because the server made it and will make
+    // it again on the next generate. Closing its eye is the only removal there
+    // is, and offering an × that quietly did the same thing would be a lie
+    // about what the button does.
     const tabs = (proposals?.zones ?? []).map((zone) => ({
       id: zone.feature_id,
       name: `Zone ${zone.rank}`,
+      eye: true,
       selected: selected.has(zone.feature_id),
       rows: [
         { value: measure(zone.area_acres), label: 'acres' },
@@ -1370,12 +1411,18 @@ export const LANDFORM_STEP = documentStep({
       ],
     }))
 
+    // THE DRAWN ZONES. An eye AND an ×, and the two mean different things:
+    // the eye takes the zone out of the commit and leaves it to be put back,
+    // the × destroys it. Nothing else in this app can be destroyed by the
+    // user, which is why only these carry one.
     draft.drawnFeatures.forEach((feature, index) => {
       tabs.push({
         id: feature.id,
         name: `Drawn ${index + 1}`,
         drawn: true,
-        selected: true,
+        eye: true,
+        removable: true,
+        selected: selected.has(feature.id),
         rows: [
           { value: measure(feature.properties?.acres), label: 'acres' },
           { value: measure(null), label: 'score' },
@@ -1384,6 +1431,77 @@ export const LANDFORM_STEP = documentStep({
     })
 
     return tabs
+  },
+
+  /**
+   * WHAT THE DETAIL PANEL SAYS ABOUT ONE ZONE.
+   *
+   * THE FIELDS ARE THE ONES THE TAB HAD NO ROOM FOR. A tab is a name and two
+   * figures -- acres and score, which is what you compare zones BY. The slope
+   * range, the aspect and the score's band are what you read once you have
+   * picked one out, and they are exactly the columns the panel column's zone
+   * list carried before it was deleted.
+   *
+   * TWO KINDS OF FEATURE, ONE SHAPE OF ANSWER. A suggestion's measurements are
+   * in the payload's `zones` table, joined on `feature_id`; a drawn zone's are
+   * its own properties, and there are fewer of them because nothing measured
+   * it -- it was traced by hand, which is what `confidence: 'low'` on it says.
+   * An em dash where a figure does not exist, never a zero.
+   */
+  detail: ({ proposals, draft }, featureId) => {
+    const drawn = draft.drawnFeatures.find((feature) => feature.id === featureId)
+    if (drawn) {
+      return {
+        name: `Drawn zone`,
+        fields: [
+          { label: 'acres', value: measure(drawn.properties?.acres), measured: true },
+          // Traced by hand: the pipeline never scored it, never measured its
+          // slope and never read its aspect. Said as an absence rather than
+          // omitted, so the panel reads the same for both kinds of zone.
+          { label: 'confidence', value: drawn.properties?.confidence ?? '—' },
+          { label: 'source', value: 'drawn by hand' },
+        ],
+        cautions: drawn.properties?.cautions ?? [],
+      }
+    }
+
+    const zone = (proposals?.zones ?? []).find((row) => row.feature_id === featureId)
+    if (!zone) return null
+
+    return {
+      name: `Zone ${zone.rank}`,
+      fields: [
+        { label: 'acres', value: measure(zone.area_acres), measured: true },
+        { label: 'score', value: measure(zone.score), measured: true },
+        // THE BAND COMES OFF THE PAYLOAD'S OWN `scales`, never off a threshold
+        // written here -- a copy of those numbers on this side goes stale
+        // silently the first time the backend retunes them.
+        { label: 'band', value: scoreBandName(zone.score, proposals?.scales) ?? '—' },
+        // TWO FIGURES WITH THE DASH BETWEEN THEM, not one cell holding
+        // "5.7-19.8". A range has two decimal points and a single cell can
+        // only ever align one of them.
+        {
+          label: 'slope %',
+          value: `${measure(zone.slope_min_pct)}–${measure(zone.slope_max_pct)}`,
+          measured: true,
+        },
+        {
+          label: 'aspect',
+          // aspect_available false means the ground is too flat for a
+          // well-defined downhill direction, and the pipeline's aspect figure
+          // is then a neutral default rather than a measurement. Printing it
+          // would state a fact about the land that was never measured.
+          value:
+            zone.aspect_available && zone.dominant_aspect
+              ? `${zone.dominant_aspect}-facing`
+              : '—',
+        },
+      ],
+      // A suggested zone is a strict subset of ground that already cleared
+      // every gate, so it cannot cross an exclusion. Empty, and asserted so in
+      // DEV by assertSuggestedZonesAreClean.
+      cautions: [],
+    }
   },
 })
 

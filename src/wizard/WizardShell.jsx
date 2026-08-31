@@ -43,6 +43,8 @@
  * a step id and you will find none -- asserted, not asserted about.
  */
 
+import { useCallback, useEffect, useRef, useState } from 'react'
+
 import ActionBanner from './shell/ActionBanner.jsx'
 import DetailPanel from './shell/DetailPanel.jsx'
 import InstructionBar from './shell/InstructionBar.jsx'
@@ -87,20 +89,83 @@ export default function WizardShell() {
  */
 function StepChrome({ definition, definitions }) {
   const machine = useStepMachine(definition)
-  const { armed } = useWizardCursor()
+  const { armed, focusedFeatureId, blurFeature } = useWizardCursor()
   const chromeState = chromeStateFor({ machineState: machine.machineState, armed })
+  const undo = useRemovalUndo(machine, focusedFeatureId, blurFeature)
 
   return (
     <>
-      <InstructionBar machine={machine} chromeState={chromeState} definitions={definitions} />
+      <InstructionBar
+        machine={machine}
+        chromeState={chromeState}
+        definitions={definitions}
+        undo={undo.offer}
+      />
       <DetailPanel machine={machine} />
       <div className="chrome__free" aria-hidden="true" />
       <div className="chrome__bottom">
-        <TabStrip machine={machine} />
+        <TabStrip machine={machine} onRemove={undo.remove} />
         <ActionBanner machine={machine} chromeState={chromeState} definitions={definitions} />
       </div>
     </>
   )
+}
+
+/** How long a destroyed shape can be taken back. */
+export const UNDO_WINDOW_MS = 8000
+
+/**
+ * DESTROY A DRAWN SHAPE, AND HOLD IT LONG ENOUGH TO PUT BACK.
+ *
+ * THE FEATURE IS HELD HERE RATHER THAN IN THE STORE, and that is the honest
+ * place for it. A draft holds decisions; a shape the user has just destroyed is
+ * not one, and parking it in the store would mean a deleted zone surviving a
+ * reload as invisible state nobody asked for. The undo is a few seconds of
+ * grace on one gesture, not a history -- so it lives as long as the chrome
+ * does and no longer.
+ *
+ * PUT BACK WITH ITS GEOMETRY INTACT, because what is held is the Feature
+ * itself: the same object the store handed out, with its ring, its acreage and
+ * its cautions already on it. Nothing is recomputed on the way back, so an
+ * undone zone is the zone that was drawn rather than a fresh clip of it.
+ *
+ * THE FOCUS GOES WITH THE SHAPE. A detail panel describing a feature that no
+ * longer exists is worse than none; blurring on removal is what makes the
+ * panel's own absence the confirmation that the delete happened.
+ */
+function useRemovalUndo(machine, focusedFeatureId, blurFeature) {
+  const [removed, setRemoved] = useState(null)
+  const timer = useRef(null)
+
+  // A pending timer must not fire into an unmounted chrome, and moving to
+  // another step ends the window: the offer is about a shape on THIS step's
+  // map, and it cannot be taken up once you are looking at another.
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  const remove = useCallback(
+    (featureId) => {
+      const feature = machine.draft.drawnFeatures.find((f) => f.id === featureId)
+      if (!feature) return
+      if (focusedFeatureId === featureId) blurFeature()
+      machine.actions.removeDrawnFeature(machine.stepId, featureId)
+      setRemoved(feature)
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => setRemoved(null), UNDO_WINDOW_MS)
+    },
+    [machine, focusedFeatureId, blurFeature]
+  )
+
+  const restore = useCallback(() => {
+    if (!removed) return
+    clearTimeout(timer.current)
+    machine.actions.addDrawnFeature(machine.stepId, removed)
+    setRemoved(null)
+  }, [machine, removed])
+
+  return {
+    remove,
+    offer: removed ? { text: 'Zone deleted.', run: restore } : null,
+  }
 }
 
 /**

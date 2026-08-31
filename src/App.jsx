@@ -1,9 +1,7 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { MapContainer, TileLayer, ZoomControl } from 'react-leaflet'
 import MapRecenter from './MapRecenter.jsx'
 import AddressSearch from './AddressSearch.jsx'
-import ScrollZoomGate from './ScrollZoomGate.jsx'
-import BasemapControl, { BASEMAPS } from './BasemapControl.jsx'
 import { SessionProvider } from './session/SessionStore'
 import MapLayerStack from './map/MapLayerStack.jsx'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
@@ -25,6 +23,27 @@ import './App.css'
 // search their own address or zoom in manually from here.
 const DEFAULT_CENTER = [39.8283, -98.5795]
 const DEFAULT_ZOOM = 4
+
+/**
+ * The basemap. ONE, now, where there were two.
+ *
+ * The pair was "Imagery" and "Imagery + labels", and the labels toggle did not
+ * earn the space it took: it is one bit of state, exposed as a permanent
+ * two-button control in the corner of the map, answering a question most
+ * people ask once. The reference tiles it switched on are gone with it.
+ *
+ * BASEMAP SWITCHING MAY WELL COME BACK, and when it does it should be about
+ * something the ground actually changes with -- imagery VINTAGE, or
+ * leaf-off/leaf-on, either of which changes what you can see to trace against
+ * and is worth a control. That is a different feature with a different data
+ * problem behind it (reliable national leaf-off coverage means seasonal NAIP
+ * or state-level services, and picking one is its own investigation), and it
+ * is not this.
+ */
+const BASEMAP = {
+  url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  attribution: 'Tiles &copy; Esri',
+}
 
 /**
  * The page, and the session it runs in.
@@ -84,22 +103,13 @@ function App() {
 function Designer() {
   const [mapCenter, setMapCenter] = useState(null)
 
-  // Scroll-wheel zoom starts off; see ScrollZoomGate for why and for how the
-  // activating click stays transparent.
-  const [isMapLive, setIsMapLive] = useState(false)
-  const [basemapId, setBasemapId] = useState(BASEMAPS[0].id)
-  const basemap = BASEMAPS.find((option) => option.id === basemapId) ?? BASEMAPS[0]
-
-  // Stable identity so ScrollZoomGate's document listener is not torn down
-  // and re-attached on every render.
-  const handleMapLiveChange = useCallback((live) => setIsMapLive(live), [])
-
-  // Three independent click listeners are still attached to this map — the
-  // scroll gate, whichever gesture the cursor step armed, and Leaflet's own —
-  // and none of them stops propagation, so they all still see every click.
-  // What keeps that safe is not an assertion: at most one of them is ARMED,
-  // because being armed means holding the register's single slot. The fourth
-  // listener was AccessPointTool's, and it is gone with the pre-step.
+  // Two click listeners are attached to this map now — whichever gesture the
+  // cursor step armed, and the stack's own background click that clears the
+  // focus — and a feature's click stops propagating so the two cannot fire on
+  // one gesture. What keeps the tools from colliding is not an assertion: at
+  // most one is ARMED, because being armed means holding the arming register's
+  // single slot. The scroll gate's listener and AccessPointTool's are both
+  // gone, with the features that needed them.
 
   return (
     <>
@@ -138,39 +148,41 @@ function Designer() {
                 center={DEFAULT_CENTER}
                 zoom={DEFAULT_ZOOM}
                 style={{ height: '100%', width: '100%' }}
+                /**
+                 * NO SCROLL-WHEEL ZOOM, PERMANENTLY, and the gate that used to
+                 * arm it is deleted rather than defaulted off.
+                 *
+                 * The map is full-bleed and fills the viewport, so a page
+                 * scroll that reaches it has nowhere else to go: every wheel
+                 * event over the document body was landing on the map, and a
+                 * user scrolling past the tool section found their parcel
+                 * three zoom levels away. The gate (click once to make the map
+                 * live) traded that for a second thing to learn and a state to
+                 * be in the wrong one of. Zoom is the +/- control.
+                 *
+                 * TOUCH ZOOM STAYS. Pinch on a touch screen is a deliberate
+                 * two-finger gesture on the map itself, not a side effect of
+                 * moving down the page, so it has none of the problem and is
+                 * left on. Drag-to-pan is untouched.
+                 *
+                 * KNOWN AND ACCEPTED: Leaflet routes a trackpad pinch through
+                 * the same wheel handler, so laptop pinch-to-zoom goes with
+                 * scroll-wheel zoom. The +/- control is the answer there.
+                 */
                 scrollWheelZoom={false}
+                touchZoom
                 zoomControl={false}
               >
-                {/* Top-right, pushed clear of the instruction bar by CSS. */}
+                {/* Top-right, pushed clear of the instruction bar by CSS. The
+                    only zoom affordance on the map. */}
                 <ZoomControl position="topright" />
-                <ScrollZoomGate active={isMapLive} onChange={handleMapLiveChange} />
-                <TileLayer
-                  key={basemap.id}
-                  url={basemap.url}
-                  attribution={basemap.attribution}
-                  maxZoom={19}
-                />
-                {basemap.referenceUrl && (
-                  <TileLayer
-                    key={`${basemap.id}-reference`}
-                    url={basemap.referenceUrl}
-                    maxZoom={19}
-                  />
-                )}
+                <TileLayer url={BASEMAP.url} attribution={BASEMAP.attribution} maxZoom={19} />
                 <MapRecenter center={mapCenter} zoom={18} />
                 {/* THE LAYER STACK. It composes basemap → context → committed
                     → active editable from the store and the step definitions,
                     and mounts the active step's declared tools. */}
                 <MapLayerStack />
               </MapContainer>
-
-              {!isMapLive && (
-                <p className="map-hint" aria-hidden="true">
-                  Click the map to zoom with the scroll wheel
-                </p>
-              )}
-
-              <BasemapControl value={basemapId} onChange={setBasemapId} />
 
               {/* THE WIZARD, OVER THE MAP RATHER THAN BESIDE IT. Five floating
                   regions: the step rail, the instruction bar, the reserved

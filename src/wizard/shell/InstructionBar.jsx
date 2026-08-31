@@ -70,7 +70,7 @@ function NoticeText({ text }) {
   )
 }
 
-export default function InstructionBar({ machine, chromeState, definitions }) {
+export default function InstructionBar({ machine, chromeState, definitions, undo = null }) {
   const { definition, stepId } = machine
   const { notice: gestureNotice } = useDrawingProgress()
 
@@ -138,6 +138,29 @@ export default function InstructionBar({ machine, chromeState, definitions }) {
     notices.push({ ...notice, testId: `notice-${notice.key}-${stepId}` })
   }
 
+  /**
+   * THE UNDO FOR A DESTROYED SHAPE, and the reason there is no confirmation
+   * dialogue on the ×.
+   *
+   * A modal is heavy for a small object: it stops the flow to ask about
+   * something the user can simply take back, and the answer is almost always
+   * yes, which trains people to click through the one that will matter. So the
+   * × acts, and the way back sits here for a few seconds.
+   *
+   * IT IS LAST, so it is the notice nearest the eye after the action that
+   * produced it, and it carries an ACTION rather than being one -- the bar
+   * still says what happened first.
+   */
+  if (undo) {
+    notices.push({
+      key: 'undo',
+      tone: 'advisory',
+      testId: `undo-${stepId}`,
+      text: undo.text,
+      action: { label: 'Undo', run: undo.run, testId: `undo-action-${stepId}` },
+    })
+  }
+
   return (
     <div
       className="chrome-bar"
@@ -167,6 +190,16 @@ export default function InstructionBar({ machine, chromeState, definitions }) {
               >
                 <NoticeText text={notice.text} />
               </span>
+              {notice.action ? (
+                <button
+                  type="button"
+                  className="chrome-bar__undo"
+                  data-testid={notice.action.testId}
+                  onClick={notice.action.run}
+                >
+                  {notice.action.label}
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>

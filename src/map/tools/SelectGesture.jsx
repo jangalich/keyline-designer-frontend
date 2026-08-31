@@ -1,35 +1,46 @@
 /**
  * SelectGesture.jsx
  *
- * `select` -- toggle a proposal in or out of the commit set.
+ * `select` -- the proposals layer, and the click that FOCUSES one.
  *
- * THE ONLY THING THAT MAY BE DONE TO A GENERATED FEATURE. There is no adjust:
- * design_document.py's PROVENANCE_VALUES has no value for a user-modified
- * generated shape, so a candidate is taken as proposed or left out, and a
- * different shape is a drawn one.
+ * WHAT A CLICK ON A CANDIDATE DOES CHANGED, and the verb it used to carry
+ * moved rather than disappearing. It used to toggle the feature in or out of
+ * the commit, because the map was the only place a suggestion appeared and the
+ * click had to carry the decision. The tab strip carries it now -- every tab
+ * has an eye, and the eye is the one place inclusion is decided -- so the map
+ * click is free to do the thing a click on a thing should do: show you what it
+ * is. It focuses the feature, which marks it on the map, activates its tab and
+ * opens the detail panel.
  *
- * IT RENDERS THE CANDIDATES, armed or not. A step that declares `select`
+ * THERE IS STILL NO ADJUST. design_document.py's PROVENANCE_VALUES has no
+ * value for a user-modified generated shape, so a candidate is taken as
+ * proposed or left out, and a different shape is a drawn one.
+ *
+ * IT RENDERS THE CANDIDATES, ARMED OR NOT. A step that declares `select`
  * declares that its proposals are the thing being decided about, and they have
- * to be visible to be decided about -- what the arming changes is whether they
- * TAKE CLICKS, which is the half that can collide with another tool.
+ * to be visible to be decided about.
+ *
+ * BUT IT TAKES CLICKS ONLY WHILE NOTHING IS ARMED, which is not the same rule
+ * it used to follow. Toggling was a TOOL and was gated on `select` being the
+ * armed one; focusing is navigation, like the click on committed geometry the
+ * stack already offers, and nothing arms it. What it must not do is swallow a
+ * click meant to place a vertex -- so it stands down whenever any tool is
+ * live, reading the register's OCCUPANCY exactly as DrawGesture does.
  */
 
-import { useSession } from '../../session/SessionStore'
+import { useWizardCursor } from '../../wizard/WizardCursor.jsx'
 import { StackLayer } from '../layers.jsx'
 
-export default function SelectGesture({ layer, armed, renders, stepId }) {
-  const { actions } = useSession()
+export default function SelectGesture({ layer, renders }) {
+  const { anyArmed, focusedFeatureId, focusFeature } = useWizardCursor()
   if (!renders) return null
 
   return (
     <StackLayer
       layer={layer}
-      // A Leaflet path click also reaches the map. Interactive only while this
-      // tool is the armed one is what keeps a click from toggling a zone AND
-      // placing a vertex -- and the arming register holding one value at a
-      // time is why "the armed one" is a question with one answer.
-      interactive={armed}
-      onFeatureClick={(_layer, feature) => actions.toggleSelection(stepId, feature.id)}
+      interactive={!anyArmed}
+      focusedFeatureId={focusedFeatureId}
+      onFeatureClick={(_layer, feature) => focusFeature(feature.id)}
     />
   )
 }

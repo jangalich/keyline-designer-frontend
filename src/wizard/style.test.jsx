@@ -293,10 +293,18 @@ describe('1. the three faces', () => {
       '.chrome-bar__direction',
       '.chrome-bar__notice',
       '.chrome-banner__button',
-      '.chrome-detail__toggle',
+      '.chrome-detail__caution-label',
+      // A band name or an aspect is pipeline-derived but is not a
+      // MEASUREMENT: no decimal to hold still, nothing to line up with. Prose.
+      '.chrome-detail__value',
     ]) {
       expect(face(selector)).toBe('var(--font-prose)')
     }
+
+    // The detail panel's title is the SECOND place the display face lands, and
+    // the one place a heading is honest: it names a section with content under
+    // it, where the rail names places to go.
+    expect(face('.chrome-detail__name')).toBe('var(--font-display)')
 
     // DATA: every measured value, and the eyebrow labels.
     for (const selector of [
@@ -304,6 +312,7 @@ describe('1. the three faces', () => {
       '.chrome-tab__name',
       '.chrome-rail__index',
       '.chrome-rail__status',
+      '.chrome-detail__label',
       '.measure',
     ]) {
       expect(face(selector)).toBe('var(--font-data)')
@@ -330,8 +339,20 @@ describe('2. measured values', () => {
     expect(value['font-variant-numeric']).toBe('tabular-nums')
     expect(value['text-align']).toBe('right')
 
-    // The floor that keeps the decimal from sliding as the number changes.
-    expect(tab['grid-template-columns']).toBe('minmax(6ch, max-content) auto')
+    // The floor that keeps the decimal from sliding as the number changes. It
+    // moved onto the tab's BODY when the tab grew an eye and an × -- the tab
+    // is the row holding those; the body is the figures.
+    const body = propsOf(ruleFor(COMPONENTS, '.chrome-tab__body'))
+    expect(body['grid-template-columns']).toBe('minmax(6ch, max-content) auto')
+    expect(body['font-variant-numeric']).toBe('tabular-nums')
+
+    // The same grid in the detail panel, so a figure there lines up with the
+    // same figure in the tab that opened it.
+    for (const selector of ['.chrome-detail__fields', '.chrome-detail__cautions']) {
+      expect(propsOf(ruleFor(COMPONENTS, selector))['grid-template-columns']).toBe(
+        'minmax(6ch, max-content) auto'
+      )
+    }
 
     // Anything else carrying a figure carries the same pair.
     for (const selector of ['.measure', '.chrome-rail__index']) {
@@ -382,7 +403,7 @@ describe('2. measured values', () => {
     // either in a .chrome-tab__value (a measurement) or in the .chrome-tab__name
     // (the rank), and both are the data face. A figure that escaped into a
     // prose span is what this catches.
-    for (const tab of ui.container.querySelectorAll('.chrome-tab')) {
+    for (const tab of ui.container.querySelectorAll('.chrome-tab__body')) {
       for (const child of tab.children) {
         if (!/\d/.test(child.textContent)) continue
         expect(
@@ -673,6 +694,20 @@ describe('5. the quality floor', () => {
       const surface = propsOf(ruleFor(COMPONENTS, selector))
       expect(surface.background).toBe('var(--paper)')
     }
+
+    // THE ONE EXCEPTION, AND IT IS DELIBERATE. Leaflet's and Esri's credit is
+    // a licensing requirement rather than a control: nobody reads it at a
+    // glance, and a panel behind it would give it the standing of the chrome
+    // that carries the work. It takes a glyph-carried halo instead, which is
+    // the same answer the map's linework gets and for the same reason.
+    // MATCHED TO LEAFLET'S OWN SELECTOR. Its rule is
+    // `.leaflet-container .leaflet-control-attribution`, which outranks a bare
+    // class -- the rule that lived here before this branch used one and lost
+    // the cascade silently, so the white box on screen was Leaflet's the whole
+    // time. The specificity is part of the assertion.
+    const credit = propsOf(ruleFor(COMPONENTS, '.leaflet-container .leaflet-control-attribution'))
+    expect(credit.background).toBe('none')
+    expect(credit['text-shadow']).toBe('var(--halo-text)')
     // The overlay itself is NOT a surface: it spans the whole map and must let
     // every gesture through.
     expect(propsOf(ruleFor(COMPONENTS, '.chrome'))['pointer-events']).toBe('none')
