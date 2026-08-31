@@ -40,6 +40,7 @@
  * band z can clear. MapLayerStack renders it at the top level for that reason.
  */
 
+import L from 'leaflet'
 import { GeoJSON, Pane, Polygon, Polyline, Tooltip } from 'react-leaflet'
 
 import { offParcelScrimRings, readToken } from '../geo.js'
@@ -89,12 +90,6 @@ const CASING_WEIGHT = 4
 const DRAWN_LINE_WEIGHT = 1.5
 const DRAWN_CASING_WEIGHT = 3
 
-// A declined suggestion still has to be findable and clickable, so it keeps a
-// mark -- but a faint one. Dotted rather than dashed: a dot carries no
-// direction, which is right for an edge that is no longer asserting anything.
-const DESELECTED_DASH = '1,4'
-const DESELECTED_STROKE_OPACITY = 0.55
-
 // The scrim is the only hard gate in this interface and should be the only
 // thing that reads as forbidden. Opaque enough that off-parcel ground is
 // plainly out of play, short of hiding what is there -- someone still needs to
@@ -116,7 +111,13 @@ const COMMITTED_FILL_OPACITY = 0.12
  * proposal being decided about, or a shape the user drew -- which are the
  * declaration's own words and not a step's name.
  */
-export function StackLayer({ layer, interactive = false, onFeatureClick, onLayerClick }) {
+export function StackLayer({
+  layer,
+  interactive = false,
+  onFeatureClick,
+  onLayerClick,
+  focusedFeatureId = null,
+}) {
   const Renderer = RENDERERS[layer.kind]
   // Not reachable: defineLayer() refuses an unknown kind at definition time.
   // Kept because the alternative to a null here is a blank map.
@@ -146,6 +147,7 @@ export function StackLayer({ layer, interactive = false, onFeatureClick, onLayer
         interactive={interactive}
         onFeatureClick={onFeatureClick}
         onLayerClick={onLayerClick}
+        focusedFeatureId={focusedFeatureId}
       />
     </Pane>
   )
@@ -284,15 +286,23 @@ function ReferenceLayer() {
  *   band 'committed'    settled. A thin line and a light fill; nothing to
  *                       invite a click except the navigation the stack offers.
  *
- *   source 'proposals'  a candidate being decided about. SELECTED is hatch
- *                       with no outline and no fill of its own -- suggested
- *                       ground IS eligible ground, so a second fill would
- *                       imply a category that does not exist, and two
- *                       translucent fills stacked would double the opacity
- *                       exactly where the zones sit. DESELECTED is a dotted
- *                       edge with no fill at all: a declined suggestion marks
- *                       absence, and absence needs its own vocabulary rather
- *                       than a quieter version of presence.
+ *   source 'proposals'  a candidate being decided about. Hatch with no outline
+ *                       and no fill of its own -- suggested ground IS eligible
+ *                       ground, so a second fill would imply a category that
+ *                       does not exist, and two translucent fills stacked
+ *                       would double the opacity exactly where the zones sit.
+ *
+ *                       THERE IS NO DECLINED TREATMENT ANY MORE. A deselected
+ *                       suggestion used to be drawn as a dotted edge with no
+ *                       fill, on the argument that absence needs its own
+ *                       vocabulary rather than a quieter version of presence.
+ *                       That argument was right while the map was the only
+ *                       place a suggestion appeared: something had to say the
+ *                       zone was still available to take back. The tab strip
+ *                       says it now -- the feature keeps its tab, with the eye
+ *                       closed -- so the map does not have to, and a shape
+ *                       nobody is committing is simply not drawn. See the
+ *                       filter in FeatureLayer.
  *
  *   source 'draft'      a shape the user drew. Hatch, plus a cased outline,
  *                       because its edge is a decision rather than a
@@ -302,7 +312,13 @@ function ReferenceLayer() {
  * a separately addressable layer, which is what makes them selectable and what
  * lets a 422 colour exactly the offending one.
  */
-function FeatureLayer({ layer, interactive, onFeatureClick, onLayerClick }) {
+function FeatureLayer({
+  layer,
+  interactive,
+  onFeatureClick,
+  onLayerClick,
+  focusedFeatureId = null,
+}) {
   const { field, accent, ink, halo } = getStackColors()
   const selected = new Set(layer.selectedFeatureIds ?? [])
   const rejections = layer.rejections ?? {}
@@ -310,13 +326,30 @@ function FeatureLayer({ layer, interactive, onFeatureClick, onLayerClick }) {
   const isProposal = layer.source === 'proposals'
   const isDrawn = layer.source === 'draft'
 
+  /**
+   * EYE-OFF IS NOT DRAWN AT ALL, and this filter is the whole of what replaced
+   * the dotted declined treatment.
+   *
+   * The eye means "in the commit". A feature that is not in the commit has
+   * nothing to say on a map of what this parcel is going to be, and drawing it
+   * in a special way was only ever a way of keeping it findable -- which is
+   * the tab strip's job now, and a better one, because a tab is legible at any
+   * zoom and a dotted hairline over canopy is not.
+   *
+   * ONLY IN THE EDITABLE BAND. The committed band is what the document says
+   * happened; the draft's selection has no bearing on it.
+   */
+  const features = isEditable
+    ? layer.features.filter((feature) => selected.has(feature.id))
+    : layer.features
+
   return (
     <>
       {/* THE CASING PASS, FIRST so it paints underneath -- within one SVG pane,
           later elements draw on top. Only a drawn shape is cased: a
           suggestion has no outline to case. */}
       {isDrawn
-        ? layer.features.map((feature) => (
+        ? features.map((feature) => (
             <GeoJSON
               key={`casing-${feature.id}`}
               data={feature}
@@ -325,19 +358,19 @@ function FeatureLayer({ layer, interactive, onFeatureClick, onLayerClick }) {
             />
           ))
         : null}
-      {layer.features.map((feature) => {
-        // A PROPOSAL IS SELECTED UNLESS IT WAS TAKEN OUT; a drawn shape is
-        // always in. The draft's selection set only ever names proposals --
-        // drawn features are committed by existing, not by being picked -- so
-        // asking the set about one would report every drawn zone deselected.
-        const isSelected = isDrawn || selected.has(feature.id)
+      {features.map((feature) => {
+        // EVERY FEATURE STILL HERE IS IN THE COMMIT -- the filter above took
+        // the others out. The store's selection covers drawn shapes as well as
+        // proposals now, so this is one question with one answer rather than
+        // "a proposal unless it was taken out, and a drawn shape always".
+        const isFocused = feature.id === focusedFeatureId
         const rejection = rejections[feature.id] ?? null
         return (
           <GeoJSON
             // react-leaflet 4.2.1's GeoJSON ignores a changed `data` prop --
             // it diffs only `style` -- so anything that changes the geometry
             // or the styling has to arrive as a new instance via the key.
-            key={`${feature.id}:${isSelected}:${interactive}:${rejection ? 'bad' : 'ok'}`}
+            key={`${feature.id}:${isFocused}:${interactive}:${rejection ? 'bad' : 'ok'}`}
             data={feature}
             // Top-level, for the reason RingLayer gives: pathOptions is
             // applied with setStyle() and cannot make a path stop taking
@@ -345,7 +378,7 @@ function FeatureLayer({ layer, interactive, onFeatureClick, onLayerClick }) {
             interactive={interactive}
             style={styleFor({
               feature,
-              isSelected,
+              isFocused,
               isEditable,
               isProposal,
               isDrawn,
@@ -355,10 +388,17 @@ function FeatureLayer({ layer, interactive, onFeatureClick, onLayerClick }) {
             eventHandlers={
               interactive
                 ? {
-                    click: () =>
-                      isEditable
-                        ? onFeatureClick?.(layer, feature)
-                        : onLayerClick?.(layer, feature),
+                    // THE CLICK STOPS HERE. A Leaflet path click also reaches
+                    // the map, and the map's own click is what clears the
+                    // focus -- so without this, focusing a feature would clear
+                    // the focus in the same gesture. Leaflet's own helper
+                    // rather than the DOM's: the handler is given Leaflet's
+                    // wrapped event.
+                    click: (event) => {
+                      L.DomEvent.stopPropagation(event)
+                      if (isEditable) onFeatureClick?.(layer, feature)
+                      else onLayerClick?.(layer, feature)
+                    },
                   }
                 : undefined
             }
@@ -393,7 +433,24 @@ function FeatureLayer({ layer, interactive, onFeatureClick, onLayerClick }) {
  * `fill: false` writes fill="none" -- a value rather than an absence, and there
  * would be nothing left for the stylesheet to replace.
  */
-function styleFor({ isSelected, isEditable, isProposal, isDrawn, rejection, colors }) {
+/**
+ * THE FOCUS MARK, AS A CLASS RATHER THAN A pathOption.
+ *
+ * The feature the user is looking at is drawn marked, so that clicking a tab
+ * and clicking a shape are visibly the same act. It is a CLASS because the
+ * mark is a stroke treatment App.css owns beside the hatch and the casing --
+ * putting a colour and a weight here would make the focus a second visual
+ * vocabulary maintained in a second file.
+ *
+ * IT DOES NOT REPLACE A TREATMENT, it adds to one. A focused drawn zone is
+ * still a drawn zone; a focused suggestion is still hatched. Focus says "this
+ * is the one you are reading", which is orthogonal to what the shape IS.
+ */
+function focusClass(base, isFocused) {
+  return isFocused ? `${base} zone--focused` : base
+}
+
+function styleFor({ isFocused, isEditable, isProposal, isDrawn, rejection, colors }) {
   if (rejection) {
     // Rejected geometry is neither settled nor a candidate: it is the reason
     // the commit did not happen. Solid, alert-coloured, and unmissable.
@@ -414,22 +471,19 @@ function styleFor({ isSelected, isEditable, isProposal, isDrawn, rejection, colo
       color: colors.accent,
       weight: DRAWN_LINE_WEIGHT,
       fill: true,
-      className: 'zone--drawn',
+      className: focusClass('zone--drawn', isFocused),
     }
   }
 
   if (isProposal && isEditable) {
-    return isSelected
-      ? { stroke: false, fill: true, className: 'zone--selected' }
-      : {
-          stroke: true,
-          color: colors.accent,
-          weight: 1,
-          opacity: DESELECTED_STROKE_OPACITY,
-          dashArray: DESELECTED_DASH,
-          fill: false,
-          className: 'zone--deselected',
-        }
+    // Hatch, no outline, no fill of its own. A deselected suggestion does not
+    // reach here -- FeatureLayer does not render it at all -- so there is one
+    // proposal treatment rather than two.
+    return {
+      stroke: false,
+      fill: true,
+      className: focusClass('zone--selected', isFocused),
+    }
   }
 
   // Settled: the committed band, and any polygon layer a step declares that is

@@ -89,11 +89,84 @@
  *                      step's drawing on a guess at when they apply, is
  *                      exactly what F3 declined to write.
  *
- *   Panel              The step's own body, rendered inside the shared frame.
- *                      Everything generic -- the state, the buttons, the
- *                      errors, the collapse -- belongs to the frame, and a
- *                      Panel that starts reproducing those is the schema
- *                      failing.
+ *   instructions       THE CHROME'S FIRST HALF: one sentence PER MACHINE STATE,
+ *                      {[state]: string}. What the instruction bar says while
+ *                      this step is in that state.
+ *
+ *   buttons            THE CHROME'S SECOND HALF: what the action banner offers
+ *                      PER MACHINE STATE, {[state]: [button]}. At most two --
+ *                      the forward move and the step's tool or escape -- AND
+ *                      A PAIR IS NOT ASSUMED: landform's editing state offers
+ *                      one button and boundary's offers two, so the value is a
+ *                      list whose length the step chooses. An empty list is a
+ *                      real answer (nothing to offer while a request is in
+ *                      flight), and so is a missing key.
+ *
+ *                      See stepButton() for what one is, and COMMIT_BUTTON /
+ *                      GENERATE_BUTTON / REOPEN_BUTTON for the three every
+ *                      step can reuse without restating the machine.
+ *
+ *   notices(context)   The step's own STEP-LEVEL notices for the instruction
+ *                      bar: [{key, tone, text}]. Not errors -- the shell reads
+ *                      those off the machine for every step alike. This is
+ *                      what only THIS step can know is worth saying about the
+ *                      decision in hand.
+ *
+ *                      `text` IS A STRING OR A LIST OF PARTS, and the list is
+ *                      how a measured figure gets into the middle of a
+ *                      sentence. A part is a string, or `{measure}` for a
+ *                      number the pipeline produced -- which the bar sets in
+ *                      the data face, because the whole reason this project
+ *                      loads three faces is that a reader can tell at a glance
+ *                      which half of a line was measured and which was
+ *                      written. See measured().
+ *
+ *   tabs(context)      One tab per feature this step is carrying, as
+ *                      [{id, name, rows: [{value, label}], eye?, removable?,
+ *                      drawn?}]. `rows` is the acreage chip's treatment
+ *                      generalised: a right-aligned monospace value and a
+ *                      left-aligned label, one per row.
+ *
+ *                      IT IS THE STEP'S BECAUSE THE FIGURES ARE. A boundary
+ *                      counts points and encloses acres; a landform zone has
+ *                      acres and a score. No reading of a Feature reaches
+ *                      either, so a generic strip would have had to learn
+ *                      which step it was drawing.
+ *
+ *                      `eye`         The feature is in the commit and may be
+ *                                    taken out. Omitted for a tab whose
+ *                                    feature is not a commit decision at all
+ *                                    -- the boundary's ring is the step, not a
+ *                                    candidate within it.
+ *
+ *                      `removable`   The feature can be DESTROYED, and the tab
+ *                                    carries an ×. Declared, never inferred
+ *                                    from `drawn`: the strip must not decide
+ *                                    on its own what may be destroyed. Only a
+ *                                    shape the USER authored is removable -- a
+ *                                    suggestion cannot be destroyed because
+ *                                    the server will regenerate it, so its
+ *                                    only removal is the eye, and the
+ *                                    asymmetry is honest and meant to be
+ *                                    visible at a glance.
+ *
+ *   detail(context,    What the DETAIL PANEL shows for one feature, or null
+ *          featureId)  when this step has nothing to say about that id:
+ *                      {name, fields: [{label, value, measured}], cautions}.
+ *
+ *                      THE FIELDS ARE THE ONES THE TAB HAD NO ROOM FOR. A tab
+ *                      is three rows; the panel is where the rest of what the
+ *                      pipeline measured goes. `cautions` are carried through
+ *                      as the payload shipped them -- {type, label, acres} --
+ *                      because a caution's LABEL IS THE LAYER'S OWN WORDS and
+ *                      re-writing it client-side would put this app's
+ *                      vocabulary in front of the backend's.
+ *
+ *   Panel              RESERVED, and filled by nothing in this branch. It was
+ *                      the step's body inside the panel column, and the panel
+ *                      column is gone -- the detail panel that replaces it is
+ *                      the next branch's. The field stays because that is the
+ *                      seam it will re-enter through.
  *
  * THE LAYER SCHEMA, and why it is five fields rather than three
  *
@@ -160,13 +233,60 @@ import {
   GENERATED,
   NOT_STARTED,
   selectIsStepReachable,
+  selectBoundaryRing,
   selectSessionId,
+  selectStepsHoldingWork,
   selectStepOrder,
   selectStepStatus,
 } from '../session/SessionStore'
+import { polygonAreaAcres } from '../geo.js'
 import { cautionsFor, clampToBoundary } from '../zoneGeometry.js'
-import BoundaryPanel from './panels/BoundaryPanel.jsx'
-import LandformPanel from './panels/LandformPanel.jsx'
+import {
+  COMMITTING,
+  EDITING,
+  GENERATING,
+  IDLE,
+  MACHINE_STATES,
+  REVIEWING,
+  STEP_COMMITTED,
+} from './useStepMachine'
+
+/**
+ * Decimal places every measured figure in this app is printed to.
+ *
+ * MIRRORS THE PIPELINE'S OWN ROUNDING BOUNDARY, it does not invent one:
+ * production_area_ceiling._round1() puts every acreage, score, factor and
+ * slope figure in a step payload at one decimal place before it is serialised.
+ *
+ * Printing them back at that same fixed width is what makes a column of them
+ * align, and it has to be done explicitly. JSON has no decimal type, so a
+ * score the backend rounded to 100.0 is parsed by JavaScript as the number 100
+ * and renders as "100" -- one character narrower than "62.5", with no decimal
+ * point to line up.
+ */
+export const MEASURE_DP = 1
+
+/**
+ * A measured figure, for the middle of a sentence.
+ *
+ * THE NOTICES ARE WHERE THE PANEL COLUMN'S FIGURES ENDED UP, and a figure set
+ * as prose in a warning is the one place the three-face rule matters most: a
+ * sentence saying "you have selected too much" is worth much less than one
+ * naming how much. The bar renders these in mono with tabular figures; a bare
+ * string part is prose.
+ */
+export function measured(value) {
+  return { measure: measure(value) }
+}
+
+/**
+ * A measured value at fixed width, or an em dash where the pipeline sent null.
+ * null means "not known" throughout this contract and must never be printed as
+ * a 0.0 that reads as a measurement.
+ */
+export function measure(value) {
+  return value == null ? '—' : Number(value).toFixed(MEASURE_DP)
+}
 
 /** The boundary step's id. It is not a backend step id -- see BOUNDARY_STEP. */
 export const BOUNDARY_STEP_ID = 'boundary'
@@ -249,6 +369,181 @@ function defineLayer(stepId, layer) {
 
   return Object.freeze({ id, band, kind, source, key })
 }
+
+/* ---------------------------------------------------------------------------
+   THE ACTION BANNER'S VOCABULARY
+   ---------------------------------------------------------------------------
+   A button is a value, not a component. The banner renders whatever the
+   cursor step declares for the state it is in, and knows nothing else about
+   it -- which is the only way six steps share one banner.
+
+   WHAT A BUTTON IS HANDED. One object, the CHROME CONTEXT, assembled by the
+   shell:
+
+     machine   everything useStepMachine returns for this step -- the commit,
+               the generate, the reopen request, the labels, the predicates.
+     arm       arm one of the step's declared tools.
+     disarm    put the arming register back to empty.
+     armed     which tool is live, or null.
+     advance   move the wizard on to the next uncommitted step.
+
+   Nothing in that list names a step, and nothing in it is a store internal.
+   --------------------------------------------------------------------------- */
+
+/**
+ * Declare one button.
+ *
+ *   key       Stable, and the banner's testid is `${key}-${stepId}`. It is the
+ *             button's identity across states, so the same commit rendered in
+ *             two states is one addressable thing.
+ *   label     A string, or a function of the chrome context for a button whose
+ *             words depend on what it would do (see COMMIT_BUTTON).
+ *   tone      'primary' for the forward move, 'secondary' for the tool or the
+ *             escape. Presentation only.
+ *   run       What pressing it does. May be async; the banner awaits it.
+ *   enabled   Whether it may be pressed. Defaults to always.
+ *   blocked   The title text on a disabled button -- why not, in a sentence.
+ *   confirm   null, or {title, body(chrome), yes, no}. A button that names
+ *             what it costs before it acts. The REOPEN path does not use this:
+ *             its confirmation is the machine's own, because the cost it has
+ *             to name (which downstream steps hold work) is the store's
+ *             answer rather than a sentence a definition can write.
+ */
+export function stepButton({
+  key,
+  label,
+  tone = 'secondary',
+  run,
+  enabled = () => true,
+  blocked = () => null,
+  confirm = null,
+}) {
+  if (!key) throw new Error('A step button needs a key.')
+  if (typeof run !== 'function') throw new Error(`Step button '${key}' needs a run().`)
+  return Object.freeze({
+    key,
+    tone,
+    label: typeof label === 'function' ? label : () => label,
+    run,
+    enabled,
+    blocked,
+    confirm: confirm && Object.freeze({ ...confirm }),
+  })
+}
+
+/**
+ * THE COMMIT, AND THE AUTO-ADVANCE THAT FOLLOWS IT.
+ *
+ * There is no "Next step" button anywhere in this shell, and there is not
+ * meant to be: a commit that succeeded has finished the step, and asking the
+ * user to confirm that in a second click is a question with one answer. So the
+ * forward move is the commit's own tail -- and it is HERE rather than in the
+ * machine because moving the cursor is the shell's business, not the
+ * document's.
+ *
+ * IT ADVANCES ONLY ON 'committed'. Every other outcome -- a 409, a 422, a
+ * step-state refusal, a thrown request -- leaves the user on the step whose
+ * commit did not land, with the reason in the instruction bar. Advancing off a
+ * failed commit would hide the failure behind a step change.
+ *
+ * The label is the DEFINITION'S, through the machine, so landform's empty
+ * commit still renames itself rather than recording a decision unnamed.
+ */
+export const COMMIT_BUTTON = stepButton({
+  key: 'commit',
+  tone: 'primary',
+  label: ({ machine }) => machine.commitLabel,
+  enabled: ({ machine }) => machine.canCommit,
+  blocked: ({ machine }) => machine.commitBlockedReason,
+  run: async ({ machine, disarm, advance }) => {
+    // A tool still armed over a step the user has just left is a live map
+    // listener with no owner. Disarming first is the same rule the cursor
+    // enforces on a move, applied one moment earlier.
+    disarm()
+    const outcome = await machine.commit()
+    if (outcome === 'committed') advance()
+    return outcome
+  },
+})
+
+/** The generate, for a step whose definition declares one. */
+export const GENERATE_BUTTON = stepButton({
+  key: 'generate',
+  tone: 'primary',
+  label: ({ machine }) => machine.definition.generate?.label ?? 'Generate',
+  enabled: ({ machine }) => machine.canGenerate,
+  run: ({ machine }) => machine.generate(),
+})
+
+/**
+ * The reopen, for a step whose definition declares one.
+ *
+ * `key: 'edit'` because that is what the affordance has always been called on
+ * the wire of this app's tests and in `reopen.label`. It only REQUESTS the
+ * reopen: the confirmation that names what a reopen discards is the machine's,
+ * and the shell renders it.
+ */
+export const REOPEN_BUTTON = stepButton({
+  key: 'edit',
+  // SECONDARY, and the tone is the argument. Oxide marks the single FORWARD
+  // move, and reopening a committed step is a move backwards into work that
+  // was finished -- offered, never urged. A committed step's chrome therefore
+  // shows no oxide at all, which is correct: the way on from a finished step
+  // is the next step, and the rail is what carries that.
+  tone: 'secondary',
+  label: ({ machine }) => machine.definition.reopen?.label ?? 'Edit this step',
+  enabled: ({ machine }) => machine.canReopen,
+  run: ({ machine }) => machine.requestReopen(),
+})
+
+/** Arm one of the step's declared tools, under whatever name the step gives it. */
+export function armButton({ key, label, tool, tone = 'secondary', enabled }) {
+  return stepButton({
+    key,
+    label,
+    tone,
+    enabled,
+    run: ({ arm }) => arm(tool),
+  })
+}
+
+/** Put the register back to empty. What "finish", "done" and "cancel" all are. */
+export function disarmButton({ key, label, tone = 'secondary', enabled, run }) {
+  return stepButton({
+    key,
+    label,
+    tone,
+    enabled,
+    run: run ?? (({ disarm }) => disarm()),
+  })
+}
+
+/**
+ * Normalise and check one step's chrome.
+ *
+ * THE KEYS ARE MACHINE STATES AND THE CHECK IS THAT THEY ARE. A typo'd state
+ * name is a silent blank bar and an empty banner on whichever state it was
+ * meant to cover -- the one failure mode that looks exactly like "this step
+ * has nothing to say here", which is a legitimate answer. So it fails at
+ * definition time, naming the step and the key.
+ */
+function defineChrome(stepId, field, entries, check) {
+  const out = {}
+  for (const [state, value] of Object.entries(entries ?? {})) {
+    if (!MACHINE_STATES.includes(state)) {
+      throw new Error(
+        `Step '${stepId}' declares ${field} for '${state}', which is not a machine ` +
+          `state. The bar and the banner are keyed by state, so it has to be one ` +
+          `of: ${MACHINE_STATES.join(', ')}.`
+      )
+    }
+    out[state] = check(state, value)
+  }
+  return Object.freeze(out)
+}
+
+/** At most two, and a pair is never assumed -- see the schema note on `buttons`. */
+const MAX_BUTTONS_PER_STATE = 2
 
 /**
  * A step backed by an entry in the Design Document -- landform, and every
@@ -376,6 +671,11 @@ export function defineStep(definition) {
     proposalCollection = null,
     committedNote = null,
     shape = null,
+    instructions = {},
+    buttons = {},
+    notices = () => [],
+    tabs = () => [],
+    detail = () => null,
     Panel = null,
   } = definition
 
@@ -404,6 +704,36 @@ export function defineStep(definition) {
     proposalCollection,
     committedNote,
     shape: shape && Object.freeze({ ...shape }),
+    instructions: defineChrome(id, 'an instruction', instructions, (state, line) => {
+      if (typeof line !== 'string' || !line.trim()) {
+        throw new Error(`Step '${id}' declares an empty instruction for '${state}'.`)
+      }
+      return line
+    }),
+    buttons: defineChrome(id, 'buttons', buttons, (state, list) => {
+      if (!Array.isArray(list)) {
+        throw new Error(
+          `Step '${id}' declares buttons for '${state}' that are not a list. The ` +
+            `banner renders a list precisely so a state can offer one button, or none.`
+        )
+      }
+      if (list.length > MAX_BUTTONS_PER_STATE) {
+        throw new Error(
+          `Step '${id}' declares ${list.length} buttons for '${state}'. The banner ` +
+            `holds at most ${MAX_BUTTONS_PER_STATE}: the forward move, and the step's ` +
+            `tool or escape.`
+        )
+      }
+      for (const button of list) {
+        if (typeof button?.run !== 'function') {
+          throw new Error(`Step '${id}' declares a '${state}' button with no run().`)
+        }
+      }
+      return Object.freeze([...list])
+    }),
+    notices,
+    tabs,
+    detail,
     Panel,
   })
 }
@@ -451,6 +781,108 @@ export function defineStep(definition) {
  * Declaring the absence beats offering a button that would have to explain
  * itself away.
  */
+/**
+ * What a committed boundary says, in the one place it is said.
+ *
+ * The instruction bar and `committedNote` are the same sentence to the same
+ * reader; two copies of it would drift the first time one is edited.
+ */
+export const BOUNDARY_COMMITTED_NOTE =
+  'The boundary is fixed for the life of this session — every committed step was ' +
+  'measured against it. Starting a different property means starting a new session.'
+
+/** Start placing points. */
+const BOUNDARY_DRAW = armButton({
+  key: 'draw',
+  tool: 'draw',
+  tone: 'primary',
+  label: 'Draw the boundary',
+})
+
+/**
+ * Take the last point back.
+ *
+ * WRITES THE DRAFT DIRECTLY, because that is where the ring is: DrawTool puts
+ * vertices into the step's declared input and this takes one out of the same
+ * place. There is no undo stack anywhere in this app and this is not the
+ * beginning of one -- a ring is a list, and its last element is removable
+ * without a history.
+ */
+const BOUNDARY_UNDO = stepButton({
+  key: 'undo',
+  label: 'Undo last point',
+  enabled: ({ machine }) => ringOf(machine.draft).length > 0,
+  run: ({ machine }) => {
+    const ring = ringOf(machine.draft)
+    machine.actions.setDraftInput(machine.stepId, BOUNDARY_RING_INPUT, ring.slice(0, -1))
+  },
+})
+
+/**
+ * DISARMING IS FINISHING. There is no `isFinished` flag to set and never was
+ * one worth keeping: a closed ring with nothing placing into it is what
+ * finished means, and both the map and this chrome derive it from the register.
+ */
+const BOUNDARY_FINISH = disarmButton({
+  key: 'finish',
+  tone: 'primary',
+  label: 'Finish boundary',
+  enabled: ({ machine }) => ringOf(machine.draft).length >= 3,
+})
+
+/**
+ * Clear the ring AND arm the draw again, because the button says redraw.
+ *
+ * Clearing alone would leave the user in the reviewing state over an empty
+ * ring, looking at "Check the shape before sending." with no shape and no way
+ * back to placing points but the tool button that state does not offer. The
+ * two halves of "redraw" are one press.
+ */
+const BOUNDARY_REDRAW = stepButton({
+  key: 'redraw',
+  label: 'Clear and redraw',
+  run: ({ machine, arm }) => {
+    machine.actions.setDraftInput(machine.stepId, BOUNDARY_RING_INPUT, [])
+    arm('draw')
+  },
+})
+
+/**
+ * A COMMITTED BOUNDARY IS NOT REDRAWN, IT IS ABANDONED, and the button names
+ * that before it acts.
+ *
+ * Every committed step's geometry was measured against this parcel, so a
+ * different parcel is a different SESSION rather than a cascade within one --
+ * which is why BOUNDARY_STEP declares `reopen: null`. But "no button" is not
+ * the honest answer for someone who wants a different property, so the action
+ * exists and states its cost first. The cost is read from the store, so an
+ * empty session says so rather than issuing an unqualified warning that trains
+ * people to click through the one that will matter.
+ */
+const BOUNDARY_RESTART = stepButton({
+  key: 'restart',
+  label: 'Start a different property',
+  confirm: {
+    title: 'Start a different property?',
+    body: ({ machine }) => {
+      const holding = selectStepsHoldingWork(machine.context.state)
+      return holding.length
+        ? 'The boundary cannot be moved — every step was measured against it — so this ' +
+            'ends the session and discards the work in ' +
+            holding.join(', ') +
+            '.'
+        : 'The boundary cannot be moved — every step is measured against it — so this ' +
+            'ends the session and starts a new one. No step holds work yet, so nothing ' +
+            'else will be discarded.'
+    },
+    yes: 'End this session and start again',
+    no: 'Keep this property',
+  },
+  // The store drops the document and every draft with it, which puts the
+  // cursor back on the first uncommitted step.
+  run: ({ machine }) => machine.actions.clearSession(),
+})
+
 export const BOUNDARY_STEP = defineStep({
   id: BOUNDARY_STEP_ID,
   title: 'Property boundary',
@@ -486,7 +918,10 @@ export const BOUNDARY_STEP = defineStep({
   ],
   generate: null,
   commit: {
-    label: 'Use this boundary',
+    // THE BANNER'S WORDS ARE THE DEFINITION'S. The instruction above it
+    // already says what is being sent ("Check the shape before sending."), so
+    // the button names the act rather than restating the object.
+    label: 'Commit',
     run: async (actions, { draft }) => {
       const ring = draft?.inputs?.[BOUNDARY_RING_INPUT]
       const created = await actions.startSession(ring)
@@ -500,15 +935,58 @@ export const BOUNDARY_STEP = defineStep({
       ringOf(draft).length >= 3 ? null : 'Place at least three points to close the boundary.',
   },
   reopen: null,
-  committedNote:
-    'The boundary is fixed for the life of this session — every committed step was ' +
-    'measured against it. Starting a different property means starting a new session.',
+  committedNote: BOUNDARY_COMMITTED_NOTE,
   status: (state) => (selectSessionId(state) ? COMMITTED : NOT_STARTED),
   // Nothing upstream. Not `selectIsStepReachable`, which answers off
   // `step_order` and would report false for an id that is legitimately not in
   // it -- the wrong answer for the one step that is always available.
   reachable: () => true,
-  Panel: BoundaryPanel,
+
+  /* --- The boundary's chrome ---------------------------------------------
+     TWO PAIRS, and they are the two halves of drawing a shape: placing points
+     and looking at what you placed. The states are the machine's own -- see
+     chromeState.js for the one rule that decides which of the two a boundary
+     with three points down is in, and why it is the arming that decides it. */
+  instructions: {
+    [IDLE]: 'Trace the property outline. Everything after this is measured against it.',
+    [EDITING]: 'Click to place each corner.',
+    [REVIEWING]: 'Check the shape before sending.',
+    [COMMITTING]: 'Creating the session…',
+    // The committed boundary's line IS its committedNote: there is one thing
+    // to say about a parcel that cannot be moved, and it is said once.
+    [STEP_COMMITTED]: BOUNDARY_COMMITTED_NOTE,
+  },
+  buttons: {
+    [IDLE]: [BOUNDARY_DRAW],
+    [EDITING]: [BOUNDARY_UNDO, BOUNDARY_FINISH],
+    [REVIEWING]: [BOUNDARY_REDRAW, COMMIT_BUTTON],
+    [COMMITTING]: [],
+    [STEP_COMMITTED]: [BOUNDARY_RESTART],
+  },
+
+  /**
+   * ONE TAB, AND IT IS TODAY'S ACREAGE CHIP.
+   *
+   * The chip is gone from the map's top-left; this is where it went, unchanged
+   * in what it says or how it is set. Read through selectBoundaryRing so the
+   * tab is the same whether the ring is still in the draft or has moved into
+   * the document -- the chip only ever existed for the drawing half, and the
+   * committed half had no readout at all.
+   */
+  tabs: ({ state, stepId }) => {
+    const ring = selectBoundaryRing(state, stepId, BOUNDARY_RING_INPUT)
+    if (!ring.length) return []
+    const rows = [{ value: String(ring.length), label: ring.length === 1 ? 'point' : 'points' }]
+    // Below three points there is no enclosed shape, so there is no area to
+    // state. Same threshold the chip used, for the same reason.
+    if (ring.length >= 3) {
+      rows.push({ value: polygonAreaAcres(ring).toFixed(MEASURE_DP), label: 'acres' })
+    }
+    // NO EYE AND NO ×. The ring is not a candidate within the step, it IS the
+    // step -- there is nothing to include it in, and clearing it is what the
+    // banner's "Clear and redraw" is for.
+    return [{ id: BOUNDARY_RING_INPUT, name: 'Boundary', rows }]
+  },
 })
 
 /** The boundary ring held in a draft, always an array. */
@@ -625,13 +1103,138 @@ export const LANDFORM_SHAPE = Object.freeze({
       },
       // Said only when the clamp actually took something. A notice on every
       // drawn zone would train the user to ignore the one that matters.
+      //
+      // PARTS RATHER THAN A SENTENCE, so the acreage the clamp removed is set
+      // in the data face like every other measured value. It was a template
+      // literal, which put a pipeline figure into prose -- the one thing the
+      // three-face rule exists to prevent.
       notice:
         removedAcres > 0
-          ? `${removedAcres.toFixed(1)} acres outside the property boundary were trimmed off.`
+          ? [measured(removedAcres), ' acres outside the property boundary were trimmed off.']
           : null,
     }
   },
 })
+
+/* ---------------------------------------------------------------------------
+   LANDFORM'S OWN READINGS -- what the panel column used to hold
+   ---------------------------------------------------------------------------
+   The zone list, the drawn list and the caution lines are the DETAIL PANEL's,
+   and the detail panel's contents are the next branch's. What survives into
+   this branch is what the chrome itself needs: the figures a tab prints, and
+   the two things only this step can know are worth saying out loud.
+   --------------------------------------------------------------------------- */
+
+/**
+ * Which checks did not run, in the terms someone standing on the land would
+ * use -- never the layer's own name, and never "unavailable" on its own.
+ *
+ * Keyed on the payload's STABLE `type`, never on its `label`. The backend
+ * splits those two fields precisely so a consumer branching on identity is not
+ * broken by a copy edit to the display prose (see exclusion_zones._wire_
+ * layers()), and the labels there describe the TEST ("wet (hydric) soil")
+ * where this has to describe the CONSEQUENCE.
+ */
+const UNAVAILABLE_CONSEQUENCE = {
+  hydric: 'Soil survey data was unavailable, so wet ground has not been excluded.',
+  roads: 'Road data was unavailable, so existing farm roads have not been excluded.',
+  canopy: 'Canopy data was unavailable, so wooded ground has not been excluded.',
+  slope: 'Elevation data was unavailable, so steep ground has not been excluded.',
+  setback: 'The boundary setback was not applied.',
+}
+
+/**
+ * Past this share of the parcel, the chrome says so. ADVISORY ONLY, never
+ * blocking: the 80% figure was always a design judgment about leaving room for
+ * water, roads and trees, and having handed that judgment to the user -- the
+ * same reasoning that made the parcel boundary the only hard gate -- taking it
+ * back at the gate would be incoherent. It is the same number the backend's
+ * own ceiling trims toward, named here so the two cannot drift apart silently.
+ */
+export const CEILING_ADVISORY_PCT = 80
+
+/**
+ * The band name for a score, read out of the payload's own `scales` object.
+ *
+ * NO THRESHOLD IS WRITTEN DOWN HERE. The backend ships `bands` and
+ * `band_bounds` so the frontend does not have to know that 60-79 is "good",
+ * and a copy of those numbers on this side is a second source of truth that
+ * goes stale silently the first time the backend retunes them.
+ *
+ * `band_bounds` is honoured rather than assumed: the contract's value is
+ * lower-inclusive / upper-exclusive with the last band closed at the top, so
+ * a perfect 100 lands in the top band instead of falling out of every one.
+ */
+export function scoreBandName(score, scales) {
+  if (score == null || !scales?.bands) return null
+
+  const bands = Object.entries(scales.bands)
+    .map(([name, [low, high]]) => ({ name, low, high }))
+    .sort((a, b) => a.low - b.low)
+
+  const lastBandClosed =
+    scales.band_bounds === 'lower_inclusive_upper_exclusive_last_band_inclusive'
+
+  for (let i = 0; i < bands.length; i++) {
+    const { name, low, high } = bands[i]
+    const isLast = i === bands.length - 1
+    if (score < low) continue
+    if (score < high) return name
+    if (isLast && lastBandClosed && score <= high) return name
+  }
+
+  return null
+}
+
+/**
+ * The running totals a commit would carry.
+ *
+ * NOT THE PAYLOAD'S OWN FIGURES. What is SELECTED changes as suggestions are
+ * toggled and zones are drawn, so the numbers have to be recomputed from the
+ * current selection rather than read off the recommendation the backend sent.
+ * `eligible_acres` is the exception -- it describes the ground, not the choice.
+ *
+ * THE TOTALS CHIP IT WAS WRITTEN FOR IS GONE. What it is still for is the
+ * ceiling advisory below, which is a reading of the same arithmetic and was
+ * always the only part of that chip that said something the user had to act
+ * on. Exported so the test can assert the arithmetic without a map.
+ */
+export function totalsFor(payload, selectedIds, drawnFeatures) {
+  const rows = payload?.zones ?? []
+  const parcelAcres = payload?.summary?.total_acres ?? 0
+
+  const selectedAcres = rows
+    .filter((zone) => selectedIds.has(zone.feature_id))
+    .reduce((sum, zone) => sum + (zone.area_acres ?? 0), 0)
+  const drawnAcres = drawnFeatures.reduce(
+    (sum, feature) => sum + (feature.properties?.acres ?? 0),
+    0
+  )
+  const total = selectedAcres + drawnAcres
+
+  return {
+    selectedAcres: total,
+    pctOfParcel: parcelAcres > 0 ? (total / parcelAcres) * 100 : null,
+    zoneCount: rows.filter((zone) => selectedIds.has(zone.feature_id)).length + drawnFeatures.length,
+  }
+}
+
+/** Start drawing a zone of your own. */
+const LANDFORM_DRAW = armButton({
+  key: 'draw',
+  tool: 'draw',
+  label: 'Draw a zone',
+})
+
+/**
+ * ONE BUTTON, NOT A PAIR, and that is the case the schema exists to allow.
+ *
+ * A ring going down has no forward move to offer: it is finished by clicking
+ * its first corner, on the map, where the gesture is. The only thing the
+ * banner can usefully offer is the way out -- so it offers exactly that, and
+ * the banner renders one button because the definition declared one.
+ */
+const LANDFORM_CANCEL = disarmButton({ key: 'cancel', label: 'Cancel' })
 
 export const LANDFORM_STEP = documentStep({
   id: 'landform',
@@ -686,14 +1289,220 @@ export const LANDFORM_STEP = documentStep({
      * whole of the affordance: same action, same place, different sentence.
      */
     label: ({ committableCount }) =>
-      committableCount === 0 ? 'Commit no zones for this step' : 'Commit these zones',
+      committableCount === 0 ? 'Commit no zones for this step' : 'Commit zones',
     canCommit: () => true,
     blockedReason: () => null,
   },
   reopen: { label: 'Edit this step', confirmTitle: 'Reopen landform?' },
   proposalCollection: 'suggested_zones',
   shape: LANDFORM_SHAPE,
-  Panel: LandformPanel,
+
+  /* --- Landform's chrome -------------------------------------------------
+     The same four states boundary uses, saying landform's own sentences. The
+     shell reads the key; it never reads which step wrote it. */
+  instructions: {
+    [IDLE]: 'Production zones on the ground the parcel can actually support.',
+    [GENERATING]: 'Reading the parcel — slope, soil, canopy, roads, and the setback…',
+    [REVIEWING]: 'Click zones to select. Draw to add your own.',
+    [EDITING]: 'Click to place each corner. Click the first corner to close.',
+    [COMMITTING]: 'Saving these zones…',
+    [STEP_COMMITTED]: 'These zones are committed. Every step after this is measured against them.',
+  },
+  buttons: {
+    [IDLE]: [GENERATE_BUTTON],
+    [GENERATING]: [],
+    [REVIEWING]: [LANDFORM_DRAW, COMMIT_BUTTON],
+    // ONE. See LANDFORM_CANCEL.
+    [EDITING]: [LANDFORM_CANCEL],
+    [COMMITTING]: [],
+    [STEP_COMMITTED]: [REOPEN_BUTTON],
+  },
+
+  /**
+   * THE TWO THINGS ONLY THIS STEP KNOWS ARE WORTH SAYING.
+   *
+   * 1. WHICH CHECKS DID NOT RUN. A standing line for the whole time this step
+   *    is open, because it changes what the eligible highlight MEANS: ground
+   *    that was never tested is drawn exactly like ground that passed.
+   *
+   * 2. THE 80% CEILING. It used to be printed under the totals chip, and the
+   *    chip is gone; the advisory is not, because it is the only part of that
+   *    block that asked the user to reconsider something. Advisory, never
+   *    blocking -- see CEILING_ADVISORY_PCT.
+   */
+  notices: ({ proposals, draft }) => {
+    if (!proposals) return []
+    const lines = []
+
+    for (const layer of proposals.exclusion_layers ?? []) {
+      if (layer.data_available) continue
+      lines.push({
+        key: `unavailable-${layer.type}`,
+        tone: 'caution',
+        text:
+          `${UNAVAILABLE_CONSEQUENCE[layer.type] ?? `${layer.label} was unavailable.`} ` +
+          'Walk those areas before committing to them.',
+      })
+    }
+
+    // NOTHING ON THIS PARCEL CLEARS EVERY GATE. A real answer, and one the
+    // panel column used to state plainly; without it the step reads as a
+    // generate that quietly returned nothing.
+    if ((proposals.zones ?? []).length === 0) {
+      lines.push({
+        key: 'no-ground',
+        tone: 'caution',
+        text:
+          'No ground on this parcel clears every check. The highlight shows what is ' +
+          'eligible; nothing in it is large or gentle enough to suggest.',
+      })
+    }
+
+    const totals = totalsFor(proposals, new Set(draft.selectedFeatureIds), draft.drawnFeatures)
+    if (totals.pctOfParcel > CEILING_ADVISORY_PCT) {
+      // THE FIGURE IS THE ADVISORY. It used to sit above this line as a
+      // `% of parcel` column in the totals block, and the advisory read
+      // "this much" because the number was already on screen an inch away.
+      // The block is gone; carrying the number into the sentence is what
+      // keeps the advisory worth reading, and it is the first measured value
+      // in the new shell to land mid-sentence rather than in a value column.
+      lines.push({
+        key: 'ceiling',
+        tone: 'advisory',
+        text: [
+          'Selecting ',
+          measured(totals.pctOfParcel),
+          '% of the parcel leaves little room for water, roads, and trees.',
+        ],
+      })
+    }
+
+    return lines
+  },
+
+  /**
+   * ONE TAB PER ZONE -- the payload's suggestions first, in the rank order it
+   * shipped them in, then whatever the user drew.
+   *
+   * ACRES AND SCORE, which is what a zone is measured by. A drawn zone has no
+   * score and prints an em dash rather than a zero: it was never scored, and a
+   * 0.0 there would read as "scored, and badly".
+   *
+   * `selected` is carried so the strip can show what a commit would take. It
+   * is a READING, not an affordance -- the tabs do not toggle in this branch;
+   * the map's select gesture is still the one way to change a selection.
+   */
+  tabs: ({ proposals, draft }) => {
+    const selected = new Set(draft.selectedFeatureIds)
+
+    // THE SUGGESTIONS. Every one carries an eye and none carries an ×: a
+    // suggestion cannot be destroyed, because the server made it and will make
+    // it again on the next generate. Closing its eye is the only removal there
+    // is, and offering an × that quietly did the same thing would be a lie
+    // about what the button does.
+    const tabs = (proposals?.zones ?? []).map((zone) => ({
+      id: zone.feature_id,
+      name: `Zone ${zone.rank}`,
+      eye: true,
+      selected: selected.has(zone.feature_id),
+      rows: [
+        { value: measure(zone.area_acres), label: 'acres' },
+        { value: measure(zone.score), label: 'score' },
+      ],
+    }))
+
+    // THE DRAWN ZONES. An eye AND an ×, and the two mean different things:
+    // the eye takes the zone out of the commit and leaves it to be put back,
+    // the × destroys it. Nothing else in this app can be destroyed by the
+    // user, which is why only these carry one.
+    draft.drawnFeatures.forEach((feature, index) => {
+      tabs.push({
+        id: feature.id,
+        name: `Drawn ${index + 1}`,
+        drawn: true,
+        eye: true,
+        removable: true,
+        selected: selected.has(feature.id),
+        rows: [
+          { value: measure(feature.properties?.acres), label: 'acres' },
+          { value: measure(null), label: 'score' },
+        ],
+      })
+    })
+
+    return tabs
+  },
+
+  /**
+   * WHAT THE DETAIL PANEL SAYS ABOUT ONE ZONE.
+   *
+   * THE FIELDS ARE THE ONES THE TAB HAD NO ROOM FOR. A tab is a name and two
+   * figures -- acres and score, which is what you compare zones BY. The slope
+   * range, the aspect and the score's band are what you read once you have
+   * picked one out, and they are exactly the columns the panel column's zone
+   * list carried before it was deleted.
+   *
+   * TWO KINDS OF FEATURE, ONE SHAPE OF ANSWER. A suggestion's measurements are
+   * in the payload's `zones` table, joined on `feature_id`; a drawn zone's are
+   * its own properties, and there are fewer of them because nothing measured
+   * it -- it was traced by hand, which is what `confidence: 'low'` on it says.
+   * An em dash where a figure does not exist, never a zero.
+   */
+  detail: ({ proposals, draft }, featureId) => {
+    const drawn = draft.drawnFeatures.find((feature) => feature.id === featureId)
+    if (drawn) {
+      return {
+        name: `Drawn zone`,
+        fields: [
+          { label: 'acres', value: measure(drawn.properties?.acres), measured: true },
+          // Traced by hand: the pipeline never scored it, never measured its
+          // slope and never read its aspect. Said as an absence rather than
+          // omitted, so the panel reads the same for both kinds of zone.
+          { label: 'confidence', value: drawn.properties?.confidence ?? '—' },
+          { label: 'source', value: 'drawn by hand' },
+        ],
+        cautions: drawn.properties?.cautions ?? [],
+      }
+    }
+
+    const zone = (proposals?.zones ?? []).find((row) => row.feature_id === featureId)
+    if (!zone) return null
+
+    return {
+      name: `Zone ${zone.rank}`,
+      fields: [
+        { label: 'acres', value: measure(zone.area_acres), measured: true },
+        { label: 'score', value: measure(zone.score), measured: true },
+        // THE BAND COMES OFF THE PAYLOAD'S OWN `scales`, never off a threshold
+        // written here -- a copy of those numbers on this side goes stale
+        // silently the first time the backend retunes them.
+        { label: 'band', value: scoreBandName(zone.score, proposals?.scales) ?? '—' },
+        // TWO FIGURES WITH THE DASH BETWEEN THEM, not one cell holding
+        // "5.7-19.8". A range has two decimal points and a single cell can
+        // only ever align one of them.
+        {
+          label: 'slope %',
+          value: `${measure(zone.slope_min_pct)}–${measure(zone.slope_max_pct)}`,
+          measured: true,
+        },
+        {
+          label: 'aspect',
+          // aspect_available false means the ground is too flat for a
+          // well-defined downhill direction, and the pipeline's aspect figure
+          // is then a neutral default rather than a measurement. Printing it
+          // would state a fact about the land that was never measured.
+          value:
+            zone.aspect_available && zone.dominant_aspect
+              ? `${zone.dominant_aspect}-facing`
+              : '—',
+        },
+      ],
+      // A suggested zone is a strict subset of ground that already cleared
+      // every gate, so it cannot cross an exclusion. Empty, and asserted so in
+      // DEV by assertSuggestedZonesAreClean.
+      cautions: [],
+    }
+  },
 })
 
 /* ===========================================================================

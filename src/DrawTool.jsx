@@ -106,7 +106,8 @@ const DASH = '10,6'
  *    to the backend, since that's what the Python functions expect.
  *
  * This component's click handler is one of several attached to the same map;
- * see ScrollZoomGate for how they coexist. It never stops propagation.
+ * and none of them stops propagation, so they all see every click. It never
+ * stops propagation itself.
  */
 function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBoundary, editingDisabled = false }) {
   const map = useMap()

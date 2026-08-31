@@ -16,10 +16,12 @@
  */
 
 import { useSession } from '../../session/SessionStore'
+import { useWizardCursor } from '../../wizard/WizardCursor.jsx'
 import { StackLayer } from '../layers.jsx'
 
 export default function DeleteGesture({ layer, armed, renders, stepId }) {
   const { actions } = useSession()
+  const { anyArmed, focusedFeatureId, focusFeature } = useWizardCursor()
 
   if (layer.kind === 'ring') return <RingDelete layer={layer} armed={armed} stepId={stepId} />
   if (!renders) return null
@@ -27,11 +29,27 @@ export default function DeleteGesture({ layer, armed, renders, stepId }) {
   return (
     <StackLayer
       layer={layer}
-      // Clickable only while this is the armed tool. A drawn shape that took
-      // clicks all the time would swallow the vertex the draw tool was placing
-      // on top of it.
-      interactive={armed}
-      onFeatureClick={(_layer, feature) => actions.removeDrawnFeature(stepId, feature.id)}
+      /**
+       * IT RENDERS THE DRAWN SHAPES, so it owns their click -- and a click on
+       * a drawn shape means two different things depending on whether this
+       * tool is the armed one.
+       *
+       * ARMED: delete. That is the verb this component is.
+       *
+       * NOTHING ARMED: focus. A shape on the map should answer a click by
+       * saying what it is, and the detail panel is where that answer goes.
+       * It is the same click a suggestion takes (see SelectGesture) and the
+       * same click committed geometry takes -- navigation, not a tool.
+       *
+       * ANOTHER TOOL ARMED: nothing. A drawn shape that took clicks under a
+       * live draw would swallow the vertex being placed on top of it, which
+       * is the collision the arming register exists to prevent.
+       */
+      interactive={armed || !anyArmed}
+      focusedFeatureId={focusedFeatureId}
+      onFeatureClick={(_layer, feature) =>
+        armed ? actions.removeDrawnFeature(stepId, feature.id) : focusFeature(feature.id)
+      }
     />
   )
 }

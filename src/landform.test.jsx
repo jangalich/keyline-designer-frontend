@@ -177,6 +177,14 @@ async function renderApp() {
       if (!element) throw new Error(`no element with data-testid="${id}"`)
       await React.act(async () => element.click())
     },
+    /** Move the cursor, the way a click on the step rail does. */
+    async open(stepId) {
+      await React.act(async () => cursor.open(stepId))
+    },
+    /** Toggle a proposal, the way a click on its zone on the map does. */
+    async toggle(featureId) {
+      await React.act(async () => session.actions.toggleSelection('landform', featureId))
+    },
     /** A click on the map, the way Leaflet delivers one to its listeners. */
     async clickMap([lat, lng]) {
       await React.act(async () => map.fire('click', { latlng: L.latLng(lat, lng) }))
@@ -229,6 +237,9 @@ beforeEach(() => {
  */
 async function throughGenerate(ui) {
   await ui.run((a) => a.setDraftInput('boundary', 'ring', BOUNDARY))
+  // The banner's commit for the state the boundary is in. Nothing is armed --
+  // the ring went into the draft directly -- so the step reads as reviewing
+  // and the pair is redraw/commit.
   await ui.click('commit-boundary')
   await ui.waitFor('the session to exist', () => Boolean(ui.state.sessionId))
   await ui.click('generate-landform')
@@ -245,7 +256,7 @@ async function throughGenerate(ui) {
 
 /** Draw a ring on the map through the real gesture: arm, click each vertex, close. */
 async function drawZone(ui, ring) {
-  await ui.click('landform-draw')
+  await ui.click('draw-landform')
   for (const point of ring) await ui.clickMap(point)
   // Closing means clicking the first vertex again, which is what ZoneDrawTool
   // watches for -- the same gesture a person makes.
@@ -270,7 +281,7 @@ describe('1. end to end against the real backend', () => {
       // A SUBSET: take one out. The rest stay in, because the payload is the
       // recommendation and the gesture is to remove.
       const dropped = proposalIds[proposalIds.length - 1]
-      await ui.click(`landform-toggle-${dropped}`)
+      await ui.toggle(dropped)
       const kept = proposalIds.filter((id) => id !== dropped)
       expect(new Set(selectDraft(ui.state, 'landform').selectedFeatureIds)).toEqual(new Set(kept))
 
@@ -344,7 +355,7 @@ describe('2. selection semantics', () => {
     // Deselecting everything is then unambiguous: an empty selected set means
     // the user took everything out, because a draft always exists once a
     // payload has landed.
-    for (const id of proposalIds) await ui.click(`landform-toggle-${id}`)
+    for (const id of proposalIds) await ui.toggle(id)
     expect(selectDraft(ui.state, 'landform').selectedFeatureIds).toEqual([])
     expect(ui.find('step-landform').dataset.stepState).toBe('editing')
 
@@ -496,7 +507,7 @@ describe('5. crossing agreement', () => {
    =========================================================================== */
 
 describe('6. a 422 rejection', () => {
-  liveIt('names the offending feature, on the panel and on the map', async () => {
+  liveIt('names the offending feature, in the instruction bar and on the map', async () => {
     const ui = await renderApp()
     await throughGenerate(ui)
 
@@ -530,8 +541,8 @@ describe('6. a 422 rejection', () => {
     // NOT COMMITTED, and nothing was written.
     expect(selectStepStatus(ui.state, 'landform')).toBe(GENERATED)
 
-    // PER FEATURE, ON THE PANEL: the offending id carries the server's own
-    // reason. Never a banner.
+    // PER FEATURE, IN THE INSTRUCTION BAR: the offending id carries the
+    // server's own reason. Never collapsed into a count.
     expect(ui.text('rejection-drawn-off-parcel')).toContain('outside the parcel boundary')
     // The proposals in the same commit are NOT named.
     const proposalIds = ui.state.steps.landform.proposals.suggested_zones.features.map((f) => f.id)
@@ -565,7 +576,7 @@ describe('7. an empty commit', () => {
     await throughGenerate(ui)
 
     const proposalIds = ui.state.steps.landform.proposals.suggested_zones.features.map((f) => f.id)
-    for (const id of proposalIds) await ui.click(`landform-toggle-${id}`)
+    for (const id of proposalIds) await ui.toggle(id)
     expect(selectDraft(ui.state, 'landform').selectedFeatureIds).toEqual([])
 
     // THE BUTTON SAYS WHAT IT WOULD DO. Nothing is submitted silently: with
@@ -599,7 +610,7 @@ describe('8. reopen', () => {
 
     const proposalIds = ui.state.steps.landform.proposals.suggested_zones.features.map((f) => f.id)
     const dropped = proposalIds[0]
-    await ui.click(`landform-toggle-${dropped}`)
+    await ui.toggle(dropped)
     await drawZone(ui, HYDRIC_RING)
     const drawnAcres = selectDraft(ui.state, 'landform').drawnFeatures[0].properties.acres
     await ui.click('commit-landform')
@@ -607,6 +618,12 @@ describe('8. reopen', () => {
       'the commit to land',
       () => selectStepStatus(ui.state, 'landform') === COMMITTED
     )
+
+    // THE COMMIT MOVED THE WIZARD ON, with nothing clicked to make it -- there
+    // is no "Next step" button in this shell. Reopening means navigating back,
+    // which is what the step rail is for.
+    expect(ui.cursor.cursorStepId).not.toBe('landform')
+    await ui.open('landform')
 
     // THE CONFIRMATION NAMES ONLY DOWNSTREAM STEPS HOLDING WORK. Nothing after
     // landform has been reached, so it says so rather than listing five steps
@@ -627,12 +644,20 @@ describe('8. reopen', () => {
     // asserts it across a cache eviction -- which is the whole reason this can
     // be a lookup rather than a stored copy.
     const draft = selectDraft(ui.state, 'landform')
-    expect(new Set(draft.selectedFeatureIds)).toEqual(
-      new Set(proposalIds.filter((id) => id !== dropped))
-    )
     // AND THE DRAWN ZONE, whole. It was never a proposal, so a regenerate has
     // nothing to say about it: it comes back from the document directly.
     expect(draft.drawnFeatures).toHaveLength(1)
+    const restoredDrawnId = draft.drawnFeatures[0].id
+
+    // THE SELECTION COVERS BOTH KINDS. `selectedFeatureIds` is what a commit
+    // body is assembled from and it names every feature in the draft, not just
+    // the proposals -- that is what lets the tab strip's eye take a drawn zone
+    // out of the commit without destroying it. So a reopen restores the
+    // proposals the user kept AND puts the drawn zone back eye-on; a drawn
+    // shape missing from the set would come back invisible and uncommittable.
+    expect(new Set(draft.selectedFeatureIds)).toEqual(
+      new Set([...proposalIds.filter((id) => id !== dropped), restoredDrawnId])
+    )
     expect(draft.drawnFeatures[0].properties.exclusion_crossings.map((c) => c.type)).toContain(
       'hydric'
     )
@@ -689,12 +714,24 @@ describe('9. resume', () => {
 
 describe('10. the PDF path', () => {
   /**
-   * `/api/generate-report-pdf` READS NEITHER THE SESSION NOR THE DESIGN
-   * DOCUMENT. It takes a boundary and an access point on the wire and runs
-   * generate_full_report() over them, and nothing on this branch touches it,
-   * its inputs or its route. What this asserts is that the committed
-   * boundary is still a valid input to it -- the same [lon, lat] ring in the
-   * same order -- and that the endpoint takes it and enters the pipeline.
+   * NOTHING IN THE FRONTEND CALLS THIS ANY MORE, AND THAT IS THIS BRANCH'S
+   * DOING. `/api/generate-report-pdf` requires an access point; the access
+   * point was collected by a pre-step in the boundary flow, and that pre-step
+   * is deleted -- it is not a global concern, it is an input of the ROADS
+   * step, which will declare it as one. So the button is gone and no code path
+   * on the page reaches this route. Accepted and intentional: the report path
+   * gets its own revamp after the interactive work, off the Design Document
+   * rather than off a raw ring. See map.test.jsx section 8, which asserts the
+   * page makes no such request.
+   *
+   * WHAT THIS SECTION STILL TESTS, AND WHY IT IS WORTH TESTING. The ENDPOINT
+   * is untouched -- no backend file changed on this branch -- and the
+   * committed boundary is still a valid input to it: the same [lon, lat] ring
+   * in the same order. That is the fact the revamp will build on, so it is
+   * asserted directly against the running server rather than through a UI that
+   * no longer offers it. `/api/generate-report-pdf` reads neither the session
+   * nor the Design Document; it takes a boundary and an access point on the
+   * wire and runs generate_full_report() over them.
    *
    * WHAT IT CANNOT ASSERT HERE, AND WHY. The full report fetches USGS 3DEP
    * elevation, SSURGO soils, hydrology, climate and imagery live. This
@@ -705,10 +742,15 @@ describe('10. the PDF path', () => {
    * host with network reaches the report. Asserted BELOW rather than skipped,
    * so this says out loud what it did and did not prove.
    */
-  liveIt('still takes the committed boundary and enters the report pipeline', async () => {
+  liveIt('is unreachable from the page, and still takes the committed boundary', async () => {
     const ui = await renderApp()
     await throughGenerate(ui)
     const boundaryOnTheWire = ui.state.document.boundary
+
+    // NO AFFORDANCE REACHES IT. The access-point pre-step is gone, and with it
+    // every button that led to a report.
+    expect(ui.container.textContent).not.toMatch(/Access Point/i)
+    expect(ui.container.textContent).not.toMatch(/Report/i)
     await ui.unmount()
 
     // The committed boundary is a ring of [lon, lat] pairs -- exactly what

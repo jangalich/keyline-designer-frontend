@@ -173,6 +173,14 @@
   /* A single unit — the shadow never needs its color set independently, so
      this is a whole-shadow token rather than a color one. */
   --shadow-marker: 0 0 2px rgba(0, 0, 0, 0.5);
+
+  /* A halo carried by the glyphs themselves, for text that has to stay legible
+     over arbitrary satellite imagery without a surface behind it. Same
+     reasoning as the map linework's casing — one colour cannot beat every
+     frame — applied to type. Four offsets rather than a blur, because a blur
+     at this size reads as a smudge rather than as an edge. */
+  --halo-text: 0 1px 0 var(--stock), 1px 0 0 var(--stock), 0 -1px 0 var(--stock),
+    -1px 0 0 var(--stock);
 }
 
 /* --- Reset ------------------------------------------------------------------ */

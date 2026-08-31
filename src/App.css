@@ -165,31 +165,67 @@
 }
 
 /* --- Tool section ----------------------------------------------------------
-   A single viewport unit: map plus panel fit one screen, so nothing scrolls
-   away mid-trace and no sticky positioning is needed.
+   ONE FULL-HEIGHT STAGE, and the map fills it.
+
+   It used to be a map of clamp(20rem, 60vh, 38rem) with a panel column of up
+   to 70vh under it, and the pair was described as fitting one screen. It did
+   not: on a 900px viewport the map got about 540px and the column took the
+   rest, so more than a third of the screen was spent on controls that were all
+   about the map. The controls float over the map now (see .chrome), so the
+   stage is the whole viewport less a small gap that keeps the section from
+   reading as a fullscreen takeover.
+
+   THE HEIGHT HAS TO BE DEFINITE, not flex: 1. Leaflet's MapContainer is
+   height: 100%, which only resolves against a parent whose own height is
+   resolved -- .page scrolls and provides none, and flex: 1 in an auto-height
+   parent collapses the map to nothing. dvh rather than vh because a mobile
+   browser's toolbars otherwise push the action banner under the chrome the
+   viewport is lying about. The floor is what a phone in landscape can still
+   fit the five regions into.
    --------------------------------------------------------------------------- */
 .tool {
   padding-bottom: var(--space-8);
   scroll-margin-top: var(--space-5);
 }
 
-.tool__frame {
+.map-stage {
+  /* The chrome's own measurements, in one place, because Leaflet's controls
+     are positioned by Leaflet and have to be told where the regions are. The
+     grid in .chrome sizes itself; these are only for the map's own furniture. */
+  --rail-width: 12rem;
+  --bar-height: 3.5rem;
+  --bottom-height: 9.5rem;
+
+  position: relative;
+  height: max(34rem, calc(100dvh - var(--space-6)));
   border: var(--hairline);
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--paper);
 }
 
-/* Branch 2 left the frame rounded at --radius while the map inside it painted
-   square, so the top two corners read as a mismatch at 4px. The frame's own
-   overflow: hidden cannot clip Leaflet's panes on its own because they create
-   their own stacking and transform contexts, so the radius is restated on the
-   map surface itself. isolation keeps the clip honest while the map
-   transforms during a pan. */
-.tool__frame .leaflet-container {
-  border-top-left-radius: var(--radius);
-  border-top-right-radius: var(--radius);
+/* The frame's own overflow: hidden cannot clip Leaflet's panes on its own,
+   because they create their own stacking and transform contexts, so the radius
+   is restated on the map surface itself. isolation keeps the clip honest while
+   the map transforms during a pan. */
+.map-stage .leaflet-container {
+  border-radius: var(--radius);
   isolation: isolate;
+}
+
+/* Leaflet's controls sit inside the map, which is now under the chrome. Push
+   its four corners in past the regions so a zoom button is never behind the
+   instruction bar or the action banner. */
+.map-stage .leaflet-top {
+  top: var(--bar-height);
+}
+
+.map-stage .leaflet-bottom {
+  bottom: var(--bottom-height);
+}
+
+.map-stage .leaflet-left {
+  left: var(--rail-width);
 }
 
 /* --- Prose sections --------------------------------------------------------- */
@@ -328,10 +364,9 @@
   margin: 0;
 }
 
-/* --- Narrow screens --------------------------------------------------------
-   The tool section is the part that actually needs attention: 60vh of map on a
-   short phone in landscape leaves nothing for the panel, so the map takes a
-   floor in pixels and the panel keeps its own scroll.
+/* --- Narrow screens ---------------------------------------------------------
+   The tool section's own narrow-screen rules moved down beside the chrome they
+   are about; what is left here is the page above it.
    --------------------------------------------------------------------------- */
 @media (max-width: 40rem) {
   .hero h1 {
@@ -349,133 +384,18 @@
 }
 
 /* --- Map chrome ------------------------------------------------------------
-   Everything that sits over the map surface. The rule the whole section
-   follows: live feedback goes on the map, actions stay in the panel below.
-   The chip and the hint are readouts, so they belong here; every button
-   except the map's own controls does not.
+   Leaflet's own furniture and the two readouts that are not the wizard's. The
+   rule the section used to follow -- "live feedback goes on the map, actions
+   stay in the panel below" -- is retired with the panel: there is no below.
+   Everything is on the map now, and what separates a readout from an action is
+   which region it is in rather than which side of the map it is on.
    --------------------------------------------------------------------------- */
 
-/* The chip, hint and basemap control are positioned against this. */
-.map-wrapper {
-  position: relative;
-}
 
-/* --font-data's first use in the project. Mono tabular figures for measured
-   values are the point of loading the face at all: a digit that changes
-   without the ones beside it shifting is what makes a live readout readable
-   rather than twitchy.
-   tabular-nums is set EXPLICITLY and not assumed — IBM Plex Mono is
-   monospaced, but its OpenType default for figures is not guaranteed to be
-   the tabular set, and proportional figures inside a monospaced face is a
-   real combination. */
-.map-chip {
-  position: absolute;
-  top: var(--space-3);
-  left: var(--space-3);
-  z-index: 400;
-  /* Two columns, and the value column's sizing is the whole trick.
-     minmax(6ch, max-content) does two jobs at once.
 
-     The 6ch FLOOR holds the decimal point still. A plain min-width does not:
-     the column grows with the content, its right edge moves, and the decimal
-     slides — measured at 212.8 / 216.4 / 223.6 px for 4.1 / 37.3 / 233.4
-     acres before this was a grid. A 6ch floor covers everything up to
-     9999.9, far past the range this tool is for, so in practice the decimal
-     never moves.
 
-     The max-content CEILING is what makes going past that graceful. A FIXED
-     track cannot grow, so an over-long value overflows its own track and
-     prints straight over the label in the next column — measured, 7028.8
-     closed the gap to "acres" entirely and 449822.5 rendered as
-     "449822a5res". Letting the track grow past its floor pushes the label
-     right instead, so an absurd value is merely wide rather than illegible.
-     Alignment is lost at that point, which is the correct thing to lose: at
-     five-digit acreage the number itself is the problem. */
-  display: grid;
-  grid-template-columns: minmax(6ch, max-content) auto;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--paper);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  font-family: var(--font-data);
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.3;
-  /* Never intercept a click meant for the map underneath. */
-  pointer-events: none;
-}
 
-.map-chip__value {
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
 
-.map-chip__label {
-  color: var(--ink-muted);
-}
-
-/* Quiet, and gone the moment the map is live — the disappearance is the
-   feedback that the click landed. pointer-events: none matters here more
-   than anywhere: this sits over the map precisely when the map is inert, so
-   if it swallowed the activating click it would prevent the only gesture
-   that dismisses it. */
-.map-hint {
-  position: absolute;
-  right: var(--space-3);
-  bottom: var(--space-6);
-  z-index: 400;
-  margin: 0;
-  padding: var(--space-1) var(--space-3);
-  background: var(--paper);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  color: var(--ink-muted);
-  font-family: var(--font-prose);
-  font-size: var(--text-xs);
-  pointer-events: none;
-}
-
-/* Two options, bottom-left — clear of the zoom buttons (top-right) and of
-   Leaflet's attribution (bottom-right), which stays visible because Esri's
-   terms require it. */
-.basemap {
-  position: absolute;
-  left: var(--space-3);
-  bottom: var(--space-3);
-  z-index: 400;
-  display: flex;
-  background: var(--paper);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.basemap__option {
-  border: none;
-  background: transparent;
-  padding: var(--space-2) var(--space-3);
-  font-family: var(--font-prose);
-  font-size: var(--text-xs);
-  color: var(--ink-muted);
-  cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-
-.basemap__option + .basemap__option {
-  border-left: var(--hairline);
-}
-
-.basemap__option:hover {
-  color: var(--ink);
-}
-
-.basemap__option[aria-pressed='true'] {
-  background: var(--stock);
-  color: var(--ink);
-}
 
 /* --- Leaflet's own chrome --------------------------------------------------
    Leaflet ships pure white, pure black, a stray light grey border, a 2px
@@ -522,154 +442,775 @@
 
 /* Stays visible and legible — Esri's terms require the attribution, so this
    tokenizes it rather than hiding it. */
-.leaflet-control-attribution {
-  background: var(--paper);
+/* ATTRIBUTION STAYS, AND GETS QUIET.
+   Leaflet's and Esri's credit is a licensing requirement of the tile service
+   and is not ours to remove. What it does not need is the white box Leaflet
+   ships it in, sitting over the imagery at full contrast in the corner where
+   the tab strip now ends.
+
+   NO SURFACE OF ITS OWN. Every other floating region in this shell is opaque
+   because it has to be legible against arbitrary aerial photography; this one
+   is the exception, and deliberately: it is a credit rather than a control,
+   nobody needs to read it at a glance, and a panel behind it would give it the
+   same standing as the chrome that carries the work. Instead it takes the
+   text-shadow trick the map markers use -- a halo carried by the glyphs
+   themselves -- so it stays readable over anything without painting a box. */
+/* Matched to Leaflet's own selector, which is `.leaflet-container
+   .leaflet-control-attribution` and outranks a bare class. The rule that lived
+   here before this branch set `background: var(--paper)` and lost the cascade
+   silently -- the white box on screen was Leaflet's, not ours, the whole
+   time. */
+.leaflet-container .leaflet-control-attribution {
+  background: none;
   color: var(--ink-muted);
   font-family: var(--font-prose);
-  font-size: var(--text-xs);
+  font-size: 0.6875rem;
+  line-height: 1.4;
   padding: 0 var(--space-2);
+  text-shadow: var(--halo-text);
 }
 
-.leaflet-control-attribution a {
-  color: var(--ink);
-}
-
-/* A DEFINITE height, not flex: 1. Leaflet's MapContainer is height: 100%, which
-   only resolves against a parent whose own height is resolved — inside the
-   scrolling page .page no longer provides one, and flex: 1 in an auto-height
-   parent would collapse the map to nothing. clamp keeps ~60vh on a normal
-   screen while flooring it on short viewports and capping it on tall ones. */
-.map-wrapper {
-  height: clamp(20rem, 60vh, 38rem);
-}
-
-/* --paper rather than --stock: the panel sits a step lighter than the surface
-   around it, and that difference is what separates them without a second rule.
-
-   max-height dropped from 55vh to 30vh: alongside the map's ~60vh the old
-   value could total 115vh, which is the opposite of "the pair fits one
-   screen". Only the height budget changed — every state branch, button class
-   and piece of panel logic is untouched. */
-.status-panel {
-  padding: var(--space-4) var(--space-5);
-  background: var(--paper);
-  border-top: var(--hairline);
-  max-height: 30vh;
-  overflow-y: auto;
-}
-
-/* Measured values in prose — point counts, and anything else the user is
-   meant to read as a number rather than as a word. Mono tabular figures,
-   matching the chip on the map, so the same quantity looks the same in both
-   places. tabular-nums explicitly, for the reason given on .map-chip. */
-.measure {
-  font-family: var(--font-data);
-  font-variant-numeric: tabular-nums;
-  font-size: 0.95em;
-}
-
-/* A state label, not a success message. It reports where you are in the
-   sequence — on most of the screens it appears on, nothing has succeeded —
-   so it carries no color of its own. */
-.status-ready {
-  color: var(--ink);
-  font-weight: 600;
-  margin: 0 0 var(--space-2) 0;
-}
-
-.status-empty {
+.leaflet-container .leaflet-control-attribution a {
   color: var(--ink-muted);
-  margin: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-.status-loading {
-  color: var(--ink-muted);
-  margin: 0;
+.leaflet-container .leaflet-control-attribution a:hover,
+.leaflet-container .leaflet-control-attribution a:focus {
+  color: var(--ink);
+  background: none;
 }
+
+/* Leaflet's own flag glyph in the credit. Decoration on a credit line that is
+   already as quiet as it can be while staying legible. */
+.leaflet-attribution-flag {
+  display: none !important;
+}
+
+
+
+
 
 .status-error {
   color: var(--alert);
   margin: 0;
 }
 
-/* --- The step wizard --------------------------------------------------------
-   The panel column, sitting above the production-zone spike's own status
-   content in the same sidebar. Deliberately plain: the wizard's visual
-   language is F4's to settle alongside the migrated production-zone panel,
-   and a look invented here would be one more thing that branch has to undo.
-   What IS here is the structure a reader needs to tell the steps apart.
+/* --- THE CHROME, over the map ------------------------------------------------
+   Five regions, all floating. Nothing here takes height from the map: the
+   overlay is absolutely positioned over the whole stage and its own grid
+   decides where each region sits, so adding or resizing a region moves the
+   other four and never the map.
+
+   THE GRID IS THE LAYOUT. Not five independent `position: absolute` boxes with
+   five sets of offsets to keep in agreement -- the named areas below are the
+   five regions of the branch, and the middle row's `1fr` is the open map, kept
+   open by construction rather than by every region remembering to stay out of
+   it.
    --------------------------------------------------------------------------- */
-.wizard {
-  margin: 0 0 var(--space-4) 0;
+
+.chrome {
+  position: absolute;
+  inset: 0;
+  z-index: 400;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    'bar    bar   bar'
+    'rail   free  detail'
+    'bottom bottom bottom';
+  /* THE OVERLAY ITSELF IS TRANSPARENT TO THE POINTER. The map underneath is
+     the thing being edited and every gesture in this app is a map click, so a
+     full-bleed layer that swallowed them would break drawing entirely. Each
+     region turns pointer events back on for itself. */
+  pointer-events: none;
 }
 
-.wizard__steps {
-  list-style: none;
+.chrome > * {
+  pointer-events: auto;
+}
+
+/* The open middle of the map. It has to exist as a grid item so the row it
+   sits in can be the 1fr that pushes the bottom regions down, and it must
+   never take a click. */
+.chrome__free {
+  grid-area: free;
+  pointer-events: none;
+}
+
+/* --- A: the step rail ------------------------------------------------------- */
+
+.chrome-rail {
+  grid-area: rail;
+  align-self: start;
+  width: var(--rail-width);
+  margin: var(--space-3);
+  background: var(--paper);
+  border: var(--hairline);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.chrome-rail__list {
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  list-style: none;
 }
 
-.step-panel {
-  border: var(--hairline);
-  border-radius: 2px;
-  padding: var(--space-3);
-  background: var(--paper);
+.chrome-rail__item + .chrome-rail__item {
+  border-top: var(--hairline);
 }
 
-/* A step whose upstream is not done reads as unavailable rather than as
-   broken: the panel still says what it is and why it is waiting. */
-.step-panel--unregistered,
-.step-panel__blocked {
+.chrome-rail__step {
+  display: grid;
+  grid-template-columns: 1.25rem 1fr;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  background: transparent;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* THE RING IS INSET HERE. The rail clips its children so the first and last
+   rows sit inside its radius, and the reset's `outline-offset: 2px` would put
+   a keyboard user's ring outside that clip -- present in the accessibility
+   tree and invisible on screen. Pulled inside rather than dropped. */
+.chrome-rail__step:focus-visible,
+.chrome-detail__toggle:focus-visible {
+  outline-offset: -3px;
+}
+
+.chrome-rail__step:hover {
+  background: var(--stock);
+}
+
+/* The cursor's step, and the only row that reads at full strength. A rail on
+   which every row is equally loud says nothing about where you are.
+
+   MARKED WITH AN OXIDE RULE, NOT AN OXIDE FILL. A filled row would be a second
+   oxide mass on screen beside the banner's forward move, and the one-accent
+   rule is about what the eye counts, not about which property carries it. A
+   3px edge is the printed-manual answer: it marks the entry without becoming
+   a button. */
+.chrome-rail__step--cursor {
+  background: var(--stock);
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--oxide);
+  padding-block: var(--space-3);
+}
+
+/* The index sits with the name's first line rather than centring against a
+   two-line title. */
+.chrome-rail__step--cursor .chrome-rail__index {
+  align-self: start;
+}
+
+.chrome-rail__index {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* WHERE THE TITLING VOICE LIVES IN A MAP-CENTRIC SHELL.
+   ---------------------------------------------------------------------------
+   The panel column set each step's title as an <h3>, which the reset draws in
+   Bitter 600. This shell has no heading anywhere and should not grow one just
+   to give that rule something to bite on -- a heading is a claim about
+   document structure, and six <h3>s inside a <nav> would say six sections
+   start here. So the question is where titling BELONGS, and the answer is the
+   rail, because the rail is the one piece of chrome that persists across every
+   state and every step and whose whole job is naming where you are. The
+   instruction bar was the other candidate and is the wrong one: its sentence
+   changes with the machine state, so a title set there would be a heading that
+   rewrites itself while you work.
+
+   THE CURRENT STEP IS THE TITLE. THE REST ARE THE CONTENTS LIST. That is the
+   printed form this interface is modelled on -- an extension bulletin carries
+   its section name as a running head, with the other sections listed small
+   beside it -- and it is why Bitter is not simply swapped in at 12px on all
+   seven rows. A face applied uniformly to a column of small labels is a font
+   change; a face given one row at titling size is a voice.
+   --------------------------------------------------------------------------- */
+.chrome-rail__name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+}
+
+/* The running head. The one line in the chrome set as a title. */
+.chrome-rail__step--cursor .chrome-rail__name {
+  font-size: var(--text-base);
+  color: var(--ink);
+}
+
+/* An eyebrow, so the data face. Mono also separates the status from the slab
+   name above it without a second colour or a rule between them. */
+.chrome-rail__status {
+  grid-column: 2;
+  font-family: var(--font-data);
+  font-size: 0.9em;
+  font-weight: 400;
+  letter-spacing: 0.02em;
   color: var(--ink-muted);
 }
 
-.step-panel__header {
+/* --- B: the instruction bar ------------------------------------------------- */
+
+.chrome-bar {
+  grid-area: bar;
+  min-height: var(--bar-height);
   display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  background: var(--paper);
+  border-bottom: var(--hairline);
+}
+
+/* THE DIRECTION IS THE LOUDEST THING ON THE MAP, on purpose: it is the one
+   sentence saying what to do with your hands right now. */
+.chrome-bar__direction {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Notices sit UNDER the direction rather than replacing it. A caution that
+   erases the instruction leaves someone holding a warning and no way forward. */
+.chrome-bar__notices {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+}
+
+.chrome-bar__notice {
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.chrome-bar__notice--error,
+.chrome-bar__notice--blocked {
+  color: var(--alert);
+}
+
+.chrome-bar__notice-id {
+  font-family: var(--font-data);
+  font-size: 0.95em;
+}
+
+.chrome-bar__notice-id::after {
+  content: ': ';
+}
+
+/* The undo beside the notice that offers it. A link rather than a button
+   shape: it is a way back from something that already happened, not one of the
+   two moves the banner is for, and giving it a control's weight up here would
+   make it compete with them. */
+.chrome-bar__undo {
+  margin-left: var(--space-2);
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: var(--font-prose);
+  font-size: inherit;
+  color: var(--oxide);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.chrome-bar__undo:hover {
+  color: var(--oxide-deep);
+}
+
+/* --- F: the detail panel ----------------------------------------------------
+   NOT IN THE DOCUMENT WHEN NOTHING IS SELECTED, so there is no hidden state to
+   style and no toggle to style it with. See DetailPanel.jsx.
+   --------------------------------------------------------------------------- */
+
+.chrome-detail {
+  grid-area: detail;
+  align-self: start;
+  justify-self: end;
+  /* Clear of Leaflet's own zoom buttons, which sit in the same corner. */
+  margin: var(--space-3) calc(var(--space-3) + 2.5rem);
+  width: 15rem;
+  max-width: 40vw;
+  padding: var(--space-3);
+  background: var(--paper);
+  border: var(--hairline);
+  border-radius: var(--radius);
+}
+
+/* The panel's title is a real heading, and the second place the display face
+   lands — the rail's current step being the first. A heading is right here in
+   a way it is not in the rail: this IS a section of the document, with a name
+   and content under it, rather than a list of places to go. */
+.chrome-detail__name {
+  margin: 0 0 var(--space-2) 0;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* THE ACREAGE CHIP'S TREATMENT AGAIN, one row per field: right-aligned
+   monospace value, left-aligned label. Same grid, same 6ch floor, so a figure
+   in the panel lines up with the same figure in the tab that opened it. */
+.chrome-detail__fields {
+  display: grid;
+  grid-template-columns: minmax(6ch, max-content) auto;
   align-items: baseline;
-  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
+}
+
+.chrome-detail__field {
+  display: contents;
+  margin: 0;
+}
+
+/* A CATEGORICAL READING -- a band name, an aspect. Pipeline-derived, but not a
+   MEASUREMENT: there is no decimal point to hold still and nothing above or
+   below it to line up with, so it is prose and it reads left to right after
+   its label. Putting it in the figures' column right-aligns a word against
+   nothing and lets a long one shove every label in the panel sideways. */
+.chrome-detail__readings {
+  margin-top: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.chrome-detail__reading {
+  margin: 0;
+  display: flex;
   gap: var(--space-2);
+  align-items: baseline;
 }
 
-.step-panel__title {
-  margin: 0;
-  font-size: var(--text-base);
+.chrome-detail__value {
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  color: var(--ink);
 }
 
-.step-panel__state {
-  margin: 0;
+.chrome-detail__label {
   font-family: var(--font-data);
   font-size: var(--text-xs);
   color: var(--ink-muted);
 }
 
-.step-panel__line {
-  margin: var(--space-2) 0 0 0;
+/* A caution is the one thing in this panel that reports a problem, so it is
+   the one thing carrying --ochre. Not --alert, which is reserved for something
+   that FAILED: an exclusion crossing is a condition of ground the user owns
+   and may knowingly commit to, and colouring it as an error would contradict
+   the whole posture the gates take. */
+.chrome-detail__cautions {
+  margin: var(--space-3) 0 0 0;
+  padding: var(--space-2) 0 0 0;
+  border-top: var(--hairline);
+  list-style: none;
+  display: grid;
+  grid-template-columns: minmax(6ch, max-content) auto;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
 }
 
-.step-panel__error,
-.step-panel__failure,
-.step-panel__rejection {
-  color: var(--alert);
-  margin: var(--space-2) 0 0 0;
+.chrome-detail__caution {
+  display: contents;
 }
 
-.step-panel__actions,
-.step-panel__collapsed,
-.step-panel__body {
+.chrome-detail__caution .measure {
+  text-align: right;
+  color: var(--ochre);
+}
+
+.chrome-detail__caution-label {
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+/* --- D + E: the bottom stack ------------------------------------------------ */
+
+.chrome__bottom {
+  grid-area: bottom;
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
-  margin-top: var(--space-3);
+  flex-direction: column;
+  pointer-events: none;
 }
 
-/* A committed step collapses to its title and the one affordance that
-   reopens it, so a finished step costs a line rather than a panel. */
-.step-panel--collapsed {
+.chrome__bottom > * {
+  pointer-events: auto;
+}
+
+/* THE TAB STRIP. Collapsed it is one row; expanded it is at most three, and
+   past three rows' worth of tabs it SCROLLS rather than wrapping into a fourth.
+   Wrapping would let the strip eat the map to describe it -- forty candidates
+   would cover the document entirely -- so the footprint is held at three rows
+   whatever the count, and the map's height stays a constant rather than a
+   function of how many proposals came back. TabStrip.jsx carries the same two
+   numbers, and the grid below is what makes them true. */
+.chrome-tabs {
+  --tab-row: 3.5rem;
+  background: var(--paper);
+  border-top: var(--hairline);
+  /* The extra top padding is the room a drawn tab's × hangs into. */
+  padding: var(--space-3) var(--space-3) var(--space-2);
+}
+
+.chrome-tabs__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.chrome-tabs--expanded .chrome-tabs__list {
+  max-height: calc(3 * var(--tab-row) + 2 * var(--space-2));
+  overflow-y: auto;
+}
+
+/* ONE TAB, SET AS THE ACREAGE CHIP WAS SET, and the value column's sizing is
+   the whole trick.
+
+   The 6ch FLOOR holds the decimal point still. A plain min-width does not: the
+   column grows with the content, its right edge moves, and the decimal slides
+   -- measured at 212.8 / 216.4 / 223.6 px for 4.1 / 37.3 / 233.4 acres before
+   the chip was a grid. A 6ch floor covers everything up to 9999.9, far past the
+   range this tool is for, so in practice the decimal never moves.
+
+   The max-content CEILING is what makes going past that graceful. A FIXED track
+   cannot grow, so an over-long value overflows its own track and prints
+   straight over the label in the next column -- measured, 7028.8 closed the gap
+   to "acres" entirely and 449822.5 rendered as "449822a5res". Letting the track
+   grow past its floor pushes the label right instead, so an absurd value is
+   merely wide rather than illegible. Alignment is lost at that point, which is
+   the correct thing to lose: at five-digit acreage the number itself is the
+   problem.
+
+   tabular-nums is set EXPLICITLY and not assumed -- IBM Plex Mono is
+   monospaced, but its OpenType default for figures is not guaranteed to be the
+   tabular set, and proportional figures inside a monospaced face is a real
+   combination. */
+.chrome-tab {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--stock);
+  border: var(--hairline);
+  border-radius: var(--radius);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+
+/* THE FIGURES ARE THE GRID; the tab is the row holding them and the eye. The
+   two-column grid moved in one level when the tab grew affordances, and the
+   value column's sizing came with it unchanged -- see the note above. */
+.chrome-tab__body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(6ch, max-content) auto;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+  padding: 0;
+  border: none;
   background: transparent;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* THE FOCUSED TAB and the focused shape on the map are one state, so they are
+   marked the same way: a heavier edge in --ink, not a fill and not a colour of
+   its own. Reading a feature is not an action, so it is not the accent. */
+.chrome-tab--focused {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.chrome-tab__eye {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: var(--space-1);
+  margin: calc(var(--space-1) * -1);
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.chrome-tab__eye:hover {
+  color: var(--ink);
+}
+
+/* Eye-off is the quiet state, and the whole tab goes quiet with it -- the
+   figures included, because they describe something the commit will not
+   carry. */
+.chrome-tab--off {
+  border-style: dashed;
+}
+
+.chrome-tab--off .chrome-tab__body {
+  opacity: 0.55;
+}
+
+/* HALF OUTSIDE THE CORNER. The familiar close gesture, and it also keeps the
+   × out of the tab's own grid, where it would read as a third figure. */
+.chrome-tab__remove {
+  position: absolute;
+  top: calc(var(--space-2) * -1);
+  right: calc(var(--space-2) * -1);
+  width: 1.125rem;
+  height: 1.125rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: var(--hairline);
+  border-radius: 50%;
+  background: var(--paper);
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  line-height: 1;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.chrome-tab__remove:hover {
+  border-color: var(--alert);
+  color: var(--alert);
+}
+
+/* Inset, because the strip clips at its own edge and the × sits on it. */
+.chrome-tab__remove:focus-visible,
+.chrome-tab__eye:focus-visible {
+  outline-offset: 1px;
+}
+
+/* The tab's name spans both tracks: it is a label for the figures under it,
+   not a value in the left column.
+
+   THE DATA FACE, because a suggestion's name carries its RANK -- "Zone 3" is
+   the pipeline's third-best candidate, not a title someone chose. The panel
+   column set the rank in mono for the same reason, in the same column as the
+   acreage. An eyebrow either way. */
+.chrome-tab__name {
+  grid-column: 1 / -1;
+  font-family: var(--font-data);
+  font-size: 0.95em;
+  letter-spacing: 0.02em;
+  color: var(--ink-muted);
+}
+
+.chrome-tab__value {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.chrome-tab__label {
+  color: var(--ink-muted);
+}
+
+/* A drawn zone's tab. The dashed edge is the same statement its dashed casing
+   used to make on the map before the eye took that job over: authored here,
+   not proposed by the pipeline. */
+.chrome-tab--drawn .chrome-tab__name {
+  color: var(--oxide);
+}
+
+.chrome-tab--more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border-style: dashed;
+}
+
+.chrome-tab__more {
+  width: 100%;
+  height: 100%;
+  padding: var(--space-2);
+  border: none;
+  background: transparent;
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.chrome-tab__more:hover {
+  color: var(--ink);
+}
+
+/* THE ACTION BANNER. Last in the stack, so it is the thing nearest the bottom
+   edge and the thing a pointer travelling down the screen reaches. */
+.chrome-banner {
+  background: var(--paper);
+  border-top: var(--hairline);
+  padding: var(--space-3) var(--space-4);
+}
+
+.chrome-banner__actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+.chrome-banner__button {
+  padding: var(--space-2) var(--space-4);
+  border: var(--hairline);
+  border-radius: var(--radius);
+  background: var(--paper);
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.chrome-banner__button:hover:not(:disabled) {
+  background: var(--stock);
+}
+
+/* THE FORWARD MOVE, AND THE ONLY OXIDE ON SCREEN.
+   This was an --ink fill, which is the whole reason the shell read as generic:
+   a black-filled button beside an outlined one is the default of every UI kit
+   there is, and it left the system's one spot colour absent from the chrome
+   entirely. Oxide is not decoration here -- it is the mark that says WHICH of
+   the two buttons moves you on, and a banner holds at most two.
+
+   ONE PER STATE IS STRUCTURAL, not a rule to remember. `tone` is declared per
+   button in stepDefinitions, and the only buttons that declare 'primary' are
+   the three forward moves every step shares: the commit, the generate, and a
+   step's opening tool where that IS the forward move. A committed step's
+   reopen and every escape are secondary, so a state can show one oxide or
+   none -- never two. Asserted in shell.test.jsx. */
+.chrome-banner__button--primary {
+  background: var(--oxide);
+  border-color: var(--oxide);
+  color: var(--on-oxide);
+  font-weight: 600;
+}
+
+.chrome-banner__button--primary:hover:not(:disabled) {
+  background: var(--oxide-deep);
+  border-color: var(--oxide-deep);
+}
+
+.chrome-banner__button:disabled {
+  background: var(--paper);
+  border-color: var(--rule);
+  color: var(--disabled);
+  cursor: not-allowed;
+}
+
+/* THE FOCUS RING IS OXIDE, which is invisible on an oxide fill. The reset's
+   rule stands for every other control; this restates the ring in the one
+   place its own colour would swallow it, rather than removing it. */
+.chrome-banner__button--primary:focus-visible {
+  outline-color: var(--ink);
+}
+
+/* A confirmation covers the banner rather than opening beside it: what it is
+   asking about is the button that was just pressed, and a dialogue that leaves
+   that button live invites the second press it exists to prevent. */
+.chrome-banner__confirm {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: var(--hairline);
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+}
+
+.chrome-banner__confirm p {
+  margin: 0 0 var(--space-2) 0;
+}
+
+.chrome-banner__confirm ul {
+  margin: 0 0 var(--space-2) 0;
+  padding-left: var(--space-4);
+}
+
+.chrome-banner__confirm button {
+  margin-right: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: var(--hairline);
+  border-radius: var(--radius);
+  background: var(--paper);
+  font-family: var(--font-prose);
+  font-size: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* --- Narrow screens, for the chrome ----------------------------------------
+   The rail is the region that stops working first: at 32rem of stage width a
+   12rem rail is more than a third of the map. It goes horizontal and joins the
+   instruction bar's row rather than shrinking, because a rail narrow enough to
+   fit is a rail whose step names are truncated to nothing.
+   --------------------------------------------------------------------------- */
+@media (max-width: 46rem) {
+  .map-stage {
+    --rail-width: 0rem;
+    --bottom-height: 11rem;
+  }
+
+  .chrome {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'bar    bar'
+      'rail   detail'
+      'free   free'
+      'bottom bottom';
+    grid-template-rows: auto auto 1fr auto;
+  }
+
+  .chrome-rail {
+    width: auto;
+    max-width: 60vw;
+  }
+
+  .chrome-rail__list {
+    display: flex;
+    overflow-x: auto;
+  }
+
+  .chrome-rail__item + .chrome-rail__item {
+    border-top: none;
+    border-left: var(--hairline);
+  }
+
+  .chrome-tabs__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* --- The map's tool mounts --------------------------------------------------
@@ -714,17 +1255,24 @@
   fill-opacity: 1;
 }
 
-/* A DESELECTED suggestion drops its hatch entirely — the hatch means "this is
-   ground to work", and a declined suggestion is not that. What is left is the
-   dotted edge set on the path itself.
+/* THE FOCUSED FEATURE — the one the detail panel is describing.
 
-   pointer-events: all is what keeps it clickable. With no fill, an SVG path's
-   default visiblePainted hit region is the stroke alone, and the stroke here is
-   a 1 px dotted line — reselecting would mean hitting a dashed hairline. This
-   restores the interior as a target without painting anything into it. */
-.stack-layer path.zone--deselected {
-  fill: none;
-  pointer-events: all;
+   A CASED OUTLINE, which is the same answer the drawn zone's edge gets and for
+   the same reason: a single-colour line cannot beat arbitrary satellite
+   imagery, so the mark is a light halo under a dark stroke and reads against
+   canopy, bare soil and water alike. Not a fill and not a colour change — the
+   fill is already saying what the ground is FOR, and overriding it would make
+   "I am reading this one" and "this is production ground" compete for the same
+   channel.
+
+   NOT --oxide, THOUGH IT IS AN ACCENT OF A KIND. Oxide marks the single
+   forward move, which is a control; this is a map mark, and there may be one
+   of each on screen at once. --ink over --halo is the map's own emphasis
+   vocabulary and is what the boundary's own vertices already use. */
+.stack-layer path.zone--focused {
+  stroke: var(--ink);
+  stroke-width: 2.5px;
+  paint-order: stroke;
 }
 
 /* A caution marker. Small, fixed screen size, and deliberately not a colour
@@ -799,257 +1347,6 @@
    the shared cap: every other panel state keeps the 30vh it was designed
    around. Capped rather than released so the map above it cannot be pushed
    off screen on a short viewport, and the panel still scrolls past that. */
-.status-panel:has(.zone-readout) {
-  max-height: min(70vh, 40rem);
-}
-
-/* --- Production zone readout -------------------------------------------------
-   Every measured value in this block is mono with tabular figures and sits in
-   a fixed-width column, so a list of zones aligns on the decimal. Same
-   approach as .map-chip, arrived at for the same measured reason — see that
-   rule for why a plain min-width does not hold a decimal point still.
-   --------------------------------------------------------------------------- */
-
-.zone-readout {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-/* The three totals, in the chip's two-column value/label form. The 5ch floor
-   covers up to 9999.9 acres, far past the range this tool is for, so the
-   decimal never moves across the three rows. */
-.zone-summary {
-  display: grid;
-  grid-template-columns: minmax(5ch, max-content) auto;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-2);
-  margin: 0;
-}
-
-.zone-summary__value {
-  color: var(--ink);
-  font-family: var(--font-data);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--text-sm);
-  text-align: right;
-}
-
-.zone-summary__label {
-  color: var(--ink-muted);
-  font-size: var(--text-sm);
-}
-
-/* Checks that did not run. NOT a footnote and not dismissible: ground that
-   was never tested is drawn exactly like ground that passed, so this line
-   changes what the highlight means and stays for as long as the step is open.
-   Carries --alert on its rule only — the copy is the warning, and colouring
-   the prose too would make it read as an error the user caused. */
-.zone-caveat {
-  border-left: 2px solid var(--alert);
-  padding-left: var(--space-3);
-  color: var(--ink);
-  font-size: var(--text-sm);
-}
-
-.zone-caveat p {
-  margin: 0 0 var(--space-1) 0;
-}
-
-.zone-caveat__action {
-  color: var(--ink-muted);
-  margin-bottom: 0;
-}
-
-/* ONE grid for the whole list, with each row set to display: contents so
-   every row's figures share the same four tracks. A grid per row would size
-   its tracks independently and the decimals would drift row to row — exactly
-   the failure .map-chip documents.
-
-   Each track is minmax(<ch floor>, max-content), for the chip's two reasons:
-   the floor holds the decimal still at every value in range, and the
-   max-content ceiling lets an over-long figure push its neighbour right
-   rather than printing over it. The last track takes the remaining width so
-   the per-zone note has somewhere to wrap. */
-.zone-list {
-  display: grid;
-  grid-template-columns:
-    minmax(3ch, max-content)   /* rank        */
-    minmax(6ch, max-content)   /* acres       */
-    minmax(5ch, max-content)   /* score       */
-    minmax(5ch, max-content)   /* slope min   */
-    max-content                /* the dash    */
-    minmax(5ch, max-content);  /* slope max   */
-  align-items: baseline;
-  gap: var(--space-1) var(--space-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* display: contents is what lifts the four cells of a row into the list's own
-   grid. The rows stay real <li>s so the list is still a list to a screen
-   reader. */
-.zone-list__head,
-.zone-list__row {
-  display: contents;
-}
-
-.zone-list__head-span {
-  grid-column: span 3;
-}
-
-.zone-list__dash {
-  color: var(--ink-muted);
-  font-family: var(--font-data);
-  font-size: var(--text-sm);
-}
-
-.zone-list__head span {
-  color: var(--ink-muted);
-  font-family: var(--font-data);
-  font-size: var(--text-xs);
-  text-align: right;
-  border-bottom: var(--hairline);
-  padding-bottom: var(--space-1);
-}
-
-.zone-list__value {
-  color: var(--ink);
-  font-family: var(--font-data);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--text-sm);
-  text-align: right;
-}
-
-/* The score band and aspect, spanning the full width under their row. Prose,
-   not a measured value, so it is deliberately NOT mono — the distinction is
-   what keeps the figures reading as figures. */
-.zone-list__note {
-  grid-column: 1 / -1;
-  color: var(--ink-muted);
-  font-size: var(--text-xs);
-  margin-bottom: var(--space-2);
-}
-
-/* Cautions, and the drawn-zone list they hang off. Both use the list-owns-the-
-   grid, row-is-display-contents pattern the zone list documents: one grid for
-   the whole list so every row shares the same tracks, because a grid per row
-   sizes independently and the decimals drift. minmax(<ch>, max-content) again,
-   for the floor that holds the decimal still and the ceiling that lets an
-   over-long figure push its neighbour right instead of printing over it. */
-.caution-list {
-  display: grid;
-  grid-template-columns: minmax(5ch, max-content) auto;
-  align-items: baseline;
-  gap: 0 var(--space-2);
-  margin: var(--space-1) 0 0 0;
-  padding: 0 0 0 var(--space-3);
-  list-style: none;
-  border-left: 2px solid var(--alert);
-}
-
-/* The in-progress polygon's cautions sit a step out from the committed ones —
-   same treatment, but they are about something not yet decided. */
-.caution-list--live {
-  margin-top: var(--space-2);
-}
-
-.caution-line {
-  display: contents;
-}
-
-.caution-line__value {
-  color: var(--ink);
-  font-family: var(--font-data);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--text-sm);
-  text-align: right;
-}
-
-.caution-line__label {
-  color: var(--ink);
-  font-size: var(--text-sm);
-}
-
-.drawn-list {
-  display: grid;
-  grid-template-columns: minmax(5ch, max-content) auto max-content;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.drawn-list__row {
-  display: contents;
-}
-
-.drawn-list__value {
-  color: var(--ink);
-  font-family: var(--font-data);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--text-sm);
-  text-align: right;
-}
-
-.drawn-list__label {
-  color: var(--ink-muted);
-  font-size: var(--text-sm);
-}
-
-/* A caution list nested under a drawn zone spans the row's full width rather
-   than sitting in one of its three tracks. */
-.drawn-list__row .caution-list {
-  grid-column: 1 / -1;
-  margin-bottom: var(--space-2);
-}
-
-.drawing-state {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-/* Said once, after a clamp actually removed something. Muted: it reports what
-   the tool did, it does not ask for anything. */
-.clamp-notice {
-  color: var(--ink-muted);
-  font-size: var(--text-sm);
-  margin: 0;
-}
-
-/* ADVISORY, never blocking. Carries the caveat block's left rule so it reads
-   as the same class of statement — something true about the state that the
-   user is free to proceed past — but in --ochre rather than --alert, because
-   nothing here is wrong. */
-.ceiling-advisory {
-  border-left: 2px solid var(--ochre);
-  padding-left: var(--space-3);
-  color: var(--ink);
-  font-size: var(--text-sm);
-  margin: 0;
-}
-
-/* A deselected suggestion stays in the list at full legibility — it is still a
-   real recommendation with real figures, and the row has to stay readable to
-   be worth reconsidering. Only the note line says it is off. */
-.zone-list__row--off .zone-list__value {
-  color: var(--ink-muted);
-}
-
-.zone-error {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.zone-error__detail {
-  color: var(--ink-muted);
-  margin: 0;
-}
-
 /* --- Buttons ---------------------------------------------------------------
    Both variants carry a 1px border — transparent on the primary — so the two
    render at identical width and height. Neither carries a margin: spacing
@@ -1086,23 +1383,7 @@
   border-color: var(--oxide-deep);
 }
 
-/* A third button weight, quieter than --secondary: this one sits inside a list
-   row and repeats per zone, so at secondary weight a column of them would read
-   as the most important thing in the panel. Borderless, and it earns its hit
-   area from padding rather than from a box. */
-.button--quiet {
-  padding: var(--space-1) var(--space-2);
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  color: var(--oxide);
-  font-size: var(--text-xs);
-  cursor: pointer;
-}
 
-.button--quiet:hover {
-  border-color: var(--rule);
-}
 
 /* Higher specificity than .button--secondary, so a disabled secondary reads
    the same as a disabled primary — as it did before the rename. */
@@ -1113,11 +1394,17 @@
   cursor: not-allowed;
 }
 
-.button-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
+
+/* A measured value inside a sentence -- a caution's acreage, a count in a
+   notice. The data face in the middle of prose is the whole point of loading
+   three faces: a reader can tell at a glance which part of a line was
+   measured and which was written. Restored from the deleted panel column's
+   stylesheet, where it was `.measure`, because the shell needs exactly the
+   same thing and had nothing to reach for. */
+.measure {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95em;
 }
 
 /* --- Address search --------------------------------------------------------- */
@@ -1149,10 +1436,6 @@
   color: var(--ink-muted);
 }
 
-.report {
-  display: flex;
-  flex-direction: column;
-}
 
 /* --- Map markers -----------------------------------------------------------
    Map geometry, so --field rather than the control accent. The halo is the

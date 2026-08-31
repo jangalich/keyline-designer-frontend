@@ -61,12 +61,24 @@ import { BAND_BASE_Z, composeLayerStack } from './layerStack.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
-/** A module's code with its prose removed -- the wizard suite's helper. */
-function codeOf(...parts) {
-  return readFileSync(path.join(HERE, ...parts), 'utf8')
+/**
+ * The retired arming door's name, ASSEMBLED so that this file is inside its own
+ * tree-wide sweep for it rather than being the one hit that sweep can never
+ * clear. Same trick the spike-endpoint sweep uses, for the same reason.
+ */
+const LEGACY_DOOR_NAME = 'arm' + 'LegacyGesture'
+
+/** Source with its prose removed. */
+function stripProse(source) {
+  return source
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '')
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+}
+
+/** A module's code with its prose removed -- the wizard suite's helper. */
+function codeOf(...parts) {
+  return stripProse(readFileSync(path.join(HERE, ...parts), 'utf8'))
 }
 
 /* ===========================================================================
@@ -567,16 +579,20 @@ describe('3. structural exclusion', () => {
       expect(ui.cursor.armed).toBe(tool)
     }
 
-    // ...including across the spike's door, which writes the same slot.
+    // ...AND THERE IS NO SECOND DOOR TO GO ROUND IT WITH. The legacy arming
+    // door took ANY name and wrote this same slot; it existed for the spike's two
+    // gestures and the access point was the last of them. The access-point
+    // pre-step is gone (it is an input of roads, not a global field), so the
+    // door has no callers and is not on the context at all. Arming is exactly
+    // "one of the cursor step's declared tools" with no exception left.
+    expect(ui.cursor[LEGACY_DOOR_NAME]).toBeUndefined()
+    expect(ui.cursor.legacyGesture).toBeUndefined()
+
+    // A COMMIT ALSO EMPTIES THE SLOT, through the same one value.
     await ui.run((_a, cursor) => cursor.arm('draw'))
-    await ui.run((_a, cursor) => cursor.armLegacyGesture('zone-draw'))
+    await ui.run((_a, cursor) => cursor.advance())
     expect(ui.armedTools()).toEqual([])
     expect(ui.cursor.armed).toBeNull()
-    expect(ui.cursor.legacyGesture).toBe('zone-draw')
-
-    await ui.run((_a, cursor) => cursor.arm('select'))
-    expect(ui.cursor.legacyGesture).toBeNull()
-    expect(ui.armedTools()).toEqual(['select'])
 
     // MOVING THE CURSOR DISARMS, with no effect having to fire: the slot holds
     // {step, tool}, and a tool reads as armed only while the cursor still
@@ -619,10 +635,11 @@ describe('4. the boundary step', () => {
 
     const ui = await renderSurface()
     expect(ui.cursor.cursorStepId).toBe(BOUNDARY_STEP_ID)
-    expect(ui.text('boundary-ring-count')).toBe('No points placed yet.')
+    // Nothing drawn, so the strip has no tab to show.
+    expect(ui.find(`tabs-${BOUNDARY_STEP_ID}`)).toBeNull()
 
-    // ARM THROUGH THE PANEL, the way a user does.
-    await ui.click('boundary-draw')
+    // ARM THROUGH THE ACTION BANNER, the way a user does.
+    await ui.click(`draw-${BOUNDARY_STEP_ID}`)
     expect(ui.armedTools()).toEqual(['draw'])
 
     // FOUR CLICKS ON THE MAP. DrawTool is mounted by the stack, wired to the
@@ -632,7 +649,7 @@ describe('4. the boundary step', () => {
 
     const ring = selectDraft(ui.state, BOUNDARY_STEP_ID).inputs[BOUNDARY_RING_INPUT]
     expect(ring).toEqual(RING)
-    expect(ui.find('boundary-ring-count').textContent).toContain('4 points')
+    expect(ui.text(`tab-${BOUNDARY_RING_INPUT}`)).toContain('4points')
 
     // Clicking the first vertex closes the ring, which disarms -- the gesture
     // ending IS the slot emptying.
@@ -783,10 +800,17 @@ describe('7. the delete tool', () => {
     await ui.run((a) => a.addDrawnFeature('landform', drawn))
     expect(selectDraft(ui.state, 'landform').drawnFeatures.map((f) => f.id)).toEqual(['drawn-1'])
 
-    // UNARMED, the shape is on the map and takes no clicks -- otherwise it
-    // would swallow the vertex an armed draw tool was placing on top of it.
+    // WITH NOTHING ARMED the shape is on the map and DOES take clicks -- but
+    // the click focuses it rather than deleting it. Focus is navigation, like
+    // the click committed geometry takes, and nothing arms it.
     const drawnPane = () => ui.pane('landform--landform-drawn').pane
     expect(drawnPane().querySelectorAll('path').length).toBeGreaterThan(0)
+    expect(drawnPane().querySelectorAll('path.leaflet-interactive').length).toBeGreaterThan(0)
+
+    // WITH ANOTHER TOOL ARMED it takes none, which is the collision the arming
+    // register exists to prevent: a drawn shape that swallowed clicks under a
+    // live draw would eat the vertex being placed on top of it.
+    await ui.run((_a, cursor) => cursor.arm('draw'))
     expect(drawnPane().querySelectorAll('path.leaflet-interactive')).toHaveLength(0)
 
     await ui.run((_a, cursor) => cursor.arm('delete'))
@@ -869,15 +893,25 @@ describe('8. the production-zone spike', () => {
       expect(app).not.toContain(orphan)
     }
 
-    // AND THE LEGACY ARMING DOOR IS DOWN TO ONE GESTURE. The zone draw is a
-    // declared tool of the landform step now; the access point is the last one
-    // still going through the door, because the roads step that will declare
-    // it does not exist yet.
+    // AND THE LEGACY ARMING DOOR IS CLOSED. The zone draw became a declared
+    // tool of the landform step; the access point was the last gesture still
+    // going through the door, and the access-point PRE-STEP is gone -- it is
+    // an input of roads, not a global field. A deliberately-loose entrance
+    // with no caller is an invitation rather than a compromise, so the door
+    // went with its last user.
     expect(app).not.toContain("'zone-draw'")
-    expect(app).toContain("'access-point'")
+    expect(app).not.toContain("'access-point'")
+    const cursor = codeOf('..', 'wizard', 'WizardCursor.jsx')
+    expect(cursor).not.toContain(LEGACY_DOOR_NAME)
+    // Prose-stripped: the cursor's header explains at length WHY the door was
+    // closed, and a file that says what it no longer has is not a file
+    // reaching for it. Same rule the no-step-id sweep follows.
+    for (const file of sourceFiles(path.join(HERE, '..'))) {
+      expect(stripProse(readFileSync(file, 'utf8'))).not.toContain(`${LEGACY_DOOR_NAME}(`)
+    }
   })
 
-  it('runs the whole page end to end -- boundary, landform, a drawn zone, commit, PDF', async () => {
+  it('runs the whole page end to end -- boundary, landform, a drawn zone, commit', async () => {
     const generated = serverDocument({ steps: { landform: { status: GENERATED } } })
     const committedDocument = serverDocument({
       revision: 2,
@@ -894,12 +928,11 @@ describe('8. the production-zone spike', () => {
         body: { job_id: 'job-1', status: 'done', result: { payload: LAYERS_PAYLOAD, document: generated } },
       }),
       route('POST', /\/steps\/landform\/commit$/, { body: committedDocument }),
-      route('POST', /^\/api\/generate-report-pdf$/, { body: {} }),
+      // NO ROUTE FOR /api/generate-report-pdf, and nothing asks for one. The
+      // access-point pre-step that fed it is gone, so no affordance on this
+      // page reaches that endpoint; installFetch throws on an unrouted
+      // request, so a survivor would fail here rather than pass quietly.
     ])
-
-    // jsdom has neither; the report's download path uses both.
-    URL.createObjectURL = vi.fn(() => 'blob:pdf')
-    URL.revokeObjectURL = vi.fn()
 
     const App = (await import('../App.jsx')).default
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -912,13 +945,6 @@ describe('8. the production-zone spike', () => {
     const clickTestId = async (id) => {
       const target = byTestId(id)
       if (!target) throw new Error(`no element with data-testid="${id}"`)
-      await React.act(async () => target.click())
-    }
-    const press = async (label) => {
-      const target = [...container.querySelectorAll('button')].find(
-        (b) => b.textContent.trim() === label
-      )
-      if (!target) throw new Error(`no button "${label}"`)
       await React.act(async () => target.click())
     }
     const settle = async () => {
@@ -938,13 +964,23 @@ describe('8. the production-zone spike', () => {
     // vertexAtPixel); this is the test standing where the user stands.
     await React.act(async () => map.setView([40.715, -74.0], 14))
 
-    // THE BOUNDARY, through the wizard's own affordance.
-    await clickTestId('boundary-draw')
+    // THE BOUNDARY, through the wizard's own affordance -- the action banner's
+    // button for the state the step is in, and now the only one on the page.
+    await clickTestId(`draw-${BOUNDARY_STEP_ID}`)
     for (const [lat, lng] of RING) {
       await React.act(async () => map.fire('click', { latlng: L.latLng(lat, lng) }))
     }
+    // FINISH, THEN COMMIT, and the banner offers exactly one of the two at a
+    // time: while the draw is armed the state is `editing` and the pair is
+    // undo/finish, and there is no commit to press. Finishing disarms, which
+    // is what moves the step to `reviewing`.
+    expect(byTestId(`commit-${BOUNDARY_STEP_ID}`)).toBeNull()
+    await clickTestId(`finish-${BOUNDARY_STEP_ID}`)
     await clickTestId(`commit-${BOUNDARY_STEP_ID}`)
-    expect(byTestId(`step-${BOUNDARY_STEP_ID}`).dataset.stepState).toBe('committed')
+    // AUTO-ADVANCE: the commit is the forward move, so the chrome is
+    // landform's now and the boundary's is not on screen at all.
+    expect(byTestId(`step-${BOUNDARY_STEP_ID}`)).toBeNull()
+    expect(byTestId('step-landform').dataset.stepState).toBe('idle')
 
     // LANDFORM, through the session endpoints. The route list above has no
     // entry for the spike's, so a call to it would throw "no route" rather
@@ -954,10 +990,11 @@ describe('8. the production-zone spike', () => {
     await clickTestId('generate-landform')
     await settle()
     expect(pathsOf(calls, 'POST', /\/steps\/landform\/generate$/)).toHaveLength(1)
-    expect(byTestId('landform-zone-count')).not.toBeNull()
+    // One tab per proposal, in the strip along the bottom.
+    expect(byTestId('tabs-landform').dataset.tabCount).toBe('2')
 
     // A DRAWN ZONE, through the landform step's declared draw tool.
-    await clickTestId('landform-draw')
+    await clickTestId('draw-landform')
     const zoneRing = [
       [40.71, -74.01],
       [40.71, -73.99],
@@ -967,22 +1004,23 @@ describe('8. the production-zone spike', () => {
       await React.act(async () => map.fire('click', { latlng: L.latLng(lat, lng) }))
     }
     await React.act(async () => map.fire('click', { latlng: L.latLng(...zoneRing[0]) }))
-    expect(container.textContent).toMatch(/you drew/i)
+    // The drawn zone got its own tab, alongside the three proposals.
+    expect(byTestId('tabs-landform').dataset.tabCount).toBe('3')
+    expect(container.textContent).toMatch(/Drawn 1/)
 
-    // COMMIT, to the session endpoint.
+    // COMMIT, to the session endpoint, and on again.
     await clickTestId('commit-landform')
     await settle()
     expect(pathsOf(calls, 'POST', /\/steps\/landform\/commit$/)).toHaveLength(1)
+    expect(byTestId('step-water')).not.toBeNull()
 
-    // AND THROUGH TO THE PDF, off the same boundary, untouched by any of it.
-    await press('Select Access Point')
-    await React.act(async () => map.fire('click', { latlng: L.latLng(40.7, -74.0) }))
-    await press('Confirm Access Point')
-    await press('Generate Scale of Permanence Report')
-    await settle()
-
-    expect(calls.filter((c) => c.path === '/api/generate-report-pdf')).toHaveLength(1)
-    expect(container.textContent).toContain('scale_of_permanence_report.pdf')
+    // AND THE PDF PATH IS NOT ON THIS PAGE. It required an access point, the
+    // access point is an input of the roads step rather than a global field,
+    // and the pre-step that collected it is deleted. The route is untouched on
+    // the server; what has no caller is the button.
+    expect(container.textContent).not.toMatch(/Access Point/i)
+    expect(container.textContent).not.toMatch(/Scale of Permanence Report/i)
+    expect(calls.filter((c) => c.path === '/api/generate-report-pdf')).toHaveLength(0)
 
     await React.act(async () => root.unmount())
     container.remove()
@@ -1087,16 +1125,17 @@ describe('9. the mutual-exclusion assertions', () => {
       expect(app).not.toContain(gone)
     }
 
-    // WHAT IS LEFT IS DERIVED FROM ONE REGISTER, and the register is one slot.
-    // Two of the three booleans are gone entirely rather than derived: the
-    // boundary's draw is the boundary STEP's declared tool and the zone draw
-    // is landform's, both armed through the wizard's door and validated
-    // against the step's own `tools[]`. The access point is the last gesture
-    // still coming through the legacy door, because the roads step that will
-    // declare it does not exist yet.
-    expect(app).toContain("const isDrawing = cursorStepId === BOUNDARY_STEP_ID && armed === 'draw'")
-    expect(app).toContain("const isSelectingAccessPoint = legacyGesture === 'access-point'")
+    // ALL THREE ARE GONE FROM THIS FILE ENTIRELY NOW, rather than two of them
+    // derived and one still read. The boundary's draw and the zone draw are
+    // their steps' declared tools, armed through the wizard's one door; the
+    // access-point pick was the third, and the pre-step that armed it is
+    // deleted. App does not read the arming register at all -- it does not
+    // call useWizardCursor, because there is nothing on this page outside the
+    // wizard that needs to know what is armed.
+    expect(app).not.toContain('isDrawing')
+    expect(app).not.toContain('isSelectingAccessPoint')
     expect(app).not.toContain("'zone-draw'")
+    expect(app).not.toContain('useWizardCursor')
 
     const cursorCode = codeOf('..', 'wizard', 'WizardCursor.jsx')
     // ONE useState for the arming, holding ONE {stepId, tool}. Two slots would
@@ -1104,9 +1143,12 @@ describe('9. the mutual-exclusion assertions', () => {
     expect(cursorCode.match(/useState\(NOTHING_ARMED\)/g)).toHaveLength(1)
     expect(cursorCode).not.toMatch(/setArmed\w*\(\s*\[/)
 
-    // The ring survives in exactly one place: no `points` useState remains.
+    // AND THE RING IS NOT READ HERE EITHER. It was App's `points` useState,
+    // then App's read of the boundary step's draft; it is now only the
+    // wizard's and the map stack's, because the two things that made App read
+    // it -- its own boundary buttons and the PDF path -- are both deleted.
     expect(app).not.toMatch(/const \[points, setPoints\]/)
-    expect(app).toContain('selectBoundaryRing(state, BOUNDARY_STEP_ID, BOUNDARY_RING_INPUT)')
+    expect(app).not.toContain('selectBoundaryRing')
   })
 })
 

@@ -464,7 +464,19 @@ function reduce(state, action) {
         action.stepId,
         {
           ...EMPTY_DRAFT,
-          selectedFeatureIds: [...action.selectedFeatureIds],
+          // A DRAWN FEATURE IS SELECTED BY BEING IN THE DRAFT. The seeder
+          // hands the two lists separately because they come from different
+          // places -- proposals by id, user shapes whole -- but a commit body
+          // now asks the selection about both, so a reopened drawn zone that
+          // was not in the set would come back invisible and uncommittable.
+          // Unioned here rather than in the seeder, so useStepMachine's
+          // seedFor() does not have to know the rule.
+          selectedFeatureIds: [
+            ...new Set([
+              ...action.selectedFeatureIds,
+              ...action.drawnFeatures.map((feature) => feature.id),
+            ]),
+          ],
           drawnFeatures: [...action.drawnFeatures],
         },
         true
@@ -489,6 +501,12 @@ function reduce(state, action) {
       return withDraft(state, action.stepId, {
         ...draft,
         drawnFeatures: [...draft.drawnFeatures, action.feature],
+        // IN THE COMMIT THE MOMENT IT EXISTS. Someone who has just drawn a
+        // shape has said they want it; the eye is there to take it back out,
+        // not to be found and switched on.
+        selectedFeatureIds: draft.selectedFeatureIds.includes(action.feature.id)
+          ? draft.selectedFeatureIds
+          : [...draft.selectedFeatureIds, action.feature.id],
       })
     }
 
@@ -499,6 +517,10 @@ function reduce(state, action) {
       return withDraft(state, action.stepId, {
         ...draft,
         drawnFeatures: draft.drawnFeatures.filter((f) => f.id !== action.featureId),
+        // The selection goes with the shape. A destroyed zone that left its id
+        // behind would put it back in the commit if an undo redrew it under a
+        // new id, and would leave a dead id in the set either way.
+        selectedFeatureIds: draft.selectedFeatureIds.filter((id) => id !== action.featureId),
       })
     }
 
@@ -896,6 +918,24 @@ export function defaultProposalFeatures(payload) {
  * drew, which is the one thing this client is allowed to author. Assembling a
  * request body out of those two is not derivation -- no geometry is created,
  * intersected or measured on the way past.
+ *
+ * THE SELECTION COVERS EVERY FEATURE IN THE DRAFT, NOT ONLY THE PROPOSALS,
+ * and that is this branch's one change here.
+ *
+ * It used to send every drawn feature unconditionally: a drawn shape committed
+ * BY EXISTING, and the only way to leave one out was to delete it. That was
+ * true while the panel column offered a suggestion "deselect" and a drawn zone
+ * "delete" as two different verbs. The tab strip offers one verb to both -- an
+ * eye that says whether a feature is in the commit -- and an eye that a drawn
+ * zone could not answer would be a control that does nothing on half the tabs
+ * it appears on.
+ *
+ * NO NEW STATE, AND NO INVERSION. `selectedFeatureIds` is still the set of
+ * things that commit, still seeded full because the payload IS the
+ * recommendation, and still unambiguous when empty for the reason DRAFT_SEEDED
+ * gives. What changed is that a drawn feature joins it the moment it is drawn
+ * (DRAFT_SHAPE_ADDED) and on every seed (DRAFT_SEEDED), so "in the draft" and
+ * "in the commit" stop being the same statement for shapes the user authored.
  */
 export function buildCommitBody(state, stepId, proposalFeatures = defaultProposalFeatures) {
   const draft = selectDraft(state, stepId)
@@ -910,6 +950,7 @@ export function buildCommitBody(state, stepId, proposalFeatures = defaultProposa
     provenance[feature.id] = PROVENANCE_GENERATED
   }
   for (const feature of draft.drawnFeatures) {
+    if (!selectedIds.has(feature.id)) continue
     features.push(feature)
     provenance[feature.id] = PROVENANCE_USER_ADDED
   }

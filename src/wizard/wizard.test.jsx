@@ -46,7 +46,7 @@ import {
 } from './stepDefinitions'
 import { deriveMachineState } from './useStepMachine'
 import WizardShell from './WizardShell.jsx'
-import { WizardCursorProvider } from './WizardCursor.jsx'
+import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -213,8 +213,16 @@ async function renderWizard({ definitions = STEP_DEFINITIONS, autoResume = false
   const root = createRoot(container)
 
   let latest = null
+  let cursor = null
   function Probe() {
     latest = useSession()
+    // THE CURSOR IS PART OF THE HARNESS NOW, because the shell renders chrome
+    // for ONE step -- the one the cursor names. A test that wants to look at
+    // another step's chrome has to navigate there, exactly as a user does by
+    // clicking the rail. There is no longer a column in which every step is on
+    // screen at once, and a harness that pretended otherwise would be testing
+    // a shell this branch deleted.
+    cursor = useWizardCursor()
     return null
   }
 
@@ -236,6 +244,13 @@ async function renderWizard({ definitions = STEP_DEFINITIONS, autoResume = false
     },
     get actions() {
       return latest.actions
+    },
+    get cursor() {
+      return cursor
+    },
+    /** Move the cursor, the way a click on the step rail does. */
+    async open(stepId) {
+      await React.act(async () => cursor.open(stepId))
     },
     find(testId) {
       return container.querySelector(`[data-testid="${testId}"]`)
@@ -329,11 +344,27 @@ describe('1. step definitions', () => {
     expect(BOUNDARY_STEP.inputs.map((i) => i.key)).toEqual([BOUNDARY_RING_INPUT])
   })
 
-  it('the machine and the frame name no step, anywhere', () => {
+  it('the machine and the whole shell name no step, anywhere', () => {
     // AN ARCHITECTURAL ASSERTION, written so it bites. The schema's claim is
     // that a step's differences are declared; the check is that the generic
     // code contains no step id to branch on.
-    const generic = ['useStepMachine.js', 'StepPanel.jsx', 'WizardShell.jsx', 'WizardCursor.jsx']
+    //
+    // EXTENDED TO THE MAP-CENTRIC SHELL. The five regions and the one rule
+    // that picks which state they read are all generic code by the same
+    // standard the machine is held to: they take the cursor step's definition
+    // and render what it declares. StepPanel.jsx is gone from the list because
+    // the panel column it framed is gone.
+    const generic = [
+      'useStepMachine.js',
+      'WizardShell.jsx',
+      'WizardCursor.jsx',
+      path.join('shell', 'chromeState.js'),
+      path.join('shell', 'StepRail.jsx'),
+      path.join('shell', 'InstructionBar.jsx'),
+      path.join('shell', 'DetailPanel.jsx'),
+      path.join('shell', 'TabStrip.jsx'),
+      path.join('shell', 'ActionBanner.jsx'),
+    ]
     for (const file of generic) {
       // Comments explain WHY boundary is shaped as it is; code must not test
       // for it.
@@ -373,9 +404,12 @@ describe('1. step definitions', () => {
     const ui = await renderWizard({ definitions: WITH_WATER })
     await ui.run((a) => a.startSession(RING))
 
-    // Registered by nothing but the object above, and rendered by the shell.
-    expect(ui.find('step-water')).not.toBeNull()
+    // Registered by nothing but the object above. It is in the rail's order,
+    // and navigating to it renders its chrome -- no wizard file learned a
+    // thing about `water` for either.
     expect(ui.order()).toContain('water')
+    await ui.open('water')
+    expect(ui.find('step-water')).not.toBeNull()
     await ui.unmount()
   })
 })
@@ -398,13 +432,17 @@ describe('2. boundary as step 0', () => {
     expect(ui.stepState(BOUNDARY_STEP_ID)).toBe('idle')
     // No generate on this step: there is nothing to propose about a boundary.
     expect(ui.find(`generate-${BOUNDARY_STEP_ID}`)).toBeNull()
-    expect(ui.find(`commit-${BOUNDARY_STEP_ID}`).disabled).toBe(true)
+    // Nothing to commit yet, and nothing to show in the tab strip either.
+    expect(ui.find(`commit-${BOUNDARY_STEP_ID}`)).toBeNull()
+    expect(ui.find(`tabs-${BOUNDARY_STEP_ID}`)).toBeNull()
 
     // THE DRAWING. The ring lands in the step's own draft, under the input the
     // definition declares -- which is exactly where DrawTool will write it.
     await ui.run((a) => a.setDraftInput(BOUNDARY_STEP_ID, BOUNDARY_RING_INPUT, RING))
     expect(ui.stepState(BOUNDARY_STEP_ID)).toBe('editing')
-    expect(ui.text('boundary-ring-count')).toContain('3 points')
+    // THE BOUNDARY'S TAB IS THE OLD ACREAGE CHIP, in the strip rather than
+    // over the map's top-left: the point count, then the enclosed area.
+    expect(ui.text(`tab-${BOUNDARY_RING_INPUT}`)).toContain('3points')
     expect(ui.find(`commit-${BOUNDARY_STEP_ID}`).disabled).toBe(false)
 
     await ui.click(`commit-${BOUNDARY_STEP_ID}`)
@@ -423,6 +461,17 @@ describe('2. boundary as step 0', () => {
     ])
 
     expect(selectSessionId(ui.state)).toBe('sess-1')
+
+    // AND THE WIZARD MOVED ON, with nothing having been clicked to make it.
+    // There is no "Next step" button in this shell; a successful commit is the
+    // forward move. The boundary's own chrome is not on screen at all now --
+    // the chrome belongs to the step the cursor names.
+    expect(ui.cursor.cursorStepId).toBe('landform')
+    expect(ui.find(`step-${BOUNDARY_STEP_ID}`)).toBeNull()
+    expect(ui.stepState('landform')).toBe('idle')
+
+    // It is still committed, and says so when you navigate back to it.
+    await ui.open(BOUNDARY_STEP_ID)
     expect(ui.stepState(BOUNDARY_STEP_ID)).toBe('committed')
 
     // The document was hydrated wholesale, and the id is durable both ways.
@@ -479,13 +528,13 @@ describe('3. a generate hydrates both halves', () => {
     expect(ui.state.steps.landform.proposals).toEqual(LAYERS_PAYLOAD)
     expect(selectStepStatus(ui.state, 'landform')).toBe(GENERATED)
     expect(ui.stepState('landform')).toBe('reviewing')
-    // THE PANEL IS THE STEP'S OWN READOUT NOW, and it opens on the
-    // recommendation: three zones, all selected, 4.6 acres between them. That
-    // is the seeded draft (SessionStore's DRAFT_SEEDED) showing through --
-    // the payload IS the recommendation, so the empty gesture is to take
-    // things out.
-    expect(ui.text('landform-zone-count')).toBe('3')
-    expect(ui.text('landform-selected-acres')).toBe('4.6')
+    // THE TAB STRIP IS THE STEP'S OWN READOUT NOW, and it opens on the
+    // recommendation: three zones, all selected. That is the seeded draft
+    // (SessionStore's DRAFT_SEEDED) showing through -- the payload IS the
+    // recommendation, so the opening gesture is to take things out.
+    expect(ui.find('tabs-landform').getAttribute('data-tab-count')).toBe('3')
+    expect(ui.text('tab-zone-1')).toContain('2.5acres')
+    expect(ui.text('tab-zone-1')).toContain('81.0score')
     expect(new Set(ui.state.drafts.landform.selectedFeatureIds)).toEqual(
       new Set(['zone-1', 'zone-2', 'zone-3'])
     )
@@ -499,7 +548,7 @@ describe('3. a generate hydrates both halves', () => {
    =========================================================================== */
 
 describe('4. a committed step', () => {
-  it('renders collapsed, with an Edit affordance', async () => {
+  it('offers whatever its own definition declares for committed, and nothing else', async () => {
     installFetch([
       route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
       route('GET', /^\/api\/sessions\/sess-1$/, {
@@ -513,24 +562,31 @@ describe('4. a committed step', () => {
     await ui.run((a) => a.startSession(RING))
     await ui.run((a) => a.resume('sess-1'))
 
-    expect(ui.stepState('landform')).toBe('committed')
-    const panel = ui.find('step-landform')
-    expect(panel.getAttribute('data-collapsed')).toBe('true')
-    expect(panel.className).toContain('step-panel--collapsed')
+    // THE RAIL SHOWS THE WHOLE PIPELINE'S STATUS; only the cursor step has a
+    // machine state. Landform is committed, so the cursor sat down on water.
+    expect(ui.find('rail-landform').closest('li').dataset.stepStatus).toBe(COMMITTED)
 
+    await ui.open('landform')
+    expect(ui.stepState('landform')).toBe('committed')
+
+    // The banner offers exactly what landform's definition declares for
+    // `committed` -- its reopen, and nothing else.
     const edit = ui.find('edit-landform')
     expect(edit).not.toBeNull()
     expect(edit.textContent).toBe('Edit this step')
-
-    // Collapsed means collapsed: the step's own body and its buttons are gone.
-    expect(ui.find('landform-placeholder')).toBeNull()
     expect(ui.find('generate-landform')).toBeNull()
     expect(ui.find('commit-landform')).toBeNull()
+    expect(ui.find('draw-landform')).toBeNull()
 
-    // Boundary is committed too, and declares no reopen -- so it says why
-    // instead of offering an affordance it would have to explain away.
+    // Boundary is committed too, and declares no reopen -- so its committed
+    // state offers the one honest action instead (start a different property)
+    // and the bar says why the boundary itself cannot move.
+    await ui.open(BOUNDARY_STEP_ID)
     expect(ui.find(`edit-${BOUNDARY_STEP_ID}`)).toBeNull()
-    expect(ui.text(`no-reopen-${BOUNDARY_STEP_ID}`)).toMatch(/fixed for the life of this session/)
+    expect(ui.text(`instruction-${BOUNDARY_STEP_ID}`)).toMatch(
+      /fixed for the life of this session/
+    )
+    expect(ui.find(`restart-${BOUNDARY_STEP_ID}`)).not.toBeNull()
 
     await ui.unmount()
   })
@@ -558,6 +614,7 @@ describe('5. reopen confirmation', () => {
     await ui.run((a) => a.startSession(RING))
     await ui.run((a) => a.resume('sess-1'))
 
+    await ui.open('landform')
     await ui.click('edit-landform')
 
     const dialog = ui.find('reopen-confirm-landform')
@@ -614,9 +671,11 @@ describe('6. reopen', () => {
     await ui.run((a) => a.startSession(RING))
     await ui.run((a) => a.resume('sess-1'))
 
-    expect(ui.stepState('landform')).toBe('committed')
-    expect(ui.stepState('water')).toBe('committed')
+    expect(ui.find('rail-landform').closest('li').dataset.stepStatus).toBe(COMMITTED)
+    expect(ui.find('rail-water').closest('li').dataset.stepStatus).toBe(COMMITTED)
 
+    await ui.open('landform')
+    expect(ui.stepState('landform')).toBe('committed')
     await ui.click('edit-landform')
     await ui.click('reopen-confirm-yes-landform')
 
@@ -631,6 +690,7 @@ describe('6. reopen', () => {
     // from committed to explaining that its upstream is not committed.
     expect(ui.stepState('landform')).toBe('reviewing')
     expect(ui.state.steps.landform.proposals).toEqual(LAYERS_PAYLOAD)
+    await ui.open('water')
     expect(ui.find('blocked-water')).not.toBeNull()
     expect(ui.find('edit-water')).toBeNull()
 
@@ -694,11 +754,7 @@ describe('7. commit rejections', () => {
     expect(ui.text('rejection-reason-zone-3')).toContain('Self-intersection')
 
     // The feature that was fine is NOT named.
-    expect(ui.find('rejection-row-zone-1')).toBeNull()
-
-    // And the same per-feature data is on the step's own body, keyed by id --
-    // the shape the map layer reads.
-    expect(ui.text('rejection-zone-2')).toContain('outside the parcel boundary')
+    expect(ui.find('rejection-zone-1')).toBeNull()
 
     // Nothing was written: the step is still generated and still editable.
     expect(selectStepStatus(ui.state, 'landform')).toBe(GENERATED)
@@ -762,6 +818,7 @@ describe('9. an unreachable step', () => {
     await ui.run((a) => a.resume('sess-1'))
 
     // landform is generated, NOT committed -- so water cannot start.
+    await ui.open('water')
     expect(ui.find('blocked-water')).not.toBeNull()
     expect(ui.text('blocked-water')).toBe('Commit Landform before starting this step.')
 
@@ -770,9 +827,14 @@ describe('9. an unreachable step', () => {
     expect(ui.find('generate-water')).toBeNull()
     expect(ui.find('commit-water')).toBeNull()
 
-    // Landform itself is reachable and offers both.
+    // Landform itself is reachable, and offers what ITS definition declares
+    // for the state it is in. It is `generated`, so that is the reviewing
+    // pair -- the draw and the commit -- rather than the generate, which is
+    // what its `idle` declares. Nothing is blocked.
+    await ui.open('landform')
     expect(ui.find('blocked-landform')).toBeNull()
-    expect(ui.find('generate-landform')).not.toBeNull()
+    expect(ui.find('draw-landform')).not.toBeNull()
+    expect(ui.find('commit-landform')).not.toBeNull()
 
     await ui.unmount()
   })
@@ -846,22 +908,22 @@ describe('11. the retired spike', () => {
     const client = readFileSync(path.join(HERE, '..', 'session', 'apiClient.js'), 'utf8')
     expect(client).not.toContain(SPIKE_ENDPOINT)
 
-    // WHAT APP STILL MOUNTS is the wizard and the map stack, and what it still
-    // OWNS is the PDF path -- a different flow off the same boundary, which
-    // reads neither the session nor the Design Document.
+    // WHAT APP STILL MOUNTS is the wizard and the map stack, and that is now
+    // the whole of what it mounts.
     expect(appSource).toMatch(/from '\.\/wizard\/WizardShell\.jsx'/)
     expect(appSource).toMatch(/from '\.\/map\/MapLayerStack\.jsx'/)
-    expect(appSource).toContain('/api/generate-report-pdf')
 
     // AND THE DIRECTION OF THE DEPENDENCY IS UNCHANGED: App reaches for the
     // wizard, and no wizard module reaches back into the page.
     for (const file of [
       'stepDefinitions.js',
       'useStepMachine.js',
-      'StepPanel.jsx',
       'WizardShell.jsx',
       'WizardCursor.jsx',
-      path.join('panels', 'LandformPanel.jsx'),
+      path.join('shell', 'ActionBanner.jsx'),
+      path.join('shell', 'InstructionBar.jsx'),
+      path.join('shell', 'StepRail.jsx'),
+      path.join('shell', 'TabStrip.jsx'),
       path.join('..', 'map', 'MapLayerStack.jsx'),
       path.join('..', 'map', 'layerStack.js'),
       path.join('..', 'map', 'StepTools.jsx'),
