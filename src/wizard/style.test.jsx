@@ -35,10 +35,20 @@ import { NOT_STARTED, SessionProvider, useSession } from '../session/SessionStor
 import {
   BOUNDARY_STEP,
   BOUNDARY_STEP_ID,
+  COMMIT_BUTTON,
+  GENERATE_BUTTON,
   LANDFORM_STEP,
   STEP_DEFINITIONS,
 } from './stepDefinitions'
-import { MACHINE_STATES } from './useStepMachine'
+import {
+  COMMITTING,
+  EDITING,
+  GENERATING,
+  IDLE,
+  MACHINE_STATES,
+  REVIEWING,
+  STEP_COMMITTED,
+} from './useStepMachine'
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
 
@@ -243,14 +253,39 @@ describe('1. the three faces', () => {
 
     const face = (selector) => propsOf(ruleFor(COMPONENTS, selector))['font-family']
 
-    // DISPLAY: titling. THE REGRESSION THIS TEST EXISTS FOR -- the panel
-    // column set its step titles as <h3>, which the reset draws in Bitter;
-    // the shell renders no heading element, so without this the display face
-    // appears nowhere in the chrome at all.
+    // DISPLAY: titling, and it lives in the RAIL. The panel column set its
+    // step titles as <h3>, which the reset draws in Bitter; the shell renders
+    // no heading element and should not grow one just to give that rule
+    // something to bite on. The rail is where titling belongs instead --
+    // the one piece of chrome that persists across every state and every step
+    // and whose job is naming where you are. The instruction bar was the other
+    // candidate and is the wrong one: its sentence changes with the machine
+    // state, so a title set there would rewrite itself while you work.
     expect(face('.chrome-rail__name')).toBe('var(--font-display)')
+    expect(face('.chrome-bar__direction')).toBe('var(--font-prose)')
     expect(propsOf(ruleFor(FOUNDATION, 'h1,\nh2,\nh3,\nh4,\nh5,\nh6'))['font-family']).toBe(
       'var(--font-display)'
     )
+
+    // AND IT IS A VOICE, NOT A FONT SWAP. Bitter applied uniformly at 12px
+    // down a column of small labels is a font change; the CURRENT step set at
+    // titling size with the rest as a contents list beside it is the printed
+    // form this interface is modelled on. The size step is the assertion.
+    const railName = propsOf(ruleFor(COMPONENTS, '.chrome-rail__name'))
+    const railCursor = propsOf(
+      ruleFor(COMPONENTS, '.chrome-rail__step--cursor .chrome-rail__name')
+    )
+    expect(railName['font-weight']).toBe('600')
+    expect(railName['font-size']).toBe('var(--text-xs)')
+    expect(railCursor['font-size']).toBe('var(--text-base)')
+    expect(railCursor.color).toBe('var(--ink)')
+
+    // The shell still renders no heading, which is the point: a heading is a
+    // claim about document structure, and six <h3>s inside a <nav> would say
+    // six sections start there.
+    for (const file of ['WizardShell.jsx', path.join('shell', 'StepRail.jsx')]) {
+      expect(readFileSync(path.join(HERE, file), 'utf8')).not.toMatch(/<h[1-6][\s>]/)
+    }
 
     // PROSE: the instruction, the notices, the buttons -- everything written
     // rather than measured.
@@ -302,6 +337,36 @@ describe('2. measured values', () => {
     for (const selector of ['.measure', '.chrome-rail__index']) {
       expect(propsOf(ruleFor(COMPONENTS, selector))['font-variant-numeric']).toBe('tabular-nums')
     }
+  })
+
+  it('sets a measured figure mid-sentence in the data face, not as prose', async () => {
+    // THE ADVISORY IS THE FIRST CONSUMER OF `.measure` IN THE NEW SHELL, and
+    // it is the reason the utility had to come back at all. It used to read
+    // "Selecting this much leaves little room", because a `% of parcel` column
+    // sat an inch above it in the totals block. The block went with the panel
+    // column; the sentence now carries the figure, and the figure is set like
+    // every other measured value rather than dissolving into the prose.
+    const payload = structuredClone(PAYLOAD)
+    payload.summary.total_acres = 4 // 3.7 selected acres over 4 -> past the 80%
+    installFetch([
+      { method: 'POST', pattern: /^\/api\/sessions$/, status: 201, body: serverDocument() },
+      { method: 'GET', pattern: /\/steps\/landform\/layers$/, body: payload },
+    ])
+    const ui = await renderShell()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.loadLayers('landform'))
+
+    const advisory = ui.find('notice-ceiling-landform')
+    expect(advisory).not.toBeNull()
+    expect(advisory.textContent).toContain('% of the parcel leaves little room')
+
+    // The number is inside .measure; the words around it are not.
+    const figure = advisory.querySelector('.measure')
+    expect(figure).not.toBeNull()
+    expect(figure.textContent).toMatch(/^\d+\.\d$/)
+    expect(advisory.textContent).toContain(figure.textContent)
+
+    await ui.unmount()
   })
 
   it('puts every figure the strip prints inside the value column', async () => {
@@ -394,16 +459,89 @@ describe('4. one accent per state', () => {
     expect(chromeBlock).not.toContain('--eligible')
   })
 
-  it('never shows two primary buttons, in any state either shipped step has', () => {
-    // WALKED, NOT REASONED ABOUT. Every state each definition declares, with
-    // the tone each button carries -- so a later step that made its escape
-    // primary fails here rather than on a screenshot.
+  it('gives every state that offers a forward move EXACTLY one, and no state two', () => {
+    // THE UPPER BOUND ALONE DOES NOT BITE. "At most one oxide" is what the
+    // shipped regression already satisfied: the forward move was an --ink fill,
+    // so every state had ZERO and the test passed. The bound that catches it is
+    // the lower one, and it needs a non-circular answer to "does this state
+    // offer a forward move" -- which cannot be `is a button primary`.
+    //
+    // IT IS ANSWERED BY IDENTITY. COMMIT_BUTTON and GENERATE_BUTTON are the two
+    // shared forward moves every step reuses, frozen and comparable by
+    // reference. A state whose list contains either MUST render exactly one
+    // oxide, and it must be that button -- so a step that demoted its own
+    // commit fails here naming the state.
     for (const definition of [BOUNDARY_STEP, LANDFORM_STEP]) {
       for (const state of MACHINE_STATES) {
         const buttons = definition.buttons[state] ?? []
-        const oxide = buttons.filter((b) => b.tone === 'primary')
-        expect(oxide.length).toBeLessThanOrEqual(1)
+        const primary = buttons.filter((b) => b.tone === 'primary')
+        expect(primary.length).toBeLessThanOrEqual(1)
+
+        const shared = buttons.find((b) => b === COMMIT_BUTTON || b === GENERATE_BUTTON)
+        if (shared) {
+          expect(primary).toEqual([shared])
+        }
       }
+    }
+  })
+
+  it('accounts for every state, so a lost oxide cannot hide in an unlisted one', () => {
+    // THE TABLE IS THE SPEC. Identity covers the two shared buttons; a step's
+    // OWN forward move -- boundary has two, because a boundary is drawn rather
+    // than proposed -- is only knowable from the step. So every (step, state)
+    // pair is listed with the count it must render, and each zero says why it
+    // is a zero. An unlisted pair fails: adding a state without deciding what
+    // it offers is exactly how the accent goes missing again.
+    const EXPECTED = {
+      [BOUNDARY_STEP_ID]: {
+        // The tool IS the forward move: a boundary is drawn, not proposed, so
+        // there is nothing else to move toward from an empty step.
+        [IDLE]: 1,
+        // Finish moves you to reviewing; undo is the escape beside it.
+        [EDITING]: 1,
+        // Commit. The pair the design guide names as the case to check.
+        [REVIEWING]: 1,
+        // A request in flight offers nothing to press.
+        [COMMITTING]: 0,
+        // No forward move exists: the boundary cannot be reopened, and the way
+        // on from a committed step is the next step, which the rail carries.
+        // The one button here ends the session and is an escape.
+        [STEP_COMMITTED]: 0,
+        // Unreachable -- boundary declares no generate.
+        [GENERATING]: 0,
+      },
+      landform: {
+        [IDLE]: 1,
+        // A job is running. Nothing to press, and nothing to urge.
+        [GENERATING]: 0,
+        [REVIEWING]: 1,
+        // ONE BUTTON, AND IT IS AN ESCAPE. A ring going down is closed on the
+        // MAP by clicking its first corner; the banner has no forward move to
+        // offer and does not invent one.
+        [EDITING]: 0,
+        [COMMITTING]: 0,
+        // Reopen is a move backwards into finished work.
+        [STEP_COMMITTED]: 0,
+      },
+    }
+
+    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP]) {
+      const table = EXPECTED[definition.id]
+      expect(Object.keys(table).sort()).toEqual([...MACHINE_STATES].sort())
+      for (const state of MACHINE_STATES) {
+        const primary = (definition.buttons[state] ?? []).filter((b) => b.tone === 'primary')
+        expect({ state, oxide: primary.length }).toEqual({ state, oxide: table[state] })
+      }
+    }
+
+    // AND THE ACCENT IS ACTUALLY IN USE. A definition whose every state came
+    // out zero would satisfy every rule above and be the shipped regression
+    // exactly; at least one state per step has to carry it.
+    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP]) {
+      const states = MACHINE_STATES.filter(
+        (state) => (definition.buttons[state] ?? []).some((b) => b.tone === 'primary')
+      )
+      expect(states.length).toBeGreaterThan(0)
     }
   })
 
@@ -414,19 +552,31 @@ describe('4. one accent per state', () => {
     ])
     const ui = await renderShell()
 
-    const onlyOneOxide = (stepId) => {
+    /**
+     * Count the oxide actually in the document, and hold it to `expected`.
+     *
+     * ON THE RENDERED BUTTON, not on the declaration -- the declaration is
+     * checked above, and what shipped broken was the RULE that draws it. A
+     * `tone="primary"` with no oxide rule behind it passes every check that
+     * reads the definition and is precisely the regression.
+     */
+    const oxideCount = (stepId, expected) => {
       const tones = ui.tones(stepId)
-      expect(tones.filter(([, tone]) => tone === 'primary').length).toBeLessThanOrEqual(1)
+      const marked = ui.container.querySelectorAll(
+        `[data-testid="actions-${stepId}"] .chrome-banner__button--primary`
+      )
+      expect({ where: stepId, oxide: marked.length }).toEqual({ where: stepId, oxide: expected })
+      expect(tones.filter(([, tone]) => tone === 'primary')).toHaveLength(expected)
       return tones
     }
 
     // BOUNDARY, IDLE: the tool IS the forward move here.
-    expect(onlyOneOxide(BOUNDARY_STEP_ID)).toEqual([['draw', 'primary']])
+    expect(oxideCount(BOUNDARY_STEP_ID, 1)).toEqual([['draw', 'primary']])
 
     // BOUNDARY, EDITING: the undo is the escape, the finish moves you on.
     await ui.click(`draw-${BOUNDARY_STEP_ID}`)
     await ui.run((a) => a.setDraftInput(BOUNDARY_STEP_ID, 'ring', RING))
-    expect(onlyOneOxide(BOUNDARY_STEP_ID)).toEqual([
+    expect(oxideCount(BOUNDARY_STEP_ID, 1)).toEqual([
       ['undo', 'secondary'],
       ['finish', 'primary'],
     ])
@@ -434,7 +584,7 @@ describe('4. one accent per state', () => {
     // BOUNDARY, REVIEWING -- the pair named in the design guide as the case
     // to check. Clear and redraw is not a forward move and is not oxide.
     await ui.click(`finish-${BOUNDARY_STEP_ID}`)
-    expect(onlyOneOxide(BOUNDARY_STEP_ID)).toEqual([
+    expect(oxideCount(BOUNDARY_STEP_ID, 1)).toEqual([
       ['redraw', 'secondary'],
       ['commit', 'primary'],
     ])
@@ -442,11 +592,11 @@ describe('4. one accent per state', () => {
     await ui.click(`commit-${BOUNDARY_STEP_ID}`)
 
     // LANDFORM, IDLE.
-    expect(onlyOneOxide('landform')).toEqual([['generate', 'primary']])
+    expect(oxideCount('landform', 1)).toEqual([['generate', 'primary']])
 
     // LANDFORM, REVIEWING.
     await ui.run((a) => a.loadLayers('landform'))
-    expect(onlyOneOxide('landform')).toEqual([
+    expect(oxideCount('landform', 1)).toEqual([
       ['draw', 'secondary'],
       ['commit', 'primary'],
     ])
@@ -454,7 +604,7 @@ describe('4. one accent per state', () => {
     // LANDFORM, EDITING: one button, and it is an escape -- so NO oxide at
     // all. "At most one" is the rule; a state with no forward move has none.
     await ui.run((_a, cursor) => cursor.arm('draw'))
-    expect(onlyOneOxide('landform')).toEqual([['cancel', 'secondary']])
+    expect(oxideCount('landform', 0)).toEqual([['cancel', 'secondary']])
 
     await ui.unmount()
   })

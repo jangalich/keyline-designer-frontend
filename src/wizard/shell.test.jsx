@@ -824,9 +824,14 @@ describe('8. the ceiling advisory', () => {
     // recommendation -- so it trips immediately.
     const totals = totalsFor(payload, new Set(['zone-1', 'zone-2', 'zone-3', 'zone-4']), [])
     expect(totals.pctOfParcel).toBeGreaterThan(CEILING_ADVISORY_PCT)
+    // THE ADVISORY CARRIES THE FIGURE. It said "this much" while a `% of
+    // parcel` column sat above it in the panel column's totals block; the
+    // block is gone, so the sentence names the number and sets it in the data
+    // face. See style.test.jsx for the typography of it.
     expect(ui.text('notice-ceiling-landform')).toBe(
-      'Selecting this much leaves little room for water, roads, and trees.'
+      'Selecting 83.3% of the parcel leaves little room for water, roads, and trees.'
     )
+    expect(ui.find('notice-ceiling-landform').querySelector('.measure').textContent).toBe('83.3')
 
     // Take one out and it goes: advisory, and live against the current
     // selection rather than against the recommendation the server sent.

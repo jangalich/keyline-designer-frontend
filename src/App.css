@@ -627,6 +627,13 @@
   background: var(--stock);
   color: var(--ink);
   box-shadow: inset 3px 0 0 var(--oxide);
+  padding-block: var(--space-3);
+}
+
+/* The index sits with the name's first line rather than centring against a
+   two-line title. */
+.chrome-rail__step--cursor .chrome-rail__index {
+  align-self: start;
 }
 
 .chrome-rail__index {
@@ -635,17 +642,38 @@
   text-align: right;
 }
 
-/* THE STEP'S NAME, IN THE DISPLAY FACE. The panel column set its titles as
-   <h3>, which the reset draws in Bitter at 600; the shell renders no heading
-   element anywhere, so deleting that markup took the titling voice with it and
-   left the rail reading as body copy. These ARE the document's section titles
-   -- they are the six factors of the Scale of Permanence -- so they are set
-   like them. Not marked up as headings, though: the rail is navigation, and
-   six <h3>s inside a <nav> would say six sections start here. */
+/* WHERE THE TITLING VOICE LIVES IN A MAP-CENTRIC SHELL.
+   ---------------------------------------------------------------------------
+   The panel column set each step's title as an <h3>, which the reset draws in
+   Bitter 600. This shell has no heading anywhere and should not grow one just
+   to give that rule something to bite on -- a heading is a claim about
+   document structure, and six <h3>s inside a <nav> would say six sections
+   start here. So the question is where titling BELONGS, and the answer is the
+   rail, because the rail is the one piece of chrome that persists across every
+   state and every step and whose whole job is naming where you are. The
+   instruction bar was the other candidate and is the wrong one: its sentence
+   changes with the machine state, so a title set there would be a heading that
+   rewrites itself while you work.
+
+   THE CURRENT STEP IS THE TITLE. THE REST ARE THE CONTENTS LIST. That is the
+   printed form this interface is modelled on -- an extension bulletin carries
+   its section name as a running head, with the other sections listed small
+   beside it -- and it is why Bitter is not simply swapped in at 12px on all
+   seven rows. A face applied uniformly to a column of small labels is a font
+   change; a face given one row at titling size is a voice.
+   --------------------------------------------------------------------------- */
 .chrome-rail__name {
   font-family: var(--font-display);
   font-weight: 600;
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
   overflow-wrap: anywhere;
+}
+
+/* The running head. The one line in the chrome set as a title. */
+.chrome-rail__step--cursor .chrome-rail__name {
+  font-size: var(--text-base);
+  color: var(--ink);
 }
 
 /* An eyebrow, so the data face. Mono also separates the status from the slab

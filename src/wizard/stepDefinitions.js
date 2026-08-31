@@ -110,8 +110,16 @@
  *                      bar: [{key, tone, text}]. Not errors -- the shell reads
  *                      those off the machine for every step alike. This is
  *                      what only THIS step can know is worth saying about the
- *                      decision in hand, and landform's 80% ceiling advisory
- *                      is the whole of the current use.
+ *                      decision in hand.
+ *
+ *                      `text` IS A STRING OR A LIST OF PARTS, and the list is
+ *                      how a measured figure gets into the middle of a
+ *                      sentence. A part is a string, or `{measure}` for a
+ *                      number the pipeline produced -- which the bar sets in
+ *                      the data face, because the whole reason this project
+ *                      loads three faces is that a reader can tell at a glance
+ *                      which half of a line was measured and which was
+ *                      written. See measured().
  *
  *   tabs(context)      One tab per feature this step is carrying, as
  *                      [{id, name, rows: [{value, label}], selected?, drawn?}].
@@ -228,6 +236,19 @@ import {
  * point to line up.
  */
 export const MEASURE_DP = 1
+
+/**
+ * A measured figure, for the middle of a sentence.
+ *
+ * THE NOTICES ARE WHERE THE PANEL COLUMN'S FIGURES ENDED UP, and a figure set
+ * as prose in a warning is the one place the three-face rule matters most: a
+ * sentence saying "you have selected too much" is worth much less than one
+ * naming how much. The bar renders these in mono with tabular figures; a bare
+ * string part is prose.
+ */
+export function measured(value) {
+  return { measure: measure(value) }
+}
 
 /**
  * A measured value at fixed width, or an em dash where the pipeline sent null.
@@ -1048,9 +1069,14 @@ export const LANDFORM_SHAPE = Object.freeze({
       },
       // Said only when the clamp actually took something. A notice on every
       // drawn zone would train the user to ignore the one that matters.
+      //
+      // PARTS RATHER THAN A SENTENCE, so the acreage the clamp removed is set
+      // in the data face like every other measured value. It was a template
+      // literal, which put a pipeline figure into prose -- the one thing the
+      // three-face rule exists to prevent.
       notice:
         removedAcres > 0
-          ? `${removedAcres.toFixed(1)} acres outside the property boundary were trimmed off.`
+          ? [measured(removedAcres), ' acres outside the property boundary were trimmed off.']
           : null,
     }
   },
@@ -1285,12 +1311,35 @@ export const LANDFORM_STEP = documentStep({
       })
     }
 
+    // NOTHING ON THIS PARCEL CLEARS EVERY GATE. A real answer, and one the
+    // panel column used to state plainly; without it the step reads as a
+    // generate that quietly returned nothing.
+    if ((proposals.zones ?? []).length === 0) {
+      lines.push({
+        key: 'no-ground',
+        tone: 'caution',
+        text:
+          'No ground on this parcel clears every check. The highlight shows what is ' +
+          'eligible; nothing in it is large or gentle enough to suggest.',
+      })
+    }
+
     const totals = totalsFor(proposals, new Set(draft.selectedFeatureIds), draft.drawnFeatures)
     if (totals.pctOfParcel > CEILING_ADVISORY_PCT) {
+      // THE FIGURE IS THE ADVISORY. It used to sit above this line as a
+      // `% of parcel` column in the totals block, and the advisory read
+      // "this much" because the number was already on screen an inch away.
+      // The block is gone; carrying the number into the sentence is what
+      // keeps the advisory worth reading, and it is the first measured value
+      // in the new shell to land mid-sentence rather than in a value column.
       lines.push({
         key: 'ceiling',
         tone: 'advisory',
-        text: 'Selecting this much leaves little room for water, roads, and trees.',
+        text: [
+          'Selecting ',
+          measured(totals.pctOfParcel),
+          '% of the parcel leaves little room for water, roads, and trees.',
+        ],
       })
     }
 
