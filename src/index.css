@@ -116,6 +116,39 @@
   --eligible: #e8cf9f;
   --scrim: #1c1a16;
 
+  /* TWO MORE, AND THEY ARE A PAIR RATHER THAN TWO TOKENS. The water step's
+     survey zones come back in two kinds -- embankment-type and
+     excavated-type -- from ONE collection, and the map has to say which is
+     which without saying that one of them is better.
+
+     BOTH IN THE BLUE FAMILY, ONE DARKER. Blue because these are ponds, and
+     because nothing else on this map is blue: --field is the green of map
+     geometry, --oxide is the accent, --ochre is emphasis. A pair inside one
+     hue reads as two members of one category, which is what they are; two
+     different hues would read as two different KINDS of statement.
+
+     NEITHER IS PICKED TO BEAT THE IMAGERY, and neither could be. These are
+     LINES, so they take DrawTool's halo-casing rule -- a --halo stroke laid
+     under the line, wider than it -- exactly as the boundary and the drawn
+     zones do. Hue alone will not carry a line over water, canopy and bare
+     soil in one frame; the casing is what does, and it is why the two only
+     have to differ from EACH OTHER rather than from everything underneath.
+
+     THEY DO HAVE TO CLEAR EACH OTHER, AND THAT IS MEASURED. The first pair
+     tried here sat 2.09:1 apart, which is a difference you can find when you
+     already know it is there and cannot see at a glance across a parcel. This
+     pair is 3.39:1 -- the non-text contrast floor -- and each still clears the
+     --halo casing beneath it (3.85:1 and 13.03:1), which is what makes the
+     lighter of the two hold up over bright bare soil. Asserted in
+     water.test.jsx rather than left as an eye judgment.
+
+     NEITHER IS A CONTROL, and this is the same rule --field carries. Green
+     is never a control in this system and neither are these: they are map
+     geometry, they appear in the layer stack and the legend, and nothing in
+     the chrome may reference them. */
+  --survey-embankment: #4f86bb;
+  --survey-excavated: #16334c;
+
   /* Pure white, and the only pure white in the system. Map marker halos need
      maximum luminance to stay legible against arbitrary satellite imagery —
      that is a legibility problem, not a palette one, so it does not use

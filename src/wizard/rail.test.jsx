@@ -219,11 +219,20 @@ describe('1. the rail at the boundary step', () => {
       const row = ui.container.querySelector(`[data-testid="rail-${stepId}"]`)
       expect(row.className).toContain('chrome-rail__step--ahead')
     }
-    // landform is built, so it says what is true of it: not yet. The five that
-    // have no chrome in this build keep saying so, exactly as before -- that
-    // is the more specific fact and it outranks reachability.
+    // A BUILT STEP SAYS WHAT IS TRUE OF IT: not yet. An unbuilt one says
+    // something more specific -- not built yet -- and that outranks
+    // reachability, because "you cannot get here" and "this does not exist" are
+    // different answers to someone looking at a dimmed row.
+    //
+    // WATER MOVED FROM THE SECOND LIST TO THE FIRST, which is this branch's
+    // doing and is the only change here: it has a definition now, so it says
+    // the same thing landform says. The four still to come keep saying the
+    // other thing, which is what keeps the distinction meaningful.
     expect(ui.statusWord(REGISTERED)).toBe('not yet')
-    expect(ui.statusWord('water')).toBe('not built yet')
+    expect(ui.statusWord('water')).toBe('not yet')
+    for (const unbuilt of ['roads', 'trees', 'structures', 'fencing']) {
+      expect(ui.statusWord(unbuilt), `${unbuilt} has no definition yet`).toBe('not built yet')
+    }
 
     // BOUNDARY IS NOT DIMMED and is fully usable: it is the step being asked
     // for, and the rail showing six rows behind it changes nothing about it.

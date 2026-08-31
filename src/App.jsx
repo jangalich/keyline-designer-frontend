@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { MapContainer, TileLayer, ZoomControl } from 'react-leaflet'
+import { AttributionControl, MapContainer, TileLayer, ZoomControl } from 'react-leaflet'
 import MapRecenter from './MapRecenter.jsx'
 import AddressSearch from './AddressSearch.jsx'
 import { SessionProvider } from './session/SessionStore'
+import { registryProposalFeatures } from './wizard/stepDefinitions'
 import MapLayerStack from './map/MapLayerStack.jsx'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
 import WizardShell from './wizard/WizardShell.jsx'
@@ -55,7 +56,11 @@ const BASEMAP = {
  */
 function App() {
   return (
-    <SessionProvider>
+    /* THE REGISTRY'S ANSWER TO "WHICH COLLECTION DOES A COMMIT COME FROM",
+       handed to the store through the prop the store declared for it. Without
+       it every step's commit reads landform's payload key -- see
+       registryProposalFeatures() for what that costs the second step. */
+    <SessionProvider proposalFeatures={registryProposalFeatures}>
       <WizardCursorProvider>
         <DrawingProgressProvider>
           <Designer />
@@ -172,10 +177,54 @@ function Designer() {
                 scrollWheelZoom={false}
                 touchZoom
                 zoomControl={false}
+                /**
+                 * HALF STEPS ON +/-, AND BOTH FIELDS OR NEITHER.
+                 *
+                 * With the scroll wheel gone, +/- is the ONLY zoom, and a full
+                 * level per press is a coarse instrument to have left someone
+                 * with: one press doubles or halves the scale, which is a long
+                 * way to travel to frame a parcel.
+                 *
+                 * `zoomDelta` alone does nothing. It says how far a +/- press
+                 * moves; `zoomSnap` says what the map is allowed to REST at,
+                 * and its default of 1 rounds a half step straight back to a
+                 * whole level -- so a fractional delta without a matching snap
+                 * is a no-op that looks like a setting.
+                 *
+                 * KNOWN AND ACCEPTED: raster tiles exist at integer zooms
+                 * only, so an intermediate level scales the bitmap and reads
+                 * slightly soft. That is the trade -- a softer frame you chose
+                 * over a sharp one you did not -- and it resolves the moment
+                 * the next whole level is reached.
+                 */
+                zoomDelta={0.5}
+                zoomSnap={0.5}
+                /**
+                 * OFF, so the credit can be placed rather than defaulted. See
+                 * AttributionControl below.
+                 */
+                attributionControl={false}
               >
                 {/* Top-right, pushed clear of the instruction bar by CSS. The
                     only zoom affordance on the map. */}
                 <ZoomControl position="topright" />
+                {/* THE CREDIT, IN THE TOP-LEFT GAP.
+                
+                    Leaflet defaults it to the bottom right, which is where the
+                    action banner now is. The top-left corner is empty by
+                    construction: the instruction bar is centred in its row and
+                    the step rail begins in the row below it, so the space
+                    above the rail belongs to nothing.
+
+                    IT IS A LICENSING REQUIREMENT, NOT A FEATURE. Esri's terms
+                    require it and it is not ours to remove -- but it must not
+                    read as a control either, so it is muted ink at the
+                    smallest size in the system, with no hover state that
+                    invites a press. App.css gives it the floating-card
+                    treatment every other region has (opaque surface, hairline,
+                    inset) rather than leaving it bare on the imagery, which is
+                    what the rest of this shell decided a region looks like. */}
+                <AttributionControl position="topleft" prefix={false} />
                 <TileLayer url={BASEMAP.url} attribution={BASEMAP.attribution} maxZoom={19} />
                 <MapRecenter center={mapCenter} zoom={18} />
                 {/* THE LAYER STACK. It composes basemap → context → committed

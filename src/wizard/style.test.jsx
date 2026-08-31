@@ -720,19 +720,38 @@ describe('5. the quality floor', () => {
     }
     expect(propsOf(ruleFor(COMPONENTS, '.chrome-tab')).border).toBe('var(--hairline)')
 
-    // THE ONE EXCEPTION, AND IT IS DELIBERATE. Leaflet's and Esri's credit is
-    // a licensing requirement rather than a control: nobody reads it at a
-    // glance, and a panel behind it would give it the standing of the chrome
-    // that carries the work. It takes a glyph-carried halo instead, which is
-    // the same answer the map's linework gets and for the same reason.
+    // THERE IS NO EXCEPTION ANY MORE, AND THE CREDIT IS THE ONE THAT CHANGED.
+    //
+    // This assertion used to require the opposite: `background: none` and a
+    // glyph-carried halo, on the argument that a credit is a licensing
+    // requirement rather than a control and "a panel behind it would give it
+    // the standing of the chrome that carries the work." That was an argument
+    // about STANDING made while the credit sat alone in the bottom-right
+    // corner over the imagery.
+    //
+    // It is in the top-left card gap now, in a row with the instruction bar
+    // and above the rail. A haloed line floating bare between two cards does
+    // not read as lower standing there; it reads as the one region that
+    // failed to get its background. So it takes the same three the others
+    // take, and its lower standing is carried the way this system carries it
+    // everywhere else -- by size and by ink.
+    //
     // MATCHED TO LEAFLET'S OWN SELECTOR. Its rule is
     // `.leaflet-container .leaflet-control-attribution`, which outranks a bare
-    // class -- the rule that lived here before this branch used one and lost
-    // the cascade silently, so the white box on screen was Leaflet's the whole
-    // time. The specificity is part of the assertion.
+    // class -- a rule that used one lost the cascade silently, so the white box
+    // on screen was Leaflet's the whole time. The specificity is part of the
+    // assertion.
     const credit = propsOf(ruleFor(COMPONENTS, '.leaflet-container .leaflet-control-attribution'))
-    expect(credit.background).toBe('none')
-    expect(credit['text-shadow']).toBe('var(--halo-text)')
+    expect(credit.background).toBe('var(--paper)')
+    expect(credit.border).toBe('var(--hairline)')
+    expect(credit['border-radius']).toBe('var(--radius)')
+    // STILL NOT A CONTROL: muted ink, the smallest size in the scale, no
+    // accent anywhere in it.
+    expect(credit.color).toBe('var(--ink-muted)')
+    expect(credit['font-size']).toBe('var(--text-xs)')
+    expect(ruleFor(COMPONENTS, '.leaflet-container .leaflet-control-attribution')).not.toContain(
+      '--oxide'
+    )
     // The overlay itself is NOT a surface: it spans the whole map and must let
     // every gesture through.
     expect(propsOf(ruleFor(COMPONENTS, '.chrome'))['pointer-events']).toBe('none')

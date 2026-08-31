@@ -591,3 +591,124 @@ describeIf('the rail, on screen', () => {
     await ui.close()
   }, SLOW)
 })
+
+/* ===========================================================================
+   THE ATTRIBUTION, IN THE TOP-LEFT GAP, AT THREE VIEWPORT HEIGHTS
+   ===========================================================================
+   THIS ONE OPENS THE APP, NOT THE HARNESS, and it is the only test in this
+   file that does. The harness deliberately mounts NO LEAFLET -- its own
+   docblock says why: the chrome floats over the map and takes nothing from it,
+   and a page waiting on tile fetches makes a geometry test flaky for a reason
+   unrelated to geometry. But the credit IS a Leaflet control, positioned by
+   Leaflet into a corner Leaflet owns, and the claim under test is where that
+   corner lands relative to a chrome region. A stand-in element with the same
+   class in a hand-built corner would be a copy of the thing under test, which
+   is the failure mode the harness exists to avoid.
+
+   So this drives the shipped index.html through the same dev server. THE
+   TILES ARE ABORTED at the route level: there is no route to Esri from a
+   sandbox, and the control container's geometry does not depend on whether a
+   tile arrived. Nothing else is stubbed.
+
+   THREE HEIGHTS, because the gap the credit sits in is made by the rail being
+   top-inset under a bar of its own, and "that gap exists" is a claim about a
+   layout that could close up on a shorter window.
+   =========================================================================== */
+
+describeIf('the attribution, at four viewport heights', () => {
+  /** The app's own page, with the basemap's tiles refused. */
+  async function openApp(height) {
+    const page = await browser.newPage({ viewport: { width: 1280, height } })
+    await page.route('**/server.arcgisonline.com/**', (route) => route.abort())
+    await page.goto(server.resolvedUrls.local[0], { waitUntil: 'load' })
+    await page.waitForSelector('.leaflet-control-attribution')
+    const box = async (selector) => {
+      const handle = await page.$(selector)
+      return handle ? await handle.boundingBox() : null
+    }
+    return { page, box, close: () => page.close() }
+  }
+
+  for (const height of [1000, 800, 620, 480]) {
+    it(`sits in the top-left card gap, clear of the rail, at ${height}px`, async () => {
+      const ui = await openApp(height)
+
+      const credit = await ui.box('.leaflet-control-attribution')
+      const stage = await ui.box('.map-stage')
+      const rail = await ui.box('.chrome-rail')
+      const bar = await ui.box('.chrome-bar')
+
+      expect(credit, 'the credit is rendered').not.toBeNull()
+      expect(rail, 'the rail is rendered').not.toBeNull()
+
+      // IT HAS A BOX AT ALL, which is the first thing a card has and a bare
+      // haloed line does not.
+      expect(credit.width).toBeGreaterThan(0)
+      expect(credit.height).toBeGreaterThan(0)
+
+      // TOP-LEFT, AT THE CARD INSET -- the same --space-3 every other region
+      // keeps from the stage's edge, rather than the chrome-dodging offsets
+      // Leaflet's other three corners take.
+      expect(credit.x - stage.x, 'the credit keeps the card inset on the left').toBeCloseTo(
+        EDGE,
+        0
+      )
+      expect(credit.y - stage.y, 'the credit keeps the card inset at the top').toBeCloseTo(EDGE, 0)
+
+      // CLEAR OF THE RAIL, WHICH IS THE WHOLE POINT OF THE GAP. The rail
+      // begins in the grid row below the instruction bar; the credit sits in
+      // the row above it. No overlap, in either axis-pair.
+      expect(
+        overlaps(credit, rail),
+        `the credit must not collide with the rail at ${height}px`
+      ).toBe(false)
+
+      // AND CLEAR OF THE INSTRUCTION BAR, which is centred in that same row --
+      // the gap is what the centring leaves on the left.
+      expect(
+        overlaps(credit, bar),
+        `the credit must not collide with the instruction bar at ${height}px`
+      ).toBe(false)
+
+      // IT IS NOT OVER THE OPEN MAP EITHER: it is at the edge, in the corner
+      // the layout left for it.
+      expect(credit.x + credit.width).toBeLessThan(stage.x + stage.width / 2)
+
+      await ui.close()
+    }, SLOW)
+  }
+
+  it('keeps the floating-card treatment rather than sitting bare on the imagery', async () => {
+    const ui = await openApp(800)
+    const style = await ui.page.$eval('.leaflet-control-attribution', (node) => {
+      const computed = getComputedStyle(node)
+      return {
+        background: computed.backgroundColor,
+        borderWidth: computed.borderTopWidth,
+        borderStyle: computed.borderTopStyle,
+        color: computed.color,
+        textShadow: computed.textShadow,
+      }
+    })
+
+    // AN OPAQUE SURFACE. Not transparent, and not the halo it used to carry:
+    // both of those read as the one region that failed to get a background,
+    // now that it sits among the cards rather than alone over the imagery.
+    expect(style.background).not.toBe('rgba(0, 0, 0, 0)')
+    expect(style.background).not.toBe('transparent')
+    expect(style.textShadow === 'none' || style.textShadow === '').toBe(true)
+    // A HAIRLINE, on all four sides.
+    expect(style.borderStyle).toBe('solid')
+    expect(parseFloat(style.borderWidth)).toBeCloseTo(1, 1)
+
+    await ui.close()
+  }, SLOW)
+})
+
+/** Do two rendered rectangles share any area? */
+function overlaps(a, b) {
+  if (!a || !b) return false
+  return (
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+  )
+}

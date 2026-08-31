@@ -400,9 +400,7 @@ describe('1. stack composition', () => {
     const ui = await renderSurface()
     await withLandform(ui, { steps: true })
 
-    // landform is committed, so the wizard's cursor has moved on to water --
-    // which has no registry entry in this build. The stack still draws every
-    // committed step's work, which is the band's whole reason for existing.
+    // landform is committed, so the wizard's cursor has moved on to water.
     expect(ui.cursor.cursorStepId).toBe('water')
 
     const composed = composeLayerStack({
@@ -411,22 +409,55 @@ describe('1. stack composition', () => {
       cursorStepId: ui.cursor.cursorStepId,
     })
 
-    // The two committed rings/features, in band order and nothing else: the
-    // cursor step declares no layers this build knows about.
-    expect(composed.map((layer) => layer.band)).toEqual(['committed', 'committed'])
+    /**
+     * THE BAND ORDER, WITH A SECOND DEFINITION IN THE REGISTRY.
+     *
+     * This assertion used to read `['committed', 'committed']` and said so on
+     * the grounds that "the cursor step declares no layers this build knows
+     * about" -- true while water was unregistered. It is registered now, and
+     * what the change proves is the thing the assertion was always for: the
+     * stack placed a step it had never seen, in the right band, off its
+     * declarations alone. Nothing in layerStack.js was touched to make water
+     * appear here.
+     *
+     * ONE CONTEXT (water's off-parcel scrim), the TWO COMMITTED layers from
+     * the two steps that have committed, then water's TWO EDITABLE zone
+     * layers -- which resolve even while empty, because that is what editable
+     * means.
+     */
+    expect(composed.map((layer) => layer.band)).toEqual([
+      'context',
+      'committed',
+      'committed',
+      'editable',
+      'editable',
+    ])
     expect(composed.map((layer) => layer.layerId)).toEqual([
+      'water-offparcel',
       'boundary-committed',
       'landform-committed',
+      'water-embankment',
+      'water-excavated',
     ])
 
-    // ...and it reached Leaflet as panes, in ascending z within the band.
+    // ...and it reached Leaflet as panes, in ascending z within each band.
     const panes = ui.panes()
     expect(panes.map((p) => p.key)).toEqual([
+      'water--water-offparcel',
       'boundary--boundary-committed',
       'landform--landform-committed',
+      'water--water-embankment',
+      'water--water-excavated',
     ])
-    expect(panes.map((p) => p.z)).toEqual([BAND_BASE_Z.committed, BAND_BASE_Z.committed + 1])
-    expect(panes.every((p) => p.band === 'committed')).toBe(true)
+    expect(panes.map((p) => p.z)).toEqual([
+      BAND_BASE_Z.context,
+      BAND_BASE_Z.committed,
+      BAND_BASE_Z.committed + 1,
+      BAND_BASE_Z.editable,
+      BAND_BASE_Z.editable + 1,
+    ])
+    // STRICTLY ASCENDING, which is the claim: no step can reorder the bands.
+    expect(panes.map((p) => p.z)).toEqual([...panes.map((p) => p.z)].sort((a, b) => a - b))
 
     await ui.unmount()
   })

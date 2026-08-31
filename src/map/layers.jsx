@@ -72,6 +72,30 @@ function getStackColors() {
   return stackColors
 }
 
+/**
+ * The colour a DECLARED TREATMENT resolves to.
+ *
+ * THE NAME COMES OFF THE DECLARATION AND THE VALUE COMES OFF :root, which is
+ * how a second step got two marks of its own without a colour reaching this
+ * file. A layer declaring `treatment: 'survey-embankment'` is asking for the
+ * `--survey-embankment` token; this reads it, caches it for the reason
+ * getStackColors() has a cache, and knows nothing else about it.
+ *
+ * A TREATMENT THAT NAMES NO TOKEN RESOLVES TO AN EMPTY STRING and Leaflet
+ * draws the path in its own default. That is deliberately not an exception:
+ * defineLayer() already refuses a treatment that is not a token-shaped name,
+ * and a missing token is a stylesheet problem visible on the map rather than
+ * a crash in the layer stack.
+ */
+const treatmentColors = new Map()
+
+function treatmentColor(treatment) {
+  if (!treatmentColors.has(treatment)) {
+    treatmentColors.set(treatment, readToken(`--${treatment}`))
+  }
+  return treatmentColors.get(treatment)
+}
+
 // The halo-casing rule DrawTool established, and the reason is its: no single
 // colour clears 3:1 against the range of tones in one aerial frame, so map
 // geometry is cased rather than recoloured.
@@ -104,6 +128,18 @@ const ELIGIBLE_OPACITY = 0.32
 
 /** Committed geometry is settled: no dash, no fill weight, nothing to invite a click. */
 const COMMITTED_FILL_OPACITY = 0.12
+
+/**
+ * A treated layer's fill, under its own cased edge.
+ *
+ * LIGHTER THAN THE COMMITTED FILL, on purpose. Two treated layers can and do
+ * overlap -- the water step's two survey instruments report the same ground
+ * from two surfaces, and cross_type_overlaps is the finding that they agree --
+ * so a fill heavy enough to read on its own doubles exactly where the
+ * agreement is and invents a third category out of two. The EDGE is the mark;
+ * the fill is only enough to tie an edge to the ground inside it.
+ */
+const TREATMENT_FILL_OPACITY = 0.1
 
 /**
  * A layer, drawn. The renderer is picked by `kind`; within `polygon`, the
@@ -325,6 +361,11 @@ function FeatureLayer({
   const isEditable = layer.band === 'editable'
   const isProposal = layer.source === 'proposals'
   const isDrawn = layer.source === 'draft'
+  // DECLARED, NOT DERIVED, and that is the whole of the field's reason: band
+  // and source are three treatments for three MEANINGS, and a step whose two
+  // layers share a band, a source and a meaning had nothing left to say them
+  // apart with. See `treatment` in stepDefinitions.js's LAYER SCHEMA.
+  const treatment = layer.treatment ?? null
 
   /**
    * EYE-OFF IS NOT DRAWN AT ALL, and this filter is the whole of what replaced
@@ -346,15 +387,29 @@ function FeatureLayer({
   return (
     <>
       {/* THE CASING PASS, FIRST so it paints underneath -- within one SVG pane,
-          later elements draw on top. Only a drawn shape is cased: a
-          suggestion has no outline to case. */}
-      {isDrawn
+          later elements draw on top.
+
+          TWO KINDS OF LAYER ARE CASED, and both because they have an OUTLINE
+          to case: a shape the user drew, and a layer that declared a
+          `treatment`. A plain suggestion is hatched with no outline at all,
+          so there is nothing to lay a casing under.
+
+          THE CASING IS WHY A TREATMENT ONLY HAS TO DIFFER FROM ITS SIBLING.
+          --halo under the line is what carries it over water, canopy and bare
+          soil in one frame; the token on top is what says which of the two
+          instruments drew it. Neither colour is trying to beat the imagery,
+          because no single colour can. */}
+      {isDrawn || treatment
         ? features.map((feature) => (
             <GeoJSON
               key={`casing-${feature.id}`}
               data={feature}
               interactive={false}
-              style={{ color: halo, weight: DRAWN_CASING_WEIGHT, fill: false }}
+              style={{
+                color: halo,
+                weight: treatment ? CASING_WEIGHT : DRAWN_CASING_WEIGHT,
+                fill: false,
+              }}
             />
           ))
         : null}
@@ -382,6 +437,7 @@ function FeatureLayer({
               isEditable,
               isProposal,
               isDrawn,
+              treatment,
               rejection,
               colors: { field, accent, ink, halo },
             })}
@@ -450,7 +506,7 @@ function focusClass(base, isFocused) {
   return isFocused ? `${base} zone--focused` : base
 }
 
-function styleFor({ isFocused, isEditable, isProposal, isDrawn, rejection, colors }) {
+function styleFor({ isFocused, isEditable, isProposal, isDrawn, treatment, rejection, colors }) {
   if (rejection) {
     // Rejected geometry is neither settled nor a candidate: it is the reason
     // the commit did not happen. Solid, alert-coloured, and unmissable.
@@ -472,6 +528,28 @@ function styleFor({ isFocused, isEditable, isProposal, isDrawn, rejection, color
       weight: DRAWN_LINE_WEIGHT,
       fill: true,
       className: focusClass('zone--drawn', isFocused),
+    }
+  }
+
+  // A DECLARED TREATMENT BEATS THE DERIVED ONES, and it sits above the
+  // proposal arm rather than beside it: a treated layer is still a proposal
+  // being decided about, it just says which KIND of proposal in its own line
+  // rather than borrowing the one every proposal shares.
+  //
+  // A LINE RATHER THAN A HATCH. The hatch says "ground to work" and belongs to
+  // the step that works ground. A survey zone is ground to WALK -- nothing is
+  // built on it yet and its edge is the envelope you would pace out -- so it
+  // is drawn as an edge with a light fill under it, cased in --halo by the
+  // pass above.
+  if (treatment) {
+    return {
+      stroke: true,
+      color: treatmentColor(treatment),
+      weight: LINE_WEIGHT,
+      fill: true,
+      fillColor: treatmentColor(treatment),
+      fillOpacity: TREATMENT_FILL_OPACITY,
+      className: focusClass(`zone--${treatment}`, isFocused),
     }
   }
 
