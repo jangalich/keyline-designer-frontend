@@ -1484,46 +1484,46 @@
    sharing the default overlayPane.
    --------------------------------------------------------------------------- */
 
-/* Suggested zones: hatch, no outline, no fill of their own.
+/* THE ZONE FILLS ARE NOT HERE ANY MORE, and that is the point of the change
+   that moved them.
 
-   A stylesheet rule beats a presentation attribute, which is the whole
-   mechanism here — Leaflet writes fill and fill-opacity as ATTRIBUTES on each
-   path, and these override them without the component having to know a paint
-   server exists. The pattern itself is injected into this pane's own <svg> by
-   ProductionHatchPattern; the id is its HATCH_PATTERN_ID.
+   One blanket rule used to point EVERY proposal polygon at the production
+   hatch, keyed on `stack-layer--source-proposals` -- the declaration's own
+   vocabulary, which was the right instinct while one step had zones. The
+   moment a second step declared a polygon layer it inherited production's
+   mark, because "is a proposal" is not "is production ground".
 
-   KEYED ON THE LAYER'S VOCABULARY, not on a pane name. The stack names panes
-   `<step>--<layer>` (layers.jsx), so a rule keyed on one would be a rule about
-   one step; `stack-layer--source-proposals` and `stack-layer--kind-polygon`
-   are the declaration's own words and apply to whatever declares them.
+   A layer declares its `treatment` now, layers.jsx turns that into
+   `url(#zone-pattern-<treatment>)` and hands it to Leaflet as the path's fill,
+   and ProductionHatchPattern owns what each pattern looks like. So there is no
+   table of treatments in this stylesheet to keep in agreement with the one in
+   the step definitions, and a step added later needs no rule here at all.
 
-   fill-rule stays evenodd (Leaflet's own attribute, not overridden) so a
-   zone's interior rings still read as holes under the hatch. */
-.stack-layer--source-proposals.stack-layer--kind-polygon path,
-.stack-layer--source-draft.stack-layer--kind-polygon path.zone--drawn {
-  fill: url(#production-hatch);
-  fill-opacity: 1;
-}
+   WHAT IS STILL SET FROM CSS is below: the focus mark's absence is a deletion
+   rather than a rule, and the drawn zone's outline is a pathOption. Both are
+   in layers.jsx with the geometry they belong to. */
 
-/* THE FOCUSED FEATURE — the one the detail panel is describing.
+/* THE FOCUSED FEATURE -- the one the detail panel is describing.
 
-   A CASED OUTLINE, which is the same answer the drawn zone's edge gets and for
-   the same reason: a single-colour line cannot beat arbitrary satellite
-   imagery, so the mark is a light halo under a dark stroke and reads against
-   canopy, bare soil and water alike. Not a fill and not a colour change — the
-   fill is already saying what the ground is FOR, and overriding it would make
-   "I am reading this one" and "this is production ground" compete for the same
-   channel.
+   NO RULE, AND THE DELETION IS THE FEATURE. It was a cased outline here:
+   `stroke: var(--ink); stroke-width: 2.5px`, argued at the time as the same
+   answer the drawn zone's edge gets. That argument was about LEGIBILITY and it
+   was sound; what it missed is that an outline on a suggestion says something
+   false about the suggestion. A hard edge reads as a surveyed line -- a
+   boundary, a fence, something someone measured and agreed -- and a
+   recommendation's edge is its least certain part. Adding one to say "I am
+   reading this one" made the mark for reading and the mark for certainty the
+   same mark.
 
-   NOT --oxide, THOUGH IT IS AN ACCENT OF A KIND. Oxide marks the single
-   forward move, which is a control; this is a map mark, and there may be one
-   of each on screen at once. --ink over --halo is the map's own emphasis
-   vocabulary and is what the boundary's own vertices already use. */
-.stack-layer path.zone--focused {
-  stroke: var(--ink);
-  stroke-width: 2.5px;
-  paint-order: stroke;
-}
+   The focus is a change in the PATTERN'S OPACITY now (--pattern-focused
+   against --pattern-active, set in layers.jsx from the tokens), so the zone
+   you are reading is the most present thing on the map without any state
+   adding an edge. `.zone--focused` survives as the class, because the class is
+   what the tests and the DOM inspector address; it simply carries no stroke.
+
+   THE ONE SURVIVOR IS `.zone--rejected`, and it is not a zone state: a 422 is
+   the server refusing this exact shape, it has to be findable among zones that
+   all look correct, and its stroke is set in layers.jsx with its reason. */
 
 /* A caution marker. Small, fixed screen size, and deliberately not a colour
    the rest of the map uses for anything else — it is the only element on this
@@ -1550,8 +1550,10 @@
 }
 
 /* A drawn zone's casing must not take the hatch — it is the outline's shadow,
-   not a second filled shape. The rule above hatches only the path carrying
-   .zone--drawn; the casing carries none, and Leaflet's own fill="none" stands. */
+   not a second filled shape. Still true, and no longer this file's doing: the
+   casing pass is rendered with `fill: false` in layers.jsx, and the hatch now
+   arrives as a pathOption on the path itself rather than as a rule here, so
+   there is nothing for the casing to pick up. */
 
 /* Eligible highlight: a feathered edge, so it reads as suitability falling
    off rather than as a line someone drew.

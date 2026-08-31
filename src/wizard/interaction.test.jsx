@@ -667,10 +667,23 @@ describe('6. the dotted declined treatment', () => {
   it('leaves the treatments that were never in question', async () => {
     // The visual language this branch must not touch: the hatch, the casing,
     // the eligible highlight and the off-parcel scrim.
-    const css = readFileSync(path.join(SRC, 'App.css'), 'utf8')
-    expect(css).toContain('url(#production-hatch)')
-    expect(css).toContain('.stack-layer--kind-highlight')
+    //
+    // THE HATCH MOVED HOUSE AND THIS ASSERTION MOVED WITH IT. It used to read
+    // `css.toContain('url(#production-hatch)')`, because one blanket rule in
+    // App.css pointed every proposal polygon at the hatch. That rule was what
+    // made a second step inherit production's mark, so the fill is a
+    // pathOption now and the pattern id is built from the layer's declared
+    // treatment. The hatch is still exactly the hatch -- same spacing, same
+    // weight, same token -- and it is still asserted, where it lives.
+    const patterns = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+    expect(patterns).toContain("treatment: 'production'")
+    expect(patterns).toContain("kind: 'hatch'")
+    expect(patterns).toContain("token: '--oxide'")
     const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
+    expect(layers).toContain('patternIdFor')
+
+    const css = readFileSync(path.join(SRC, 'App.css'), 'utf8')
+    expect(css).toContain('.stack-layer--kind-highlight')
     expect(layers).toContain('DRAWN_CASING_WEIGHT')
     expect(layers).toContain('ScrimLayer')
   })

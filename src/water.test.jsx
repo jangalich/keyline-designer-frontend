@@ -52,9 +52,13 @@ import {
   surveyZoneFeatures,
   surveyZoneName,
 } from './wizard/stepDefinitions'
+import TabStrip, { COLLAPSED_TAB_CAP, collapsedTabs } from './wizard/shell/TabStrip.jsx'
+import { LANDFORM_STEP } from './wizard/stepDefinitions'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
 import MapLayerStack from './map/MapLayerStack.jsx'
+import { styleFor } from './map/layers.jsx'
+import { patternIdFor } from './ProductionHatchPattern.jsx'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
 import { MapContainer } from 'react-leaflet'
 import rings from './fixtures/rings.json'
@@ -90,6 +94,13 @@ const BOUNDARY = toLatLng(rings.boundary)
 beforeAll(() => {
   const tokens = readFileSync(path.join(SRC, 'index.css'), 'utf8')
   for (const [, name, value] of tokens.matchAll(/(--[a-z0-9-]+):\s*(#[0-9a-fA-F]{3,8})\s*;/g)) {
+    document.documentElement.style.setProperty(name, value)
+  }
+  // THE PATTERN LEVELS TOO, and for the same reason: they are numbers rather
+  // than colours, but they are read off the document by the same mechanism --
+  // Leaflet cannot resolve a var() in a pathOption, so a level is a token read
+  // at render. Without them every zone renders at opacity 0 under jsdom.
+  for (const [, name, value] of tokens.matchAll(/(--pattern-[a-z-]+):\s*([\d.]+)\s*;/g)) {
     document.documentElement.style.setProperty(name, value)
   }
 })
@@ -196,6 +207,10 @@ async function renderApp() {
     },
     async focus(featureId) {
       await React.act(async () => cursor.focusFeature(featureId))
+    },
+    /** A click on bare map, the way Leaflet delivers one to its listeners. */
+    async clickMap() {
+      await React.act(async () => map.fire('click', { latlng: L.latLng(...BOUNDARY[0]) }))
     },
     async waitFor(what, predicate, timeoutMs = 240000) {
       const deadline = Date.now() + timeoutMs
@@ -412,46 +427,71 @@ describe('3. two treatments, both cased', () => {
     expect(editable[1].filter(member)).toBe(false)
   })
 
-  it('names two tokens at :root and no colour anywhere else', () => {
+  it('derives the embankment blue against a stated ceiling, and names both at :root', () => {
     const tokens = readFileSync(path.join(SRC, 'index.css'), 'utf8')
-    // BOTH DEFINED, AT :root, IN THE BLUE FAMILY WITH ONE DARKER.
-    const embankment = tokens.match(/--survey-embankment:\s*(#[0-9a-fA-F]{6})/)
     const excavated = tokens.match(/--survey-excavated:\s*(#[0-9a-fA-F]{6})/)
-    expect(embankment).not.toBeNull()
+    const embankment = tokens.match(/--survey-embankment:\s*(#[0-9a-fA-F]{6})/)
+    const halo = tokens.match(/--halo:\s*(#[0-9a-fA-F]{6})/)
     expect(excavated).not.toBeNull()
-    expect(luminance(embankment[1])).toBeGreaterThan(luminance(excavated[1]))
+    expect(embankment).not.toBeNull()
+
+    // BOTH BLUE, ONE LIGHTER -- and a TONAL PAIR rather than two colours:
+    // same hue and saturation, so the step is carried by the pattern and only
+    // the type is carried by the value.
     expect(isBlue(embankment[1])).toBe(true)
     expect(isBlue(excavated[1])).toBe(true)
+    expect(luminance(embankment[1])).toBeGreaterThan(luminance(excavated[1]))
+    expect(Math.abs(hueOf(embankment[1]) - hueOf(excavated[1]))).toBeLessThan(2)
+    expect(Math.abs(saturationOf(embankment[1]) - saturationOf(excavated[1]))).toBeLessThan(0.05)
 
     /**
-     * FAR ENOUGH APART TO TELL APART, MEASURED RATHER THAN EYEBALLED.
+     * THE CEILING, DERIVED HERE RATHER THAN TAKEN ON TRUST.
      *
-     * "One darker" is not a threshold. The first pair written here was 2.09:1
-     * -- a difference you can find once you know it is there and cannot see at
-     * a glance across a parcel with six zones on it. 3:1 is the non-text
-     * contrast floor and it is the right one here: these are two marks that
-     * have to be distinguished from EACH OTHER.
+     * The embankment blue has to clear the excavated blue AND the --halo its
+     * own stipple dots sit on, and it has to be LIGHTER than the excavated
+     * one -- so it is squeezed between the two. The best any colour between
+     * two others can manage against both is the geometric mean of the pair's
+     * own contrast: at the midpoint the two ratios are equal, and any move
+     * from it raises one only by lowering the other.
+     *
+     * #3d5a6c is 7.30:1 from --halo, so the ceiling is sqrt(7.30) = 2.70:1.
+     * 3:1 IS NOT REACHABLE and asking for it would have meant changing the
+     * given excavated blue. Computed from the tokens rather than written down,
+     * so retuning either end moves the target instead of stranding it.
      */
-    expect(contrast(embankment[1], excavated[1])).toBeGreaterThanOrEqual(3)
+    const ceiling = Math.sqrt(contrast(excavated[1], halo[1]))
+    expect(ceiling).toBeLessThan(3)
 
-    /**
-     * AND EACH CLEARS ITS OWN CASING. The --halo stroke under the line is what
-     * carries it over water, canopy and bare soil in one frame -- but only if
-     * the line reads against the casing. The lighter of the two is the one
-     * this can fail for, which is why it is checked rather than assumed.
-     */
-    const halo = tokens.match(/--halo:\s*(#[0-9a-fA-F]{6})/)[1]
-    expect(contrast(embankment[1], halo)).toBeGreaterThanOrEqual(3)
-    expect(contrast(excavated[1], halo)).toBeGreaterThanOrEqual(3)
+    const vsExcavated = contrast(embankment[1], excavated[1])
+    const vsHalo = contrast(embankment[1], halo[1])
 
-    // NOWHERE ELSE. The renderer reads the token by the name the layer
-    // declared; no literal reaches the component stylesheet or the map code.
+    // ON THE CEILING, TO WITHIN A THOUSANDTH, ON BOTH SIDES. A one-sided
+    // assertion would pass for a colour that bought one ratio with the other,
+    // which is exactly the failure this is here to catch.
+    expect(vsExcavated).toBeGreaterThan(ceiling - 0.01)
+    expect(vsHalo).toBeGreaterThan(ceiling - 0.01)
+    expect(Math.abs(vsExcavated - vsHalo)).toBeLessThan(0.01)
+
+    // AND THE EXCAVATED BLUE CLEARS ITS OWN CASING COMFORTABLY -- it is the
+    // dark end, so nothing is squeezing it.
+    expect(contrast(excavated[1], halo[1])).toBeGreaterThanOrEqual(3)
+  })
+
+  it('keeps every colour literal at :root', () => {
+    // The renderer reads a token by the name the layer declared; no literal
+    // reaches the component stylesheet, the stack, the definitions or the
+    // pattern host.
     const components = readFileSync(path.join(SRC, 'App.css'), 'utf8').replace(
       /\/\*[\s\S]*?\*\//g,
       ''
     )
     expect(components.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).toEqual([])
-    for (const file of ['map/layers.jsx', 'map/layerStack.js', 'wizard/stepDefinitions.js']) {
+    for (const file of [
+      'map/layers.jsx',
+      'map/layerStack.js',
+      'wizard/stepDefinitions.js',
+      'ProductionHatchPattern.jsx',
+    ]) {
       const source = readFileSync(path.join(SRC, file), 'utf8')
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/^\s*\/\/.*$/gm, '')
@@ -459,14 +499,23 @@ describe('3. two treatments, both cased', () => {
     }
   })
 
-  it('casts a --halo casing under a treated line, which is what carries it over imagery', () => {
-    const source = readFileSync(path.join(SRC, 'map/layers.jsx'), 'utf8')
-    // The casing pass fires for a treated layer as well as a drawn one, and
-    // the casing colour is the halo -- the same technique the boundary and the
-    // drawn zones use, rather than a colour picked to beat the imagery.
-    expect(source).toMatch(/isDrawn \|\| treatment/)
-    expect(source).toMatch(/color: halo/)
-    expect(source).toMatch(/readToken\(`--\$\{treatment\}`\)/)
+  it('cases the pattern\'s own marks, now that no zone has an edge to case', () => {
+    const patterns = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+    // THE CASING MOVED INTO THE PATTERN. A stipple dot carries a --halo ring
+    // under it -- the same halo-casing rule the boundary and the drawn zones
+    // use, applied to the marks that now do the work, because a pattern has no
+    // outline to lay a casing under.
+    expect(patterns).toContain('STIPPLE_HALO_PX')
+    expect(patterns).toContain("readToken('--halo')")
+    expect(patterns).toMatch(/stippleTile\(spec, colour, halo\)/)
+
+    // AND THE ZONE ITSELF IS NOT CASED. layers.jsx cases a drawn shape and
+    // nothing else; a treated layer used to be cased and no longer is.
+    const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+    expect(layers).toMatch(/\{isDrawn\s*$/m)
+    expect(layers).not.toMatch(/isDrawn \|\| treatment/)
   })
 
   liveIt('renders the two types into two panes with two classes', async () => {
@@ -487,12 +536,19 @@ describe('3. two treatments, both cased', () => {
     expect(excavatedPaths.length).toBe(excavated.length)
     expect(embankmentPane.querySelector('.zone--survey-excavated')).toBeNull()
 
-    // DISTINCT STROKES, from the two tokens.
-    const strokes = new Set([
-      embankmentPaths[0].getAttribute('stroke'),
-      excavatedPaths[0].getAttribute('stroke'),
+    // DISTINCT FILLS, EACH POINTING AT ITS OWN PATTERN -- and NO STROKE on
+    // either. This assertion used to compare the two paths' `stroke`
+    // attributes, back when a treatment was a cased line; the mark is the
+    // pattern now and a zone carries no edge in any state.
+    const fills = new Set([
+      embankmentPaths[0].getAttribute('fill'),
+      excavatedPaths[0].getAttribute('fill'),
     ])
-    expect(strokes.size).toBe(2)
+    expect(fills.size).toBe(2)
+    expect([...fills].every((fill) => fill.startsWith('url(#zone-pattern-'))).toBe(true)
+    for (const path of [embankmentPaths[0], excavatedPaths[0]]) {
+      expect(path.getAttribute('stroke')).toBe('none')
+    }
 
     await ui.unmount()
   })
@@ -515,6 +571,25 @@ function contrast(a, b) {
 function isBlue(hex) {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
   return b > r && b > g
+}
+
+/** Hue in degrees, for asserting the two survey values are one tonal pair. */
+function hueOf(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  if (max === min) return 0
+  const d = max - min
+  const h =
+    max === r ? ((g - b) / d + (g < b ? 6 : 0)) : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+  return h * 60
+}
+
+/** HSV saturation, the other half of "same colour, different lightness". */
+function saturationOf(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+  const max = Math.max(r, g, b)
+  return max === 0 ? 0 : (max - Math.min(r, g, b)) / max
 }
 
 /* ===========================================================================
@@ -747,6 +822,326 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
       .map((n) => n.textContent)
       .filter((t) => t.includes('overlapped by'))
     expect(after).toEqual(before)
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   THE MARK IS THE PATTERN: NO ZONE CARRIES A STROKE IN ANY STATE
+   =========================================================================== */
+
+/**
+ * The four colours styleFor is handed. Values are irrelevant to every
+ * assertion below -- what is under test is whether a stroke is set at all and
+ * which pattern the fill points at -- so these are named rather than read.
+ */
+const COLORS = { field: 'F', accent: 'A', ink: 'I', halo: 'H' }
+
+describe('the pattern is the mark', () => {
+  /**
+   * EVERY STATE A ZONE CAN BE IN, THROUGH THE REAL styleFor.
+   *
+   * ASSERTED ON THE ABSENCE OF A STROKE, NOT ON A CLASS NAME. A class says
+   * which rule was chosen; `stroke: false` is the thing that is actually true
+   * of the rendered path, and it is what a reader looking at the map sees.
+   */
+  const states = [
+    { name: 'uncommitted, in the commit, not being read', style: { treatment: 'production' } },
+    { name: 'focused -- the one being read', style: { treatment: 'production', isFocused: true } },
+    { name: 'committed', style: { treatment: 'production', isCommitted: true } },
+    { name: 'water, uncommitted', style: { treatment: 'survey-embankment' } },
+    { name: 'water, focused', style: { treatment: 'survey-excavated', isFocused: true } },
+    { name: 'water, committed', style: { treatment: 'survey-excavated', isCommitted: true } },
+    { name: 'a layer that declared no treatment', style: {} },
+  ]
+
+  for (const state of states) {
+    it(`renders no stroke: ${state.name}`, () => {
+      const style = styleFor({ ...state.style, colors: COLORS })
+      expect(style.stroke).toBe(false)
+      // Not merely `stroke: false` with a weight left behind for something to
+      // switch back on.
+      expect(style.weight).toBeUndefined()
+      expect(style.dashArray).toBeUndefined()
+    })
+  }
+
+  it('leaves the unselected state with nothing to draw at all', () => {
+    // THE FOURTH STATE IS AN ABSENCE. A zone whose eye is closed is not drawn
+    // -- FeatureLayer filters it before any style is chosen -- so "does it
+    // carry a stroke" has no path to ask it of. That is the eye's own
+    // treatment and it predates the pattern scheme.
+    const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
+    expect(layers).toMatch(/isEditable\s*\n?\s*\?\s*layer\.features\.filter/)
+  })
+
+  it('DOES still outline a drawn zone, which is the distinction rather than an exception', () => {
+    // A drawn zone's edge was placed vertex by vertex, deliberately and
+    // exactly, so a hard line is TRUE of it. The pattern says what the ground
+    // is for; the edge says whether its boundary is a suggestion or a decision.
+    const drawn = styleFor({ isDrawn: true, treatment: 'production', colors: COLORS })
+    expect(drawn.stroke).toBe(true)
+    expect(drawn.weight).toBeGreaterThan(0)
+    // ...and it carries the pattern too, so it is the same KIND of ground.
+    expect(drawn.fillColor).toContain('url(#')
+  })
+
+  it('keeps the 422 outline, which is not a zone state', () => {
+    // REPORTED RATHER THAN QUIETLY REMOVED. A rejection is the server refusing
+    // this exact shape; it has to be findable among zones that all look
+    // correct, and the pattern language has no level for "this one is wrong".
+    const rejected = styleFor({ rejection: { reason: 'no' }, colors: COLORS })
+    expect(rejected.stroke).toBe(true)
+    expect(rejected.className).toBe('zone--rejected')
+  })
+})
+
+/* ===========================================================================
+   WATER STIPPLES, PRODUCTION HATCHES, COMMITTED MUTES
+   =========================================================================== */
+
+describe('one pattern per step, three levels per pattern', () => {
+  it('points each treatment at its own pattern, and water is not production', () => {
+    const production = styleFor({ treatment: 'production', colors: COLORS })
+    const embankment = styleFor({ treatment: 'survey-embankment', colors: COLORS })
+    const excavated = styleFor({ treatment: 'survey-excavated', colors: COLORS })
+
+    expect(production.fillColor).toBe(`url(#${patternIdFor('production')})`)
+    expect(embankment.fillColor).toBe(`url(#${patternIdFor('survey-embankment')})`)
+    expect(excavated.fillColor).toBe(`url(#${patternIdFor('survey-excavated')})`)
+    // WATER NO LONGER INHERITS PRODUCTION'S MARK, which is what the blanket
+    // stylesheet rule used to make unavoidable.
+    expect(embankment.fillColor).not.toBe(production.fillColor)
+  })
+
+  it('draws water as stipple and production as hatch', () => {
+    const patterns = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+    const spec = (treatment) =>
+      patterns.match(new RegExp(`treatment: '${treatment}', kind: '(\\w+)'`))?.[1]
+    expect(spec('production')).toBe('hatch')
+    expect(spec('survey-embankment')).toBe('stipple')
+    expect(spec('survey-excavated')).toBe('stipple')
+  })
+
+  it('is ONE pattern in two values for the two survey types, not two patterns', () => {
+    // The STEP distinction is carried by the pattern; the TYPE distinction
+    // within a step by the value. A reader learns one new mark per step.
+    const patterns = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+    const stipples = [...patterns.matchAll(/kind: 'stipple'/g)]
+    expect(stipples).toHaveLength(2)
+    expect(patterns).toContain("token: '--survey-embankment'")
+    expect(patterns).toContain("token: '--survey-excavated'")
+  })
+
+  it('declares the three levels as tokens, so the remaining steps inherit them', () => {
+    const tokens = readFileSync(path.join(SRC, 'index.css'), 'utf8')
+    const level = (name) => Number(tokens.match(new RegExp(`--pattern-${name}:\\s*([\\d.]+)`))[1])
+
+    // THREE LEVELS PER STEP, declared once rather than per step.
+    expect(level('committed')).toBeLessThan(level('active'))
+    expect(level('active')).toBeLessThan(level('focused'))
+    expect(level('focused')).toBe(1)
+
+    // ...and layers.jsx reads them rather than owning them.
+    const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
+    expect(layers).toContain('--pattern-${name}')
+    // Every fill opacity a ZONE takes comes from a level; the only literal
+    // left is the rejection overlay, which is not a zone state.
+    const literals = layers.replace(/\/\*[\s\S]*?\*\//g, '').match(/fillOpacity: [\d.]+/g) ?? []
+    // Exactly one, and it belongs to the rejection overlay -- which is not a
+    // zone state and has no level in the scheme.
+    expect(literals).toEqual(['fillOpacity: 0.25'])
+  })
+
+  it('mutes a committed zone and keeps its pattern', () => {
+    const active = styleFor({ treatment: 'production', colors: COLORS })
+    const committed = styleFor({ treatment: 'production', isCommitted: true, colors: COLORS })
+
+    // SAME MARK, QUIETER. Not an outline, and not a different pattern: it is
+    // the same ground for the same purpose, and what changed is that the
+    // decision is made.
+    expect(committed.fillColor).toBe(active.fillColor)
+    expect(committed.fillOpacity).toBeLessThan(active.fillOpacity)
+    expect(committed.stroke).toBe(false)
+  })
+
+  it('lets a committed production layer and an active water layer share the map', () => {
+    // THE STATE FROM THE ROADS STEP ONWARD, and the two must stay readable
+    // together: different patterns, different colours, and the committed one
+    // the quieter of the two.
+    const committedProduction = styleFor({
+      treatment: 'production',
+      isCommitted: true,
+      colors: COLORS,
+    })
+    const activeWater = styleFor({ treatment: 'survey-embankment', colors: COLORS })
+
+    expect(committedProduction.fillColor).not.toBe(activeWater.fillColor)
+    expect(committedProduction.fillOpacity).toBeLessThan(activeWater.fillOpacity)
+    // Neither is invisible.
+    expect(committedProduction.fillOpacity).toBeGreaterThan(0.15)
+    expect(activeWater.fillOpacity).toBeGreaterThan(0.15)
+  })
+
+  it('declares the committed layers so a committed step keeps its own mark', () => {
+    const committedOf = (definition) =>
+      definition.layers.filter((l) => l.band === 'committed' && l.kind === 'polygon')
+
+    expect(committedOf(LANDFORM_STEP).map((l) => l.treatment)).toEqual(['production'])
+    // Water's committed half is split the same way its proposals are, so the
+    // two survey types stay told apart once committed.
+    expect(committedOf(WATER_STEP).map((l) => l.treatment)).toEqual([
+      'survey-embankment',
+      'survey-excavated',
+    ])
+  })
+
+  it('moves selection UP rather than moving everything else down', () => {
+    // REPORTED DIRECTION: focused is MORE present. Both express the same
+    // relationship; this one changes one mark instead of every other one, and
+    // dimming the rest would also dim earlier steps' committed layers, which
+    // are not part of this step's selection.
+    const active = styleFor({ treatment: 'survey-embankment', colors: COLORS })
+    const focused = styleFor({ treatment: 'survey-embankment', isFocused: true, colors: COLORS })
+    expect(focused.fillOpacity).toBeGreaterThan(active.fillOpacity)
+
+    // FAR ENOUGH APART TO SEE WITH THE WHOLE PARCEL IN FRAME. A pattern is
+    // mostly unfilled, so a small step in opacity is invisible at that zoom --
+    // and an indicator you can only see zoomed in is not an indicator. The
+    // rendered check is in layout.test.jsx, which has a browser; this is the
+    // ratio that check rests on.
+    expect(focused.fillOpacity / active.fillOpacity).toBeGreaterThanOrEqual(1.7)
+  })
+})
+
+/* ===========================================================================
+   THE TAB STRIP DOES NOT LOSE THE SELECTION
+   =========================================================================== */
+
+describe('the collapsed strip keeps the focused tab', () => {
+  const tabsOf = (n) => Array.from({ length: n }, (_, i) => ({ id: `t${i}`, name: `T${i}` }))
+
+  it('showed the first few and nothing else, which is the bug', () => {
+    // THE CAUSE, STATED AS ARITHMETIC. A collapsed strip takes the first `cap`
+    // tabs in declaration order. Focus anything past that -- by clicking it on
+    // the MAP, which is the only way to focus a tab you cannot see -- and the
+    // detail panel described a zone while no tab on screen was marked, so the
+    // strip read as having dropped the selection and offered no way back.
+    const tabs = tabsOf(6)
+    const naive = tabs.slice(0, COLLAPSED_TAB_CAP)
+    expect(naive.some((t) => t.id === 't5')).toBe(false)
+  })
+
+  it('swaps the focused tab into the last slot, at the same footprint', () => {
+    const tabs = tabsOf(6)
+    const shown = collapsedTabs(tabs, 't5')
+    expect(shown.map((t) => t.id)).toEqual(['t0', 't1', 't5'])
+    // THE COUNT IS UNCHANGED. The strip's premise is a constant footprint --
+    // chrome that grows a row when you click something eats the document to
+    // describe it -- so the focused tab takes a slot rather than adding one.
+    expect(shown).toHaveLength(COLLAPSED_TAB_CAP)
+  })
+
+  it('changes nothing when the focus is already shown, or absent', () => {
+    const tabs = tabsOf(6)
+    expect(collapsedTabs(tabs, 't1').map((t) => t.id)).toEqual(['t0', 't1', 't2'])
+    expect(collapsedTabs(tabs, null).map((t) => t.id)).toEqual(['t0', 't1', 't2'])
+    // A focus on something the strip is not carrying -- a drawn shape just
+    // destroyed -- is not a reason to drop a tab.
+    expect(collapsedTabs(tabs, 'gone').map((t) => t.id)).toEqual(['t0', 't1', 't2'])
+  })
+
+  it('is one component, so landform had the same bug latent', () => {
+    // NOT A WATER BUG. It needs only more tabs than a row holds plus a focus
+    // past the cap. Landform reaches it at four zones; water reaches it on the
+    // reference parcel every time, because six zones ordered embankment-first
+    // mean the three a collapsed row holds are all embankment and clicking ANY
+    // excavated zone focuses a tab that is not on screen.
+    const landformTabs = tabsOf(5)
+    expect(collapsedTabs(landformTabs, 't4').map((t) => t.id)).toContain('t4')
+    const strip = readFileSync(path.join(SRC, 'wizard', 'shell', 'TabStrip.jsx'), 'utf8')
+    expect(strip).toContain('collapsedTabs(tabs, focusedFeatureId)')
+    // ...and the strip still names no step, which is how one component serves
+    // both.
+    const code = strip.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    for (const stepId of ['landform', 'water', 'boundary']) {
+      expect(code).not.toMatch(new RegExp(`['"\`]${stepId}['"\`]`))
+    }
+  })
+
+  liveIt('keeps every visible tab and marks the focused one, clicking a zone on the map', async () => {
+    const ui = await renderApp()
+    await throughWaterGenerate(ui)
+
+    const zones = surveyZoneFeatures(ui.water)
+    const before = ui.all('[data-tab-id]').length
+    expect(before).toBeGreaterThan(0)
+
+    // THE ZONE THE OLD STRIP COULD NOT SHOW: the last one, past the cap.
+    const hidden = zones[zones.length - 1]
+    expect(ui.find(`tab-${hidden.id}`)).toBeNull()
+
+    await ui.focus(hidden.id)
+
+    // THE STRIP PERSISTS at the same footprint...
+    expect(ui.all('[data-tab-id]').length).toBe(before)
+    // ...the focused tab is now one of them, and it is MARKED ACTIVE...
+    const tab = ui.find(`tab-${hidden.id}`)
+    expect(tab).not.toBeNull()
+    expect(tab.getAttribute('data-focused')).toBe('true')
+    expect(ui.all('.chrome-tab--focused')).toHaveLength(1)
+    // ...and the panel is describing that same zone.
+    expect(ui.text(`detail-name-water`)).toBe(surveyZoneName(hidden.properties))
+
+    // SELECTING ANOTHER REPLACES IT rather than adding a second mark.
+    await ui.focus(zones[0].id)
+    expect(ui.all('.chrome-tab--focused')).toHaveLength(1)
+    expect(ui.find(`tab-${zones[0].id}`).getAttribute('data-focused')).toBe('true')
+
+    await ui.unmount()
+  })
+
+  liveIt('deselects and closes the panel on a bare-map click, for water', async () => {
+    const ui = await renderApp()
+    await throughWaterGenerate(ui)
+
+    const zones = surveyZoneFeatures(ui.water)
+    await ui.focus(zones[0].id)
+    expect(ui.find('detail-water')).not.toBeNull()
+
+    await ui.clickMap()
+
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+    expect(ui.find('detail-water')).toBeNull()
+    // THE STRIP IS UNTOUCHED BY EITHER GESTURE.
+    expect(ui.all('[data-tab-id]').length).toBeGreaterThan(0)
+    expect(ui.all('.chrome-tab--focused')).toHaveLength(0)
+
+    await ui.unmount()
+  })
+
+  liveIt('deselects and closes the panel on a bare-map click, for landform too', async () => {
+    // THE SAME WIRING SERVES BOTH -- MapLayerStack mounts one BackgroundClick
+    // for whatever step the cursor is on -- and the point of asserting it
+    // twice is that "wired for water" was one of the two candidate causes of
+    // the strip bug and turned out not to be the cause at all.
+    const ui = await renderApp()
+    await ui.run((a) => a.setDraftInput('boundary', 'ring', BOUNDARY))
+    await ui.click('commit-boundary')
+    await ui.waitFor('the session', () => Boolean(ui.state.sessionId))
+    await ui.click('generate-landform')
+    await ui.waitFor('landform', () => selectStepStatus(ui.state, 'landform') === GENERATED)
+    await ui.waitFor('its draft', () => ui.state.drafts.landform !== undefined)
+
+    const zone = ui.state.steps.landform.proposals.suggested_zones.features[0]
+    await ui.focus(zone.id)
+    expect(ui.find('detail-landform')).not.toBeNull()
+
+    await ui.clickMap()
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+    expect(ui.find('detail-landform')).toBeNull()
+    expect(ui.all('[data-tab-id]').length).toBeGreaterThan(0)
 
     await ui.unmount()
   })

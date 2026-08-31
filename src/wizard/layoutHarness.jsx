@@ -37,7 +37,7 @@
  *   ?buttons=N     how many buttons the action card has (default 2)
  */
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import '../index.css'
@@ -52,6 +52,7 @@ import {
   measure,
   stepButton,
 } from './stepDefinitions'
+import { injectZonePatterns } from '../ProductionHatchPattern.jsx'
 
 const params = new URLSearchParams(window.location.search)
 const number = (key, fallback) => {
@@ -138,6 +139,109 @@ const BUTTON_COUNT = number('buttons', 2)
 const NOTICE_KIND = params.get('notice') ?? 'none'
 
 /**
+ * ?detail=N  focus a feature and give its panel N field ROWS, in four groups.
+ *
+ * THE DETAIL PANEL IS A HEIGHT CASE AND NOTHING ELSE MEASURED IT. Every other
+ * case here varies the bottom row or the instruction card; the panel sits in
+ * the middle row, is sized entirely by its own content, and the middle row is
+ * the `1fr` that the bottom row's position depends on. A step with four groups
+ * and fourteen rows is a real payload's panel, not a stress case.
+ */
+const DETAIL_ROWS = number('detail', 0)
+
+/**
+ * ?zones=1  render the zone PATTERNS -- production hatch and both water
+ *           stipples -- at three levels each, in one SVG, at a fixed size.
+ *
+ * WHY THE PATTERNS COME HERE RATHER THAN TO A MAP. What has to be measured is
+ * whether one pattern at --pattern-active and the same pattern at
+ * --pattern-focused are TELLABLE APART at the size a whole parcel occupies,
+ * and whether production's mark and water's are different marks. Neither is a
+ * question about Leaflet, tiles, projection or a session: it is a question
+ * about how much ink two fills put on a page. Driving the real map to ask it
+ * would make the answer depend on a tile fetch and a zoom level.
+ *
+ * THE SIZE IS THE POINT. Each swatch is 90px square, which is about what one
+ * of the reference parcel's survey zones occupies with the whole parcel in
+ * frame -- so "distinguishable here" is the claim the fix actually has to
+ * make, rather than "distinguishable when you zoom in".
+ */
+const SHOW_ZONES = params.get('zones') === '1'
+const SWATCH_PX = 90
+
+/** The pattern defs, without a map. See injectZonePatterns. */
+function ZonePatternHost() {
+  useEffect(() => injectZonePatterns(document.body), [])
+  return null
+}
+
+function ZoneSwatches() {
+  const [ready, setReady] = useState(false)
+  const host = useRef(null)
+
+  /**
+   * CLONE EACH PATTERN INTO THE SWATCH THAT USES IT.
+   *
+   * The defs the map injects live in their own hidden <svg>, which is right
+   * for the map -- panes come and go and several reference the same pattern.
+   * It is wrong for MEASURING one, because the measurement serialises a swatch
+   * and rasterises it on a canvas, and a serialised SVG cannot reach a paint
+   * server in another document. So each swatch carries its own copy under its
+   * own id, and what gets measured is a self-contained picture of exactly the
+   * pattern the map draws.
+   */
+  useEffect(() => {
+    if (!host.current) return
+    for (const svg of host.current.querySelectorAll('svg[data-treatment]')) {
+      const treatment = svg.dataset.treatment
+      const source = document.getElementById(`zone-pattern-${treatment}`)
+      if (!source) continue
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
+      const clone = source.cloneNode(true)
+      clone.setAttribute('id', `local-${svg.dataset.testid}`)
+      defs.appendChild(clone)
+      svg.insertBefore(defs, svg.firstChild)
+      svg.querySelector('rect').setAttribute('fill', `url(#local-${svg.dataset.testid})`)
+    }
+    setReady(true)
+  }, [])
+
+  const level = (name) =>
+    getComputedStyle(document.documentElement).getPropertyValue(`--pattern-${name}`).trim()
+
+  const cells = []
+  for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
+    for (const state of ['committed', 'active', 'focused']) cells.push({ treatment, state })
+  }
+
+  return (
+    <div
+      ref={host}
+      data-testid="zone-swatches"
+      data-swatches-ready={ready ? 'true' : 'false'}
+      style={{ position: 'absolute', inset: 0, background: '#808080' }}
+    >
+      {cells.map(({ treatment, state }, i) => (
+        <svg
+          key={`${treatment}-${state}`}
+          data-testid={`swatch-${treatment}-${state}`}
+          data-treatment={treatment}
+          width={SWATCH_PX}
+          height={SWATCH_PX}
+          style={{
+            position: 'absolute',
+            left: (i % 3) * SWATCH_PX,
+            top: Math.floor(i / 3) * SWATCH_PX,
+          }}
+        >
+          <rect width={SWATCH_PX} height={SWATCH_PX} fillOpacity={level(state)} />
+        </svg>
+      ))}
+    </div>
+  )
+}
+
+/**
  * THROUGH documentStep(), NOT defineStep(). documentStep is what every real
  * step in this build is made with -- it supplies the commit contract, the
  * status reader, the reachability reader and the proposal accessors, and a
@@ -163,6 +267,10 @@ const HARNESS_STEP = documentStep({
   buttons: { reviewing: BUTTONS.slice(0, BUTTON_COUNT) },
   notices: () => noticesFor(NOTICE_KIND),
   tabs: () => Array.from({ length: TAB_COUNT }, (_, i) => tab(i)),
+  detail: () =>
+    DETAIL_ROWS > 0
+      ? { name: 'Embankment 1', groups: detailGroups(DETAIL_ROWS), cautions: [] }
+      : null,
 })
 
 /**
@@ -175,8 +283,15 @@ const HARNESS_STEP = documentStep({
  * reach rather than one this file has arranged behind it.
  */
 function OpenStep({ stepId }) {
-  const { open } = useWizardCursor()
+  const { open, focusFeature } = useWizardCursor()
   useEffect(() => open(stepId), [open, stepId])
+  // ?detail=N also FOCUSES a feature, because the panel is absent unless one
+  // is focused -- that absence is the shell's own design and not something to
+  // arrange around. The id is the first tab's, so the case is one a click
+  // could actually produce.
+  useEffect(() => {
+    if (DETAIL_ROWS > 0) focusFeature('zone-1')
+  }, [focusFeature])
   return null
 }
 
@@ -190,7 +305,8 @@ function Harness() {
             overlay is laid out against; rendering the shell outside it would
             be measuring a layout the app never has. */}
         <div className="map-stage" data-testid="stage">
-          <WizardShell />
+          {SHOW_ZONES ? <ZonePatternHost /> : null}
+          {SHOW_ZONES ? <ZoneSwatches /> : <WizardShell />}
         </div>
       </WizardCursorProvider>
     </SessionProvider>

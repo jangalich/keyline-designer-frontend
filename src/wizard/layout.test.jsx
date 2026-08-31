@@ -51,6 +51,7 @@
  */
 
 import { existsSync } from 'node:fs'
+import { inflateSync } from 'node:zlib'
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
@@ -711,4 +712,240 @@ function overlaps(a, b) {
   return (
     a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
   )
+}
+
+/* ===========================================================================
+   THE ZONE PATTERNS, RENDERED: ARE THE STATES ACTUALLY TELLABLE APART?
+   ===========================================================================
+   THE ONLY PLACE THIS QUESTION CAN BE ASKED. Every other assertion about the
+   pattern scheme is about which fill and which opacity a path is given;
+   whether two of them look different is a fact about rendered pixels, and
+   jsdom paints none.
+
+   MEASURED AS INK COVERAGE. Each swatch is a 90px square -- about what one of
+   the reference parcel's survey zones occupies with the whole parcel in frame
+   -- filled with one treatment's pattern at one level, over a flat mid-grey.
+   Counting how far the pixels move from that grey gives one number per
+   swatch, and the comparisons below are between those numbers. It is a
+   deliberately crude measure and that is the point: if a crude measure can
+   separate two states, an eye can.
+   =========================================================================== */
+
+describeIf('the zone patterns, rendered', () => {
+  /**
+   * INK COVERAGE OF ONE SWATCH, FROM WHAT CHROMIUM ACTUALLY PAINTED.
+   *
+   * A SCREENSHOT RATHER THAN A RE-RENDER. The first version of this
+   * serialised each swatch's SVG and rasterised it on a canvas in the page,
+   * which measured a second drawing of the pattern rather than the one on
+   * screen -- and did it unreliably, because a standalone SVG document has to
+   * carry its own paint servers and an <img> decode is not finished when its
+   * load event fires. Screenshotting the element asks the browser what it put
+   * on the glass, which is the question.
+   *
+   * THE MEASURE IS MEAN DEVIATION FROM THE FLAT GREY BACKDROP, 0..1. It is
+   * deliberately crude: it cannot see shape and does not try to. If a measure
+   * this blunt separates two states, an eye looking for the difference will.
+   */
+  async function inkOf(page, treatment, state) {
+    const element = await page.$(`[data-testid="swatch-${treatment}-${state}"]`)
+    return meanDeviation(decodePng(await element.screenshot({ type: 'png' })))
+  }
+
+  let page = null
+
+  beforeAll(async () => {
+    if (!available) return
+    page = await browser.newPage({ viewport: VIEWPORT })
+    await page.goto(pageUrl({ zones: 1 }), { waitUntil: 'load' })
+    await page.waitForFunction(() => document.documentElement.dataset.harnessReady === 'true')
+    // The swatches clone their pattern in an effect, so "ready" is the flag
+    // they raise once the clones are in place, not React having committed.
+    await page.waitForFunction(
+      () => document.querySelector('[data-swatches-ready="true"]') !== null
+    )
+  }, 60_000)
+
+  it('tells the focused state from the active one at whole-parcel size', async () => {
+    for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
+      const active = await inkOf(page, treatment, 'active')
+      const focused = await inkOf(page, treatment, 'focused')
+      const committed = await inkOf(page, treatment, 'committed')
+      // eslint-disable-next-line no-console
+      console.log(
+        `    ink  ${treatment.padEnd(18)} committed ${committed.toFixed(4)}  ` +
+          `active ${active.toFixed(4)}  focused ${focused.toFixed(4)}  ` +
+          `(focused/active ${(focused / active).toFixed(2)}x)`
+      )
+
+      // FOCUSED IS MORE PRESENT -- the direction the scheme chose, because it
+      // changes one mark instead of every other one.
+      expect(focused, `${treatment}: focused must be more present`).toBeGreaterThan(active)
+
+      // AND BY ENOUGH TO SEE. A pattern is mostly unfilled, so a small step in
+      // opacity vanishes at this size; the fix is a wide gap between levels
+      // rather than a hope about perception. Half again as much ink is the
+      // floor this asserts against.
+      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThan(1.5)
+    }
+  }, SLOW)
+
+  it('mutes a committed zone below an active one, without erasing it', async () => {
+    for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
+      const committed = await inkOf(page, treatment, 'committed')
+      const active = await inkOf(page, treatment, 'active')
+      expect(committed, `${treatment}: committed is quieter`).toBeLessThan(active)
+      // STILL THERE. A committed layer is context for the step in hand, not a
+      // layer that has been turned off -- and from the roads step onward
+      // several of them share the map.
+      expect(committed, `${treatment}: committed is still visible`).toBeGreaterThan(0.004)
+    }
+  }, SLOW)
+
+  it('draws water and production as different marks, not one mark in two colours', async () => {
+    // The claim is that a reader can tell WHICH STEP a mark belongs to. The
+    // ink measure cannot see shape, so this asks the geometry directly: the
+    // patterns are built from different elements.
+    const shapes = await page.evaluate(() =>
+      ['production', 'survey-embankment', 'survey-excavated'].map((t) => {
+        const pattern = document.getElementById(`zone-pattern-${t}`)
+        return [...pattern.children].map((n) => n.tagName.toLowerCase()).join(',')
+      })
+    )
+    expect(shapes[0]).toBe('path')
+    expect(shapes[1]).toBe('circle,circle')
+    expect(shapes[2]).toBe('circle,circle')
+    expect(shapes[1]).not.toBe(shapes[0])
+    // ONE PATTERN IN TWO VALUES for the two survey types: same shapes.
+    expect(shapes[2]).toBe(shapes[1])
+  }, SLOW)
+
+  it('gives every stipple dot a --halo casing under it', async () => {
+    const cased = await page.evaluate(() => {
+      const halo = getComputedStyle(document.documentElement).getPropertyValue('--halo').trim()
+      return ['survey-embankment', 'survey-excavated'].map((t) => {
+        const dots = [...document.getElementById(`zone-pattern-${t}`).children]
+        return {
+          haloFirst: dots[0].getAttribute('fill') === halo,
+          haloWider: Number(dots[0].getAttribute('r')) > Number(dots[1].getAttribute('r')),
+          concentric: dots[0].getAttribute('cx') === dots[1].getAttribute('cx'),
+        }
+      })
+    })
+    // CASING FIRST so it paints underneath, wider than the dot, and centred on
+    // it -- the boundary's own halo-casing rule, moved from the zone's edge to
+    // the pattern's marks because a pattern has no edge.
+    for (const dot of cased) {
+      expect(dot.haloFirst).toBe(true)
+      expect(dot.haloWider).toBe(true)
+      expect(dot.concentric).toBe(true)
+    }
+  }, SLOW)
+
+  it('keeps the two steps\' patterns at comparable weight', async () => {
+    // NEITHER STEP SHOUTS OVER THE OTHER. From the roads step onward both are
+    // on the map at once, and a pattern that inks five times as much page as
+    // its neighbour reads as the important one whatever it means. The first
+    // stipple spacing did exactly that -- 5x the hatch -- and was caught here
+    // rather than by eye.
+    const hatch = await inkOf(page, 'production', 'active')
+    for (const stipple of ['survey-embankment', 'survey-excavated']) {
+      const ink = await inkOf(page, stipple, 'active')
+      const ratio = Math.max(ink, hatch) / Math.min(ink, hatch)
+      expect(ratio, `${stipple} against the hatch`).toBeLessThan(2.5)
+    }
+  }, SLOW)
+
+  it('lets production-committed and water-active share the map readably', async () => {
+    // THE STATE FROM THE ROADS STEP ONWARD. Both present, both above the
+    // visibility floor, and the committed one the quieter of the two.
+    const committedProduction = await inkOf(page, 'production', 'committed')
+    const activeWater = await inkOf(page, 'survey-embankment', 'active')
+    expect(committedProduction).toBeGreaterThan(0.004)
+    expect(activeWater).toBeGreaterThan(0.004)
+    expect(committedProduction).toBeLessThan(activeWater)
+  }, SLOW)
+})
+
+
+/* ---------------------------------------------------------------------------
+   A minimal PNG reader, for the swatch measurements above
+   ---------------------------------------------------------------------------
+   PLAYWRIGHT HANDS BACK A PNG BUFFER AND NODE CANNOT READ ONE. Rather than add
+   an image dependency for two assertions, this inflates the shapes Playwright
+   produces -- 8-bit truecolour, with or without alpha, uninterlaced -- with
+   the zlib that ships with node. Anything else it refuses BY NAME rather than
+   returning wrong numbers quietly, which is how the colour type it actually
+   emits (2, not 6) was found rather than silently mismeasured.
+   --------------------------------------------------------------------------- */
+
+function decodePng(buffer) {
+  let offset = 8 // the signature
+  let width = 0
+  let height = 0
+  let channels = 3
+  const idat = []
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset)
+    const type = buffer.toString('ascii', offset + 4, offset + 8)
+    const body = buffer.subarray(offset + 8, offset + 8 + length)
+    if (type === 'IHDR') {
+      width = body.readUInt32BE(0)
+      height = body.readUInt32BE(4)
+      const depth = body.readUInt8(8)
+      const colour = body.readUInt8(9)
+      const interlace = body.readUInt8(12)
+      if (depth !== 8 || (colour !== 2 && colour !== 6) || interlace !== 0) {
+        throw new Error(`unexpected PNG: depth ${depth}, colour type ${colour}, interlace ${interlace}`)
+      }
+      channels = colour === 6 ? 4 : 3
+    } else if (type === 'IDAT') {
+      idat.push(body)
+    } else if (type === 'IEND') {
+      break
+    }
+    offset += length + 12
+  }
+
+  const raw = inflateSync(Buffer.concat(idat))
+  const stride = width * channels
+  const pixels = Buffer.alloc(height * stride)
+  // Undo the per-scanline filters. The five are PNG's own and the arithmetic
+  // is the specification's.
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)]
+    const line = raw.subarray(y * (stride + 1) + 1, y * (stride + 1) + 1 + stride)
+    for (let x = 0; x < stride; x++) {
+      const a = x >= channels ? pixels[y * stride + x - channels] : 0
+      const b = y > 0 ? pixels[(y - 1) * stride + x] : 0
+      const c = x >= channels && y > 0 ? pixels[(y - 1) * stride + x - channels] : 0
+      let value = line[x]
+      if (filter === 1) value += a
+      else if (filter === 2) value += b
+      else if (filter === 3) value += (a + b) >> 1
+      else if (filter === 4) {
+        const p = a + b - c
+        const pa = Math.abs(p - a)
+        const pb = Math.abs(p - b)
+        const pc = Math.abs(p - c)
+        value += pa <= pb && pa <= pc ? a : pb <= pc ? b : c
+      } else if (filter !== 0) {
+        throw new Error(`unknown PNG filter ${filter}`)
+      }
+      pixels[y * stride + x] = value & 0xff
+    }
+  }
+  return { width, height, channels, pixels }
+}
+
+/** How far, on average, the image sits from the harness's flat mid-grey. */
+function meanDeviation({ pixels, channels }, base = 128) {
+  let sum = 0
+  let count = 0
+  for (let i = 0; i < pixels.length; i += channels) {
+    sum +=
+      Math.abs(pixels[i] - base) + Math.abs(pixels[i + 1] - base) + Math.abs(pixels[i + 2] - base)
+    count++
+  }
+  return sum / count / (3 * 255)
 }

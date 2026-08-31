@@ -1332,9 +1332,21 @@ export const LANDFORM_STEP = documentStep({
       source: 'proposals',
       key: 'exclusion_layers',
     },
-    { id: 'landform-suggested', band: 'editable', kind: 'polygon', source: 'proposals', key: 'suggested_zones' },
-    { id: 'landform-drawn', band: 'editable', kind: 'polygon', source: 'draft' },
-    { id: 'landform-committed', band: 'committed', kind: 'polygon', source: 'document' },
+    /* THE THREE ZONE LAYERS, ALL CARRYING PRODUCTION'S OWN MARK.
+       `treatment` is declared on each rather than left to be derived, and
+       that is the change this step needed once a second step existed: the
+       hatch used to be pinned to every proposal polygon by one blanket
+       stylesheet rule, so water inherited production's mark the moment it
+       declared a layer. A step's mark follows its declaration now.
+
+       THE COMMITTED LAYER DECLARES IT TOO, which is what makes a committed
+       zone keep its hatch instead of collapsing to an outline. It is the same
+       ground and the same purpose; what changed is that the decision is made,
+       and that is said by the pattern's LEVEL (--pattern-committed) rather
+       than by swapping the mark for a different one. */
+    { id: 'landform-suggested', band: 'editable', kind: 'polygon', source: 'proposals', key: 'suggested_zones', treatment: 'production' },
+    { id: 'landform-drawn', band: 'editable', kind: 'polygon', source: 'draft', treatment: 'production' },
+    { id: 'landform-committed', band: 'committed', kind: 'polygon', source: 'document', treatment: 'production' },
   ],
   tools: ['select', 'draw', 'delete'],
   // None. The backend's landform entry declares no user_inputs, so any params
@@ -1831,7 +1843,30 @@ export const WATER_STEP = documentStep({
       filter: isSurveyZoneOfType('excavated'),
       treatment: 'survey-excavated',
     },
-    { id: 'water-committed', band: 'committed', kind: 'polygon', source: 'document' },
+    /* TWO COMMITTED LAYERS, FOR THE REASON THERE ARE TWO EDITABLE ONES. A
+       committed water step carries both survey types in one FeatureCollection
+       -- the document holds what was committed, and a commit spans both
+       layers freely -- so the same `filter` that splits the proposals splits
+       the document, and each half keeps its own value at the committed level.
+       One undifferentiated committed layer would have been the one place the
+       two types stopped being told apart, which is exactly where a later step
+       is reading them. */
+    {
+      id: 'water-committed-embankment',
+      band: 'committed',
+      kind: 'polygon',
+      source: 'document',
+      filter: isSurveyZoneOfType('embankment'),
+      treatment: 'survey-embankment',
+    },
+    {
+      id: 'water-committed-excavated',
+      band: 'committed',
+      kind: 'polygon',
+      source: 'document',
+      filter: isSurveyZoneOfType('excavated'),
+      treatment: 'survey-excavated',
+    },
   ],
 
   /**
