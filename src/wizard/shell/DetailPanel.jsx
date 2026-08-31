@@ -30,6 +30,36 @@
  * and is the same shape a live caution arrives in from the gesture -- so the
  * two render through one component.
  *
+ *
+ * GROUPS, AND WHY THE FLAT LIST COULD NOT CARRY THE SECOND STEP
+ *
+ * A detail may return `groups: [{label, fields}]` INSTEAD OF `fields`. Both
+ * are supported and a step returns one or the other; a flat `fields` is
+ * exactly one unlabelled group, which is what every detail was before this.
+ *
+ * THIS IS THE SCHEMA FAILING, RECORDED RATHER THAN ABSORBED, and it is the
+ * second step definition that found it. Landform's detail is five readings
+ * about one zone and reads fine in any order, so the panel was free to sort
+ * them by TYPE -- every measured figure first, in one aligned column, then
+ * every categorical reading as prose. That sort was a typographic rule with an
+ * ordering side effect nobody had to notice.
+ *
+ * Water's is four groups that mean different things -- the acreage the tab had
+ * no room for, the terrain, the agreement between two survey instruments, and
+ * the cautions -- and the order is the argument. A sort by type interleaves
+ * all four and the reader is left to work out which figure belongs to which
+ * question. There was no field that could say "these three go together and
+ * come first".
+ *
+ * WHAT THE GROUP DOES NOT DO IS RE-SORT. Inside a group the fields render in
+ * DECLARED order, and a measured field and a prose one may sit next to each
+ * other -- which is what lets a categorical reading lead a group of figures.
+ * The typographic rule the old sort was protecting is kept a different way and
+ * is kept exactly: every group is one two-column grid, a measured field puts
+ * its figure in the fixed-width first column, and a prose field spans both. So
+ * the figures still share one column and one decimal point, and a long word
+ * still cannot widen it.
+ *
  * A LABEL IS NEVER REWORDED. `caution.label` is the exclusion layer's own
  * words, straight off the payload ("wet (hydric) soil"), and the branching is
  * on the stable `type`. The backend splits those two fields precisely so a
@@ -53,6 +83,60 @@ function CautionLine({ caution }) {
       <span className="measure">{Number(caution.acres).toFixed(1)}</span>
       <span className="chrome-detail__caution-label">acres — {caution.label}</span>
     </li>
+  )
+}
+
+/**
+ * A detail's field groups, whichever shape it declared them in.
+ *
+ * A flat `fields` IS one unlabelled group. Normalising here rather than at
+ * every call site is what keeps the two shapes from becoming two renderers.
+ */
+function groupsOf(detail) {
+  if (Array.isArray(detail.groups)) return detail.groups.filter((group) => group.fields?.length)
+  return detail.fields?.length ? [{ label: null, fields: detail.fields }] : []
+}
+
+/**
+ * ONE GRID PER GROUP, which is what holds the figures in one column while the
+ * fields keep their declared order. A measured field takes the two-column
+ * treatment; a prose one spans both and is label-first.
+ */
+function Group({ group, stepId }) {
+  return (
+    <>
+      {group.label ? (
+        <p className="chrome-detail__group" data-testid={`detail-group-${group.label}`}>
+          {group.label}
+        </p>
+      ) : null}
+      {/* THE TESTID IS THE GROUP'S WHERE THERE IS A GROUP. A step with one
+          unlabelled group -- which is what a flat `fields` normalises to --
+          keeps the step-level id it always had, so nothing that addressed the
+          old single container has to change. */}
+      <div
+        className="chrome-detail__fields"
+        data-testid={group.label ? `detail-fields-${group.label}` : `detail-fields-${stepId}`}
+      >
+        {group.fields.map((field) =>
+          field.measured ? (
+            <p key={field.label} className="chrome-detail__field">
+              <span className="measure" data-testid={`detail-value-${field.label}`}>
+                {field.value}
+              </span>
+              <span className="chrome-detail__label">{field.label}</span>
+            </p>
+          ) : (
+            <p key={field.label} className="chrome-detail__reading">
+              <span className="chrome-detail__label">{field.label}</span>
+              <span className="chrome-detail__value" data-testid={`detail-value-${field.label}`}>
+                {field.value}
+              </span>
+            </p>
+          )
+        )}
+      </div>
+    </>
   )
 }
 
@@ -119,36 +203,14 @@ export default function DetailPanel({ machine }) {
               against nothing, and a long one ("north-facing") widens the track
               and shoves every label in the panel sideways -- seen on the real
               payload before this split. So a categorical reading takes its own
-              row, prose and label-first, and the figures keep the column. */}
-          <div className="chrome-detail__fields" data-testid={`detail-fields-${stepId}`}>
-            {detail.fields
-              .filter((field) => field.measured)
-              .map((field) => (
-                <p key={field.label} className="chrome-detail__field">
-                  <span className="measure" data-testid={`detail-value-${field.label}`}>
-                    {field.value}
-                  </span>
-                  <span className="chrome-detail__label">{field.label}</span>
-                </p>
-              ))}
-          </div>
-          {detail.fields.some((field) => !field.measured) ? (
-            <div className="chrome-detail__readings">
-              {detail.fields
-                .filter((field) => !field.measured)
-                .map((field) => (
-                  <p key={field.label} className="chrome-detail__reading">
-                    <span className="chrome-detail__label">{field.label}</span>
-                    <span
-                      className="chrome-detail__value"
-                      data-testid={`detail-value-${field.label}`}
-                    >
-                      {field.value}
-                    </span>
-                  </p>
-                ))}
-            </div>
-          ) : null}
+              row, prose and label-first, and the figures keep the column.
+
+              WHAT CHANGED IS THE SORT, NOT THE SETTING. Both are still set
+              differently and the figures still share one column; they are no
+              longer reordered to do it. See GROUPS above. */}
+          {groupsOf(detail).map((group, index) => (
+            <Group key={group.label ?? `group-${index}`} group={group} stepId={stepId} />
+          ))}
           {detail.cautions.length ? (
             <ul className="chrome-detail__cautions" data-testid={`detail-cautions-${stepId}`}>
               {detail.cautions.map((caution) => (

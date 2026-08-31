@@ -44,6 +44,7 @@ import L from 'leaflet'
 import { GeoJSON, Pane, Polygon, Polyline, Tooltip } from 'react-leaflet'
 
 import { offParcelScrimRings, readToken } from '../geo.js'
+import { patternIdFor } from '../ProductionHatchPattern.jsx'
 
 /**
  * Its own lazily-filled token cache, for the reason DrawTool's has one:
@@ -70,6 +71,40 @@ function getStackColors() {
     }
   }
   return stackColors
+}
+
+/**
+ * A TREATMENT'S COLOUR IS NOT READ HERE ANY MORE, and the deletion is worth a
+ * line because the function that did it looked useful.
+ *
+ * `treatmentColor()` read `--<treatment>` off the document so a treated layer
+ * could be stroked in its own colour. There is no stroke now: a treatment
+ * resolves to a PATTERN, and the pattern's own marks carry the colour --
+ * ProductionHatchPattern reads the token when it builds them. A second reader
+ * of the same tokens, left here unused, is a colour waiting to be applied to
+ * an outline by whoever finds it.
+ */
+
+/**
+ * HOW PRESENT A ZONE'S PATTERN IS, in the three levels index.css declares.
+ *
+ * THE WHOLE OF WHAT DISTINGUISHES A ZONE'S STATES. No state adds an outline --
+ * the mark is the pattern and a state is a variation of its opacity -- so
+ * these three numbers carry what a stroke, a dash and a colour change used to
+ * carry between them.
+ *
+ * READ AS TOKENS RATHER THAN WRITTEN HERE, for the reason every colour on this
+ * surface is: Leaflet cannot resolve a var() in a pathOption, so the value has
+ * to be read off the document, and reading it is not the same as owning it.
+ * The four steps still to come inherit these rather than each inventing a set.
+ */
+const PATTERN_LEVELS = new Map()
+
+function patternLevel(name) {
+  if (!PATTERN_LEVELS.has(name)) {
+    PATTERN_LEVELS.set(name, Number(readToken(`--pattern-${name}`)))
+  }
+  return PATTERN_LEVELS.get(name)
 }
 
 // The halo-casing rule DrawTool established, and the reason is its: no single
@@ -104,6 +139,7 @@ const ELIGIBLE_OPACITY = 0.32
 
 /** Committed geometry is settled: no dash, no fill weight, nothing to invite a click. */
 const COMMITTED_FILL_OPACITY = 0.12
+
 
 /**
  * A layer, drawn. The renderer is picked by `kind`; within `polygon`, the
@@ -323,8 +359,13 @@ function FeatureLayer({
   const selected = new Set(layer.selectedFeatureIds ?? [])
   const rejections = layer.rejections ?? {}
   const isEditable = layer.band === 'editable'
-  const isProposal = layer.source === 'proposals'
   const isDrawn = layer.source === 'draft'
+  const isCommitted = layer.band === 'committed'
+  // DECLARED, NOT DERIVED, and that is the whole of the field's reason: band
+  // and source are three treatments for three MEANINGS, and a step whose two
+  // layers share a band, a source and a meaning had nothing left to say them
+  // apart with. See `treatment` in stepDefinitions.js's LAYER SCHEMA.
+  const treatment = layer.treatment ?? null
 
   /**
    * EYE-OFF IS NOT DRAWN AT ALL, and this filter is the whole of what replaced
@@ -346,8 +387,18 @@ function FeatureLayer({
   return (
     <>
       {/* THE CASING PASS, FIRST so it paints underneath -- within one SVG pane,
-          later elements draw on top. Only a drawn shape is cased: a
-          suggestion has no outline to case. */}
+          later elements draw on top.
+
+          ONLY A DRAWN SHAPE IS CASED NOW, because only a drawn shape has an
+          outline to case. A treated layer was cased for one branch, back when
+          a treatment was a cased line; a treatment is a PATTERN now and a
+          pattern has no edge.
+
+          THE CASING DID NOT GO AWAY, IT MOVED INTO THE PATTERN. Each stipple
+          dot carries its own --halo ring (see ProductionHatchPattern), which
+          is the same rule -- no single colour clears the range of tones in one
+          aerial frame, so a mark is cased rather than recoloured -- applied to
+          the marks that now do the work. */}
       {isDrawn
         ? features.map((feature) => (
             <GeoJSON
@@ -379,9 +430,9 @@ function FeatureLayer({
             style={styleFor({
               feature,
               isFocused,
-              isEditable,
-              isProposal,
+              isCommitted,
               isDrawn,
+              treatment,
               rejection,
               colors: { field, accent, ink, halo },
             })}
@@ -450,10 +501,51 @@ function focusClass(base, isFocused) {
   return isFocused ? `${base} zone--focused` : base
 }
 
-function styleFor({ isFocused, isEditable, isProposal, isDrawn, rejection, colors }) {
+/**
+ * WHICH OF THE THREE LEVELS A ZONE IS AT, and the order is the order of facts.
+ *
+ *   focused    the detail panel is describing it. Beats everything, including
+ *              a committed layer -- clicking committed geometry is how you
+ *              read it, and the answer must not be quieter than its neighbours.
+ *   committed  the document says this happened. Settled, and the quietest,
+ *              because from the roads step onward several committed layers
+ *              share the map and each is context for the step in hand.
+ *   active     an uncommitted zone that is in the commit. The base state.
+ *
+ * A ZONE THAT IS NOT IN THE COMMIT HAS NO LEVEL, because it is not drawn at
+ * all -- FeatureLayer filters it out before this is reached. That is the eye's
+ * own treatment and it predates this scheme: a feature nobody is committing
+ * has nothing to say on a map of what this parcel is going to be, and its tab
+ * is where it stays findable.
+ */
+function patternLevelFor({ isFocused, isCommitted }) {
+  if (isFocused) return patternLevel('focused')
+  if (isCommitted) return patternLevel('committed')
+  return patternLevel('active')
+}
+
+/**
+ * A zone's pattern fill, as a paint-server reference Leaflet writes verbatim
+ * into the path's `fill` attribute.
+ *
+ * NO STYLESHEET RULE PER TREATMENT. The fill used to be set from App.css --
+ * one blanket rule pointing every proposal polygon at the production hatch --
+ * which is why water inherited production's mark the moment it declared a
+ * polygon layer. A treatment names its own pattern and its own token, so a
+ * step's mark follows its declaration and App.css keeps no table of them.
+ */
+function patternFill(treatment) {
+  return `url(#${patternIdFor(treatment)})`
+}
+
+function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, colors }) {
   if (rejection) {
-    // Rejected geometry is neither settled nor a candidate: it is the reason
-    // the commit did not happen. Solid, alert-coloured, and unmissable.
+    // THE ONE MARK ON THIS SURFACE THAT STILL CARRIES A STROKE, and it is not
+    // a zone STATE -- it is the reason the commit did not happen. The pattern
+    // language describes what ground is for and how settled the decision about
+    // it is; a 422 is neither, it is the server refusing this exact shape, and
+    // it has to be findable among zones that all look correct. Solid,
+    // alert-coloured, unmissable, with the server's own reason on it.
     return {
       stroke: true,
       color: readToken('--alert'),
@@ -465,34 +557,51 @@ function styleFor({ isFocused, isEditable, isProposal, isDrawn, rejection, color
     }
   }
 
+  const level = patternLevelFor({ isFocused, isCommitted })
+
   if (isDrawn) {
+    // THE ONE ZONE THAT KEEPS AN OUTLINE, and it is not an inconsistency --
+    // it is the distinction. A drawn zone's edge was placed vertex by vertex,
+    // deliberately and exactly, so a hard line is TRUE of it. The pattern says
+    // what the ground is for; the edge treatment says whether its boundary is
+    // a suggestion or a decision.
     return {
       stroke: true,
       color: colors.accent,
       weight: DRAWN_LINE_WEIGHT,
       fill: true,
+      fillColor: treatment ? patternFill(treatment) : undefined,
+      fillOpacity: level,
       className: focusClass('zone--drawn', isFocused),
     }
   }
 
-  if (isProposal && isEditable) {
-    // Hatch, no outline, no fill of its own. A deselected suggestion does not
-    // reach here -- FeatureLayer does not render it at all -- so there is one
-    // proposal treatment rather than two.
+  if (treatment) {
+    // THE PATTERN, AT ITS LEVEL, AND NOTHING ELSE. No stroke in any state: a
+    // hard edge reads as a surveyed line, which is wrong for a recommendation
+    // whose edge is its least certain part. The zone's extent is where its
+    // pattern stops, and focused / active / committed are three opacities of
+    // that one mark.
     return {
       stroke: false,
       fill: true,
-      className: focusClass('zone--selected', isFocused),
+      fillColor: patternFill(treatment),
+      fillOpacity: level,
+      className: focusClass(`zone--${treatment}`, isFocused),
     }
   }
 
-  // Settled: the committed band, and any polygon layer a step declares that is
-  // neither a proposal nor a drawn shape.
+  // A POLYGON LAYER THAT DECLARED NO TREATMENT. Nothing in this build reaches
+  // here -- every zone layer names its mark -- and it is kept strokeless
+  // anyway, because the rule is about zones rather than about the layers that
+  // happen to exist today. A flat muted fill says "settled, and this step
+  // never said what its mark is".
   return {
-    color: colors.ink,
-    weight: 1,
+    stroke: false,
+    fill: true,
     fillColor: colors.ink,
     fillOpacity: COMMITTED_FILL_OPACITY,
+    className: focusClass('zone--untreated', isFocused),
   }
 }
 
@@ -504,4 +613,4 @@ const RENDERERS = {
   reference: ReferenceLayer,
 }
 
-export { RingLayer, ScrimLayer, HighlightLayer, FeatureLayer, ReferenceLayer }
+export { RingLayer, ScrimLayer, HighlightLayer, FeatureLayer, ReferenceLayer, styleFor }

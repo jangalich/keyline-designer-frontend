@@ -74,6 +74,49 @@ export const TAB_COLUMNS_NARROW = 2
 export const COLLAPSED_TAB_CAP = TAB_COLUMNS - 1
 
 /**
+ * The tabs a COLLAPSED strip shows -- the first few, and ALWAYS THE FOCUSED
+ * ONE.
+ *
+ * THE BUG THIS FIXES, because it is not obvious from the fix. The collapsed
+ * strip took the first `cap` tabs in declaration order and nothing else. Click
+ * a zone on the MAP whose tab fell past the cap and the detail panel opened
+ * describing it while no tab on screen was marked active -- so the strip
+ * looked like it had lost the selection, and there was no visible tab to click
+ * to let go of it again.
+ *
+ * IT IS NOT SPECIFIC TO ANY STEP AND IT WAS ALWAYS THERE. It needs only more
+ * tabs than a row holds plus a focus past the cap, which the landform step can
+ * reach with four zones and which the water step reaches on the reference
+ * parcel every time: six survey zones, ordered embankment-first, so the three
+ * a collapsed row holds are all embankment and clicking ANY excavated zone on
+ * the map focuses a tab that is not on screen.
+ *
+ * IT SWAPS RATHER THAN EXPANDING, and that is the point. The strip's whole
+ * premise is that its footprint is a constant -- the map is the document, and
+ * chrome that grows a row when you click something eats the document to
+ * describe it. So the focused tab takes the LAST shown slot instead of being
+ * added to them: the count is unchanged, "+N more" still counts what is not
+ * shown, and the row is the same height it was before the click.
+ *
+ * DECLARATION ORDER IS OTHERWISE UNTOUCHED. The focused tab lands at the end
+ * of the row, next to "+N more", rather than being sorted to the front --
+ * moving every other tab sideways to mark one of them would be a bigger
+ * disturbance than the mark itself.
+ */
+export function collapsedTabs(tabs, focusedFeatureId, cap = COLLAPSED_TAB_CAP) {
+  const shown = tabs.slice(0, cap)
+  if (focusedFeatureId == null) return shown
+  if (shown.some((tab) => tab.id === focusedFeatureId)) return shown
+
+  const focused = tabs.find((tab) => tab.id === focusedFeatureId)
+  // A focus on something this strip is not carrying at all -- a drawn shape
+  // just destroyed, a step whose tabs changed under it. Nothing to swap in.
+  if (!focused) return shown
+
+  return [...shown.slice(0, Math.max(0, cap - 1)), focused]
+}
+
+/**
  * How many columns to lay out for `cells` rendered cells, per cap.
  *
  * THE STRIP IS SIZED TO ITS CONTENT NOW, so the column count has to be too.
@@ -101,7 +144,7 @@ export default function TabStrip({ machine, onRemove }) {
   if (!tabs.length) return null
 
   const overflowing = tabs.length > TAB_COLUMNS
-  const shown = expanded || !overflowing ? tabs : tabs.slice(0, COLLAPSED_TAB_CAP)
+  const shown = expanded || !overflowing ? tabs : collapsedTabs(tabs, focusedFeatureId)
   const hidden = tabs.length - shown.length
 
   // Every cell the list is about to hold: the tabs, plus the one affordance

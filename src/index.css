@@ -116,6 +116,81 @@
   --eligible: #e8cf9f;
   --scrim: #1c1a16;
 
+  /* TWO MORE, AND THEY ARE A PAIR RATHER THAN TWO TOKENS. The water step's
+     survey zones come back in two kinds -- embankment-type and
+     excavated-type -- from ONE collection, and the map has to say which is
+     which without saying that one of them is better.
+
+     BOTH IN THE BLUE FAMILY, ONE LIGHTER. Blue because these are ponds, and
+     because nothing else on this map is blue: --field is the green of map
+     geometry, --oxide is the accent, --ochre is emphasis. A pair inside one
+     hue reads as two members of one category, which is what they are; two
+     different hues would read as two different KINDS of statement.
+
+     ONE PATTERN IN TWO VALUES, NOT TWO PATTERNS. The STEP is carried by the
+     pattern (water stipples, production hatches); the TYPE within the step is
+     carried by the value. So these two differ only in lightness -- same hue
+     (203.0 and 202.9 degrees), same saturation (0.44 and 0.45) -- and a
+     reader who has learned "stipple means water" learns "lighter means
+     embankment" without learning a second mark.
+
+     --survey-excavated IS GIVEN. --survey-embankment IS DERIVED, and the
+     derivation is written down because the last pair here was picked by eye
+     at 2.09:1 and had to be replaced.
+
+     THE 3:1 TARGET IS UNREACHABLE, AND THAT IS ARITHMETIC RATHER THAN AN
+     EXCUSE. The embankment blue has to clear the excavated blue AND the
+     --halo casing its own stipple dots sit on, and it has to be LIGHTER, so
+     it is squeezed between the two. #3d5a6c is 7.30:1 from --halo, and the
+     best any colour between two others can do against both is the geometric
+     mean -- sqrt(7.30) = 2.702:1. Above that, moving away from one moves
+     toward the other. So 2.702:1 is a ceiling, not a budget.
+
+     #6da4c6 SITS ON IT: 2.702:1 from --survey-excavated and 2.701:1 from
+     --halo, within a thousandth of the maximum on both sides. Asserted in
+     water.test.jsx, ceiling included, so a future edit that "improves" one
+     side is caught making the other worse. */
+  --survey-excavated: #3d5a6c;
+  --survey-embankment: #6da4c6;
+
+  /* HOW PRESENT A ZONE'S PATTERN IS, IN THREE LEVELS -- the whole of what
+     distinguishes a zone's states, now that no state adds an outline.
+
+     THE MARK IS THE PATTERN and every state is a variation of its opacity.
+     A hard edge reads as a surveyed line -- a boundary, a fence, something
+     someone measured and agreed -- which is wrong for a recommendation whose
+     edge is its least certain part. A zone's extent is where its pattern
+     stops.
+
+     THREE LEVELS, PER STEP, AND THE SAME THREE FOR EVERY STEP. Declared here
+     rather than written into each step's own styling so the four steps still
+     to come inherit the scheme instead of each inventing one:
+
+       --pattern-committed  settled, and the quietest. From the roads step
+                            onward the map carries production's muted hatch
+                            AND water's muted stipple at once, so a committed
+                            layer has to read as context rather than as a
+                            decision still being made.
+       --pattern-active     an uncommitted zone that is in the commit.
+       --pattern-focused    the one the detail panel is describing. FULL, so
+                            the mark you are reading is the most present thing
+                            on the map.
+
+     FOCUSED GOES UP RATHER THAN OTHERS GOING DOWN. Both express the same
+     relationship; this one changes ONE mark instead of every other one, and
+     dimming the rest would also dim the committed layers of earlier steps,
+     which are not part of this step's selection and have no business
+     responding to it.
+
+     THE GAP IS WIDE ON PURPOSE. A pattern is mostly unfilled, so a small
+     opacity step is invisible at the zoom where the whole parcel is in frame
+     -- and an indicator you can only see zoomed in is not an indicator.
+     Nearly 2x between active and focused; measured in water.test.jsx at
+     whole-parcel zoom rather than judged here. */
+  --pattern-committed: 0.3;
+  --pattern-active: 0.55;
+  --pattern-focused: 1;
+
   /* Pure white, and the only pure white in the system. Map marker halos need
      maximum luminance to stay legible against arbitrary satellite imagery —
      that is a legibility problem, not a palette one, so it does not use

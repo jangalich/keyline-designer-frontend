@@ -127,6 +127,10 @@ export function resolveLayer(state, definition, layer) {
     // becomes a CSS class (`leaflet-<name>-pane`).
     paneName: `${stepId}--${layer.id}`,
     layerId: layer.id,
+    // The declared stroke treatment, or null. Carried, never interpreted:
+    // the renderer turns it into a token name and a class, and this file
+    // never learns what any particular value of it looks like.
+    treatment: layer.treatment ?? null,
     // The declaration's own `key` -- which draft input, which payload key --
     // carried through under a name that cannot be mistaken for React's or
     // Leaflet's. A tool writing to `layer.key` and getting a pane name back
@@ -202,8 +206,22 @@ function ringFrom(state, stepId, layer) {
   return []
 }
 
-/** Polygon features, from proposals, from a draft's drawn shapes, or committed. */
+/**
+ * Polygon features, from proposals, from a draft's drawn shapes, or committed.
+ *
+ * THE DECLARED FILTER IS APPLIED HERE AND NOWHERE ELSE, so every source gets
+ * it on the same terms. A layer without one is the whole of its source, which
+ * is what every layer was before the field existed. See `filter` in
+ * stepDefinitions.js's LAYER SCHEMA for why it had to exist at all: one
+ * payload key can hold more than one layer's worth of features, and the stack
+ * must not be the thing that knows which key that is.
+ */
 function featuresFrom(state, stepId, layer) {
+  const features = sourceFeatures(state, stepId, layer)
+  return layer.filter ? features.filter((feature) => layer.filter(feature)) : features
+}
+
+function sourceFeatures(state, stepId, layer) {
   if (layer.source === 'draft') return selectDraft(state, stepId).drawnFeatures
   if (layer.source === 'document') return collectionFeatures(selectStepFeatures(state, stepId))
   return collectionFeatures(fromProposals(state, stepId, layer))

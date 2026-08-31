@@ -693,10 +693,24 @@ describe('9. resume', () => {
     // The cursor is on landform: boundary committed, landform is next.
     expect(ui.cursor.cursorStepId).toBe('landform')
 
-    // AND THE PROPOSALS COME BACK WITHOUT REGENERATING -- GET .../layers, the
-    // same endpoint a reopen uses. The step opens on the recommendation again,
-    // because nothing was committed to restore instead.
-    await ui.run((a) => a.loadLayers('landform'))
+    // AND THE PROPOSALS COME BACK WITHOUT REGENERATING AND WITHOUT BEING
+    // ASKED FOR -- GET .../layers, the same endpoint a reopen uses. The step
+    // opens on the recommendation again, because nothing was committed to
+    // restore instead.
+    //
+    // THIS TEST USED TO MAKE THE CALL ITSELF, and that line was the bug
+    // hiding. `await ui.run((a) => a.loadLayers('landform'))` stood here, so
+    // the suite proved the ENDPOINT worked and never asked whether anything
+    // in the app reached it -- nothing did. A resumed step arrived
+    // `generated` with no proposals, which deriveMachineState reads as
+    // REVIEWING: a bar telling you to review, a strip with nothing in it, and
+    // a commit button offering to record an empty decision. The machine
+    // fetches now (useStepMachine), so the call is gone from here and its
+    // absence is the assertion.
+    await ui.waitFor(
+      'the proposals to arrive on their own',
+      () => ui.state.steps.landform?.proposals != null
+    )
     await ui.waitFor('the draft to be seeded', () => ui.state.drafts.landform !== undefined)
     const proposalIds = ui.state.steps.landform.proposals.suggested_zones.features.map((f) => f.id)
     expect(new Set(selectDraft(ui.state, 'landform').selectedFeatureIds)).toEqual(
