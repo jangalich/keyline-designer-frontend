@@ -1,71 +1,121 @@
 /**
  * WizardShell.jsx
  *
- * ONE PANEL PER STEP, IN THE ORDER THE DOCUMENT GIVES.
+ * THE CHROME, FLOATING OVER THE MAP. The map is the document; everything the
+ * wizard offers sits on top of it, and nothing sits beside or below it.
  *
- * THE ORDER COMES OFF `step_order` (wizardStepOrder -> the store's
- * stepOrderFrom), never off `Object.keys(document.steps)`. Flask serialises
- * that object alphabetically -- fencing, landform, roads, structures, trees,
- * water -- so reading the keys would produce six real step ids in a stable
- * order that is not the pipeline's, and every reopen warning built on it would
- * name the wrong steps. Nothing would throw.
+ * FIVE REGIONS, ALL OVERLAYS:
  *
- * BEFORE A SESSION EXISTS THE WIZARD IS ONE STEP LONG, and that is the honest
- * length rather than a gap to paper over. The client does not know the
- * pipeline until a document tells it; a hardcoded list here so the shell could
- * show a fuller table of contents would be the second copy of STEP_ORDER that
- * both sides of this codebase refuse to keep.
+ *   A  StepRail         left edge     every step, in order, with its status.
+ *   B  InstructionBar   top, full     the state's direction, plus notices.
+ *   F  DetailPanel      top right     reserved; the container and its toggle.
+ *   D  TabStrip         bottom        one tab per feature, capped at 3 rows.
+ *   E  ActionBanner     bottom, full  the state's buttons.
  *
- * A STEP IN THE ORDER WITH NO DEFINITION IS NAMED, NOT HIDDEN. water through
- * fencing are in every document's `step_order` and have no registry entry in
- * this branch. Dropping them would make the wizard silently shorter than the
- * pipeline; claiming them would mean inventing panels for payloads nobody has
- * seen. So they appear, in order, saying what they are.
+ * WHAT THIS REPLACES. A column of step panels beside the map, in which almost
+ * every interaction happened somewhere other than the thing being edited, and
+ * which cost the map more than a third of the viewport to hold controls that
+ * were all about the map. The regions above take no height from it at all.
  *
- * THE CURSOR IS NOT HELD HERE ANY MORE. It moved to WizardCursorProvider,
- * because the MAP needs the same answer: the panel column and the map's
- * editable band have to be showing one step, and two pieces of state that
- * happen to agree are not one answer. See WizardCursor.jsx -- and see the note
- * on `activeStep` in SessionStore's initialState for why the cursor is not
- * kept in the store at all.
+ *
+ * ONE MACHINE ON SCREEN, AND IT IS THE CURSOR'S
+ *
+ * The old shell ran a step machine per step, because it rendered a panel per
+ * step. This renders chrome for ONE step -- the one the cursor names -- so it
+ * runs one machine, in StepChrome below. That is not only a saving: a machine
+ * per step seeds a draft per step, and a hook count that tracks `step_order`
+ * is a rules-of-hooks violation waiting for the first document of a different
+ * length. The rail, which does show every step, reads statuses off the store
+ * instead and runs no machine at all.
+ *
+ * THE CURSOR'S STEP MAY HAVE NO DEFINITION. water through fencing are in every
+ * document's `step_order` and have no registry entry in this build. They are
+ * NAMED rather than hidden -- dropping them would make the wizard silently
+ * shorter than the pipeline -- and they get no machine, because there is no
+ * definition to run one against. The conditional is a COMPONENT BOUNDARY
+ * rather than a branch around a hook, which is the only way to spell that.
+ *
+ *
+ * THE SHELL NAMES NO STEP. Every difference between the six is read off the
+ * cursor step's definition: the sentence in the bar, the buttons in the
+ * banner, the figures in the tabs, and the notices only that step could know
+ * to raise. Grep this file, chromeState.js and the four region components for
+ * a step id and you will find none -- asserted, not asserted about.
  */
 
-import StepPanel from './StepPanel.jsx'
+import ActionBanner from './shell/ActionBanner.jsx'
+import DetailPanel from './shell/DetailPanel.jsx'
+import InstructionBar from './shell/InstructionBar.jsx'
+import StepRail from './shell/StepRail.jsx'
+import TabStrip from './shell/TabStrip.jsx'
+import { chromeStateFor } from './shell/chromeState.js'
 import { useWizardCursor } from './WizardCursor.jsx'
+import { useStepMachine } from './useStepMachine'
 
 export default function WizardShell() {
-  const { order, definitions, cursorStepId, open } = useWizardCursor()
+  const { cursorStepId, definition, definitions } = useWizardCursor()
 
   return (
-    <div className="wizard" data-testid="wizard">
-      <ol className="wizard__steps" data-testid="wizard-order">
-        {order.map((stepId) => {
-          const definition = definitions.get(stepId)
-          return (
-            <li key={stepId} className="wizard__step" data-step-id={stepId}>
-              {definition ? (
-                <StepPanel
-                  definition={definition}
-                  definitions={definitions}
-                  isActive={cursorStepId === stepId}
-                  onActivate={open}
-                />
-              ) : (
-                <section
-                  className="step-panel step-panel--unregistered"
-                  data-testid={`step-${stepId}`}
-                  data-step-state="unregistered"
-                >
-                  <h3 className="step-panel__title">{stepId}</h3>
-                  <p className="step-panel__line" data-testid={`unregistered-${stepId}`}>
-                    This step is in the pipeline but is not built yet.
-                  </p>
-                </section>
-              )}
-            </li>
-          )
-        })}
-      </ol>
+    <div className="chrome" data-testid="wizard">
+      <StepRail />
+      {definition ? (
+        // KEYED BY THE STEP, so moving the cursor REMOUNTS the chrome rather
+        // than re-rendering it with the last step's leftovers. The three
+        // pieces of local state down there -- a confirmation waiting on an
+        // answer, an expanded tab strip, an opened detail panel -- are all
+        // about the step in hand, and a strip left expanded from a step with
+        // forty zones over a step with two is the mildest of the ways that
+        // goes wrong. The machine is per-step by construction; this makes the
+        // chrome around it per-step too.
+        <StepChrome key={definition.id} definition={definition} definitions={definitions} />
+      ) : (
+        <UnregisteredChrome stepId={cursorStepId} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * The four regions that belong to the step in hand, and the one machine behind
+ * all four.
+ *
+ * THE CHROME STATE IS COMPUTED ONCE AND HANDED DOWN, so the bar and the banner
+ * cannot disagree about which state they are describing. They are two halves
+ * of one sentence -- "here is what to do" and "here is how to do it" -- and
+ * two independent readings of the same inputs is exactly how those two halves
+ * come to contradict each other.
+ */
+function StepChrome({ definition, definitions }) {
+  const machine = useStepMachine(definition)
+  const { armed } = useWizardCursor()
+  const chromeState = chromeStateFor({ machineState: machine.machineState, armed })
+
+  return (
+    <>
+      <InstructionBar machine={machine} chromeState={chromeState} definitions={definitions} />
+      <DetailPanel machine={machine} />
+      <div className="chrome__free" aria-hidden="true" />
+      <div className="chrome__bottom">
+        <TabStrip machine={machine} />
+        <ActionBanner machine={machine} chromeState={chromeState} definitions={definitions} />
+      </div>
+    </>
+  )
+}
+
+/**
+ * A step the document runs and this build has no definition for.
+ *
+ * It gets the instruction bar's slot and says what it is. No banner: there is
+ * nothing to offer, and an empty banner would read as a step whose buttons
+ * failed to load rather than as a step nobody has built.
+ */
+function UnregisteredChrome({ stepId }) {
+  return (
+    <div className="chrome-bar" data-testid={`step-${stepId}`} data-step-state="unregistered">
+      <p className="chrome-bar__direction" data-testid={`unregistered-${stepId}`}>
+        This step is in the pipeline but is not built yet.
+      </p>
     </div>
   )
 }

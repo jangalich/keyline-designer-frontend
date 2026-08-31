@@ -72,8 +72,8 @@ export default function MapLayerStack() {
       ))}
       <StepTools definition={definition} layers={editable} references={references} />
       {/* THE ONE PANE THE BAND SCHEME CANNOT PLACE. Caution markers have to
-          sit above Leaflet's markerPane at 600 so a boundary vertex or an
-          access-point pin cannot hide a warning, and every band z is below
+          sit above Leaflet's markerPane at 600 so a boundary vertex or a
+          later step's pin cannot hide a warning, and every band z is below
           400 by design (see BAND_BASE_Z). So this is a top-level pane at 610,
           fed from the same composed stack -- not a step's layer, and not a
           number any step can choose. */}

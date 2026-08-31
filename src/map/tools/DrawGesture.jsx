@@ -58,7 +58,7 @@ export default function DrawGesture(props) {
  * exactly what the arming register already knows.
  *
  * DRAGGING STANDS DOWN FOR ANY OTHER GESTURE. `editingDisabled` is
- * `anyArmed && !armed`: a draggable vertex under a live access-point pick or a
+ * `anyArmed && !armed`: a draggable vertex under another step's live tool or a
  * live zone draw is the same one-click-two-things problem the tools have, and
  * a drag is not a tool with a slot of its own.
  */

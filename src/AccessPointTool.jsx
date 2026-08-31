@@ -37,6 +37,28 @@ const MAX_SNAP_DISTANCE_PX = 44
 /**
  * AccessPointTool
  *
+ * MOUNTED BY NOTHING, ON PURPOSE, AND WAITING FOR ROADS.
+ *
+ * This was a PRE-STEP: before the wizard began, and before anything downstream
+ * of it had been decided, the user picked where the property meets a road,
+ * because /api/generate-report-pdf required one. That is the wrong shape for
+ * it. The access point is not a global property of a session -- it is an INPUT
+ * OF THE ROADS STEP, which sites farm roads along the ridges and keylines, and
+ * a step's inputs belong to the step (stepDefinitions' `inputs`, and the note
+ * on BOUNDARY_STEP about the same question for the ring).
+ *
+ * So the pre-step is deleted and this component is imported by no file. It is
+ * kept rather than removed because it is not a duplicate of anything: the
+ * snap-to-the-boundary-line gesture in here is the one implementation, it is
+ * what roads will declare a `draw` over a point layer to mean, and rewriting
+ * it from scratch then would be the actual waste. StepTools.jsx already names
+ * the two places a point tool attaches.
+ *
+ * WHAT THIS BREAKS, SAID OUT LOUD: nothing in the frontend calls
+ * /api/generate-report-pdf any more, because that route requires an access
+ * point and there is no longer an affordance that collects one. The route is
+ * untouched on the server. See App.jsx's header.
+ *
  * Lets the user pick the point where the property connects to a road,
  * modeled after DrawTool's structure. While `isSelecting` is true,
  * clicking within MAX_SNAP_DISTANCE_PX of the boundary snaps to the nearest

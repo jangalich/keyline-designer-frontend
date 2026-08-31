@@ -3,10 +3,10 @@
  *
  * TWO THINGS, IN ONE PROVIDER, AND THE COUPLING IS THE POINT.
  *
- *   THE CURSOR   Which step the wizard has open. The panel column renders it
- *                expanded; the map stack renders its layers as the editable
- *                band. One value, so the two cannot disagree about which step
- *                the user is on.
+ *   THE CURSOR   Which step the wizard has open. The chrome floating over the
+ *                map renders its instruction, its buttons and its tabs; the
+ *                map stack renders its layers as the editable band. One value,
+ *                so the two cannot disagree about which step the user is on.
  *
  *   THE ARMING   Which of that step's declared tools is live. ONE SLOT
  *                holding ONE NAME.
@@ -35,23 +35,29 @@
  * exists.
  *
  *
- * THE TWO DOORS, AND WHY THE SECOND ONE IS UGLY ON PURPOSE
+ * THERE IS ONE DOOR NOW, AND THAT IS THE WHOLE OF THIS BRANCH'S CHANGE HERE.
  *
- *   arm(tool)          The wizard's door. Refuses any name the CURSOR'S OWN
- *                      DEFINITION does not declare in `tools[]`, so a step
- *                      cannot arm a tool the stack did not mount for it.
+ *   arm(tool)   Refuses any name the CURSOR'S OWN DEFINITION does not declare
+ *               in `tools[]`, so a step cannot arm a tool the stack did not
+ *               mount for it.
  *
- *   armLegacyGesture() The production-zone spike's door, for its two gestures
- *                      -- the zone draw and the access point -- which are not
- *                      any step's declared tools because the spike is not a
- *                      step yet. It takes any name, which is exactly the hole
- *                      the wizard's door does not have.
+ * The second door -- armLegacyGesture(), which took ANY name -- is gone. It
+ * existed for the production-zone spike's two gestures, and F4 named the
+ * access point as the last thing still going through it. This branch removed
+ * the access-point pre-step (it is an input of ROADS, not a global field), so
+ * the door had no callers left and a deliberately-loose entrance with no
+ * caller is an invitation rather than a compromise. Arming is now exactly
+ * "one of the cursor step's declared tools", with no exception to it.
  *
- * Both write the SAME SLOT, which is what makes the exclusion hold across the
- * seam: a spike gesture and a wizard tool cannot be live together, because
- * there is one value and arming either one displaces the other. The second
- * door exists so the spike keeps working end to end without being migrated,
- * and it goes when the spike does (F4). Nothing but App.jsx may call it.
+ *
+ * THE CURSOR MOVES ITSELF, AND A COMMIT IS WHAT MOVES IT
+ *
+ * `advance()` is the auto-advance the map-centric shell needs and it holds no
+ * step id: it clears the user's explicit choice, which hands the cursor back
+ * to the derivation below -- the first step that is not committed. So the step
+ * a successful commit lands on is a fact about the document rather than a
+ * pointer this file increments, and it is still right after a reopen, a
+ * cascade, or a resume into the middle of a session.
  */
 
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
@@ -138,37 +144,45 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
   const disarm = useCallback(() => setArmedSlot(NOTHING_ARMED), [])
 
   /**
-   * The spike's door. See the header: any name, same slot, deleted with the
-   * spike. `null` disarms, so App.jsx's cancel paths have one call to make.
-   */
-  const armLegacyGesture = useCallback(
-    (name) => setArmedSlot(name ? { stepId: LEGACY_STEP, tool: name } : NOTHING_ARMED),
-    []
-  )
-
-  /** Is the spike's gesture live? Its slot is never the cursor's step. */
-  const legacyGesture = armedSlot.stepId === LEGACY_STEP ? armedSlot.tool : null
-
-  /**
-   * Is ANYTHING live on this map -- a wizard tool or a spike gesture.
+   * Is ANYTHING live on this map.
    *
    * The one question a component asks when it needs to stand down rather than
    * act: DrawTool's vertex dragging is not a tool of its own, but a drag while
-   * the access point is being picked is still two things happening to one
-   * gesture. Reading the slot's OCCUPANCY rather than its name is what keeps
-   * that from becoming a list of names to maintain.
+   * a shape is being placed is still two things happening to one gesture.
+   * Reading the slot's OCCUPANCY rather than its name is what keeps that from
+   * becoming a list of names to maintain.
    */
   const anyArmed = armedSlot.tool !== null
 
   /**
-   * Open a step's panel. WHAT A COMMITTED LAYER'S CLICK DOES, and all it does:
-   * the map hands the click to this, the panel expands with whatever
-   * affordance its own definition declares, and NOTHING IS ARMED. A click on
-   * settled geometry offers navigation to the step that owns it; it does not
-   * put the user into an edit mode they did not ask for, and it cannot, since
-   * this touches the cursor and never the slot.
+   * Open a step. WHAT A COMMITTED LAYER'S CLICK DOES, and what a click on the
+   * step rail does, and all either does: the cursor moves, the chrome renders
+   * whatever affordance that step's own definition declares for the state it
+   * is in, and NOTHING IS ARMED. Clicking settled geometry -- or the rail --
+   * offers navigation to the step that owns it; it does not put the user into
+   * an edit mode they did not ask for, and it cannot, since this touches the
+   * cursor and never the slot.
    */
   const open = useCallback((stepId) => setOpenStepId(stepId), [])
+
+  /**
+   * MOVE ON. What a successful commit does, and the reason there is no "Next
+   * step" button in the shell.
+   *
+   * It does not compute a next id. It DROPS the user's explicit choice, and
+   * the derivation above -- first step that is not committed -- answers the
+   * question again against the document that just changed. The step just
+   * committed is no longer the first uncommitted one, so the cursor lands on
+   * the one after it with nothing here having named either.
+   *
+   * The arming goes with it. A tool armed on the step being left would already
+   * read as disarmed (the slot carries its step), but leaving the slot
+   * occupied would keep `anyArmed` true for a gesture nobody can reach.
+   */
+  const advance = useCallback(() => {
+    setArmedSlot(NOTHING_ARMED)
+    setOpenStepId(null)
+  }, [])
 
   const value = useMemo(
     () => ({
@@ -177,12 +191,11 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
       definitions: registry,
       order,
       open,
+      advance,
       tools,
       armed,
       arm,
       disarm,
-      armLegacyGesture,
-      legacyGesture,
       anyArmed,
     }),
     [
@@ -191,21 +204,17 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
       registry,
       order,
       open,
+      advance,
       tools,
       armed,
       arm,
       disarm,
-      armLegacyGesture,
-      legacyGesture,
       anyArmed,
     ]
   )
 
   return <WizardCursorContext.Provider value={value}>{children}</WizardCursorContext.Provider>
 }
-
-/** The slot value the spike's gestures are held under. Never a real step id. */
-const LEGACY_STEP = '(legacy map gesture)'
 
 const EMPTY_TOOLS = Object.freeze([])
 

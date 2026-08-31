@@ -16,7 +16,7 @@
  * WHY IT IS NOT A LAYER RENDERER. Every band this stack composes sits between
  * Leaflet's tilePane (200) and overlayPane (400), which is what keeps the whole
  * stack under the geometry DrawTool renders into overlayPane. A caution has to
- * clear markerPane at 600 instead: a boundary vertex or an access-point pin
+ * clear markerPane at 600 instead: a boundary vertex or any later step's pin
  * sitting over a warning is exactly the case this mark exists for. 610 is
  * above markerPane and below tooltipPane (650), and it is a property of
  * Leaflet's own numbering rather than of any step, so it is chosen here once
