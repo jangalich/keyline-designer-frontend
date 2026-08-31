@@ -12,11 +12,31 @@
  * water -- so reading the keys would give six real step ids in a stable order
  * that is not the pipeline's, and nothing would throw.
  *
- * BEFORE A SESSION EXISTS THE RAIL IS ONE STEP LONG, and that is the honest
- * length rather than a gap to paper over. The client does not know the
- * pipeline until a document tells it; a hardcoded list here so the rail could
- * show a fuller table of contents would be the second copy of STEP_ORDER that
- * both sides of this codebase refuse to keep.
+ * BEFORE A SESSION EXISTS IT IS THE SAME RAIL, FROM GET /api/steps. It used
+ * to be one row long -- the boundary alone -- on the grounds that the client
+ * does not know the pipeline until a document tells it, and that a hardcoded
+ * list here would be the second copy of STEP_ORDER both sides of this
+ * codebase refuse to keep. The constraint was real; the conclusion was not.
+ * The answer to "we must not hold a second copy" is to ASK THE SIDE THAT
+ * OWNS IT, and the backend now serves that constant on a route of its own
+ * (session_api's /api/steps), under the same key a document carries it under.
+ * So the rail has one rendering and two sources for its order, never two
+ * lists -- see stepCatalog.jsx and wizardStepOrder.
+ *
+ * WHAT THE USER GETS BACK is the shape of the whole job while they are still
+ * drawing the boundary: six steps ahead, dimmed, saying they are not yet
+ * reachable. The old rail showed one row during the boundary step and seven
+ * after the first commit, which read as the pipeline appearing out of nowhere
+ * rather than as progress through something that was always there.
+ *
+ * NOT YET REACHABLE IS A TREATMENT, NOT A DISABLED STATE. The rows stay
+ * buttons and stay clickable: a click on the rail OPENS a step and does
+ * nothing else, and opening a step you cannot start yet gets you the
+ * instruction bar saying which step has to be committed first -- which is a
+ * better answer to "why can I not do this" than a control that does not
+ * respond. The reachability comes from the cursor provider, which derives it
+ * once over the same order this renders (see WizardCursor); the rail does not
+ * recompute it per row and does not own the rule.
  *
  * A STEP IN THE ORDER WITH NO DEFINITION IS NAMED, NOT HIDDEN. water through
  * fencing are in every document's `step_order` and have no registry entry in
@@ -49,9 +69,38 @@ const STATUS_WORDS = {
   [GENERATED]: 'ready',
 }
 
+/**
+ * What one row's status column says.
+ *
+ * THREE FACTS, IN THE ORDER THEY MATTER TO SOMEONE READING THE RAIL.
+ *
+ *   'not built yet'  A step in the pipeline this build has no chrome for --
+ *                    water through fencing. It is the most specific thing
+ *                    true of that row and it outranks the others, because it
+ *                    is the one that will still be true after every step
+ *                    before it is committed. This is exactly what those rows
+ *                    said before this branch, unchanged.
+ *
+ *   'not yet'        A step that is built and that you cannot get to, because
+ *                    something before it is not committed. New, and only
+ *                    because the rows it applies to are new: before this
+ *                    branch nothing unreachable was ever on screen.
+ *
+ *   done / ready     A step you can act on, as it always read.
+ *
+ * The empty string is a real answer -- a reachable, not_started step is the
+ * one you are being asked to do, and the rail already says so by marking it
+ * the cursor.
+ */
+function statusWord({ registered, reachable, status }) {
+  if (!registered) return 'not built yet'
+  if (!reachable) return 'not yet'
+  return STATUS_WORDS[status] ?? ''
+}
+
 export default function StepRail() {
   const { state } = useSession()
-  const { order, definitions, cursorStepId, open } = useWizardCursor()
+  const { order, definitions, cursorStepId, open, reachable } = useWizardCursor()
 
   return (
     <nav className="chrome-rail" aria-label="Design steps" data-testid="step-rail">
@@ -65,6 +114,7 @@ export default function StepRail() {
           const status = definition ? definition.status(state) : selectStepStatus(state, stepId)
           const isCursor = stepId === cursorStepId
           const registered = definition != null
+          const isReachable = reachable.has(stepId)
 
           return (
             <li
@@ -72,11 +122,16 @@ export default function StepRail() {
               className="chrome-rail__item"
               data-step-id={stepId}
               data-step-status={status}
+              data-step-reachable={isReachable ? 'true' : 'false'}
               data-cursor={isCursor ? 'true' : 'false'}
             >
               <button
                 type="button"
-                className={`chrome-rail__step${isCursor ? ' chrome-rail__step--cursor' : ''}`}
+                className={
+                  'chrome-rail__step' +
+                  (isCursor ? ' chrome-rail__step--cursor' : '') +
+                  (isReachable ? '' : ' chrome-rail__step--ahead')
+                }
                 aria-current={isCursor ? 'step' : undefined}
                 data-testid={`rail-${stepId}`}
                 onClick={() => open(stepId)}
@@ -86,7 +141,7 @@ export default function StepRail() {
                 </span>
                 <span className="chrome-rail__name">{definition?.title ?? stepId}</span>
                 <span className="chrome-rail__status">
-                  {registered ? STATUS_WORDS[status] ?? '' : 'not built yet'}
+                  {statusWord({ registered, reachable: isReachable, status })}
                 </span>
               </button>
             </li>

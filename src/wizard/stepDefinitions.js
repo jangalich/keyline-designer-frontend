@@ -1519,7 +1519,7 @@ export function definitionMap(definitions = STEP_DEFINITIONS) {
 }
 
 /**
- * The wizard's step order: boundary, then the document's own.
+ * The wizard's step order: boundary, then the pipeline's own.
  *
  * FROM `step_order`, NEVER FROM `Object.keys(document.steps)` -- the store's
  * stepOrderFrom() is the one reader of that field and this builds on its
@@ -1527,14 +1527,31 @@ export function definitionMap(definitions = STEP_DEFINITIONS) {
  * roads, structures, trees, water), so reading the keys would give six real
  * step ids in a stable, wrong order and nothing would throw.
  *
- * BEFORE A SESSION EXISTS THIS IS JUST ['boundary'], and that is the honest
- * answer rather than a gap. The client does not know the pipeline's steps
- * until a document tells it -- keeping a hardcoded list here so the wizard
- * could show a fuller table of contents up front would be the second copy of
- * STEP_ORDER that both sides of this codebase refuse to keep.
+ * TWO SOURCES, ONE ARRAY, AND THE DOCUMENT ALWAYS WINS.
+ *
+ * `fallback` is the catalogued order from GET /api/steps (stepCatalog.jsx),
+ * used ONLY while no document has arrived. This used to return ['boundary']
+ * in that case, on the grounds that the client does not know the pipeline
+ * until a document tells it. That was right about the constraint and wrong
+ * about the fix: the answer was not to hardcode the list over here, it was to
+ * ask the side that owns it. The backend serves the same STEP_ORDER under the
+ * same key it puts on every document, so this is one shape from two sources
+ * rather than two copies of a list -- which is what the old note was actually
+ * protecting against.
+ *
+ * A document's own array wins whenever there is one, and that ordering is not
+ * a tie-break: `step_order` is the pipeline THAT DOCUMENT was created against,
+ * and a constant fetched at page load is not. They agree today and the backend
+ * asserts the identity; this is what keeps the agreement from being
+ * load-bearing.
+ *
+ * WITH NEITHER, IT IS STILL ['boundary'] -- a rail one row long, which is the
+ * honest length when the fetch has not landed, and a boundary step that is
+ * fully usable while it is the only row.
  */
-export function wizardStepOrder(state) {
-  return [BOUNDARY_STEP_ID, ...selectStepOrder(state)]
+export function wizardStepOrder(state, fallback = []) {
+  const fromDocument = selectStepOrder(state)
+  return [BOUNDARY_STEP_ID, ...(fromDocument.length ? fromDocument : fallback)]
 }
 
 export { COMMITTED, GENERATED, NOT_STARTED }

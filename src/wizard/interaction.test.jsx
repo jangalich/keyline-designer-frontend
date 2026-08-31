@@ -34,6 +34,7 @@ import {
   useSession,
 } from '../session/SessionStore'
 import { LANDFORM_STEP, STEP_DEFINITIONS } from './stepDefinitions'
+import { resetStepCatalog } from './stepCatalog.jsx'
 import WizardShell, { UNDO_WINDOW_MS } from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
 import MapLayerStack from '../map/MapLayerStack.jsx'
@@ -131,7 +132,22 @@ function drawnZone(id = 'drawn-1') {
    needs: half of it is a click on an SVG path.
    --------------------------------------------------------------------------- */
 
+/**
+ * THE CATALOGUE ROUTE, SERVED BY DEFAULT ON EVERY HARNESS.
+ *
+ * The wizard asks for GET /api/steps on mount now -- that is where the rail's
+ * order comes from before a session exists (stepCatalog.jsx) -- so every test
+ * that renders it makes this call whether or not the test is about it. Serving
+ * it here rather than adding a line to thirty `installFetch` calls keeps the
+ * per-test route lists about what each test is actually exercising.
+ *
+ * IT IS LAST IN THE LIST, so a test that declares its own /api/steps route --
+ * an empty catalogue, a failure -- still wins: routes are matched in order.
+ */
+const STEPS_ROUTE = { method: 'GET', pattern: /^\/api\/steps$/, responses: { body: { step_order: [...STEP_ORDER] } } }
+
 function installFetch(routes) {
+  routes = [...routes, STEPS_ROUTE]
   const calls = []
   globalThis.fetch = vi.fn(async (rawUrl, init = {}) => {
     const method = init.method ?? 'GET'
@@ -262,6 +278,9 @@ async function throughGenerate(ui) {
 }
 
 beforeEach(() => {
+  // The catalogued step order is cached for the life of the module (one
+  // fetch per page); a test's answer must not leak into the next one's.
+  resetStepCatalog()
   window.localStorage.clear()
   window.history.replaceState({}, '', '/')
 })

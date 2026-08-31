@@ -1,0 +1,210 @@
+/**
+ * layoutHarness.jsx  —  the chrome, in a real browser, with nothing else.
+ *
+ * WHY THIS EXISTS. layout.test.jsx asserts on RENDERED WIDTHS: that no region
+ * spans the frame, that the instruction card is centred and capped, that the
+ * tab strip's right edge stops before the action card at every tab count.
+ * Those are questions about layout, and jsdom does no layout -- it applies no
+ * stylesheet and every getBoundingClientRect() is zero. The suite's existing
+ * style tests answer what they can from the PARSED STYLESHEET, which catches a
+ * rule naming a class nothing renders and cannot catch a box that is 1440px
+ * wide. A claim about widths has to be measured somewhere that computes them.
+ *
+ * So this page renders the shell into a real Chromium and layout.test.jsx
+ * measures it. It is the SHIPPED components and the SHIPPED stylesheets --
+ * WizardShell, its five regions, index.css and App.css in main.jsx's order --
+ * inside the same `.map-stage` element App.jsx puts them in.
+ *
+ * WHAT IS NOT HERE, AND WHY THAT IS THE POINT. No Leaflet, no tiles, no
+ * network. The map is what the chrome floats OVER; it contributes nothing to
+ * where the chrome sits (the overlay is absolutely positioned across the whole
+ * stage and its own grid decides the rest), and a page that had to wait on
+ * tile fetches would make a geometry test flaky for a reason unrelated to
+ * geometry. The stage gets a flat backdrop instead.
+ *
+ * THE STEP IS A REAL DEFINITION, built through defineStep like any other. The
+ * schema's whole claim is that the shell reads a step rather than knowing
+ * about one -- so a definition declared here exercises exactly the code a
+ * shipped step does, and lets a test ask for eleven tabs or a 400-character
+ * notice without a fixture payload standing in the way.
+ *
+ * EVERYTHING IS DRIVEN BY THE QUERY STRING, so one page serves every case and
+ * a test names its case in its URL:
+ *
+ *   ?tabs=N        how many tabs the step offers        (default 0)
+ *   ?notice=...    'long' | 'stacked' | 'short'         (default none)
+ *   ?steps=0       serve NO step catalogue              (default: the six)
+ *   ?buttons=N     how many buttons the action card has (default 2)
+ */
+
+import React, { useEffect } from 'react'
+import { createRoot } from 'react-dom/client'
+
+import '../index.css'
+import '../App.css'
+
+import { SessionProvider } from '../session/SessionStore'
+import WizardShell from './WizardShell.jsx'
+import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
+import {
+  BOUNDARY_STEP,
+  documentStep,
+  measure,
+  stepButton,
+} from './stepDefinitions'
+
+const params = new URLSearchParams(window.location.search)
+const number = (key, fallback) => {
+  const raw = params.get(key)
+  return raw === null ? fallback : Number(raw)
+}
+
+/**
+ * THE STEP CATALOGUE, SERVED FROM A STUB. The page makes exactly one request
+ * -- GET /api/steps -- and there is no backend behind this harness, so it is
+ * answered here. `?steps=0` refuses it, which is the no-catalogue case.
+ */
+const STEP_ORDER = ['landform', 'water', 'roads', 'trees', 'structures', 'fencing']
+
+window.fetch = async (rawUrl) => {
+  const url = new URL(rawUrl, window.location.origin)
+  if (url.pathname === '/api/steps') {
+    if (params.get('steps') === '0') return { ok: false, status: 500, json: async () => ({}) }
+    return { ok: true, status: 200, json: async () => ({ step_order: [...STEP_ORDER] }) }
+  }
+  throw new Error(`layoutHarness makes no request to ${url.pathname}`)
+}
+
+/* ===========================================================================
+   The step under the chrome
+   =========================================================================== */
+
+/** A tab in the shape TabStrip reads: a name and two measured rows. */
+function tab(index) {
+  return {
+    id: `zone-${index + 1}`,
+    name: `Zone ${index + 1}`,
+    rows: [
+      { value: measure(2.5 + index), label: 'acres' },
+      { value: measure(81 - index), label: 'score' },
+    ],
+    eye: true,
+    selected: true,
+    removable: false,
+    drawn: false,
+  }
+}
+
+/**
+ * The notices a case asks for.
+ *
+ *   'long'     ONE notice long enough to prove the cap. This is the 80%
+ *              advisory's shape -- prose with a measured figure in it -- run
+ *              out to a length no single line should ever carry, because the
+ *              thing being tested is that the card WRAPS rather than growing.
+ *   'stacked'  Several at once, which is the height case: a step can raise its
+ *              own advisory while the machine is also reporting two rejections.
+ */
+const LONG_NOTICE = [
+  'Selecting ',
+  { measure: '83.3%' },
+  ' of the parcel leaves little room for the roads, water lines, tree belts and ',
+  'fencing the later steps of this pipeline have to fit into the ground you have ',
+  'not committed to production, and every one of those has to cross ground this ',
+  'selection would otherwise take. Consider whether the lower-ranked zones are ',
+  'worth their acreage before committing this step.',
+]
+
+function noticesFor(kind) {
+  if (kind === 'long') return [{ key: 'ceiling', tone: 'advisory', text: LONG_NOTICE }]
+  if (kind === 'short') return [{ key: 'ceiling', tone: 'advisory', text: 'Two zones overlap.' }]
+  if (kind === 'stacked') {
+    return [
+      { key: 'ceiling', tone: 'advisory', text: LONG_NOTICE },
+      { key: 'second', tone: 'caution', text: 'The last shape was trimmed to the parcel boundary.' },
+      { key: 'third', tone: 'error', text: 'zone-4 lies partly outside the parcel boundary.' },
+    ]
+  }
+  return []
+}
+
+const BUTTONS = [
+  stepButton({ key: 'commit', label: 'Commit these zones', tone: 'primary', run: () => {} }),
+  stepButton({ key: 'discard', label: 'Discard', tone: 'secondary', run: () => {} }),
+]
+
+const TAB_COUNT = number('tabs', 0)
+const BUTTON_COUNT = number('buttons', 2)
+const NOTICE_KIND = params.get('notice') ?? 'none'
+
+/**
+ * THROUGH documentStep(), NOT defineStep(). documentStep is what every real
+ * step in this build is made with -- it supplies the commit contract, the
+ * status reader, the reachability reader and the proposal accessors, and a
+ * step assembled without them is a step the machine cannot run. Only the four
+ * things a layout case actually varies are overridden here.
+ *
+ * `status` and `reachable` are two of those, because there is no session
+ * behind this page: without them the step would read not_started and blocked,
+ * which is a real state and not the one whose layout is being measured.
+ */
+const HARNESS_STEP = documentStep({
+  id: 'landform',
+  title: 'Landform',
+  blurb: 'Where production can go.',
+  proposalCollection: 'suggested_zones',
+  Panel: null,
+  status: () => 'generated',
+  reachable: () => true,
+  blockedBy: () => null,
+  instructions: {
+    reviewing: 'Review the proposed production zones and commit the ones you want.',
+  },
+  buttons: { reviewing: BUTTONS.slice(0, BUTTON_COUNT) },
+  notices: () => noticesFor(NOTICE_KIND),
+  tabs: () => Array.from({ length: TAB_COUNT }, (_, i) => tab(i)),
+})
+
+/**
+ * Put the cursor on the step under test.
+ *
+ * The cursor derives to the first UNCOMMITTED step, which with no session is
+ * always the boundary -- and the boundary's chrome is one button and no tabs,
+ * which is not the layout these tests are about. This is the same door a rail
+ * click goes through (`open`), so the shell is in a state a user can actually
+ * reach rather than one this file has arranged behind it.
+ */
+function OpenStep({ stepId }) {
+  const { open } = useWizardCursor()
+  useEffect(() => open(stepId), [open, stepId])
+  return null
+}
+
+function Harness() {
+  return (
+    <SessionProvider autoResume={false}>
+      <WizardCursorProvider definitions={[BOUNDARY_STEP, HARNESS_STEP]}>
+        <OpenStep stepId="landform" />
+        {/* THE SHIPPED STAGE ELEMENT. `.map-stage` is what carries the chrome's
+            own measurements (--rail-width, --bar-height) and the height the
+            overlay is laid out against; rendering the shell outside it would
+            be measuring a layout the app never has. */}
+        <div className="map-stage" data-testid="stage">
+          <WizardShell />
+        </div>
+      </WizardCursorProvider>
+    </SessionProvider>
+  )
+}
+
+createRoot(document.getElementById('root')).render(<Harness />)
+
+// The signal layout.test.jsx waits on before it measures anything: React has
+// committed, the catalogue request has settled, and fonts are done loading --
+// a card sized to its content is sized to its content IN A FACE, and measuring
+// mid-swap would read a fallback's metrics.
+Promise.all([document.fonts.ready, new Promise((r) => requestAnimationFrame(() => r()))]).then(
+  () => {
+    document.documentElement.dataset.harnessReady = 'true'
+  }
+)

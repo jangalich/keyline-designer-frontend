@@ -1,5 +1,5 @@
 /**
- * TabStrip.jsx  —  REGION D, the bottom, above the banner.
+ * TabStrip.jsx  —  REGION D, the bottom row, left of the action card.
  *
  * ONE TAB PER FEATURE THE CURSOR STEP IS CARRYING, from the step's own
  * `tabs(context)`. The strip places them, counts them and caps them; it never
@@ -67,8 +67,30 @@ import { useWizardCursor } from '../WizardCursor.jsx'
 export const TAB_COLUMNS = 4
 export const TAB_ROWS_MAX = 3
 
+/** The cap on a narrow stage, where four tabs do not fit. Mirrors App.css. */
+export const TAB_COLUMNS_NARROW = 2
+
 /** How many real tabs a collapsed strip shows: one row, less the "+N more". */
 export const COLLAPSED_TAB_CAP = TAB_COLUMNS - 1
+
+/**
+ * How many columns to lay out for `cells` rendered cells, per cap.
+ *
+ * THE STRIP IS SIZED TO ITS CONTENT NOW, so the column count has to be too.
+ * While the strip spanned the viewport a fixed `repeat(4, 1fr)` was free: the
+ * width was the window's either way and empty tracks were invisible. Sized to
+ * its content, four tracks holding one tab is a strip four tabs wide with
+ * three empty cells sitting on the map -- "sized to its content" as a claim
+ * rather than as a fact.
+ *
+ * IT IS HANDED TO CSS RATHER THAN DECIDED THERE because only this component
+ * knows how many cells it is about to render: the count is the tabs it is
+ * showing PLUS whichever of "+N more" and "Show fewer" is in play, and that
+ * is a rendering decision, not a media query.
+ */
+export function tabColumns(cells, cap = TAB_COLUMNS) {
+  return Math.max(1, Math.min(cells, cap))
+}
 
 export default function TabStrip({ machine, onRemove }) {
   const [expanded, setExpanded] = useState(false)
@@ -82,12 +104,24 @@ export default function TabStrip({ machine, onRemove }) {
   const shown = expanded || !overflowing ? tabs : tabs.slice(0, COLLAPSED_TAB_CAP)
   const hidden = tabs.length - shown.length
 
+  // Every cell the list is about to hold: the tabs, plus the one affordance
+  // that may follow them. Two caps, because App.css narrows to two columns on
+  // a small stage and an INLINE custom property cannot be overridden from a
+  // stylesheet -- so the narrow count travels with the wide one rather than
+  // being clamped over there. See the media query.
+  const cells = shown.length + (hidden > 0 || (expanded && overflowing) ? 1 : 0)
+
   return (
     <div
       className={`chrome-tabs${expanded ? ' chrome-tabs--expanded' : ''}`}
       data-testid={`tabs-${stepId}`}
       data-tab-count={tabs.length}
+      data-tab-columns={tabColumns(cells)}
       data-expanded={expanded ? 'true' : 'false'}
+      style={{
+        '--tab-columns': tabColumns(cells),
+        '--tab-columns-narrow': tabColumns(cells, TAB_COLUMNS_NARROW),
+      }}
     >
       <ul className="chrome-tabs__list">
         {shown.map((tab) => {

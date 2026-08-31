@@ -58,6 +58,7 @@ import {
 } from './useStepMachine'
 import { chromeStateFor } from './shell/chromeState.js'
 import { COLLAPSED_TAB_CAP, TAB_COLUMNS, TAB_ROWS_MAX } from './shell/TabStrip.jsx'
+import { resetStepCatalog } from './stepCatalog.jsx'
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
 
@@ -165,7 +166,22 @@ function payloadWith(count, { totalAcres = 100 } = {}) {
    Harness
    =========================================================================== */
 
+/**
+ * THE CATALOGUE ROUTE, SERVED BY DEFAULT ON EVERY HARNESS.
+ *
+ * The wizard asks for GET /api/steps on mount now -- that is where the rail's
+ * order comes from before a session exists (stepCatalog.jsx) -- so every test
+ * that renders it makes this call whether or not the test is about it. Serving
+ * it here rather than adding a line to thirty `installFetch` calls keeps the
+ * per-test route lists about what each test is actually exercising.
+ *
+ * IT IS LAST IN THE LIST, so a test that declares its own /api/steps route --
+ * an empty catalogue, a failure -- still wins: routes are matched in order.
+ */
+const STEPS_ROUTE = { method: 'GET', pattern: /^\/api\/steps$/, responses: { body: { step_order: [...STEP_ORDER] } } }
+
 function installFetch(routes) {
+  routes = [...routes, STEPS_ROUTE]
   const calls = []
   const cursors = new Map()
 
@@ -266,6 +282,9 @@ const pathsOf = (calls, method, matcher) =>
   calls.filter((c) => c.method === method && matcher.test(c.path))
 
 beforeEach(() => {
+  // The catalogued step order is cached for the life of the module (one
+  // fetch per page); a test's answer must not leak into the next one's.
+  resetStepCatalog()
   window.localStorage.clear()
   window.history.replaceState({}, '', '/')
 })
@@ -683,7 +702,14 @@ describe('5. the tab strip past its cap', () => {
     const css = cssCode()
     expect(css).toMatch(/\.chrome-tabs--expanded \.chrome-tabs__list \{[^}]*overflow-y: auto/)
     expect(css).toMatch(/\.chrome-tabs--expanded \.chrome-tabs__list \{[^}]*max-height: calc\(3 \*/)
-    expect(css).toMatch(new RegExp(`grid-template-columns: repeat\\(${TAB_COLUMNS},`))
+    // THE COLUMN COUNT COMES FROM THE COMPONENT NOW, because the strip is
+    // sized to its content: a fixed repeat(4) holding one tab would be three
+    // empty tracks wide. The CSS reads the variable and the component sets it,
+    // capped at TAB_COLUMNS -- so both halves are asserted, here and on the
+    // rendered attribute below.
+    expect(css).toMatch(/grid-template-columns: repeat\(var\(--tab-columns, 4\), minmax\(0, 1fr\)\)/)
+    expect(strip().style.getPropertyValue('--tab-columns')).toBe(String(TAB_COLUMNS))
+    expect(strip().dataset.tabColumns).toBe(String(TAB_COLUMNS))
 
     // And it collapses again.
     await ui.click('tabs-fewer-landform')

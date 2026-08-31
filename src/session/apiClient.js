@@ -20,6 +20,7 @@
  *   GET    /api/sessions/{id}/steps/{step}/layers     -> 200 step payload
  *   GET    /api/jobs/{id}                             -> 200 {status, result|error}
  *                                                        (result: {payload, document})
+ *   GET    /api/steps                                 -> 200 {step_order}
  *
  * COORDINATE ORDER. Leaflet is [lat, lng]; GeoJSON and this API are
  * [lng, lat]. geo.js documents its four interop functions as the only places
@@ -217,7 +218,15 @@ async function request(path, { method = 'GET', body, signal } = {}) {
 }
 
 /* ---------------------------------------------------------------------------
-   The seven calls
+   The eight calls
+   ---------------------------------------------------------------------------
+   SEVEN OF THEM NEED A SESSION AND ONE DOES NOT. getSteps() is the only call
+   here that can be made before anything exists, and it is here rather than in
+   the one component that wants it for the reason at the top of this file: the
+   rule is that no component fetches for itself, and a route that happens to
+   be simple is not an exception to it. Its answer is also the same array
+   under the same key that every document carries, so the caller that falls
+   back to it is reading one shape from two sources -- never two shapes.
    --------------------------------------------------------------------------- */
 
 /**
@@ -330,6 +339,37 @@ export function getStepLayers(sessionId, stepId, { signal } = {}) {
  */
 export function getJob(jobId, { signal } = {}) {
   return request(`/api/jobs/${encodeURIComponent(jobId)}`, { signal })
+}
+
+/**
+ * THE PIPELINE'S STEP ORDER, WITH NO SESSION IN IT.
+ *
+ * Resolves to the array itself -- the same `step_order` a document carries,
+ * from the backend's own STEP_ORDER (session_api's get_steps_endpoint). It is
+ * unwrapped here rather than at the call site so a caller holds a step order
+ * and not an envelope, and the document's field and this call's answer are
+ * the same TYPE as well as the same content.
+ *
+ * WHAT IT IS FOR. The step rail enumerates the pipeline, and before a session
+ * exists there is no document to enumerate it from. The alternative to this
+ * call is six step ids hardcoded in this repository, which would be a second
+ * source of truth for the one constant the commit cascade, the reopen warning
+ * and the step registry all key off -- and it would be a second source only
+ * the pre-session case reads, so a drift between it and the backend would
+ * show on the first screen and nowhere else.
+ *
+ * IDS, NOT TITLES. Titles are this repository's: `title` is a field of a step
+ * definition, which is where a step says what its header reads. The route
+ * serves ids only, deliberately, so there is exactly one copy of the word
+ * "Landform" in this system.
+ *
+ * NO SESSION ID, NO BODY, AND NO ERROR IT CAN REACH BUT A NETWORK ONE. Every
+ * other call here can 404 on a session; this one cannot fail in a way the
+ * caller can act on, which is why its caller treats an unavailable answer as
+ * "not yet" rather than as an error to render.
+ */
+export function getSteps({ signal } = {}) {
+  return request('/api/steps', { signal }).then((body) => body.step_order)
 }
 
 /**
