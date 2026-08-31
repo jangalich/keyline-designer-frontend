@@ -1,5 +1,12 @@
 /**
- * ActionBanner.jsx  —  REGION E, the bottom edge, full width.
+ * ActionBanner.jsx  —  REGION E, a card in the bottom-right corner.
+ *
+ * SIZED TO ITS BUTTONS. It was a full-width band whose contents were one or
+ * two right-aligned buttons, so nine tenths of it was empty sheet over the
+ * map. The card is drawn around what was already there; the corner is where
+ * the pointer was already travelling. It shares the bottom row with the tab
+ * strip and holds that corner against it -- see App.css.
+ *
  *
  * WHAT THE STATE OFFERS, AND NOTHING ELSE. The banner renders the list the
  * cursor step's `buttons` declares for the state it is in, in order, and knows

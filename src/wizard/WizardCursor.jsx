@@ -78,6 +78,7 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 
 import { COMMITTED, selectStepStatus, useSession } from '../session/SessionStore'
+import { useStepCatalog } from './stepCatalog.jsx'
 import { STEP_DEFINITIONS, definitionMap, wizardStepOrder } from './stepDefinitions'
 
 const WizardCursorContext = createContext(null)
@@ -88,7 +89,12 @@ const NOTHING_ARMED = Object.freeze({ stepId: null, tool: null })
 export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS }) {
   const { state } = useSession()
   const registry = useMemo(() => definitionMap(definitions), [definitions])
-  const order = wizardStepOrder(state)
+  // The pipeline before a document exists. The document's own `step_order`
+  // takes over the moment one arrives -- see wizardStepOrder.
+  const catalog = useStepCatalog()
+  // Memoised because it is a fresh array every call, and it is a dependency
+  // of the two derivations below and of the context value itself.
+  const order = useMemo(() => wizardStepOrder(state, catalog), [state, catalog])
 
   /**
    * The user's explicit choice of panel, or null for "no explicit choice".
@@ -113,17 +119,60 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
   const [focusSlot, setFocusSlot] = useState(NOTHING_FOCUSED)
 
   /**
+   * EVERY STEP'S STATUS, READ ONCE.
+   *
+   * Two things below need it -- where the cursor sits, and which steps are
+   * reachable -- and they are the same question asked twice. Reading it twice
+   * would let them disagree for one render, which is the state where the rail
+   * marks a step current and unreachable at the same time.
+   *
+   * A step's own `status(state)` when it has a definition, because boundary's
+   * status is whether a session exists and no document carries that. The
+   * store's selector otherwise, which reads a step the document has never
+   * carried as not_started.
+   */
+  const statuses = useMemo(() => {
+    const map = new Map()
+    for (const stepId of order) {
+      const definition = registry.get(stepId)
+      map.set(stepId, definition ? definition.status(state) : selectStepStatus(state, stepId))
+    }
+    return map
+  }, [order, registry, state])
+
+  /**
    * Where the wizard is, DERIVED rather than remembered: the first step that
    * is not committed. So creating a session moves the wizard on without
    * anything having to say so, and a resume opens where the document says the
    * user left off.
    */
   const firstUncommitted =
-    order.find((stepId) => {
-      const definition = registry.get(stepId)
-      const status = definition ? definition.status(state) : selectStepStatus(state, stepId)
-      return status !== COMMITTED
-    }) ?? order[order.length - 1]
+    order.find((stepId) => statuses.get(stepId) !== COMMITTED) ?? order[order.length - 1]
+
+  /**
+   * THE STEPS YOU CANNOT GET TO YET: everything after the first uncommitted
+   * one. A step is reachable when every step BEFORE it is committed, which is
+   * the same rule the store's selectIsStepReachable applies to a document.
+   *
+   * IT IS NOT THAT SELECTOR, AND IT CANNOT BE. That one indexes into
+   * `state.stepOrder` -- the document's array, which does not contain the
+   * boundary and is EMPTY before a session exists, so it answers false for
+   * every row on the screen this exists to draw. This is the same rule over
+   * the wizard's own order, which is the one the rail renders. The rule is
+   * stated once here and read by the rail, rather than derived per row.
+   *
+   * ALL upstream steps, not just the predecessor -- the equivalence between
+   * those two is a property of the commit cascade rather than of this
+   * derivation, and it is not this derivation's to assume.
+   */
+  const reachable = useMemo(() => {
+    const set = new Set()
+    for (const stepId of order) {
+      set.add(stepId)
+      if (statuses.get(stepId) !== COMMITTED) break
+    }
+    return set
+  }, [order, statuses])
 
   const cursorStepId = openStepId && order.includes(openStepId) ? openStepId : firstUncommitted
   const definition = registry.get(cursorStepId) ?? null
@@ -235,6 +284,8 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
       definition,
       definitions: registry,
       order,
+      statuses,
+      reachable,
       open,
       advance,
       tools,
@@ -251,6 +302,8 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
       definition,
       registry,
       order,
+      statuses,
+      reachable,
       open,
       advance,
       tools,

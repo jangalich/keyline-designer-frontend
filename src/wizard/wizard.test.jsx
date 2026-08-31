@@ -45,6 +45,7 @@ import {
   wizardStepOrder,
 } from './stepDefinitions'
 import { deriveMachineState } from './useStepMachine'
+import { resetStepCatalog } from './stepCatalog.jsx'
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
 
@@ -178,7 +179,22 @@ const WITH_WATER = [BOUNDARY_STEP, LANDFORM_STEP, WATER_STEP]
    Harness
    =========================================================================== */
 
+/**
+ * THE CATALOGUE ROUTE, SERVED BY DEFAULT ON EVERY HARNESS.
+ *
+ * The wizard asks for GET /api/steps on mount now -- that is where the rail's
+ * order comes from before a session exists (stepCatalog.jsx) -- so every test
+ * that renders it makes this call whether or not the test is about it. Serving
+ * it here rather than adding a line to thirty `installFetch` calls keeps the
+ * per-test route lists about what each test is actually exercising.
+ *
+ * IT IS LAST IN THE LIST, so a test that declares its own /api/steps route --
+ * an empty catalogue, a failure -- still wins: routes are matched in order.
+ */
+const STEPS_ROUTE = { method: 'GET', pattern: /^\/api\/steps$/, responses: { body: { step_order: [...STEP_ORDER] } } }
+
 function installFetch(routes) {
+  routes = [...routes, STEPS_ROUTE]
   const calls = []
   const cursors = new Map()
 
@@ -300,6 +316,9 @@ const pathsOf = (calls, method, matcher) =>
   calls.filter((c) => c.method === method && matcher.test(c.path))
 
 beforeEach(() => {
+  // The catalogued step order is cached for the life of the module (one
+  // fetch per page); a test's answer must not leak into the next one's.
+  resetStepCatalog()
   window.localStorage.clear()
   window.history.replaceState({}, '', '/')
 })
@@ -426,9 +445,13 @@ describe('2. boundary as step 0', () => {
 
     const ui = await renderWizard()
 
-    // Before anything is drawn the wizard is ONE step long -- the client does
-    // not know the pipeline until a document tells it.
-    expect(ui.order()).toEqual([BOUNDARY_STEP_ID])
+    // BEFORE ANYTHING IS DRAWN THE WIZARD IS ALREADY THE WHOLE PIPELINE. It
+    // used to be one step long, on the grounds that the client does not know
+    // the pipeline until a document tells it -- true, and now answered by
+    // asking the side that owns the constant (GET /api/steps) rather than by
+    // showing a one-row table of contents. The rail is the same rail here as
+    // it is after the commit; only which of its rows you can reach changes.
+    expect(ui.order()).toEqual([BOUNDARY_STEP_ID, ...STEP_ORDER])
     expect(ui.stepState(BOUNDARY_STEP_ID)).toBe('idle')
     // No generate on this step: there is nothing to propose about a boundary.
     expect(ui.find(`generate-${BOUNDARY_STEP_ID}`)).toBeNull()
@@ -453,7 +476,7 @@ describe('2. boundary as step 0', () => {
     // [lat, lng] in, [lng, lat] out, and the ring CLOSED -- geo.js's
     // ringToGeoJSON is the one place the two coordinate orders meet, and the
     // definition's commit goes through it rather than swapping at a call site.
-    expect(calls[0].body.boundary).toEqual([
+    expect(pathsOf(calls, 'POST', /^\/api\/sessions$/)[0].body.boundary).toEqual([
       [-74.01, 40.7],
       [-74.0, 40.7],
       [-74.0, 40.71],

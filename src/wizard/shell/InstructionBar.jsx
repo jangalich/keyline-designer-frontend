@@ -1,5 +1,11 @@
 /**
- * InstructionBar.jsx  —  REGION B, the top edge, full width.
+ * InstructionBar.jsx  —  REGION B, a card centred near the top.
+ *
+ * CENTRED AND CAPPED AT READING MEASURE, not spanning the frame. What it holds
+ * is a sentence and a stack of notices, and a sentence is the one thing in
+ * this shell that gets worse as it gets wider -- so a long notice WRAPS here
+ * rather than stretching the card across the map. See App.css.
+ *
  *
  * TWO THINGS, AND THE ORDER BETWEEN THEM IS THE WHOLE DESIGN.
  *

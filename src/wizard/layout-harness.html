@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  The page layout.test.jsx drives. It exists so the shell can be measured in a
+  real engine: see layoutHarness.jsx for why, and for the query string it reads.
+
+  NOT part of the built application. Vite's dev server serves any HTML file
+  under the project root on request, so this needs no entry in vite.config.js
+  and never lands in `npm run build` output -- only index.html is an input
+  there.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chrome layout harness</title>
+    <style>
+      /* The stage's backdrop stands in for the map. A flat mid-tone rather
+         than white, because every claim the chrome's treatment makes is about
+         being legible on top of something -- a white page would let a card
+         with no surface look fine. */
+      html, body { margin: 0; height: 100%; }
+      #root { height: 100%; }
+      .map-stage { background: #6b7355; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/wizard/layoutHarness.jsx"></script>
+  </body>
+</html>

@@ -194,7 +194,16 @@
      grid in .chrome sizes itself; these are only for the map's own furniture. */
   --rail-width: 12rem;
   --bar-height: 3.5rem;
-  --bottom-height: 9.5rem;
+  /* WHAT THE BOTTOM ROW ACTUALLY OCCUPIES, and it shrank when the action
+     banner stopped being a full-width band stacked under the tab strip: the
+     two share one row now, so the row is the taller of them rather than their
+     sum. Measured at 85px collapsed (a tab row, its inset, and the card's
+     buttons) against 1280x800; 9.5rem was the stacked pair's height and left
+     Leaflet's credit floating 4rem above anything. Only Leaflet's own corners
+     read this -- the chrome's grid sizes itself -- and only the COLLAPSED
+     height is meaningful to them: an expanded strip is a transient state the
+     credit does not need to dodge. */
+  --bottom-height: 5.5rem;
 
   position: relative;
   height: max(34rem, calc(100dvh - var(--space-6)));
@@ -508,6 +517,39 @@
    five regions of the branch, and the middle row's `1fr` is the open map, kept
    open by construction rather than by every region remembering to stay out of
    it.
+
+
+   EVERY REGION IS A CARD ON THE MAP. NONE SPANS IT EDGE TO EDGE.
+
+   Three of them always were -- the rail, the detail panel and the tabs read
+   correctly as objects sitting on the map. Two were not: the instruction bar
+   and the action banner ran the full width with a single hairline on their
+   inner edge, and a full-width band overlaying a map does not read as chrome
+   belonging to the frame. It reads as a BAR CUTTING THE FRAME IN TWO -- the
+   same silhouette as a browser toolbar or a page header, which are things the
+   map sits underneath rather than things floating on it. It also cost map
+   area at every width without ever looking deliberate about it, because a
+   region whose width is the viewport's is a region nobody sized.
+
+   So the two banners became cards, and one treatment now covers all five:
+
+     AN OPAQUE SURFACE     --paper or --stock. Nothing is legible over an
+                           arbitrary aerial frame without one. This is the
+                           halo-casing argument -- one colour cannot beat
+                           every possible ground -- applied to chrome instead
+                           of to linework: where a line answers it with a
+                           casing, a region answers it with a surface.
+
+     A RULE HAIRLINE       The card's own edge, on all four sides. A single
+                           inner border is what a full-width band has instead
+                           of an edge, and it was the tell.
+
+     AN INSET              --space-3 from the stage's edge, so the map runs
+                           visibly behind and past every region.
+
+     SIZED TO ITS CONTENT  `width: fit-content`, capped where an unbounded
+                           line would be unreadable. No region takes a width
+                           because it is available.
    --------------------------------------------------------------------------- */
 
 .chrome {
@@ -599,6 +641,26 @@
    rule is about what the eye counts, not about which property carries it. A
    3px edge is the printed-manual answer: it marks the entry without becoming
    a button. */
+/* NOT YET REACHABLE. The whole row goes quiet -- index, name and status
+   together -- because what is being said is about the STEP, not about one
+   part of it. Muted rather than half-opaque: opacity would fade the row
+   towards whatever aerial frame is behind the rail, and the rail's surface is
+   the only thing keeping any of this legible. --ink-muted is the token for
+   text that is present and secondary, which is exactly this.
+
+   IT IS STILL A BUTTON AND IT STILL RESPONDS. A click opens the step and the
+   instruction card then names what has to be committed first, which is a
+   better answer to "why can I not do this" than a control that ignores the
+   pointer. So there is no `pointer-events: none` and no [disabled] here --
+   the hover below still applies. */
+.chrome-rail__step--ahead {
+  color: var(--ink-muted);
+}
+
+.chrome-rail__step--ahead .chrome-rail__name {
+  color: var(--ink-muted);
+}
+
 .chrome-rail__step--cursor {
   background: var(--stock);
   color: var(--ink);
@@ -663,18 +725,43 @@
   color: var(--ink-muted);
 }
 
-/* --- B: the instruction bar ------------------------------------------------- */
+/* --- B: the instruction card -------------------------------------------------
+   CENTRED, NEAR THE TOP, AND CAPPED AT READING MEASURE.
+
+   Centred because it is the one region with no side of its own: the rail owns
+   the left, the detail panel owns the right, and the direction is addressed to
+   whoever is looking at the middle of the map. A card pinned to a corner would
+   be asking to be found.
+
+   CAPPED AT --measure, WHICH IS THE PROSE CAP AND NOT A NUMBER PICKED HERE.
+   This region's content is a sentence plus a stack of notices, and a sentence
+   is the one thing in this shell that gets WORSE as it gets wider -- past
+   about 75 characters a line the eye loses its place returning to the left.
+   Without a cap the card would be sized by its longest notice, so a long
+   server rejection would stretch it most of the way across the frame; with
+   one, that notice wraps to two lines and the card stays the same object it
+   was. `fit-content` under the cap is what keeps a three-word direction from
+   drawing a 680px box around itself.
+
+   NO min-height. It had --bar-height, which is a band's height rather than a
+   card's; the token stays because Leaflet's controls are still positioned
+   against it.
+   --------------------------------------------------------------------------- */
 
 .chrome-bar {
   grid-area: bar;
-  min-height: var(--bar-height);
+  justify-self: center;
+  align-self: start;
+  width: fit-content;
+  max-width: min(var(--measure), calc(100% - 2 * var(--space-3)));
+  margin: var(--space-3);
   display: flex;
   flex-direction: column;
-  justify-content: center;
   gap: var(--space-1);
   padding: var(--space-2) var(--space-4);
   background: var(--paper);
-  border-bottom: var(--hairline);
+  border: var(--hairline);
+  border-radius: var(--radius);
 }
 
 /* THE DIRECTION IS THE LOUDEST THING ON THE MAP, on purpose: it is the one
@@ -847,12 +934,39 @@
   color: var(--ink-muted);
 }
 
-/* --- D + E: the bottom stack ------------------------------------------------ */
+/* --- D + E: the bottom ROW ---------------------------------------------------
+   ONE ROW, THREE TRACKS, AND THE FIRST ONE IS EMPTY ON PURPOSE.
+
+     1  a gutter exactly --rail-width wide, so the tab strip STARTS AFTER THE
+        RAIL rather than beginning under it. The rail is top-aligned in the
+        middle row and so does not collide with this row today -- but "does not
+        collide today" is a fact about how many steps the pipeline has, and the
+        rail grows a row per step. A reserved track is the version of that
+        agreement that cannot come apart.
+
+     2  the tabs, `justify-self: start` and sized to their content, so the
+        strip's right edge is where its tabs end.
+
+     3  the action card, `auto`, so track 2 is whatever is left. The strip
+        therefore ENDS BEFORE THE ACTION CARD at every tab count, by
+        construction rather than by a width that has to be kept in agreement
+        with one. A grid track cannot overlap its neighbour, which is the
+        whole reason this is a grid and not two absolutely-positioned boxes.
+
+   `align-items: end` is what makes the strip GROW UPWARD when "+N more"
+   expands it. Both items sit on the row's bottom edge, the row's bottom edge
+   is fixed by this container's padding, and a taller strip therefore takes
+   space from the map above rather than moving the action card. The action
+   card's own geometry does not depend on the strip at all.
+   --------------------------------------------------------------------------- */
 
 .chrome__bottom {
   grid-area: bottom;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) var(--space-3);
   pointer-events: none;
 }
 
@@ -867,12 +981,37 @@
    whatever the count, and the map's height stays a constant rather than a
    function of how many proposals came back. TabStrip.jsx carries the same two
    numbers, and the grid below is what makes them true. */
+/* THE STRIP IS A LAYOUT, NOT A SURFACE.
+
+   It had a --paper background and a top hairline, which made it one wide
+   region containing tab-shaped drawings. Each tab already carries its own
+   opaque --stock surface and its own hairline -- so the strip's surface was a
+   second, larger card behind cards, and its full-width top rule was the same
+   band silhouette the two banners had. Removing it leaves the tabs floating
+   individually on the map, which is what they always looked like they were
+   doing.
+
+   Nothing about a tab changed. What changed is that there is no longer a
+   sheet behind them.
+
+   THE COLUMN COUNT COMES FROM THE COMPONENT (--tab-columns, set inline by
+   TabStrip). A fixed `repeat(4, ...)` was right while the strip spanned the
+   viewport and wrong the moment it was sized to its content: four equal 1fr
+   tracks holding one tab is a strip four tabs wide with three empty cells,
+   and "sized to its content" would have been a claim rather than a fact. The
+   cap is still 4 -- see TAB_COLUMNS -- and the component hands over the
+   smaller of that and what it is actually rendering.
+
+   The padding is asymmetric because a drawn tab's × hangs half outside its
+   top-right corner; that is the room it hangs into, and there is no surface
+   left for it to be inset from. */
 .chrome-tabs {
   --tab-row: 3.5rem;
-  background: var(--paper);
-  border-top: var(--hairline);
-  /* The extra top padding is the room a drawn tab's × hangs into. */
-  padding: var(--space-3) var(--space-3) var(--space-2);
+  grid-column: 2;
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-2) 0 0;
 }
 
 .chrome-tabs__list {
@@ -880,7 +1019,7 @@
   padding: 0;
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--tab-columns, 4), minmax(0, 1fr));
   gap: var(--space-2);
 }
 
@@ -1046,12 +1185,18 @@
   color: var(--oxide);
 }
 
+/* THE "+N more" AFFORDANCE IS A CARD TOO. It was transparent, which worked
+   while the strip had a surface behind it to be transparent AGAINST. With the
+   strip gone it would have been dashed text floating on aerial imagery -- the
+   one element in the shell with no ground under it. It takes the same --stock
+   surface and hairline as a real tab and keeps the dashed edge, which is what
+   says it is a control rather than a feature. */
 .chrome-tab--more {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  background: transparent;
+  background: var(--stock);
   border-style: dashed;
 }
 
@@ -1071,12 +1216,30 @@
   color: var(--ink);
 }
 
-/* THE ACTION BANNER. Last in the stack, so it is the thing nearest the bottom
-   edge and the thing a pointer travelling down the screen reaches. */
+/* THE ACTION CARD, BOTTOM RIGHT.
+
+   It was a full-width band across the bottom, and it is the region that lost
+   the most by being one: its contents are one or two buttons, right-aligned,
+   so the other nine tenths of it was an empty --paper sheet over the map. A
+   card sized to those buttons says the same thing and gives the frame back.
+
+   BOTTOM RIGHT because that is where its buttons already were -- the band was
+   full width and its actions were flush right, so the card is drawn around
+   what the pointer was already travelling to. It shares the bottom row with
+   the tabs (see .chrome__bottom) and holds the corner: the strip grows
+   leftward-bounded and upward, never into this. */
 .chrome-banner {
+  grid-column: 3;
+  justify-self: end;
+  width: fit-content;
+  /* The buttons set the card's natural width; a confirmation's sentence would
+     otherwise set it instead, and that sentence is prose. Same cap, same
+     reason, as the instruction card. */
+  max-width: min(var(--measure), 100%);
   background: var(--paper);
-  border-top: var(--hairline);
-  padding: var(--space-3) var(--space-4);
+  border: var(--hairline);
+  border-radius: var(--radius);
+  padding: var(--space-3);
 }
 
 .chrome-banner__actions {
@@ -1208,8 +1371,14 @@
     border-left: var(--hairline);
   }
 
+  /* Two columns at most, from the component's own narrow count rather than a
+     literal 2. The count is set INLINE (TabStrip hands over both, capped at
+     TAB_COLUMNS and at 2 respectively), and an inline custom property cannot
+     be overridden from a stylesheet -- so a rule here setting `--tab-columns`
+     would silently lose. Reading a second variable is the version of this
+     that works. A strip with one tab stays one tab wide at every width. */
   .chrome-tabs__list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--tab-columns-narrow, 2), minmax(0, 1fr));
   }
 }
 

@@ -53,6 +53,7 @@ import {
   STEP_DEFINITIONS,
   definitionMap,
 } from '../wizard/stepDefinitions'
+import { resetStepCatalog } from '../wizard/stepCatalog.jsx'
 import WizardShell from '../wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from '../wizard/WizardCursor.jsx'
 import MapLayerStack from './MapLayerStack.jsx'
@@ -184,7 +185,22 @@ const LAYERS_PAYLOAD = {
    Harness
    =========================================================================== */
 
+/**
+ * THE CATALOGUE ROUTE, SERVED BY DEFAULT ON EVERY HARNESS.
+ *
+ * The wizard asks for GET /api/steps on mount now -- that is where the rail's
+ * order comes from before a session exists (stepCatalog.jsx) -- so every test
+ * that renders it makes this call whether or not the test is about it. Serving
+ * it here rather than adding a line to thirty `installFetch` calls keeps the
+ * per-test route lists about what each test is actually exercising.
+ *
+ * IT IS LAST IN THE LIST, so a test that declares its own /api/steps route --
+ * an empty catalogue, a failure -- still wins: routes are matched in order.
+ */
+const STEPS_ROUTE = { method: 'GET', pattern: /^\/api\/steps$/, responses: { body: { step_order: [...STEP_ORDER] } } }
+
 function installFetch(routes) {
+  routes = [...routes, STEPS_ROUTE]
   const calls = []
   const cursors = new Map()
 
@@ -353,6 +369,9 @@ async function withLandform(ui, { steps } = {}) {
 }
 
 beforeEach(() => {
+  // The catalogued step order is cached for the life of the module (one
+  // fetch per page); a test's answer must not leak into the next one's.
+  resetStepCatalog()
   window.localStorage.clear()
   window.history.replaceState({}, '', '/')
 })
@@ -660,7 +679,9 @@ describe('4. the boundary step', () => {
     // COMMIT. One POST /api/sessions, carrying the ring the map wrote.
     await ui.click(`commit-${BOUNDARY_STEP_ID}`)
     expect(calls.filter((c) => c.path === '/api/sessions')).toHaveLength(1)
-    expect(calls[0].body.boundary).toEqual(BOUNDARY_GEOJSON)
+    // The POST specifically -- the wizard's own GET /api/steps is also in
+    // `calls`, and it is the first of them.
+    expect(pathsOf(calls, 'POST', /^\/api\/sessions$/)[0].body.boundary).toEqual(BOUNDARY_GEOJSON)
     expect(selectSessionId(ui.state)).toBe('sess-1')
 
     // And the ring is now the DOCUMENT's, not the draft's: the boundary moved

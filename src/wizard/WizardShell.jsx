@@ -6,16 +6,28 @@
  *
  * FIVE REGIONS, ALL OVERLAYS:
  *
- *   A  StepRail         left edge     every step, in order, with its status.
- *   B  InstructionBar   top, full     the state's direction, plus notices.
- *   F  DetailPanel      top right     reserved; the container and its toggle.
- *   D  TabStrip         bottom        one tab per feature, capped at 3 rows.
- *   E  ActionBanner     bottom, full  the state's buttons.
+ *   A  StepRail         left edge      every step, in order, with its status.
+ *   B  InstructionBar   top, centred   the state's direction, plus notices.
+ *   F  DetailPanel      top right      reserved; the container and its toggle.
+ *   D  TabStrip         bottom left    one tab per feature, capped at 3 rows.
+ *   E  ActionBanner     bottom right   the state's buttons.
  *
  * WHAT THIS REPLACES. A column of step panels beside the map, in which almost
  * every interaction happened somewhere other than the thing being edited, and
  * which cost the map more than a third of the viewport to hold controls that
  * were all about the map. The regions above take no height from it at all.
+ *
+ * AND NONE OF THEM SPANS IT. B and E ran the full width until this branch,
+ * which made them read as bars cutting the frame rather than as chrome
+ * belonging to it, and cost map area at every width without looking like a
+ * decision. All five are now cards: opaque surface, hairline, inset from the
+ * edge, sized to their content. App.css's chrome section carries the argument.
+ *
+ * D AND E SHARE THE BOTTOM ROW. The strip runs from after the rail to before
+ * the action card and can never reach it -- they are two tracks of one grid,
+ * which is what makes "never underneath" a property of the layout rather than
+ * a width somebody has to keep in agreement. An expanded strip grows UPWARD;
+ * the action card does not move.
  *
  *
  * ONE MACHINE ON SCREEN, AND IT IS THE CURSOR'S

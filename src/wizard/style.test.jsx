@@ -49,6 +49,7 @@ import {
   REVIEWING,
   STEP_COMMITTED,
 } from './useStepMachine'
+import { resetStepCatalog } from './stepCatalog.jsx'
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
 
@@ -213,6 +214,9 @@ async function renderShell() {
 }
 
 beforeEach(() => {
+  // The catalogued step order is cached for the life of the module (one
+  // fetch per page); a test's answer must not leak into the next one's.
+  resetStepCatalog()
   window.localStorage.clear()
   window.history.replaceState({}, '', '/')
 })
@@ -690,10 +694,31 @@ describe('5. the quality floor', () => {
     // photography, which is an arbitrary frame of green and brown. Nothing is
     // legible against that on its own; this is the same reasoning that puts
     // halo casing under map linework.
-    for (const selector of ['.chrome-rail', '.chrome-bar', '.chrome-detail', '.chrome-tabs', '.chrome-banner']) {
+    //
+    // EVERY CARD, AND A CARD IS WHAT CARRIES CONTENT. The rail, the
+    // instruction card, the detail panel and the action card each hold text
+    // directly and each carry --paper. .chrome-tabs is NOT in this list any
+    // more and its absence is the assertion below: it holds tabs, and a tab
+    // carries its own surface, so a surface on the strip was a sheet behind
+    // cards.
+    for (const selector of ['.chrome-rail', '.chrome-bar', '.chrome-detail', '.chrome-banner']) {
       const surface = propsOf(ruleFor(COMPONENTS, selector))
       expect(surface.background).toBe('var(--paper)')
     }
+
+    // THE STRIP IS A LAYOUT, NOT A SURFACE. It sets no background and no
+    // border, and each of the three things it can place -- a tab, an eye-off
+    // tab, the "+N more" -- carries --stock and a hairline of its own. The
+    // "+N more" is the one that had to change: it was transparent, which
+    // worked only while there was a strip behind it to be transparent against.
+    const strip = propsOf(ruleFor(COMPONENTS, '.chrome-tabs'))
+    expect(strip.background).toBeUndefined()
+    expect(strip.border).toBeUndefined()
+    expect(strip['border-top']).toBeUndefined()
+    for (const selector of ['.chrome-tab', '.chrome-tab--more']) {
+      expect(propsOf(ruleFor(COMPONENTS, selector)).background).toBe('var(--stock)')
+    }
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-tab')).border).toBe('var(--hairline)')
 
     // THE ONE EXCEPTION, AND IT IS DELIBERATE. Leaflet's and Esri's credit is
     // a licensing requirement rather than a control: nobody reads it at a
