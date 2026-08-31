@@ -289,7 +289,7 @@ describe('1. boundary end to end in the new shell', () => {
 
     // IDLE. One button, and it is the tool -- there is nothing to move forward
     // to yet.
-    expect(ui.buttons(BOUNDARY_STEP_ID)).toEqual([['draw', 'Draw the Boundary']])
+    expect(ui.buttons(BOUNDARY_STEP_ID)).toEqual([['draw', 'Draw the boundary']])
     await ui.click(`draw-${BOUNDARY_STEP_ID}`)
     expect(ui.cursor.armed).toBe('draw')
 
@@ -297,8 +297,8 @@ describe('1. boundary end to end in the new shell', () => {
     // undo and the finish.
     expect(ui.instruction(BOUNDARY_STEP_ID)).toBe('Click to place each corner.')
     expect(ui.buttons(BOUNDARY_STEP_ID)).toEqual([
-      ['undo', 'Undo Last Point'],
-      ['finish', 'Finish Boundary'],
+      ['undo', 'Undo last point'],
+      ['finish', 'Finish boundary'],
     ])
 
     // FOUR POINTS DOWN, then UNDO LAST POINT takes one back off the draft --
@@ -317,7 +317,7 @@ describe('1. boundary end to end in the new shell', () => {
     expect(ui.cursor.armed).toBeNull()
     expect(ui.instruction(BOUNDARY_STEP_ID)).toBe('Check the shape before sending.')
     expect(ui.buttons(BOUNDARY_STEP_ID)).toEqual([
-      ['redraw', 'Clear and Redraw'],
+      ['redraw', 'Clear and redraw'],
       ['commit', 'Commit'],
     ])
 
@@ -749,6 +749,8 @@ describe('7. the three deletions', () => {
     for (const gone of [
       'Undo Last Point',
       'Finish Boundary',
+      'Undo last point',
+      'Finish boundary',
       'Start Drawing Boundary',
       'Redraw',
       'handleUndoLastPoint',
@@ -763,8 +765,8 @@ describe('7. the three deletions', () => {
     const ui = await renderShell()
     await ui.click(`draw-${BOUNDARY_STEP_ID}`)
     const labels = [...ui.container.querySelectorAll('button')].map((b) => b.textContent)
-    expect(labels.filter((l) => l === 'Undo Last Point')).toHaveLength(1)
-    expect(labels.filter((l) => l === 'Finish Boundary')).toHaveLength(1)
+    expect(labels.filter((l) => l === 'Undo last point')).toHaveLength(1)
+    expect(labels.filter((l) => l === 'Finish boundary')).toHaveLength(1)
     await ui.unmount()
   })
 

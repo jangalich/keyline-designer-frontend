@@ -435,7 +435,12 @@ export const GENERATE_BUTTON = stepButton({
  */
 export const REOPEN_BUTTON = stepButton({
   key: 'edit',
-  tone: 'primary',
+  // SECONDARY, and the tone is the argument. Oxide marks the single FORWARD
+  // move, and reopening a committed step is a move backwards into work that
+  // was finished -- offered, never urged. A committed step's chrome therefore
+  // shows no oxide at all, which is correct: the way on from a finished step
+  // is the next step, and the rail is what carries that.
+  tone: 'secondary',
   label: ({ machine }) => machine.definition.reopen?.label ?? 'Edit this step',
   enabled: ({ machine }) => machine.canReopen,
   run: ({ machine }) => machine.requestReopen(),
@@ -739,7 +744,7 @@ const BOUNDARY_DRAW = armButton({
   key: 'draw',
   tool: 'draw',
   tone: 'primary',
-  label: 'Draw the Boundary',
+  label: 'Draw the boundary',
 })
 
 /**
@@ -753,7 +758,7 @@ const BOUNDARY_DRAW = armButton({
  */
 const BOUNDARY_UNDO = stepButton({
   key: 'undo',
-  label: 'Undo Last Point',
+  label: 'Undo last point',
   enabled: ({ machine }) => ringOf(machine.draft).length > 0,
   run: ({ machine }) => {
     const ring = ringOf(machine.draft)
@@ -769,7 +774,7 @@ const BOUNDARY_UNDO = stepButton({
 const BOUNDARY_FINISH = disarmButton({
   key: 'finish',
   tone: 'primary',
-  label: 'Finish Boundary',
+  label: 'Finish boundary',
   enabled: ({ machine }) => ringOf(machine.draft).length >= 3,
 })
 
@@ -783,7 +788,7 @@ const BOUNDARY_FINISH = disarmButton({
  */
 const BOUNDARY_REDRAW = stepButton({
   key: 'redraw',
-  label: 'Clear and Redraw',
+  label: 'Clear and redraw',
   run: ({ machine, arm }) => {
     machine.actions.setDraftInput(machine.stepId, BOUNDARY_RING_INPUT, [])
     arm('draw')
@@ -1158,7 +1163,7 @@ export function totalsFor(payload, selectedIds, drawnFeatures) {
 const LANDFORM_DRAW = armButton({
   key: 'draw',
   tool: 'draw',
-  label: 'Draw a Zone',
+  label: 'Draw a zone',
 })
 
 /**
@@ -1224,7 +1229,7 @@ export const LANDFORM_STEP = documentStep({
      * whole of the affordance: same action, same place, different sentence.
      */
     label: ({ committableCount }) =>
-      committableCount === 0 ? 'Commit no zones for this step' : 'Commit Zones',
+      committableCount === 0 ? 'Commit no zones for this step' : 'Commit zones',
     canCommit: () => true,
     blockedReason: () => null,
   },

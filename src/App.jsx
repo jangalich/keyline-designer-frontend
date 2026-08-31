@@ -58,6 +58,7 @@ function App() {
  *   over the map now (see WizardShell), so the column has nothing left in it.
  *
  *   THIS FILE'S OWN BOUNDARY CONTROLS. "Undo Last Point" and "Finish Boundary"
+ *   (in title case, which the design guide does not use either)
  *   were rendered here AND by the wizard, wired to the same arming register --
  *   two boundary UIs on one screen. F3 moved ring ownership to the wizard and
  *   left these behind; F4 deleted the spike's zone state but not these. The

@@ -1,0 +1,572 @@
+/**
+ * style.test.jsx
+ *
+ * THE VISUAL SYSTEM, ASSERTED RATHER THAN REVIEWED.
+ *
+ * The shell was written against the token names and then read as generic
+ * anyway, for two reasons neither of which a person reviewing the stylesheet
+ * would have flagged: the one accent was absent from the chrome entirely (the
+ * forward move was an --ink fill, which is every UI kit's default), and the
+ * display face had nowhere to land (the panel column carried Bitter on its
+ * <h3> titles, and the shell renders no heading element at all, so deleting
+ * that markup took the titling voice with it).
+ *
+ * Both are the kind of thing that comes back. So they are tests.
+ *
+ * WHY THIS RUNS IN jsdom AND WHAT THAT COSTS. jsdom applies no stylesheet, so
+ * these cannot read a computed font-family off a rendered node. What they read
+ * instead is the STYLESHEET -- parsed, resolved through :root, and matched
+ * against the class names the components actually emit. That catches every
+ * failure mode this branch has actually had (a rule naming a class nothing
+ * renders, a face never referenced, a literal below :root, two oxide buttons in
+ * one state) and does not catch cascade order. The browser check that does
+ * catch cascade is a manual one, and its output is in the branch report.
+ */
+
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { NOT_STARTED, SessionProvider, useSession } from '../session/SessionStore'
+import {
+  BOUNDARY_STEP,
+  BOUNDARY_STEP_ID,
+  LANDFORM_STEP,
+  STEP_DEFINITIONS,
+} from './stepDefinitions'
+import { MACHINE_STATES } from './useStepMachine'
+import WizardShell from './WizardShell.jsx'
+import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
+
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const SRC = path.join(HERE, '..')
+
+const FOUNDATION = readFileSync(path.join(SRC, 'index.css'), 'utf8')
+const COMPONENTS = readFileSync(path.join(SRC, 'App.css'), 'utf8')
+
+/** A stylesheet with its comments removed -- prose may name what it replaced. */
+const decl = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '')
+
+/**
+ * The declaration block of the first rule whose selector matches `selector`
+ * exactly, comments stripped.
+ */
+function ruleFor(css, selector) {
+  const source = decl(css)
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = source.match(new RegExp(`(^|[,}])\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm'))
+  return match ? match[2] : null
+}
+
+/** Every property/value pair a rule sets. */
+function propsOf(block) {
+  const out = {}
+  for (const line of (block ?? '').split(';')) {
+    const [prop, ...rest] = line.split(':')
+    if (rest.length) out[prop.trim()] = rest.join(':').trim()
+  }
+  return out
+}
+
+/* ===========================================================================
+   Harness -- enough of a render to read what class names actually appear
+   =========================================================================== */
+
+const STEP_ORDER = ['landform', 'water', 'roads', 'trees', 'structures', 'fencing']
+
+const RING = [
+  [40.7, -74.01],
+  [40.7, -74.0],
+  [40.71, -74.0],
+]
+
+function serverDocument() {
+  const steps = {}
+  for (const stepId of [...STEP_ORDER].sort()) steps[stepId] = { status: NOT_STARTED }
+  return {
+    schema_version: 1,
+    session_id: 'sess-1',
+    document_revision: 0,
+    created_at: '2026-01-01T00:00:00+00:00',
+    updated_at: '2026-01-01T00:00:00+00:00',
+    boundary: [[-74.01, 40.7], [-74.0, 40.7], [-74.0, 40.71], [-74.01, 40.71]],
+    step_order: [...STEP_ORDER],
+    steps,
+  }
+}
+
+const PAYLOAD = {
+  eligible_union: null,
+  exclusion_layers: [
+    { type: 'slope', label: 'slope above 20.0%', data_available: true, geometry_wgs84: null },
+  ],
+  suggested_zones: {
+    type: 'FeatureCollection',
+    features: ['zone-1', 'zone-2'].map((id) => ({
+      type: 'Feature',
+      id,
+      properties: {},
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[[-74.01, 40.7], [-74.0, 40.7], [-74.0, 40.71], [-74.01, 40.7]]],
+      },
+    })),
+  },
+  zones: [
+    { id: 0, feature_id: 'zone-1', rank: 1, area_acres: 2.5, score: 81, slope_min_pct: 2, slope_max_pct: 8, aspect_available: false, dominant_aspect: null },
+    { id: 1, feature_id: 'zone-2', rank: 2, area_acres: 1.2, score: 64, slope_min_pct: 3, slope_max_pct: 11, aspect_available: false, dominant_aspect: null },
+  ],
+  scales: {
+    bands: { poor: [0, 40], fair: [40, 60], good: [60, 80], excellent: [80, 100] },
+    band_bounds: 'lower_inclusive_upper_exclusive_last_band_inclusive',
+  },
+  summary: { total_acres: 100, eligible_acres: 50 },
+}
+
+function installFetch(routes) {
+  globalThis.fetch = vi.fn(async (rawUrl, init = {}) => {
+    const method = init.method ?? 'GET'
+    const url = new URL(rawUrl)
+    const route = routes.find((r) => r.method === method && r.pattern.test(url.pathname))
+    if (!route) throw new Error(`no route for ${method} ${url.pathname}`)
+    return { ok: true, status: route.status ?? 200, json: async () => route.body }
+  })
+}
+
+async function renderShell() {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+
+  let session = null
+  let cursor = null
+  function Probe() {
+    session = useSession()
+    cursor = useWizardCursor()
+    return null
+  }
+
+  await React.act(async () => {
+    root.render(
+      <SessionProvider autoResume={false}>
+        <WizardCursorProvider definitions={STEP_DEFINITIONS}>
+          <Probe />
+          <WizardShell />
+        </WizardCursorProvider>
+      </SessionProvider>
+    )
+  })
+
+  return {
+    container,
+    get state() {
+      return session.state
+    },
+    get cursor() {
+      return cursor
+    },
+    find: (id) => container.querySelector(`[data-testid="${id}"]`),
+    /** Every class name present anywhere in the rendered document. */
+    classes() {
+      const seen = new Set()
+      for (const el of container.querySelectorAll('*')) {
+        for (const name of el.classList) seen.add(name)
+      }
+      return seen
+    },
+    /** The banner's buttons as [key, tone] pairs. */
+    tones(stepId) {
+      const actions = container.querySelector(`[data-testid="actions-${stepId}"]`)
+      return [...(actions?.querySelectorAll('button') ?? [])].map((b) => [
+        b.dataset.testid.replace(`-${stepId}`, ''),
+        b.dataset.tone,
+      ])
+    },
+    async run(fn) {
+      await React.act(async () => fn(session.actions, cursor))
+    },
+    async click(id) {
+      const el = container.querySelector(`[data-testid="${id}"]`)
+      if (!el) throw new Error(`no element with data-testid="${id}"`)
+      await React.act(async () => el.click())
+    },
+    async unmount() {
+      await React.act(async () => root.unmount())
+      container.remove()
+    },
+  }
+}
+
+beforeEach(() => {
+  window.localStorage.clear()
+  window.history.replaceState({}, '', '/')
+})
+
+afterEach(() => vi.restoreAllMocks())
+
+/* ===========================================================================
+   1. THE THREE FACES
+   =========================================================================== */
+
+describe('1. the three faces', () => {
+  it('declares all three, self-hosted, and gives each a token', () => {
+    for (const family of ['Bitter', 'Source Serif 4', 'IBM Plex Mono']) {
+      expect(FOUNDATION).toMatch(new RegExp(`font-family: '${family}'`))
+    }
+    // Self-hosted: no request leaves the app for a face. Comments stripped --
+    // the foundation says out loud that it makes no such request, and a file
+    // that records the fact must not fail for recording it.
+    expect(decl(FOUNDATION)).not.toContain('fonts.googleapis.com')
+    expect(decl(FOUNDATION)).not.toContain('fonts.gstatic.com')
+    expect(decl(FOUNDATION)).toContain("url('./fonts/")
+
+    const root = propsOf(ruleFor(FOUNDATION, ':root'))
+    expect(root['--font-display']).toContain('Bitter')
+    expect(root['--font-prose']).toContain('Source Serif 4')
+    expect(root['--font-data']).toContain('IBM Plex Mono')
+  })
+
+  it('applies each face to its declared role, and never a literal family', () => {
+    // A component naming a family directly is a face outside the system --
+    // the token is the only way a role is expressed.
+    for (const [, value] of Object.entries(propsOf(decl(COMPONENTS)))) {
+      expect(value).not.toMatch(/Bitter|Source Serif|IBM Plex/)
+    }
+    for (const family of ['Bitter', 'Source Serif', 'IBM Plex']) {
+      expect(decl(COMPONENTS)).not.toContain(family)
+    }
+
+    const face = (selector) => propsOf(ruleFor(COMPONENTS, selector))['font-family']
+
+    // DISPLAY: titling. THE REGRESSION THIS TEST EXISTS FOR -- the panel
+    // column set its step titles as <h3>, which the reset draws in Bitter;
+    // the shell renders no heading element, so without this the display face
+    // appears nowhere in the chrome at all.
+    expect(face('.chrome-rail__name')).toBe('var(--font-display)')
+    expect(propsOf(ruleFor(FOUNDATION, 'h1,\nh2,\nh3,\nh4,\nh5,\nh6'))['font-family']).toBe(
+      'var(--font-display)'
+    )
+
+    // PROSE: the instruction, the notices, the buttons -- everything written
+    // rather than measured.
+    for (const selector of [
+      '.chrome-bar__direction',
+      '.chrome-bar__notice',
+      '.chrome-banner__button',
+      '.chrome-detail__toggle',
+    ]) {
+      expect(face(selector)).toBe('var(--font-prose)')
+    }
+
+    // DATA: every measured value, and the eyebrow labels.
+    for (const selector of [
+      '.chrome-tab',
+      '.chrome-tab__name',
+      '.chrome-rail__index',
+      '.chrome-rail__status',
+      '.measure',
+    ]) {
+      expect(face(selector)).toBe('var(--font-data)')
+    }
+  })
+})
+
+/* ===========================================================================
+   2. EVERY MEASURED NUMBER IS MONO, WITH TABULAR FIGURES
+   =========================================================================== */
+
+describe('2. measured values', () => {
+  it('sets the data face AND tabular-nums explicitly on the tab strip', () => {
+    // EXPLICITLY, not assumed. IBM Plex Mono is monospaced, but its OpenType
+    // default for figures is not guaranteed to be the tabular set, and
+    // proportional figures inside a monospaced face is a real combination.
+    const tab = propsOf(ruleFor(COMPONENTS, '.chrome-tab'))
+    expect(tab['font-family']).toBe('var(--font-data)')
+    expect(tab['font-variant-numeric']).toBe('tabular-nums')
+
+    // And restated on the value column itself, which is the one that has to
+    // hold a decimal point still down a row of tabs.
+    const value = propsOf(ruleFor(COMPONENTS, '.chrome-tab__value'))
+    expect(value['font-variant-numeric']).toBe('tabular-nums')
+    expect(value['text-align']).toBe('right')
+
+    // The floor that keeps the decimal from sliding as the number changes.
+    expect(tab['grid-template-columns']).toBe('minmax(6ch, max-content) auto')
+
+    // Anything else carrying a figure carries the same pair.
+    for (const selector of ['.measure', '.chrome-rail__index']) {
+      expect(propsOf(ruleFor(COMPONENTS, selector))['font-variant-numeric']).toBe('tabular-nums')
+    }
+  })
+
+  it('puts every figure the strip prints inside the value column', async () => {
+    installFetch([
+      { method: 'POST', pattern: /^\/api\/sessions$/, status: 201, body: serverDocument() },
+      { method: 'GET', pattern: /\/steps\/landform\/layers$/, body: PAYLOAD },
+    ])
+    const ui = await renderShell()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.loadLayers('landform'))
+
+    // NO BARE DIGIT ANYWHERE IN A TAB. Every numeral the strip renders is
+    // either in a .chrome-tab__value (a measurement) or in the .chrome-tab__name
+    // (the rank), and both are the data face. A figure that escaped into a
+    // prose span is what this catches.
+    for (const tab of ui.container.querySelectorAll('.chrome-tab')) {
+      for (const child of tab.children) {
+        if (!/\d/.test(child.textContent)) continue
+        expect(
+          child.classList.contains('chrome-tab__value') ||
+            child.classList.contains('chrome-tab__name')
+        ).toBe(true)
+      }
+    }
+
+    // ...and the figures are the payload's, at the pipeline's own one decimal.
+    const values = [...ui.find('tab-zone-1').querySelectorAll('.chrome-tab__value')]
+    expect(values.map((v) => v.textContent)).toEqual(['2.5', '81.0'])
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   3. NO COLOUR LITERAL BELOW :root
+   =========================================================================== */
+
+describe('3. tokens only', () => {
+  it('has no colour literal in the component stylesheet', () => {
+    // THE RULE IS ABOUT COLOUR. `#` also opens an id selector and an SVG
+    // fragment reference, so the match is a hash followed by hex digits --
+    // which is what a literal is and what neither of the others can be.
+    const literals = COMPONENTS.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []
+    expect(literals).toEqual([])
+
+    // Nor rgb()/hsl(), which is the same rule written the long way round.
+    expect(decl(COMPONENTS)).not.toMatch(/\b(rgb|rgba|hsl|hsla)\(/)
+
+    // Every colour the components set is a token reference.
+    for (const [prop, value] of Object.entries(propsOf(decl(COMPONENTS)))) {
+      if (!/^(color|background|background-color|border-color|outline-color|fill|stroke)$/.test(prop)) continue
+      if (/^(none|transparent|inherit|currentColor|0)$/.test(value)) continue
+      expect(value).toMatch(/var\(--/)
+    }
+  })
+
+  it('reads its Leaflet tokens rather than defining new ones', () => {
+    // Leaflet cannot resolve var() in the options it takes, so map components
+    // read the same tokens off the document. That pattern stays; what it must
+    // not become is a second palette.
+    const readers = ['map/layers.jsx', 'DrawTool.jsx', 'ZoneDrawTool.jsx', 'ProductionHatchPattern.jsx']
+    for (const file of readers) {
+      const source = readFileSync(path.join(SRC, file), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+      expect(source.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).toEqual([])
+    }
+  })
+})
+
+/* ===========================================================================
+   4. ONE OXIDE PER STATE
+   =========================================================================== */
+
+describe('4. one accent per state', () => {
+  it('gives the forward move oxide, and nothing else in the chrome any', () => {
+    const primary = propsOf(ruleFor(COMPONENTS, '.chrome-banner__button--primary'))
+    expect(primary.background).toBe('var(--oxide)')
+    expect(primary.color).toBe('var(--on-oxide)')
+
+    // The secondary is a surface, not a second accent.
+    const secondary = propsOf(ruleFor(COMPONENTS, '.chrome-banner__button'))
+    expect(secondary.background).toBe('var(--paper)')
+    expect(secondary.color).toBe('var(--ink)')
+
+    // GREEN IS NEVER A CONTROL. Chrome floats on aerial photography of
+    // farmland, which is green across the whole frame; --field is map geometry
+    // and the legend, and a control drawn in it half-disappears against canopy.
+    const chrome = decl(COMPONENTS).slice(decl(COMPONENTS).indexOf('.chrome {'))
+    const chromeBlock = chrome.slice(0, chrome.indexOf('.map-tools'))
+    expect(chromeBlock).not.toContain('--field')
+    expect(chromeBlock).not.toContain('--eligible')
+  })
+
+  it('never shows two primary buttons, in any state either shipped step has', () => {
+    // WALKED, NOT REASONED ABOUT. Every state each definition declares, with
+    // the tone each button carries -- so a later step that made its escape
+    // primary fails here rather than on a screenshot.
+    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP]) {
+      for (const state of MACHINE_STATES) {
+        const buttons = definition.buttons[state] ?? []
+        const oxide = buttons.filter((b) => b.tone === 'primary')
+        expect(oxide.length).toBeLessThanOrEqual(1)
+      }
+    }
+  })
+
+  it('shows at most one, in the states actually rendered', async () => {
+    installFetch([
+      { method: 'POST', pattern: /^\/api\/sessions$/, status: 201, body: serverDocument() },
+      { method: 'GET', pattern: /\/steps\/landform\/layers$/, body: PAYLOAD },
+    ])
+    const ui = await renderShell()
+
+    const onlyOneOxide = (stepId) => {
+      const tones = ui.tones(stepId)
+      expect(tones.filter(([, tone]) => tone === 'primary').length).toBeLessThanOrEqual(1)
+      return tones
+    }
+
+    // BOUNDARY, IDLE: the tool IS the forward move here.
+    expect(onlyOneOxide(BOUNDARY_STEP_ID)).toEqual([['draw', 'primary']])
+
+    // BOUNDARY, EDITING: the undo is the escape, the finish moves you on.
+    await ui.click(`draw-${BOUNDARY_STEP_ID}`)
+    await ui.run((a) => a.setDraftInput(BOUNDARY_STEP_ID, 'ring', RING))
+    expect(onlyOneOxide(BOUNDARY_STEP_ID)).toEqual([
+      ['undo', 'secondary'],
+      ['finish', 'primary'],
+    ])
+
+    // BOUNDARY, REVIEWING -- the pair named in the design guide as the case
+    // to check. Clear and redraw is not a forward move and is not oxide.
+    await ui.click(`finish-${BOUNDARY_STEP_ID}`)
+    expect(onlyOneOxide(BOUNDARY_STEP_ID)).toEqual([
+      ['redraw', 'secondary'],
+      ['commit', 'primary'],
+    ])
+
+    await ui.click(`commit-${BOUNDARY_STEP_ID}`)
+
+    // LANDFORM, IDLE.
+    expect(onlyOneOxide('landform')).toEqual([['generate', 'primary']])
+
+    // LANDFORM, REVIEWING.
+    await ui.run((a) => a.loadLayers('landform'))
+    expect(onlyOneOxide('landform')).toEqual([
+      ['draw', 'secondary'],
+      ['commit', 'primary'],
+    ])
+
+    // LANDFORM, EDITING: one button, and it is an escape -- so NO oxide at
+    // all. "At most one" is the rule; a state with no forward move has none.
+    await ui.run((_a, cursor) => cursor.arm('draw'))
+    expect(onlyOneOxide('landform')).toEqual([['cancel', 'secondary']])
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   5. FOCUS, AND THE REST OF THE QUALITY FLOOR
+   =========================================================================== */
+
+describe('5. the quality floor', () => {
+  it('gives every interactive element a visible focus ring', async () => {
+    // The ring is declared once, on :focus-visible, in the foundation.
+    const ring = propsOf(ruleFor(FOUNDATION, ':focus-visible'))
+    expect(ring.outline).toBe('2px solid var(--oxide)')
+    expect(ring['outline-offset']).toBe('2px')
+
+    // NOTHING BELOW IT TAKES IT AWAY. A component may restate the ring -- an
+    // oxide ring on an oxide fill is invisible, and a clipped container needs
+    // it inset -- but `outline: none` anywhere is the floor going.
+    expect(decl(COMPONENTS)).not.toMatch(/outline:\s*(none|0)\b/)
+
+    // The two restatements, and both are still rings.
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-banner__button--primary:focus-visible'))[
+      'outline-color'
+    ]).toBe('var(--ink)')
+    expect(
+      propsOf(
+        ruleFor(COMPONENTS, '.chrome-rail__step:focus-visible,\n.chrome-detail__toggle:focus-visible')
+      )['outline-offset']
+    ).toBe('-3px')
+
+    // AND EVERY CONTROL THE SHELL RENDERS IS A REAL <button>, which is what
+    // makes one declaration enough. A div with an onClick takes no focus and
+    // no ring, and would pass a stylesheet check while failing a keyboard.
+    installFetch([
+      { method: 'POST', pattern: /^\/api\/sessions$/, status: 201, body: serverDocument() },
+      { method: 'GET', pattern: /\/steps\/landform\/layers$/, body: PAYLOAD },
+    ])
+    const ui = await renderShell()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.loadLayers('landform'))
+
+    const interactive = [...ui.container.querySelectorAll('[onclick], button, a, [tabindex]')]
+    expect(interactive.length).toBeGreaterThan(0)
+    for (const el of interactive) {
+      expect(el.tagName).toBe('BUTTON')
+      expect(el.disabled || el.tabIndex >= 0).toBe(true)
+    }
+
+    await ui.unmount()
+  })
+
+  it('sets box-sizing globally and respects prefers-reduced-motion', () => {
+    expect(propsOf(ruleFor(FOUNDATION, '*,\n*::before,\n*::after'))['box-sizing']).toBe(
+      'border-box'
+    )
+    expect(decl(FOUNDATION)).toContain('@media (prefers-reduced-motion: reduce)')
+  })
+
+  it('gives every floating region its own opaque surface', () => {
+    // Chrome no longer sits on stock below the map -- it floats on aerial
+    // photography, which is an arbitrary frame of green and brown. Nothing is
+    // legible against that on its own; this is the same reasoning that puts
+    // halo casing under map linework.
+    for (const selector of ['.chrome-rail', '.chrome-bar', '.chrome-detail', '.chrome-tabs', '.chrome-banner']) {
+      const surface = propsOf(ruleFor(COMPONENTS, selector))
+      expect(surface.background).toBe('var(--paper)')
+    }
+    // The overlay itself is NOT a surface: it spans the whole map and must let
+    // every gesture through.
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome'))['pointer-events']).toBe('none')
+  })
+})
+
+/* ===========================================================================
+   6. COPY
+   =========================================================================== */
+
+describe('6. copy', () => {
+  it('is sentence case, and no control shouts', () => {
+    // TITLE CASE WAS THE LEGACY SET'S TELL. App.jsx's deleted boundary
+    // controls were "Undo Last Point" / "Finish Boundary"; the design guide
+    // is sentence case throughout, so the wizard's are too.
+    const labels = []
+    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP]) {
+      for (const state of MACHINE_STATES) {
+        for (const button of definition.buttons[state] ?? []) {
+          const label = button.label({
+            machine: { commitLabel: 'Commit zones', definition, canCommit: true },
+          })
+          labels.push(label)
+        }
+      }
+    }
+    expect(labels.length).toBeGreaterThan(0)
+    for (const label of labels) {
+      // Every word after the first is lower case, unless it is a proper noun
+      // -- and none of these are.
+      const [, ...rest] = label.split(' ')
+      for (const word of rest) expect(word).toBe(word.toLowerCase())
+      expect(label).not.toBe(label.toUpperCase())
+    }
+  })
+
+  it('says what happened and what to do, without raw exception text', () => {
+    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP]) {
+      for (const line of Object.values(definition.instructions)) {
+        expect(line).not.toMatch(/\b(Error|error:|undefined|null|4\d\d|5\d\d)\b/)
+        // Not an internal identifier: a layer key or a step id in a sentence
+        // is the client leaking its own vocabulary at the user.
+        expect(line).not.toMatch(/suggested_zones|eligible_union|exclusion_layers|feature_id/)
+      }
+    }
+  })
+})

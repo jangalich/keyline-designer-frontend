@@ -596,11 +596,19 @@
   padding: var(--space-2) var(--space-3);
   border: none;
   background: transparent;
-  font-family: var(--font-prose);
   font-size: var(--text-xs);
   color: var(--ink-muted);
   text-align: left;
   cursor: pointer;
+}
+
+/* THE RING IS INSET HERE. The rail clips its children so the first and last
+   rows sit inside its radius, and the reset's `outline-offset: 2px` would put
+   a keyboard user's ring outside that clip -- present in the accessibility
+   tree and invisible on screen. Pulled inside rather than dropped. */
+.chrome-rail__step:focus-visible,
+.chrome-detail__toggle:focus-visible {
+  outline-offset: -3px;
 }
 
 .chrome-rail__step:hover {
@@ -608,11 +616,17 @@
 }
 
 /* The cursor's step, and the only row that reads at full strength. A rail on
-   which every row is equally loud says nothing about where you are. */
+   which every row is equally loud says nothing about where you are.
+
+   MARKED WITH AN OXIDE RULE, NOT AN OXIDE FILL. A filled row would be a second
+   oxide mass on screen beside the banner's forward move, and the one-accent
+   rule is about what the eye counts, not about which property carries it. A
+   3px edge is the printed-manual answer: it marks the entry without becoming
+   a button. */
 .chrome-rail__step--cursor {
   background: var(--stock);
   color: var(--ink);
-  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--oxide);
 }
 
 .chrome-rail__index {
@@ -621,15 +635,28 @@
   text-align: right;
 }
 
+/* THE STEP'S NAME, IN THE DISPLAY FACE. The panel column set its titles as
+   <h3>, which the reset draws in Bitter at 600; the shell renders no heading
+   element anywhere, so deleting that markup took the titling voice with it and
+   left the rail reading as body copy. These ARE the document's section titles
+   -- they are the six factors of the Scale of Permanence -- so they are set
+   like them. Not marked up as headings, though: the rail is navigation, and
+   six <h3>s inside a <nav> would say six sections start here. */
 .chrome-rail__name {
+  font-family: var(--font-display);
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
+/* An eyebrow, so the data face. Mono also separates the status from the slab
+   name above it without a second colour or a rule between them. */
 .chrome-rail__status {
   grid-column: 2;
-  color: var(--ink-muted);
-  font-weight: 400;
+  font-family: var(--font-data);
   font-size: 0.9em;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--ink-muted);
 }
 
 /* --- B: the instruction bar ------------------------------------------------- */
@@ -811,11 +838,18 @@
   line-height: 1.3;
 }
 
-/* The tab's name spans both tracks: it is a label for the pair of figures
-   under it, not a value in the left column. */
+/* The tab's name spans both tracks: it is a label for the figures under it,
+   not a value in the left column.
+
+   THE DATA FACE, because a suggestion's name carries its RANK -- "Zone 3" is
+   the pipeline's third-best candidate, not a title someone chose. The panel
+   column set the rank in mono for the same reason, in the same column as the
+   acreage. An eyebrow either way. */
 .chrome-tab__name {
   grid-column: 1 / -1;
-  font-family: var(--font-prose);
+  font-family: var(--font-data);
+  font-size: 0.95em;
+  letter-spacing: 0.02em;
   color: var(--ink-muted);
 }
 
@@ -893,21 +927,43 @@
   background: var(--stock);
 }
 
-/* The forward move, and only ever one of them in a banner. */
+/* THE FORWARD MOVE, AND THE ONLY OXIDE ON SCREEN.
+   This was an --ink fill, which is the whole reason the shell read as generic:
+   a black-filled button beside an outlined one is the default of every UI kit
+   there is, and it left the system's one spot colour absent from the chrome
+   entirely. Oxide is not decoration here -- it is the mark that says WHICH of
+   the two buttons moves you on, and a banner holds at most two.
+
+   ONE PER STATE IS STRUCTURAL, not a rule to remember. `tone` is declared per
+   button in stepDefinitions, and the only buttons that declare 'primary' are
+   the three forward moves every step shares: the commit, the generate, and a
+   step's opening tool where that IS the forward move. A committed step's
+   reopen and every escape are secondary, so a state can show one oxide or
+   none -- never two. Asserted in shell.test.jsx. */
 .chrome-banner__button--primary {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--paper);
+  background: var(--oxide);
+  border-color: var(--oxide);
+  color: var(--on-oxide);
+  font-weight: 600;
 }
 
 .chrome-banner__button--primary:hover:not(:disabled) {
-  background: var(--ink);
-  opacity: 0.9;
+  background: var(--oxide-deep);
+  border-color: var(--oxide-deep);
 }
 
 .chrome-banner__button:disabled {
-  opacity: 0.45;
+  background: var(--paper);
+  border-color: var(--rule);
+  color: var(--disabled);
   cursor: not-allowed;
+}
+
+/* THE FOCUS RING IS OXIDE, which is invisible on an oxide fill. The reset's
+   rule stands for every other control; this restates the ring in the one
+   place its own colour would swallow it, rather than removing it. */
+.chrome-banner__button--primary:focus-visible {
+  outline-color: var(--ink);
 }
 
 /* A confirmation covers the banner rather than opening beside it: what it is
@@ -1158,6 +1214,18 @@
   cursor: not-allowed;
 }
 
+
+/* A measured value inside a sentence -- a caution's acreage, a count in a
+   notice. The data face in the middle of prose is the whole point of loading
+   three faces: a reader can tell at a glance which part of a line was
+   measured and which was written. Restored from the deleted panel column's
+   stylesheet, where it was `.measure`, because the shell needs exactly the
+   same thing and had nothing to reach for. */
+.measure {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95em;
+}
 
 /* --- Address search --------------------------------------------------------- */
 
