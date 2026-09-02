@@ -52,7 +52,7 @@ import {
   measure,
   stepButton,
 } from './stepDefinitions'
-import { injectZonePatterns } from '../ProductionHatchPattern.jsx'
+import { injectZonePatterns, zoneMark } from '../ProductionHatchPattern.jsx'
 
 const params = new URLSearchParams(window.location.search)
 const number = (key, fallback) => {
@@ -150,16 +150,16 @@ const NOTICE_KIND = params.get('notice') ?? 'none'
 const DETAIL_ROWS = number('detail', 0)
 
 /**
- * ?zones=1  render the zone PATTERNS -- production hatch and both water
- *           stipples -- at three levels each, in one SVG, at a fixed size.
+ * ?zones=1  render the zone MARKS -- production's hatch and both water tints --
+ *           at three levels each, in one SVG, at a fixed size.
  *
- * WHY THE PATTERNS COME HERE RATHER THAN TO A MAP. What has to be measured is
- * whether one pattern at --pattern-active and the same pattern at
- * --pattern-focused are TELLABLE APART at the size a whole parcel occupies,
- * and whether production's mark and water's are different marks. Neither is a
- * question about Leaflet, tiles, projection or a session: it is a question
- * about how much ink two fills put on a page. Driving the real map to ask it
- * would make the answer depend on a tile fetch and a zoom level.
+ * WHY THE MARKS COME HERE RATHER THAN TO A MAP. What has to be measured is
+ * whether one mark at its active level and the same mark at its focused level
+ * are TELLABLE APART at the size a whole parcel occupies, and whether
+ * production's mark and water's are different marks. Neither is a question
+ * about Leaflet, tiles, projection or a session: it is a question about how
+ * much ink two fills put on a page. Driving the real map to ask it would make
+ * the answer depend on a tile fetch and a zoom level.
  *
  * THE SIZE IS THE POINT. Each swatch is 90px square, which is about what one
  * of the reference parcel's survey zones occupies with the whole parcel in
@@ -168,6 +168,16 @@ const DETAIL_ROWS = number('detail', 0)
  */
 const SHOW_ZONES = params.get('zones') === '1'
 const SWATCH_PX = 90
+
+/**
+ * WHAT THE SWATCH FOR ONE TREATMENT IS MADE OF -- read from the same table the
+ * map reads, so a swatch cannot be a picture of a mark the map does not draw.
+ * A pattern treatment gets a paint-server reference; a tint gets its colour
+ * and its outline, in that one colour, with NOTHING under the line -- which is
+ * exactly what styleFor() puts on the map, casing pass included by being
+ * excluded.
+ */
+const OUTLINE_WEIGHT = 2
 
 /** The pattern defs, without a map. See injectZonePatterns. */
 function ZonePatternHost() {
@@ -194,20 +204,48 @@ function ZoneSwatches() {
     if (!host.current) return
     for (const svg of host.current.querySelectorAll('svg[data-treatment]')) {
       const treatment = svg.dataset.treatment
-      const source = document.getElementById(`zone-pattern-${treatment}`)
-      if (!source) continue
-      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
-      const clone = source.cloneNode(true)
-      clone.setAttribute('id', `local-${svg.dataset.testid}`)
-      defs.appendChild(clone)
-      svg.insertBefore(defs, svg.firstChild)
-      svg.querySelector('rect').setAttribute('fill', `url(#local-${svg.dataset.testid})`)
+      const mark = zoneMark(treatment)
+      if (!mark) continue
+      if (mark.kind === 'pattern') {
+        const source = document.getElementById(`zone-pattern-${treatment}`)
+        if (!source) continue
+        const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
+        const clone = source.cloneNode(true)
+        clone.setAttribute('id', `local-${svg.dataset.testid}`)
+        defs.appendChild(clone)
+        svg.insertBefore(defs, svg.firstChild)
+        svg.querySelector('rect').setAttribute('fill', `url(#local-${svg.dataset.testid})`)
+        continue
+      }
+      // A TINT: the wash, then its outline over it -- one colour, one line,
+      // nothing under it. Insetting by half the stroke keeps the whole
+      // outline inside the swatch, so the screenshot measures all of it
+      // instead of half of it.
+      svg.querySelector('rect').setAttribute('fill', mark.fill)
+      const inset = OUTLINE_WEIGHT / 2
+      const outline = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      outline.setAttribute('x', String(inset))
+      outline.setAttribute('y', String(inset))
+      outline.setAttribute('width', String(SWATCH_PX - OUTLINE_WEIGHT))
+      outline.setAttribute('height', String(SWATCH_PX - OUTLINE_WEIGHT))
+      outline.setAttribute('fill', 'none')
+      outline.setAttribute('stroke', mark.stroke)
+      outline.setAttribute('stroke-width', String(OUTLINE_WEIGHT))
+      outline.setAttribute('stroke-opacity', patternLevel(svg.dataset.state))
+      svg.dataset.outlined = 'true'
+      svg.appendChild(outline)
     }
     setReady(true)
   }, [])
 
-  const level = (name) =>
+  const patternLevel = (name) =>
     getComputedStyle(document.documentElement).getPropertyValue(`--pattern-${name}`).trim()
+  const tintLevel = (name) =>
+    getComputedStyle(document.documentElement).getPropertyValue(`--tint-${name}`).trim()
+  // THE SCALE IS THE MARK'S, not the swatch's -- a hatch is ink at full
+  // strength and a tint is a screen, and index.css says which takes which.
+  const fillLevel = (treatment, state) =>
+    zoneMark(treatment)?.kind === 'tint' ? tintLevel(state) : patternLevel(state)
 
   const cells = []
   for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
@@ -226,6 +264,7 @@ function ZoneSwatches() {
           key={`${treatment}-${state}`}
           data-testid={`swatch-${treatment}-${state}`}
           data-treatment={treatment}
+          data-state={state}
           width={SWATCH_PX}
           height={SWATCH_PX}
           style={{
@@ -234,7 +273,7 @@ function ZoneSwatches() {
             top: Math.floor(i / 3) * SWATCH_PX,
           }}
         >
-          <rect width={SWATCH_PX} height={SWATCH_PX} fillOpacity={level(state)} />
+          <rect width={SWATCH_PX} height={SWATCH_PX} fillOpacity={fillLevel(treatment, state)} />
         </svg>
       ))}
     </div>

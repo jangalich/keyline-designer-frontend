@@ -127,40 +127,64 @@
      hue reads as two members of one category, which is what they are; two
      different hues would read as two different KINDS of statement.
 
-     ONE PATTERN IN TWO VALUES, NOT TWO PATTERNS. The STEP is carried by the
-     pattern (water stipples, production hatches); the TYPE within the step is
-     carried by the value. So these two differ only in lightness -- same hue
-     (203.0 and 202.9 degrees), same saturation (0.44 and 0.45) -- and a
-     reader who has learned "stipple means water" learns "lighter means
-     embankment" without learning a second mark.
+     ONE MARK IN TWO VALUES, NOT TWO MARKS. The STEP is carried by the mark
+     (water is a screened tint with an outline; production is a hatch); the
+     TYPE within the step is carried by the value. So these two differ only
+     in lightness -- same hue (203.0 and 202.9 degrees), same saturation
+     (0.44 and 0.45) -- and a reader who has learned "a blue wash means
+     water" learns "lighter means embankment" without learning a second mark.
+
+     EACH BLUE PAINTS THE WHOLE OF ITS ZONE: the screened tint inside and the
+     outline around it are ONE colour, at two different opacities (see the
+     --tint-* levels below). There is nothing else in the mark -- no casing
+     under the line, no second value anywhere -- so an outline in another
+     colour would be a second thing to learn about a boundary the tint
+     already states.
+
+     THE MARK IS UNCASED, AND THAT IS A REAL COST, TAKEN DELIBERATELY.
+     Everywhere else on this map a line is cased on --halo, because no single
+     colour clears the range of tones in one aerial frame -- water, canopy and
+     bare soil together -- and the boundary ring and the drawn zones still
+     are. Water opts out: a white ring around a blue line read as a sticker
+     edge rather than as the mark. So these two blues meet the imagery
+     unassisted, and each will lose contrast somewhere -- the light one over
+     pale soil and rooftops, the dark one over canopy shadow. That is the
+     trade, stated where the colours are, so the next person to find a zone
+     hard to see on a bright frame knows why rather than re-deriving it.
 
      --survey-excavated IS GIVEN. --survey-embankment IS DERIVED, and the
-     derivation is written down because the last pair here was picked by eye
-     at 2.09:1 and had to be replaced.
+     derivation is kept below as HISTORY rather than as a live constraint --
+     the pair it produced is retained unchanged, and the reason one of its two
+     constraints no longer applies is the paragraph above.
 
-     THE 3:1 TARGET IS UNREACHABLE, AND THAT IS ARITHMETIC RATHER THAN AN
-     EXCUSE. The embankment blue has to clear the excavated blue AND the
-     --halo casing its own stipple dots sit on, and it has to be LIGHTER, so
-     it is squeezed between the two. #3d5a6c is 7.30:1 from --halo, and the
-     best any colour between two others can do against both is the geometric
-     mean -- sqrt(7.30) = 2.702:1. Above that, moving away from one moves
-     toward the other. So 2.702:1 is a ceiling, not a budget.
+     THE DERIVATION, AS IT STOOD. The embankment blue had to clear the
+     excavated blue AND the --halo its own marks sat on, and it had to be
+     LIGHTER, so it was squeezed between the two. #3d5a6c is 7.30:1 from
+     --halo, and the best any colour between two others can do against both
+     is the geometric mean -- sqrt(7.30) = 2.702:1; above that, moving away
+     from one moves toward the other. So 3:1 was never reachable and 2.702:1
+     was a ceiling rather than a budget. #6da4c6 SITS ON IT: 2.702:1 from
+     --survey-excavated and 2.701:1 from --halo, within a thousandth of the
+     maximum on both sides.
 
-     #6da4c6 SITS ON IT: 2.702:1 from --survey-excavated and 2.701:1 from
-     --halo, within a thousandth of the maximum on both sides. Asserted in
-     water.test.jsx, ceiling included, so a future edit that "improves" one
-     side is caught making the other worse. */
+     WHAT IS STILL LIVE is the half of it that was never about the casing:
+     the two must be TELLABLE APART, and that is the 2.702:1 between them.
+     water.test.jsx still asserts the pair, ceiling included, so retuning one
+     end cannot quietly collapse the pair or drop the value the other end was
+     placed against. */
   --survey-excavated: #3d5a6c;
   --survey-embankment: #6da4c6;
 
-  /* HOW PRESENT A ZONE'S PATTERN IS, IN THREE LEVELS -- the whole of what
-     distinguishes a zone's states, now that no state adds an outline.
+  /* HOW PRESENT A ZONE'S MARK IS, IN THREE LEVELS -- the whole of what
+     distinguishes a zone's states.
 
-     THE MARK IS THE PATTERN and every state is a variation of its opacity.
-     A hard edge reads as a surveyed line -- a boundary, a fence, something
-     someone measured and agreed -- which is wrong for a recommendation whose
-     edge is its least certain part. A zone's extent is where its pattern
-     stops.
+     EVERY STATE IS A VARIATION OF THE MARK'S OPACITY, never a different
+     colour and never a dash. A zone's extent is where its mark stops.
+
+     THESE THREE ARE THE *MARK* LEVELS -- ink laid at full strength: a
+     hatch's strokes, and a tinted zone's outline. The SCREEN behind a
+     tinted zone takes the --tint-* levels below, because a wash and a line
+     are not legible at the same alphas. See those for the split.
 
      THREE LEVELS, PER STEP, AND THE SAME THREE FOR EVERY STEP. Declared here
      rather than written into each step's own styling so the four steps still
@@ -168,7 +192,7 @@
 
        --pattern-committed  settled, and the quietest. From the roads step
                             onward the map carries production's muted hatch
-                            AND water's muted stipple at once, so a committed
+                            AND water's muted wash at once, so a committed
                             layer has to read as context rather than as a
                             decision still being made.
        --pattern-active     an uncommitted zone that is in the commit.
@@ -190,6 +214,32 @@
   --pattern-committed: 0.3;
   --pattern-active: 0.55;
   --pattern-focused: 1;
+
+  /* HOW HEAVY A TINTED ZONE'S SCREEN IS, in the same three states.
+
+     A SEPARATE SCALE BECAUSE A WASH AND A LINE ARE NOT LEGIBLE AT THE SAME
+     ALPHAS, and this is arithmetic rather than taste. The --pattern-* levels
+     were tuned for a mark that is MOSTLY UNFILLED -- a hatch inks about an
+     eighth of the ground it covers -- so --pattern-focused can be 1 and the
+     imagery still reads through the gaps. A tint has no gaps: it covers all
+     of the ground it is over, and at alpha 1 it is not a screen at all, it
+     is paint. SCREENED means the aerial frame reads through, so these are
+     the alphas at which it does.
+
+     THE RELATIONSHIP IS THE PATTERN SCALE'S, KEPT: committed quietest,
+     focused fullest, and nearly 2x between active and focused (1.82 here,
+     against the pattern scale's 1.82) -- because the reason for the wide gap
+     is unchanged. A small opacity step is invisible at the zoom where the
+     whole parcel is in frame, and an indicator you can only see zoomed in is
+     not an indicator. Measured at that size in layout.test.jsx rather than
+     judged here.
+
+     THE OUTLINE IS NOT ON THIS SCALE. A tinted zone's outline is ink at full
+     strength and takes --pattern-* like any other mark, so a committed
+     zone's boundary stays legible while its wash falls back to context. */
+  --tint-committed: 0.12;
+  --tint-active: 0.22;
+  --tint-focused: 0.4;
 
   /* Pure white, and the only pure white in the system. Map marker halos need
      maximum luminance to stay legible against arbitrary satellite imagery —

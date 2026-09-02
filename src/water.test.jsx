@@ -44,13 +44,12 @@ import {
 import { API_URL } from './session/apiClient'
 import {
   WATER_STEP,
-  crossTypeReadings,
-  gravityReading,
   isSurveyZone,
   measure,
   registryProposalFeatures,
   surveyZoneFeatures,
   surveyZoneName,
+  surveyZonePanel,
 } from './wizard/stepDefinitions'
 import TabStrip, { COLLAPSED_TAB_CAP, collapsedTabs } from './wizard/shell/TabStrip.jsx'
 import { LANDFORM_STEP } from './wizard/stepDefinitions'
@@ -96,11 +95,11 @@ beforeAll(() => {
   for (const [, name, value] of tokens.matchAll(/(--[a-z0-9-]+):\s*(#[0-9a-fA-F]{3,8})\s*;/g)) {
     document.documentElement.style.setProperty(name, value)
   }
-  // THE PATTERN LEVELS TOO, and for the same reason: they are numbers rather
+  // BOTH LEVEL SCALES TOO, and for the same reason: they are numbers rather
   // than colours, but they are read off the document by the same mechanism --
   // Leaflet cannot resolve a var() in a pathOption, so a level is a token read
   // at render. Without them every zone renders at opacity 0 under jsdom.
-  for (const [, name, value] of tokens.matchAll(/(--pattern-[a-z-]+):\s*([\d.]+)\s*;/g)) {
+  for (const [, name, value] of tokens.matchAll(/(--(?:pattern|tint)-[a-z-]+):\s*([\d.]+)\s*;/g)) {
     document.documentElement.style.setProperty(name, value)
   }
 })
@@ -436,7 +435,7 @@ describe('3. two treatments, both cased', () => {
     expect(embankment).not.toBeNull()
 
     // BOTH BLUE, ONE LIGHTER -- and a TONAL PAIR rather than two colours:
-    // same hue and saturation, so the step is carried by the pattern and only
+    // same hue and saturation, so the step is carried by the mark and only
     // the type is carried by the value.
     expect(isBlue(embankment[1])).toBe(true)
     expect(isBlue(excavated[1])).toBe(true)
@@ -448,8 +447,10 @@ describe('3. two treatments, both cased', () => {
      * THE CEILING, DERIVED HERE RATHER THAN TAKEN ON TRUST.
      *
      * The embankment blue has to clear the excavated blue AND the --halo its
-     * own stipple dots sit on, and it has to be LIGHTER than the excavated
-     * one -- so it is squeezed between the two. The best any colour between
+     * outline is cased on, and it has to be LIGHTER than the excavated one --
+     * so it is squeezed between the two. (When water stippled, that --halo
+     * was the ring under each dot; the casing moved with the edge and the two
+     * constraints are the same two.) The best any colour between
      * two others can manage against both is the geometric mean of the pair's
      * own contrast: at the midpoint the two ratios are equal, and any move
      * from it raises one only by lowering the other.
@@ -499,23 +500,40 @@ describe('3. two treatments, both cased', () => {
     }
   })
 
-  it('cases the pattern\'s own marks, now that no zone has an edge to case', () => {
-    const patterns = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
-    // THE CASING MOVED INTO THE PATTERN. A stipple dot carries a --halo ring
-    // under it -- the same halo-casing rule the boundary and the drawn zones
-    // use, applied to the marks that now do the work, because a pattern has no
-    // outline to lay a casing under.
-    expect(patterns).toContain('STIPPLE_HALO_PX')
-    expect(patterns).toContain("readToken('--halo')")
-    expect(patterns).toMatch(/stippleTile\(spec, colour, halo\)/)
-
-    // AND THE ZONE ITSELF IS NOT CASED. layers.jsx cases a drawn shape and
-    // nothing else; a treated layer used to be cased and no longer is.
+  it('leaves the tint\'s outline uncased, which is the one place the halo rule is opted out of', () => {
+    /**
+     * THE MARK IS ONE COLOUR, END TO END. Everywhere else on this map a line
+     * is cased on --halo, because no single colour clears the range of tones
+     * in one aerial frame; the boundary ring and the drawn zones still are,
+     * and this asserts they still are. Water's line is not, because a white
+     * ring around a blue line read as a sticker edge rather than as the mark.
+     *
+     * THE COST IS REAL AND IS RECORDED WHERE THE COLOURS ARE, not here: the
+     * two blues meet the imagery unassisted and each loses contrast somewhere
+     * -- see index.css's --survey-* note. What this test holds is that the
+     * decision stays deliberate rather than drifting back by accident in
+     * either direction.
+     */
     const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+    // THE CASING PASS RUNS FOR A DRAWN SHAPE AND NOTHING ELSE.
     expect(layers).toMatch(/\{isDrawn\s*$/m)
-    expect(layers).not.toMatch(/isDrawn \|\| treatment/)
+    expect(layers).not.toMatch(/isDrawn \|\|/)
+    // ...and it is still there for the shapes that do take one.
+    expect(layers).toContain('DRAWN_CASING_WEIGHT')
+    expect(layers).toContain('CASING_WEIGHT')
+
+    // A TINTED ZONE'S STYLE CARRIES ONE COLOUR AND NO SECOND VALUE.
+    const style = styleFor({ treatment: 'survey-embankment', colors: COLORS })
+    expect(style.color).toBe(style.fillColor)
+    expect(style.color).not.toBe(COLORS.halo)
+
+    // AND THE MARK TABLE NO LONGER CASES ITSELF EITHER, because a hatch has no
+    // edge and there are no stipple dots left to ring.
+    const marks = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+    expect(marks).not.toContain('STIPPLE_HALO_PX')
+    expect(marks).not.toContain('stippleTile')
   })
 
   liveIt('renders the two types into two panes with two classes', async () => {
@@ -536,19 +554,22 @@ describe('3. two treatments, both cased', () => {
     expect(excavatedPaths.length).toBe(excavated.length)
     expect(embankmentPane.querySelector('.zone--survey-excavated')).toBeNull()
 
-    // DISTINCT FILLS, EACH POINTING AT ITS OWN PATTERN -- and NO STROKE on
-    // either. This assertion used to compare the two paths' `stroke`
-    // attributes, back when a treatment was a cased line; the mark is the
-    // pattern now and a zone carries no edge in any state.
-    const fills = new Set([
-      embankmentPaths[0].getAttribute('fill'),
-      excavatedPaths[0].getAttribute('fill'),
-    ])
-    expect(fills.size).toBe(2)
-    expect([...fills].every((fill) => fill.startsWith('url(#zone-pattern-'))).toBe(true)
-    for (const path of [embankmentPaths[0], excavatedPaths[0]]) {
-      expect(path.getAttribute('stroke')).toBe('none')
+    // DISTINCT FILLS, EACH ITS OWN BLUE, AND EACH OUTLINED IN THE SAME BLUE
+    // IT IS FILLED WITH. Not a paint-server reference on either: a tint's
+    // fill IS a colour.
+    const tokenOf = (name) =>
+      getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+    const pairs = [
+      [embankmentPaths[0], tokenOf('--survey-embankment')],
+      [excavatedPaths[0], tokenOf('--survey-excavated')],
+    ]
+    for (const [path, colour] of pairs) {
+      expect(path.getAttribute('fill')).toBe(colour)
+      expect(path.getAttribute('stroke')).toBe(colour)
+      expect(path.getAttribute('fill')).not.toMatch(/^url\(#/)
     }
+    // ...and the two are different blues, which is what tells the types apart.
+    expect(pairs[0][1]).not.toBe(pairs[1][1])
 
     await ui.unmount()
   })
@@ -714,32 +735,49 @@ describe('7. an unchecked overlap is not a measured zero', () => {
   })
 
   it('carries the difference all the way into the panel, per overlap', () => {
-    // ONE ZONE, THREE OVERLAPS, THREE DIFFERENT ANSWERS: canopy never
-    // checked, road checked and genuinely none, production checked and 6.4%.
-    // The three are independent on the wire and have to stay independent here.
+    // ONE ZONE, THREE OVERLAPS, THREE DIFFERENT ANSWERS, and the panel says
+    // three different things about them:
+    //   canopy      NEVER CHECKED -- a row, valued null, rendered as an em
+    //               dash. Absence would be indistinguishable from the zero.
+    //   road        CHECKED, GENUINELY NONE -- NO ROW AT ALL. Nothing to
+    //               caution anybody about is the cheapest cut there is.
+    //   production  6.4% -- a row with the figure.
     const zone = fixtureZone({
       canopy_overlap_pct: null,
       road_overlap_pct: 0.0,
       production_overlap_pct: 6.4,
     })
-    const detail = WATER_STEP.detail({ proposals: payloadOf([zone]) }, zone.id)
-    const cautions = detail.groups.find((g) => g.label === 'cautions')
+    const rows = [
+      ...alwaysRows(zone.properties),
+      { key: 'production_overlap_pct', label: 'on committed production ground', value: 6.4, unit: 'percent' },
+      { key: 'canopy_overlap_pct', label: 'under tree canopy', value: null, unit: 'percent' },
+    ]
+    const detail = WATER_STEP.detail(
+      { proposals: payloadOf([zone], {}, { panels: { [zone.id]: rows } }) },
+      zone.id
+    )
 
-    const value = (label) => cautions.fields.find((f) => f.label === label).value
-    expect(value('canopy %')).toBe('—')
-    expect(value('road %')).toBe('0.0')
-    expect(value('production %')).toBe('6.4')
-    // DISTINGUISHABLE ON SCREEN, which is the whole point of the sentinel.
-    expect(value('canopy %')).not.toBe(value('road %'))
+    const field = (label) => detail.fields.find((f) => f.label === label)
+    expect(field('under tree canopy (percent)').value).toBe('—')
+    expect(field('on committed production ground (percent)').value).toBe('6.4')
+    // A MEASURED ZERO IS NOT ON THE PANEL, and its absence is not this side's
+    // doing -- the backend never sent a row for it.
+    expect(detail.fields.some((f) => f.label.startsWith('removed by existing farm road'))).toBe(false)
+    // DISTINGUISHABLE ON SCREEN, which is the whole point of the sentinel:
+    // nothing on this path can turn the null into the figure beside it.
+    expect(field('under tree canopy (percent)').value).not.toBe(
+      field('on committed production ground (percent)').value
+    )
   })
 
-  liveIt('renders both on screen, from the live payload, in the same panel', async () => {
+  liveIt('renders the live payload\'s own rows, coercing none of them', async () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)
 
-    // The reference parcel measures all three, so at least one checked zero is
-    // on the wire; a null is asserted through the fixture above because the
-    // reference run has canopy, roads and production all reachable.
+    // The reference parcel measures all three overlaps, so its zones carry
+    // genuine zeros -- and a genuine zero is a row the backend DOES NOT SEND.
+    // What must reach the screen is exactly the rows it did send, with every
+    // value as it sent it.
     const zones = surveyZoneFeatures(ui.water)
     const withZero = zones.find((f) =>
       ['canopy_overlap_pct', 'road_overlap_pct', 'production_overlap_pct'].some(
@@ -749,13 +787,17 @@ describe('7. an unchecked overlap is not a measured zero', () => {
     expect(withZero, 'a checked-zero overlap on the reference parcel').toBeDefined()
 
     await ui.focus(withZero.id)
-    const rendered = ui.all('[data-testid^="detail-value-"]').map((n) => n.textContent)
-    expect(rendered).toContain('0.0')
-    // NOTHING COERCED A NULL ON THE WAY PAST: every rendered overlap matches
-    // the wire value exactly, dash for dash.
-    for (const key of ['canopy_overlap_pct', 'road_overlap_pct', 'production_overlap_pct']) {
-      const label = { canopy_overlap_pct: 'canopy %', road_overlap_pct: 'road %', production_overlap_pct: 'production %' }[key]
-      expect(ui.text(`detail-value-${label}`)).toBe(measure(withZero.properties[key]))
+    const rows = surveyZonePanel(ui.water, withZero.id)
+    expect(rows.length).toBeGreaterThan(0)
+    for (const row of rows) {
+      // A ZERO OVERLAP IS NOT A ROW. If one ever is, the panel is showing a
+      // measured absence where the design says nothing.
+      if (row.key.endsWith('_overlap_pct')) expect(row.value).not.toBe(0)
+      const rendered = ui.text(
+        `detail-value-${row.unit ? `${row.label} (${row.unit})` : row.label}`
+      )
+      expect(rendered).not.toBeNull()
+      if (row.value == null) expect(rendered).toBe('—')
     }
 
     await ui.unmount()
@@ -767,7 +809,14 @@ describe('7. an unchecked overlap is not a measured zero', () => {
    =========================================================================== */
 
 describe('8. cross_type_overlaps is a finding about the ground', () => {
-  it('names the other zone by type and rank, as a share of this one', () => {
+  it('reaches the panel as the backend\'s either-type row, naming the other zone', () => {
+    // THE RESOLUTION FROM ZONE ID TO A NAME IS THE BACKEND'S NOW.
+    // cross_type_overlaps names zones by INTERNAL id, which means nothing to a
+    // reader, and the fraction has a threshold (CROSS_TYPE_OVERLAP_NOTE_
+    // FRACTION) below which the finding does not fire. Both of those are
+    // decisions about a measurement; both moved to build_zone_panel(), which
+    // ships one row valued with the other zone's type-and-rank name. This side
+    // renders it.
     const embankment = fixtureZone({
       zone_id: 1,
       survey_type: 'embankment',
@@ -781,12 +830,23 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
       layer: 'survey_zone_excavated',
       cross_type_overlaps: [{ zone_id: 1, fraction: 0.6 }],
     })
-    const proposals = payloadOf([embankment, excavated])
-
-    const readings = crossTypeReadings(proposals, embankment.properties)
-    expect(readings).toHaveLength(1)
-    expect(readings[0].label).toBe('% overlapped by Excavated 2')
-    expect(readings[0].value).toBe('60.0')
+    const rows = [
+      ...alwaysRows(embankment.properties),
+      { key: 'either_type_candidate', label: 'also a candidate as', value: 'excavated 2', unit: null },
+    ]
+    const detail = WATER_STEP.detail(
+      {
+        proposals: payloadOf([embankment, excavated], {}, {
+          panels: { [embankment.id]: rows },
+        }),
+      },
+      embankment.id
+    )
+    const field = detail.fields.find((f) => f.label === 'also a candidate as')
+    expect(field.value).toBe('excavated 2')
+    // PROSE, not a figure: it is categorical and has no decimal point to hold
+    // still in the aligned column.
+    expect(field.measured).toBe(false)
   })
 
   liveIt('renders, and does not move when the selection does', async () => {
@@ -798,14 +858,11 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
     expect(overlapping, 'the two surfaces agree somewhere on the reference parcel').toBeDefined()
 
     await ui.focus(overlapping.id)
-    const group = ui.find('detail-group-agreement')
-    expect(group).not.toBeNull()
-
-    const before = ui
-      .all('.chrome-detail__field')
-      .map((n) => n.textContent)
-      .filter((t) => t.includes('overlapped by'))
+    const before = surveyZonePanel(ui.water, overlapping.id)
     expect(before.length).toBeGreaterThan(0)
+    const renderedBefore = ui
+      .all('[data-testid^="detail-value-"]')
+      .map((n) => n.textContent)
 
     // CHANGE THE SELECTION -- take the OTHER zone out of the commit entirely.
     const other = zones.find(
@@ -816,12 +873,13 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
 
     // IT IS COMPUTED AT GENERATE TIME AGAINST SURVIVING ZONES AND IS NOT
     // RECOMPUTED AGAINST THE COMMIT SET. Closing a zone's eye does not make
-    // the other instrument stop agreeing with it.
-    const after = ui
-      .all('.chrome-detail__field')
-      .map((n) => n.textContent)
-      .filter((t) => t.includes('overlapped by'))
-    expect(after).toEqual(before)
+    // the other instrument stop agreeing with it -- nor does it move any other
+    // row on this zone's panel, because the whole panel is a reading of the
+    // GROUND and the commit set is not one of its inputs.
+    expect(surveyZonePanel(ui.water, overlapping.id)).toEqual(before)
+    expect(ui.all('[data-testid^="detail-value-"]').map((n) => n.textContent)).toEqual(
+      renderedBefore
+    )
 
     await ui.unmount()
   })
@@ -850,9 +908,6 @@ describe('the pattern is the mark', () => {
     { name: 'uncommitted, in the commit, not being read', style: { treatment: 'production' } },
     { name: 'focused -- the one being read', style: { treatment: 'production', isFocused: true } },
     { name: 'committed', style: { treatment: 'production', isCommitted: true } },
-    { name: 'water, uncommitted', style: { treatment: 'survey-embankment' } },
-    { name: 'water, focused', style: { treatment: 'survey-excavated', isFocused: true } },
-    { name: 'water, committed', style: { treatment: 'survey-excavated', isCommitted: true } },
     { name: 'a layer that declared no treatment', style: {} },
   ]
 
@@ -863,6 +918,39 @@ describe('the pattern is the mark', () => {
       // Not merely `stroke: false` with a weight left behind for something to
       // switch back on.
       expect(style.weight).toBeUndefined()
+      expect(style.dashArray).toBeUndefined()
+    })
+  }
+
+  /**
+   * WATER IS THE OTHER KIND OF MARK, AND IT DOES CARRY AN EDGE.
+   *
+   * THE RULE SCOPED, IT DID NOT BEND. "No hard edge" was an argument about a
+   * HATCH: mostly unfilled, imagery reading through the gaps, so the extent is
+   * legible from where the marks stop and a drawn line would be claiming a
+   * precision the recommendation does not have. A tint has no gaps to infer an
+   * extent from -- the reader would be left guessing where the wash ends
+   * against the imagery under it -- so its boundary is drawn.
+   *
+   * IN ITS OWN COLOUR, at the mark levels, over a --halo casing. One colour
+   * for the wash and the line; a second would be a second thing to learn about
+   * a boundary the wash already names.
+   */
+  const tinted = [
+    { name: 'water, uncommitted', style: { treatment: 'survey-embankment' } },
+    { name: 'water, focused', style: { treatment: 'survey-excavated', isFocused: true } },
+    { name: 'water, committed', style: { treatment: 'survey-excavated', isCommitted: true } },
+  ]
+
+  for (const state of tinted) {
+    it(`outlines the tint in its own colour: ${state.name}`, () => {
+      const style = styleFor({ ...state.style, colors: COLORS })
+      expect(style.stroke).toBe(true)
+      expect(style.weight).toBeGreaterThan(0)
+      // THE SAME COLOUR, BOTH HALVES -- and it is a colour, not a paint server.
+      expect(style.color).toBe(style.fillColor)
+      expect(style.fillColor).not.toMatch(/^url\(#/)
+      // Never a dash: a state is an opacity, not a line style.
       expect(style.dashArray).toBeUndefined()
     })
   }
@@ -902,50 +990,88 @@ describe('the pattern is the mark', () => {
    =========================================================================== */
 
 describe('one pattern per step, three levels per pattern', () => {
-  it('points each treatment at its own pattern, and water is not production', () => {
+  it('points each treatment at its own mark, and water is not production', () => {
     const production = styleFor({ treatment: 'production', colors: COLORS })
     const embankment = styleFor({ treatment: 'survey-embankment', colors: COLORS })
     const excavated = styleFor({ treatment: 'survey-excavated', colors: COLORS })
+    const tokenOf = (name) =>
+      document.documentElement.style.getPropertyValue(name).trim()
 
+    // PRODUCTION RESOLVES TO A PAINT SERVER; the two water treatments resolve
+    // to their own colours, which is what a Leaflet path wanted all along.
     expect(production.fillColor).toBe(`url(#${patternIdFor('production')})`)
-    expect(embankment.fillColor).toBe(`url(#${patternIdFor('survey-embankment')})`)
-    expect(excavated.fillColor).toBe(`url(#${patternIdFor('survey-excavated')})`)
+    expect(embankment.fillColor).toBe(tokenOf('--survey-embankment'))
+    expect(excavated.fillColor).toBe(tokenOf('--survey-excavated'))
     // WATER NO LONGER INHERITS PRODUCTION'S MARK, which is what the blanket
     // stylesheet rule used to make unavoidable.
     expect(embankment.fillColor).not.toBe(production.fillColor)
+    // ...and the two survey types are not each other.
+    expect(embankment.fillColor).not.toBe(excavated.fillColor)
   })
 
-  it('draws water as stipple and production as hatch', () => {
-    const patterns = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+  it('draws water as a tint and production as a hatch', () => {
+    const marks = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
     const spec = (treatment) =>
-      patterns.match(new RegExp(`treatment: '${treatment}', kind: '(\\w+)'`))?.[1]
+      marks.match(new RegExp(`treatment: '${treatment}', kind: '(\\w+)'`))?.[1]
     expect(spec('production')).toBe('hatch')
-    expect(spec('survey-embankment')).toBe('stipple')
-    expect(spec('survey-excavated')).toBe('stipple')
+    expect(spec('survey-embankment')).toBe('tint')
+    expect(spec('survey-excavated')).toBe('tint')
+
+    // AND A TINT GETS NO <pattern> DEF, because it has no paint server to
+    // point at -- an empty pattern nothing references would be the smell.
+    expect(marks).toMatch(/if \(spec\.kind !== 'hatch'\) continue/)
   })
 
-  it('is ONE pattern in two values for the two survey types, not two patterns', () => {
-    // The STEP distinction is carried by the pattern; the TYPE distinction
-    // within a step by the value. A reader learns one new mark per step.
-    const patterns = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
-    const stipples = [...patterns.matchAll(/kind: 'stipple'/g)]
-    expect(stipples).toHaveLength(2)
-    expect(patterns).toContain("token: '--survey-embankment'")
-    expect(patterns).toContain("token: '--survey-excavated'")
+  it('is ONE mark in two values for the two survey types, not two marks', () => {
+    // The STEP distinction is carried by the mark; the TYPE distinction within
+    // a step by the value. A reader learns one new mark per step.
+    const marks = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+    // THE TABLE ITSELF, not the whole file -- zoneMark() also spells the kind
+    // when it resolves one, and counting that would be counting the reader.
+    const table = marks.slice(
+      marks.indexOf('const TREATMENT_MARKS = ['),
+      marks.indexOf(']', marks.indexOf('const TREATMENT_MARKS = ['))
+    )
+    const tintRows = [...table.matchAll(/\{[^}]*kind: 'tint'[^}]*\}/g)].map((m) => m[0])
+    expect(tintRows).toHaveLength(2)
+    expect(table).toContain("token: '--survey-embankment'")
+    expect(table).toContain("token: '--survey-excavated'")
+    // A tint's whole description is its colour: no spacing and no radius, so
+    // the two rows cannot drift into being two different marks. How heavy the
+    // wash is and how present the outline are STATE, not the mark.
+    for (const row of tintRows) {
+      expect(row).not.toMatch(/spacing|radius|weight/)
+    }
   })
 
-  it('declares the three levels as tokens, so the remaining steps inherit them', () => {
+  it('declares three levels per SCALE as tokens, so the remaining steps inherit them', () => {
     const tokens = readFileSync(path.join(SRC, 'index.css'), 'utf8')
-    const level = (name) => Number(tokens.match(new RegExp(`--pattern-${name}:\\s*([\\d.]+)`))[1])
+    const level = (scale, name) =>
+      Number(tokens.match(new RegExp(`--${scale}-${name}:\\s*([\\d.]+)`))[1])
 
-    // THREE LEVELS PER STEP, declared once rather than per step.
-    expect(level('committed')).toBeLessThan(level('active'))
-    expect(level('active')).toBeLessThan(level('focused'))
-    expect(level('focused')).toBe(1)
+    // THREE LEVELS PER SCALE, declared once rather than per step, and the same
+    // committed < active < focused relationship in both.
+    for (const scale of ['pattern', 'tint']) {
+      expect(level(scale, 'committed')).toBeLessThan(level(scale, 'active'))
+      expect(level(scale, 'active')).toBeLessThan(level(scale, 'focused'))
+    }
+
+    // THE MARK SCALE TOPS OUT AT FULL. A hatch is mostly unfilled, so the
+    // imagery reads through it even at 1.
+    expect(level('pattern', 'focused')).toBe(1)
+
+    // THE SCREEN SCALE MUST NOT. A wash covers all of the ground it is over,
+    // so at 1 it stops being a screen and becomes paint -- and "screened"
+    // means the aerial frame reads through. Every tint level sits well below
+    // its opposite number on the mark scale.
+    expect(level('tint', 'focused')).toBeLessThan(0.5)
+    for (const name of ['committed', 'active', 'focused']) {
+      expect(level('tint', name)).toBeLessThan(level('pattern', name))
+    }
 
     // ...and layers.jsx reads them rather than owning them.
     const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
-    expect(layers).toContain('--pattern-${name}')
+    expect(layers).toContain('`--${scale}-${name}`')
     // Every fill opacity a ZONE takes comes from a level; the only literal
     // left is the rejection overlay, which is not a zone state.
     const literals = layers.replace(/\/\*[\s\S]*?\*\//g, '').match(/fillOpacity: [\d.]+/g) ?? []
@@ -968,20 +1094,38 @@ describe('one pattern per step, three levels per pattern', () => {
 
   it('lets a committed production layer and an active water layer share the map', () => {
     // THE STATE FROM THE ROADS STEP ONWARD, and the two must stay readable
-    // together: different patterns, different colours, and the committed one
-    // the quieter of the two.
+    // together: different marks, different colours, and the committed one the
+    // quieter of the two.
     const committedProduction = styleFor({
       treatment: 'production',
       isCommitted: true,
       colors: COLORS,
     })
+    const activeProduction = styleFor({ treatment: 'production', colors: COLORS })
     const activeWater = styleFor({ treatment: 'survey-embankment', colors: COLORS })
+    const committedWater = styleFor({
+      treatment: 'survey-embankment',
+      isCommitted: true,
+      colors: COLORS,
+    })
 
     expect(committedProduction.fillColor).not.toBe(activeWater.fillColor)
-    expect(committedProduction.fillOpacity).toBeLessThan(activeWater.fillOpacity)
-    // Neither is invisible.
+
+    // COMPARED WITHIN EACH SCALE, NOT ACROSS THEM. This assertion used to read
+    // committedProduction.fillOpacity < activeWater.fillOpacity, which was a
+    // real comparison while both were patterns on one scale and is a category
+    // error now that a wash and a hatch are measured on two. "Which of these
+    // shouts louder" is a question about rendered INK and it is asked in
+    // layout.test.jsx, which has a browser to ask it with.
+    expect(committedProduction.fillOpacity).toBeLessThan(activeProduction.fillOpacity)
+    expect(committedWater.fillOpacity).toBeLessThan(activeWater.fillOpacity)
+    // Neither is invisible in its own terms.
     expect(committedProduction.fillOpacity).toBeGreaterThan(0.15)
-    expect(activeWater.fillOpacity).toBeGreaterThan(0.15)
+    expect(committedWater.fillOpacity).toBeGreaterThan(0.05)
+    // AND THE COMMITTED WATER ZONE KEEPS A LEGIBLE BOUNDARY while its wash
+    // falls back to context -- the reason the outline is on the mark scale.
+    expect(committedWater.stroke).toBe(true)
+    expect(committedWater.opacity).toBeGreaterThan(committedWater.fillOpacity)
   })
 
   it('declares the committed layers so a committed step keeps its own mark', () => {
@@ -1570,52 +1714,141 @@ describe('11. the shell names no step, after a second definition', () => {
 })
 
 /* ===========================================================================
-   THE GRAVITY READING
+   THE PANEL: THE SERVER'S ROWS, THIS SIDE'S TYPOGRAPHY
    =========================================================================== */
 
-describe('gravity', () => {
-  it('says which of the three answers it is, and never invents the third', () => {
-    expect(
-      gravityReading({ has_service_relationship: false, primary_production_area_relationship: null })
-    ).toBe('no production area within service range')
-
-    expect(
-      gravityReading({
-        has_service_relationship: true,
-        primary_production_area_relationship: { above_production_area: true, production_area_id: 0 },
-      })
-    ).toContain('gravity feed')
-
-    // A BELOW-ELEVATION RELATIONSHIP SURVIVES WITH ITS MEANING INTACT. Gravity
-    // is ranking context, never a gate: the water is there, it just needs a
-    // pump to get where it is going.
-    expect(
-      gravityReading({
-        has_service_relationship: true,
-        primary_production_area_relationship: { above_production_area: false, production_area_id: 2 },
-      })
-    ).toContain('pump')
-  })
-
-  it('leads the first group of the panel, ahead of the acreage', () => {
+describe('the panel', () => {
+  it('renders the backend\'s rows, in the backend\'s order, under its labels', () => {
     const zone = fixtureZone({})
     const detail = WATER_STEP.detail({ proposals: payloadOf([zone]) }, zone.id)
-    const first = detail.groups[0]
-    expect(first.fields[0].label).toBe('gravity')
-    // ...and it is PROSE, not a figure: there is no decimal point to hold
-    // still and a word in the aligned column widens it for every other row.
-    expect(first.fields[0].measured).toBeUndefined()
-    expect(first.fields.some((f) => f.label === 'anchor acres' && f.measured)).toBe(true)
+
+    expect(detail.fields.map((f) => f.label)).toEqual([
+      'area to survey (acres)',
+      'survey type',
+      'suitability',
+      'rank',
+      'water delivery',
+    ])
+    // THE ORDER IS THE BACKEND'S ARGUMENT, so there is no grouping over here
+    // re-asserting one this side no longer decides.
+    expect(detail.groups).toBeUndefined()
+    // AND NO SEPARATE CAUTION CHANNEL: that channel carries the exclusion
+    // layers' own {type, label, acres} and a survey zone crosses none of them.
+    expect(detail.cautions).toEqual([])
   })
 
-  it('keeps the four groups in the order they should be read', () => {
-    const zone = fixtureZone({ cross_type_overlaps: [] })
+  it('joins on feature_id, which the payload gave it', () => {
+    const zone = fixtureZone({ zone_id: 4 })
+    const proposals = payloadOf([zone])
+    // The row's own id is the INTERNAL zone id and is not the wire id; the
+    // join is on feature_id or it is on nothing.
+    expect(proposals.zones[0].id).toBe(4)
+    expect(proposals.zones[0].feature_id).toBe(zone.id)
+    expect(surveyZonePanel(proposals, zone.id)).toHaveLength(5)
+    expect(surveyZonePanel(proposals, 'water-survey-zone-999')).toEqual([])
+    // A feature with no row of its own has nothing to say, and the panel
+    // says nothing rather than inventing a shape for it.
+    expect(WATER_STEP.detail({ proposals }, 'water-survey-zone-999')).toBeNull()
+  })
+
+  it('reads rank and suitability against the scales block', () => {
+    const embankment = fixtureZone({ zone_id: 1, survey_type: 'embankment', rank: 1 })
+    const second = fixtureZone({ zone_id: 2, survey_type: 'embankment', rank: 2 })
+    const detail = WATER_STEP.detail(
+      { proposals: payloadOf([embankment, second]) },
+      embankment.id
+    )
+    const value = (label) => detail.fields.find((f) => f.label === label).value
+
+    // "1" alone is not a reading. rank is PER TYPE and the scale carries the
+    // denominator.
+    expect(value('rank')).toBe('1 of 2')
+    // 0.7933 against a theoretical 1.0 understates what was attainable here:
+    // the soil criterion's parcel range caps the blend, and the scale carries
+    // the parcel's own measured ceiling.
+    expect(value('suitability')).toBe('0.7933 of 0.82')
+  })
+
+  it('falls back to the bare number when a payload carries no scales', () => {
+    // An older payload is OLDER, not wrong, and a missing denominator must
+    // never blank a measurement.
+    const zone = fixtureZone({})
+    const proposals = payloadOf([zone])
+    delete proposals.scales
+    const detail = WATER_STEP.detail({ proposals }, zone.id)
+    const value = (label) => detail.fields.find((f) => f.label === label).value
+    expect(value('rank')).toBe('1')
+    expect(value('suitability')).toBe('0.7933')
+  })
+
+  it('puts figures in the aligned column and categorical readings in prose', () => {
+    const zone = fixtureZone({})
     const detail = WATER_STEP.detail({ proposals: payloadOf([zone]) }, zone.id)
-    expect(detail.groups.map((g) => g.label)).toEqual([
-      'gravity and acreage',
-      'terrain',
-      'agreement',
-      'cautions',
+    const measured = Object.fromEntries(detail.fields.map((f) => [f.label, f.measured]))
+    expect(measured['area to survey (acres)']).toBe(true)
+    expect(measured['suitability']).toBe(true)
+    // The survey type and the water-delivery answer have no decimal point to
+    // hold still, and a word in the aligned column widens it for every row.
+    expect(measured['survey type']).toBe(false)
+    expect(measured['water delivery']).toBe(false)
+  })
+
+  it('renders a fired boolean as yes, and a null as an em dash', () => {
+    const zone = fixtureZone({})
+    const rows = [
+      ...alwaysRows(zone.properties),
+      { key: 'sparse_anchor', label: 'little of the claim is anchoring ground', value: true, unit: null },
+      { key: 'road_overlap_pct', label: 'removed by existing farm road', value: null, unit: 'percent' },
+    ]
+    const detail = WATER_STEP.detail(
+      { proposals: payloadOf([zone], {}, { panels: { [zone.id]: rows } }) },
+      zone.id
+    )
+    const value = (label) => detail.fields.find((f) => f.label === label).value
+    // A boolean row is PRESENT ONLY WHEN IT FIRES, so true is the only value
+    // one can carry and there is no "no" case to render.
+    expect(value('little of the claim is anchoring ground')).toBe('yes')
+    expect(value('removed by existing farm road (percent)')).toBe('—')
+  })
+
+  it('never puts excavated vocabulary on an embankment panel', () => {
+    // THE FAILURE THIS REPLACED. The old panel read `member_acres` and
+    // `member_count` off every zone under the labels "anchor acres" and
+    // "members" -- excavated vocabulary, on a valley compartment that has
+    // neither, rendering an em dash for a question that does not apply. The
+    // rows are the backend's now and it dispatches on type; what is asserted
+    // here is that this side adds no vocabulary of its own on the way through.
+    const embankment = fixtureZone({ zone_id: 1, survey_type: 'embankment' })
+    const detail = WATER_STEP.detail({ proposals: payloadOf([embankment]) }, embankment.id)
+    const text = detail.fields.map((f) => `${f.label} ${f.value}`).join(' ')
+    for (const word of ['member', 'anchor acres', 'depression', 'catchment', 'elevation m']) {
+      expect(text.toLowerCase()).not.toContain(word)
+    }
+  })
+
+  it('prints numbers as the backend sent them, adding no second rounding', () => {
+    const zone = fixtureZone({})
+    const rows = [
+      { key: 'zone_acres', label: 'area to survey', value: 0.3, unit: 'acres' },
+      { key: 'survey_type', label: 'survey type', value: 'embankment', unit: null },
+      { key: 'suitability', label: 'suitability', value: 0.7933, unit: null },
+      { key: 'rank', label: 'rank', value: 1, unit: null },
+      { key: 'water_delivery', label: 'water delivery', value: 'gravity_feed', unit: null },
+      { key: 'water_delivery_differential', label: 'elevation above production area', value: 7.6, unit: 'feet' },
+    ]
+    const proposals = payloadOf([zone], {}, { panels: { [zone.id]: rows } })
+    delete proposals.scales
+    const detail = WATER_STEP.detail({ proposals }, zone.id)
+    // The pipeline rounds at its own documented boundary and those values are
+    // contractually FINAL; a toFixed() here would be a second boundary for
+    // numbers that already have one.
+    expect(detail.fields.map((f) => f.value)).toEqual([
+      '0.3',
+      'embankment',
+      '0.7933',
+      '1',
+      'gravity_feed',
+      '7.6',
     ])
   })
 })
@@ -1745,10 +1978,62 @@ function fixtureZone(overrides) {
   }
 }
 
-function payloadOf(features, summary = {}) {
+/**
+ * THE FIVE ALWAYS-ROWS, in the backend's order and with the backend's labels.
+ *
+ * A FIXTURE OF THE WIRE, not a reimplementation of build_zone_panel(). Which
+ * rows fire under which conditions is the backend's decision and is asserted
+ * in test_water_survey_areas.py against the builder itself; what this side has
+ * to be exercised on is RENDERING a row set it did not choose -- so the tests
+ * below hand it row sets directly, including ones no single real zone would
+ * produce, which is the point.
+ */
+function alwaysRows(properties) {
+  return [
+    { key: 'zone_acres', label: 'area to survey', value: properties.zone_acres, unit: 'acres' },
+    { key: 'survey_type', label: 'survey type', value: properties.survey_type, unit: null },
+    { key: 'suitability', label: 'suitability', value: properties.mean_suitability, unit: null },
+    { key: 'rank', label: 'rank', value: properties.rank, unit: null },
+    { key: 'water_delivery', label: 'water delivery', value: 'gravity_feed', unit: null },
+  ]
+}
+
+/**
+ * The payload's `scales` block: how to read every scored value on a panel.
+ * The per-type rank COUNT is derived from the fixture's own features so a
+ * rank renders "1 of 2" against a set that really holds two.
+ */
+function scalesOf(features) {
+  const countOf = (type) => features.filter((f) => f.properties.survey_type === type).length
+  return {
+    suitability: {
+      min: 0.0,
+      max: 1.0,
+      higher_is_better: true,
+      parcel_observed_max: { embankment: 0.82, excavated: 0.6 },
+    },
+    rank: { embankment: { count: countOf('embankment') }, excavated: { count: countOf('excavated') } },
+    overlap_pct: { min: 0, max: 100 },
+    boundary_adjacency_pct: { min: 0, max: 100 },
+  }
+}
+
+/**
+ * `panels` maps a feature id to the exact row list the backend would have
+ * sent for it; anything unlisted gets the five always-rows, which is what a
+ * zone with no cautions and a gravity feed actually produces.
+ */
+function payloadOf(features, summary = {}, { panels = {}, scales } = {}) {
   return {
     survey_zones: { type: 'FeatureCollection', features },
-    zones: [],
+    zones: features.map((feature) => ({
+      id: feature.properties.zone_id,
+      // CARRIED, NEVER REBUILT -- the feature's own wire id, which is what
+      // the panel joins on. See surveyZonePanel().
+      feature_id: feature.id,
+      panel: panels[feature.id] ?? alwaysRows(feature.properties),
+    })),
+    scales: scales ?? scalesOf(features),
     summary: {
       zone_count: features.length,
       dropped_count: 0,
