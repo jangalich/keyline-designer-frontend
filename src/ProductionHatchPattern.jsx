@@ -33,11 +33,15 @@ import { readToken } from './geo.js'
  * outline states the boundary, at a glance and at every zoom.
  *
  * SO A TINTED ZONE DOES CARRY AN OUTLINE, and the no-edge rule above now
- * scopes to the marks it was written for. The rule it does not break is the
- * one underneath: a mark is CASED rather than recoloured (see layers.jsx's
- * casing pass), because no single colour clears the range of tones in one
- * aerial frame. The stipple carried that casing per dot; the tint carries it
- * under its outline.
+ * scopes to the marks it was written for.
+ *
+ * AND THE OUTLINE IS NOT CASED, which IS a departure and is worth naming as
+ * one. The halo-casing rule -- no single colour clears the range of tones in
+ * one aerial frame, so a mark is cased rather than recoloured -- still holds
+ * for the boundary ring and a drawn zone. Water's mark opts out: a white ring
+ * around a blue line read as a sticker edge rather than as the mark, so the
+ * whole mark is one colour and the exposure that comes with that is stated
+ * rather than hidden. See index.css's --survey-* note for what it costs.
  *
  * THE FILE KEPT ITS NAME AND ITS DEFAULT EXPORT while growing past the one
  * pattern it was written for -- and is now staler still, since half the rows
@@ -154,15 +158,6 @@ export function zoneMark(treatment) {
   return { kind: 'pattern', fill: `url(#${patternIdFor(treatment)})`, stroke: null }
 }
 
-/**
- * Does this treatment's mark carry an outline? The question FeatureLayer asks
- * to decide whether to lay a halo casing under the zone -- see its casing pass
- * -- and it must not need a document to answer, because it is asked while
- * deciding what to render rather than while styling a path.
- */
-export function isTintTreatment(treatment) {
-  return TREATMENT_MARKS.some((entry) => entry.treatment === treatment && entry.kind === 'tint')
-}
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 

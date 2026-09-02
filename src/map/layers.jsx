@@ -44,7 +44,7 @@ import L from 'leaflet'
 import { GeoJSON, Pane, Polygon, Polyline, Tooltip } from 'react-leaflet'
 
 import { offParcelScrimRings, readToken } from '../geo.js'
-import { isTintTreatment, zoneMark } from '../ProductionHatchPattern.jsx'
+import { zoneMark } from '../ProductionHatchPattern.jsx'
 
 /**
  * Its own lazily-filled token cache, for the reason DrawTool's has one:
@@ -379,10 +379,6 @@ function FeatureLayer({
   // layers share a band, a source and a meaning had nothing left to say them
   // apart with. See `treatment` in stepDefinitions.js's LAYER SCHEMA.
   const treatment = layer.treatment ?? null
-  // WHETHER THIS LAYER'S MARK HAS AN EDGE, which is what decides the casing
-  // pass below. Asked of the mark table rather than of the treatment's name,
-  // so a step added later inherits the answer with its row.
-  const isTinted = isTintTreatment(treatment)
 
   /**
    * EYE-OFF IS NOT DRAWN AT ALL, and this filter is the whole of what replaced
@@ -406,37 +402,25 @@ function FeatureLayer({
       {/* THE CASING PASS, FIRST so it paints underneath -- within one SVG pane,
           later elements draw on top.
 
-          EVERY OUTLINE ON THIS SURFACE IS CASED, AND ONLY OUTLINES ARE. The
-          rule is the boundary's own and the reason is unchanged: no single
-          colour clears the range of tones in one aerial frame -- water, canopy
-          and bare soil together -- so a mark is cased rather than recoloured.
-          What varies is which zones HAVE an outline to lay a casing under, and
-          that is the mark's question rather than this component's: a drawn
-          shape always, and a TINTED treatment, whose wash is bounded by a line
-          in its own colour. A hatch has no edge and takes no casing; it used
-          to be water that had none, back when water stippled and each dot
-          carried its own ring.
+          ONLY A DRAWN SHAPE IS CASED. A tinted zone HAS an outline and could
+          be, and deliberately is not: its line is the wash's own colour and a
+          white ring around it read as a sticker edge rather than as the mark.
+          The cost is stated rather than hidden -- see the --survey-* note in
+          index.css. The halo-casing rule is unchanged for everything that
+          still uses it (the boundary ring, a drawn zone): no single colour
+          clears the range of tones in one aerial frame, so those marks are
+          cased rather than recoloured. Water's mark now answers that with its
+          own two values instead, and takes the exposure that comes with it.
 
-          AT THE OUTLINE'S OWN OPACITY, so a committed zone's casing fades with
-          the line it is under. A full-strength white ring under a 0.3 line
-          would read as the mark. */}
-      {isDrawn || isTinted
+          A HATCH TAKES NO CASING EITHER, for the older reason: it has no edge
+          to lay one under. */}
+      {isDrawn
         ? features.map((feature) => (
             <GeoJSON
-              key={`casing-${feature.id}:${feature.id === focusedFeatureId}`}
+              key={`casing-${feature.id}`}
               data={feature}
               interactive={false}
-              style={{
-                color: halo,
-                weight: isDrawn ? DRAWN_CASING_WEIGHT : CASING_WEIGHT,
-                opacity: isDrawn
-                  ? 1
-                  : patternLevelFor({
-                      isFocused: feature.id === focusedFeatureId,
-                      isCommitted,
-                    }),
-                fill: false,
-              }}
+              style={{ color: halo, weight: DRAWN_CASING_WEIGHT, fill: false }}
             />
           ))
         : null}
@@ -614,11 +598,12 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
   }
 
   if (mark?.kind === 'tint') {
-    // A SCREENED TINT, OUTLINED IN ITS OWN COLOUR. One colour paints both
-    // halves: the wash states the area, the line states where it ends. A tint
-    // has no gaps for an extent to be inferred from, so the edge is drawn
-    // rather than implied -- and drawing it in a SECOND colour would be a
-    // second thing to learn about a boundary the wash already names.
+    // A SCREENED TINT, OUTLINED IN ITS OWN COLOUR, AND NOTHING UNDER THE LINE.
+    // One colour paints the whole mark: the wash states the area, the line
+    // states where it ends. A tint has no gaps for an extent to be inferred
+    // from, so the edge is drawn rather than implied -- and drawing it in a
+    // second colour, or ringing it in --halo, would put a second value on a
+    // boundary the wash already names.
     //
     // TWO SCALES, ONE STATE. The line is ink at full strength and takes the
     // pattern levels; the wash is a screen and takes the tint levels (see

@@ -53,7 +53,6 @@ import {
   stepButton,
 } from './stepDefinitions'
 import { injectZonePatterns, zoneMark } from '../ProductionHatchPattern.jsx'
-import { readToken } from '../geo.js'
 
 const params = new URLSearchParams(window.location.search)
 const number = (key, fallback) => {
@@ -173,12 +172,12 @@ const SWATCH_PX = 90
 /**
  * WHAT THE SWATCH FOR ONE TREATMENT IS MADE OF -- read from the same table the
  * map reads, so a swatch cannot be a picture of a mark the map does not draw.
- * A pattern treatment gets a paint-server reference; a tint gets its colour,
- * its outline and the halo casing under that outline, which is exactly what
- * styleFor() and FeatureLayer's casing pass put on the map.
+ * A pattern treatment gets a paint-server reference; a tint gets its colour
+ * and its outline, in that one colour, with NOTHING under the line -- which is
+ * exactly what styleFor() puts on the map, casing pass included by being
+ * excluded.
  */
 const OUTLINE_WEIGHT = 2
-const OUTLINE_CASING_WEIGHT = 4
 
 /** The pattern defs, without a map. See injectZonePatterns. */
 function ZonePatternHost() {
@@ -218,28 +217,23 @@ function ZoneSwatches() {
         svg.querySelector('rect').setAttribute('fill', `url(#local-${svg.dataset.testid})`)
         continue
       }
-      // A TINT: the wash, then its casing, then its outline, in paint order.
-      // Insetting the stroked rects by half the widest weight keeps the whole
+      // A TINT: the wash, then its outline over it -- one colour, one line,
+      // nothing under it. Insetting by half the stroke keeps the whole
       // outline inside the swatch, so the screenshot measures all of it
       // instead of half of it.
       svg.querySelector('rect').setAttribute('fill', mark.fill)
-      const inset = OUTLINE_CASING_WEIGHT / 2
-      const side = SWATCH_PX - OUTLINE_CASING_WEIGHT
-      const outline = (colour, weight) => {
-        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-        rect.setAttribute('x', String(inset))
-        rect.setAttribute('y', String(inset))
-        rect.setAttribute('width', String(side))
-        rect.setAttribute('height', String(side))
-        rect.setAttribute('fill', 'none')
-        rect.setAttribute('stroke', colour)
-        rect.setAttribute('stroke-width', String(weight))
-        rect.setAttribute('stroke-opacity', patternLevel(svg.dataset.state))
-        return rect
-      }
+      const inset = OUTLINE_WEIGHT / 2
+      const outline = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      outline.setAttribute('x', String(inset))
+      outline.setAttribute('y', String(inset))
+      outline.setAttribute('width', String(SWATCH_PX - OUTLINE_WEIGHT))
+      outline.setAttribute('height', String(SWATCH_PX - OUTLINE_WEIGHT))
+      outline.setAttribute('fill', 'none')
+      outline.setAttribute('stroke', mark.stroke)
+      outline.setAttribute('stroke-width', String(OUTLINE_WEIGHT))
+      outline.setAttribute('stroke-opacity', patternLevel(svg.dataset.state))
       svg.dataset.outlined = 'true'
-      svg.appendChild(outline(readToken('--halo'), OUTLINE_CASING_WEIGHT))
-      svg.appendChild(outline(mark.stroke, OUTLINE_WEIGHT))
+      svg.appendChild(outline)
     }
     setReady(true)
   }, [])

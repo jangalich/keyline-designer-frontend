@@ -851,8 +851,8 @@ describeIf('the zone patterns, rendered', () => {
     expect(marks.waterFills[0]).not.toBe(marks.waterFills[1])
   }, SLOW)
 
-  it('cases every tint outline on --halo, under the line and wider than it', async () => {
-    const cased = await page.evaluate(() => {
+  it('outlines every tint in its own colour, with nothing under the line', async () => {
+    const outlined = await page.evaluate(() => {
       const halo = getComputedStyle(document.documentElement).getPropertyValue('--halo').trim()
       return ['survey-embankment', 'survey-excavated'].map((t) => {
         const svg = document.querySelector(`[data-testid="swatch-${t}-active"]`)
@@ -860,25 +860,20 @@ describeIf('the zone patterns, rendered', () => {
         return {
           outlined: svg.dataset.outlined === 'true',
           count: strokes.length,
-          haloFirst: strokes[0]?.getAttribute('stroke') === halo,
-          haloWider:
-            Number(strokes[0]?.getAttribute('stroke-width')) >
-            Number(strokes[1]?.getAttribute('stroke-width')),
           lineIsTheFill:
-            strokes[1]?.getAttribute('stroke') === svg.querySelector('rect').getAttribute('fill'),
+            strokes[0]?.getAttribute('stroke') === svg.querySelector('rect').getAttribute('fill'),
+          anyHalo: strokes.some((rect) => rect.getAttribute('stroke') === halo),
         }
       })
     })
-    // CASING FIRST so it paints underneath, and wider than the line over it --
-    // the boundary's own halo-casing rule, back on the zone's edge now that a
-    // tinted zone has one. It sat on the stipple's dots while no zone did.
-    for (const mark of cased) {
+    // ONE LINE, ONE COLOUR, AND IT IS THE WASH'S. A second stroked rect would
+    // be a casing, which this mark deliberately does not take -- see the
+    // --survey-* note in index.css for what that costs and why.
+    for (const mark of outlined) {
       expect(mark.outlined).toBe(true)
-      expect(mark.count).toBe(2)
-      expect(mark.haloFirst).toBe(true)
-      expect(mark.haloWider).toBe(true)
-      // AND THE LINE IS THE WASH'S OWN COLOUR. One colour, both halves.
+      expect(mark.count).toBe(1)
       expect(mark.lineIsTheFill).toBe(true)
+      expect(mark.anyHalo).toBe(false)
     }
   }, SLOW)
 
