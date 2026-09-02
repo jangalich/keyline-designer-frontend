@@ -1493,11 +1493,13 @@
    moment a second step declared a polygon layer it inherited production's
    mark, because "is a proposal" is not "is production ground".
 
-   A layer declares its `treatment` now, layers.jsx turns that into
-   `url(#zone-pattern-<treatment>)` and hands it to Leaflet as the path's fill,
-   and ProductionHatchPattern owns what each pattern looks like. So there is no
-   table of treatments in this stylesheet to keep in agreement with the one in
-   the step definitions, and a step added later needs no rule here at all.
+   A layer declares its `treatment` now, layers.jsx resolves that through
+   ProductionHatchPattern's one mark table and hands the result to Leaflet as
+   the path's fill -- `url(#zone-pattern-<treatment>)` for a hatch, the
+   treatment's own colour for a tint. That table owns what each mark looks
+   like. So there is no table of treatments in this stylesheet to keep in
+   agreement with the one in the step definitions, and a step added later needs
+   no rule here at all.
 
    WHAT IS STILL SET FROM CSS is below: the focus mark's absence is a deletion
    rather than a rule, and the drawn zone's outline is a pathOption. Both are
@@ -1515,11 +1517,19 @@
    reading this one" made the mark for reading and the mark for certainty the
    same mark.
 
-   The focus is a change in the PATTERN'S OPACITY now (--pattern-focused
-   against --pattern-active, set in layers.jsx from the tokens), so the zone
-   you are reading is the most present thing on the map without any state
-   adding an edge. `.zone--focused` survives as the class, because the class is
-   what the tests and the DOM inspector address; it simply carries no stroke.
+   The focus is a change in the MARK'S OPACITY now (--pattern-focused against
+   --pattern-active for ink at full strength, --tint-focused against
+   --tint-active for a screened wash; set in layers.jsx from the tokens), so
+   the zone you are reading is the most present thing on the map without focus
+   itself adding an edge. `.zone--focused` survives as the class, because the
+   class is what the tests and the DOM inspector address; it adds no stroke of
+   its own.
+
+   A TINTED ZONE DOES CARRY AN OUTLINE, and it is not the focus mark -- it is
+   the mark, in every state. A wash has no gaps for an extent to be inferred
+   from, so its boundary is drawn rather than implied; see layers.jsx. What is
+   still true is the sentence above: no STATE adds an edge that another state
+   does not have.
 
    THE ONE SURVIVOR IS `.zone--rejected`, and it is not a zone state: a 422 is
    the server refusing this exact shape, it has to be findable among zones that

@@ -680,7 +680,12 @@ describe('6. the dotted declined treatment', () => {
     expect(patterns).toContain("kind: 'hatch'")
     expect(patterns).toContain("token: '--oxide'")
     const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
-    expect(layers).toContain('patternIdFor')
+    // THE FILL RESOLVES THROUGH ONE TABLE, whichever kind of mark it is --
+    // this used to name patternIdFor directly, back when every treatment was a
+    // pattern and the fill was always a paint-server reference. Water is a
+    // tint now and its fill is a colour, so both kinds go through zoneMark()
+    // and the pattern id is built where the table is.
+    expect(layers).toContain('zoneMark')
 
     const css = readFileSync(path.join(SRC, 'App.css'), 'utf8')
     expect(css).toContain('.stack-layer--kind-highlight')

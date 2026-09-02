@@ -44,7 +44,7 @@ import L from 'leaflet'
 import { GeoJSON, Pane, Polygon, Polyline, Tooltip } from 'react-leaflet'
 
 import { offParcelScrimRings, readToken } from '../geo.js'
-import { patternIdFor } from '../ProductionHatchPattern.jsx'
+import { isTintTreatment, zoneMark } from '../ProductionHatchPattern.jsx'
 
 /**
  * Its own lazily-filled token cache, for the reason DrawTool's has one:
@@ -74,37 +74,50 @@ function getStackColors() {
 }
 
 /**
- * A TREATMENT'S COLOUR IS NOT READ HERE ANY MORE, and the deletion is worth a
- * line because the function that did it looked useful.
+ * A TREATMENT'S COLOUR IS READ HERE AGAIN, THROUGH zoneMark(), and the history
+ * of that is worth the line.
  *
- * `treatmentColor()` read `--<treatment>` off the document so a treated layer
- * could be stroked in its own colour. There is no stroke now: a treatment
- * resolves to a PATTERN, and the pattern's own marks carry the colour --
- * ProductionHatchPattern reads the token when it builds them. A second reader
- * of the same tokens, left here unused, is a colour waiting to be applied to
- * an outline by whoever finds it.
+ * `treatmentColor()` once read `--<treatment>` off the document so a treated
+ * layer could be stroked in its own colour, and was deleted when every zone
+ * lost its outline -- with a note saying a second reader of those tokens, left
+ * lying here unused, was "a colour waiting to be applied to an outline by
+ * whoever finds it". The outline came back for the tinted treatments, so the
+ * reader is needed again; what has NOT come back is a second reader. There is
+ * one table of what a treatment paints with (ProductionHatchPattern's
+ * TREATMENT_MARKS) and one resolver over it, and this file calls that rather
+ * than reading tokens by a name it assembles itself.
  */
 
 /**
- * HOW PRESENT A ZONE'S PATTERN IS, in the three levels index.css declares.
+ * HOW PRESENT A ZONE'S MARK IS, in the levels index.css declares.
  *
- * THE WHOLE OF WHAT DISTINGUISHES A ZONE'S STATES. No state adds an outline --
- * the mark is the pattern and a state is a variation of its opacity -- so
- * these three numbers carry what a stroke, a dash and a colour change used to
- * carry between them.
+ * TWO SCALES, ONE PER KIND OF INK, and the split is index.css's -- see the
+ * --tint-* block for the arithmetic. `--pattern-*` is ink at full strength: a
+ * hatch's strokes, and a tinted zone's OUTLINE. `--tint-*` is the screened
+ * wash behind that outline, which needs lower alphas for the same reason a
+ * hatch does not: a wash covers all of the ground it is over, so at the
+ * pattern scale's top level it would stop being screened and start being
+ * paint.
  *
  * READ AS TOKENS RATHER THAN WRITTEN HERE, for the reason every colour on this
  * surface is: Leaflet cannot resolve a var() in a pathOption, so the value has
  * to be read off the document, and reading it is not the same as owning it.
  * The four steps still to come inherit these rather than each inventing a set.
  */
-const PATTERN_LEVELS = new Map()
+const LEVELS = new Map()
+
+function level(scale, name) {
+  const key = `--${scale}-${name}`
+  if (!LEVELS.has(key)) LEVELS.set(key, Number(readToken(key)))
+  return LEVELS.get(key)
+}
 
 function patternLevel(name) {
-  if (!PATTERN_LEVELS.has(name)) {
-    PATTERN_LEVELS.set(name, Number(readToken(`--pattern-${name}`)))
-  }
-  return PATTERN_LEVELS.get(name)
+  return level('pattern', name)
+}
+
+function tintLevel(name) {
+  return level('tint', name)
 }
 
 // The halo-casing rule DrawTool established, and the reason is its: no single
@@ -366,6 +379,10 @@ function FeatureLayer({
   // layers share a band, a source and a meaning had nothing left to say them
   // apart with. See `treatment` in stepDefinitions.js's LAYER SCHEMA.
   const treatment = layer.treatment ?? null
+  // WHETHER THIS LAYER'S MARK HAS AN EDGE, which is what decides the casing
+  // pass below. Asked of the mark table rather than of the treatment's name,
+  // so a step added later inherits the answer with its row.
+  const isTinted = isTintTreatment(treatment)
 
   /**
    * EYE-OFF IS NOT DRAWN AT ALL, and this filter is the whole of what replaced
@@ -389,23 +406,37 @@ function FeatureLayer({
       {/* THE CASING PASS, FIRST so it paints underneath -- within one SVG pane,
           later elements draw on top.
 
-          ONLY A DRAWN SHAPE IS CASED NOW, because only a drawn shape has an
-          outline to case. A treated layer was cased for one branch, back when
-          a treatment was a cased line; a treatment is a PATTERN now and a
-          pattern has no edge.
+          EVERY OUTLINE ON THIS SURFACE IS CASED, AND ONLY OUTLINES ARE. The
+          rule is the boundary's own and the reason is unchanged: no single
+          colour clears the range of tones in one aerial frame -- water, canopy
+          and bare soil together -- so a mark is cased rather than recoloured.
+          What varies is which zones HAVE an outline to lay a casing under, and
+          that is the mark's question rather than this component's: a drawn
+          shape always, and a TINTED treatment, whose wash is bounded by a line
+          in its own colour. A hatch has no edge and takes no casing; it used
+          to be water that had none, back when water stippled and each dot
+          carried its own ring.
 
-          THE CASING DID NOT GO AWAY, IT MOVED INTO THE PATTERN. Each stipple
-          dot carries its own --halo ring (see ProductionHatchPattern), which
-          is the same rule -- no single colour clears the range of tones in one
-          aerial frame, so a mark is cased rather than recoloured -- applied to
-          the marks that now do the work. */}
-      {isDrawn
+          AT THE OUTLINE'S OWN OPACITY, so a committed zone's casing fades with
+          the line it is under. A full-strength white ring under a 0.3 line
+          would read as the mark. */}
+      {isDrawn || isTinted
         ? features.map((feature) => (
             <GeoJSON
-              key={`casing-${feature.id}`}
+              key={`casing-${feature.id}:${feature.id === focusedFeatureId}`}
               data={feature}
               interactive={false}
-              style={{ color: halo, weight: DRAWN_CASING_WEIGHT, fill: false }}
+              style={{
+                color: halo,
+                weight: isDrawn ? DRAWN_CASING_WEIGHT : CASING_WEIGHT,
+                opacity: isDrawn
+                  ? 1
+                  : patternLevelFor({
+                      isFocused: feature.id === focusedFeatureId,
+                      isCommitted,
+                    }),
+                fill: false,
+              }}
             />
           ))
         : null}
@@ -518,24 +549,26 @@ function focusClass(base, isFocused) {
  * has nothing to say on a map of what this parcel is going to be, and its tab
  * is where it stays findable.
  */
-function patternLevelFor({ isFocused, isCommitted }) {
-  if (isFocused) return patternLevel('focused')
-  if (isCommitted) return patternLevel('committed')
-  return patternLevel('active')
+function stateName({ isFocused, isCommitted }) {
+  if (isFocused) return 'focused'
+  if (isCommitted) return 'committed'
+  return 'active'
+}
+
+function patternLevelFor(state) {
+  return patternLevel(stateName(state))
 }
 
 /**
- * A zone's pattern fill, as a paint-server reference Leaflet writes verbatim
- * into the path's `fill` attribute.
+ * HOW HEAVY A MARK'S FILL IS IN THIS STATE -- the pattern scale for a hatch,
+ * the tint scale for a wash.
  *
- * NO STYLESHEET RULE PER TREATMENT. The fill used to be set from App.css --
- * one blanket rule pointing every proposal polygon at the production hatch --
- * which is why water inherited production's mark the moment it declared a
- * polygon layer. A treatment names its own pattern and its own token, so a
- * step's mark follows its declaration and App.css keeps no table of them.
+ * THE BRANCH IS ON THE MARK'S KIND, not on the treatment's name. A step added
+ * later declares a kind in one table and inherits whichever scale that kind
+ * uses, instead of this function growing a list of step names.
  */
-function patternFill(treatment) {
-  return `url(#${patternIdFor(treatment)})`
+function fillLevelFor(mark, state) {
+  return mark?.kind === 'tint' ? tintLevel(stateName(state)) : patternLevel(stateName(state))
 }
 
 function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, colors }) {
@@ -557,36 +590,64 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
     }
   }
 
-  const level = patternLevelFor({ isFocused, isCommitted })
+  const state = { isFocused, isCommitted }
+  const mark = treatment ? zoneMark(treatment) : null
+  const fillOpacity = fillLevelFor(mark, state)
 
   if (isDrawn) {
-    // THE ONE ZONE THAT KEEPS AN OUTLINE, and it is not an inconsistency --
-    // it is the distinction. A drawn zone's edge was placed vertex by vertex,
-    // deliberately and exactly, so a hard line is TRUE of it. The pattern says
-    // what the ground is for; the edge treatment says whether its boundary is
-    // a suggestion or a decision.
+    // A DRAWN ZONE'S OUTLINE IS THE ACCENT'S, WHATEVER ITS MARK, and it is not
+    // an inconsistency -- it is the distinction. A drawn zone's edge was
+    // placed vertex by vertex, deliberately and exactly, so a hard line is
+    // TRUE of it, and the accent is what says the line is the USER'S. The mark
+    // says what the ground is for; the edge says whether its boundary is a
+    // suggestion or a decision, and a tinted zone's own outline says the
+    // opposite of that.
     return {
       stroke: true,
       color: colors.accent,
       weight: DRAWN_LINE_WEIGHT,
       fill: true,
-      fillColor: treatment ? patternFill(treatment) : undefined,
-      fillOpacity: level,
+      fillColor: mark ? mark.fill : undefined,
+      fillOpacity,
       className: focusClass('zone--drawn', isFocused),
     }
   }
 
-  if (treatment) {
+  if (mark?.kind === 'tint') {
+    // A SCREENED TINT, OUTLINED IN ITS OWN COLOUR. One colour paints both
+    // halves: the wash states the area, the line states where it ends. A tint
+    // has no gaps for an extent to be inferred from, so the edge is drawn
+    // rather than implied -- and drawing it in a SECOND colour would be a
+    // second thing to learn about a boundary the wash already names.
+    //
+    // TWO SCALES, ONE STATE. The line is ink at full strength and takes the
+    // pattern levels; the wash is a screen and takes the tint levels (see
+    // fillLevelFor). So a committed zone keeps a legible boundary while its
+    // wash falls back to context, which is what a committed layer is.
+    return {
+      stroke: true,
+      color: mark.stroke,
+      weight: LINE_WEIGHT,
+      opacity: patternLevelFor(state),
+      fill: true,
+      fillColor: mark.fill,
+      fillOpacity,
+      className: focusClass(`zone--${treatment}`, isFocused),
+    }
+  }
+
+  if (mark) {
     // THE PATTERN, AT ITS LEVEL, AND NOTHING ELSE. No stroke in any state: a
-    // hard edge reads as a surveyed line, which is wrong for a recommendation
-    // whose edge is its least certain part. The zone's extent is where its
-    // pattern stops, and focused / active / committed are three opacities of
-    // that one mark.
+    // hatch is mostly unfilled, so the imagery reads through it and a hard
+    // edge would read as a surveyed line -- which is wrong for a
+    // recommendation whose edge is its least certain part. The zone's extent
+    // is where its pattern stops, and focused / active / committed are three
+    // opacities of that one mark.
     return {
       stroke: false,
       fill: true,
-      fillColor: patternFill(treatment),
-      fillOpacity: level,
+      fillColor: mark.fill,
+      fillOpacity,
       className: focusClass(`zone--${treatment}`, isFocused),
     }
   }

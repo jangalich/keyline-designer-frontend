@@ -747,9 +747,32 @@ describeIf('the zone patterns, rendered', () => {
    * deliberately crude: it cannot see shape and does not try to. If a measure
    * this blunt separates two states, an eye looking for the difference will.
    */
-  async function inkOf(page, treatment, state) {
+  /**
+   * How much ink one swatch puts on the page.
+   *
+   * `inset` CROPS THE BORDER OFF, and exists for one question: whether a tint
+   * is a SCREEN. A tinted swatch carries its outline and the halo casing under
+   * it, both at full-strength opacity, and on a 90px square that border is a
+   * fifth of the pixels -- so measuring the whole swatch measures mostly the
+   * line. On a real survey zone the same border is a rim around a shape many
+   * times the size and contributes almost nothing. Cropping past it measures
+   * the wash, which is what "screened" is a claim about. 8px clears the 4px
+   * casing and its antialiasing.
+   */
+  async function inkOf(page, treatment, state, { inset = 0 } = {}) {
     const element = await page.$(`[data-testid="swatch-${treatment}-${state}"]`)
-    return meanDeviation(decodePng(await element.screenshot({ type: 'png' })))
+    if (!inset) return meanDeviation(decodePng(await element.screenshot({ type: 'png' })))
+    const box = await element.boundingBox()
+    const shot = await page.screenshot({
+      type: 'png',
+      clip: {
+        x: box.x + inset,
+        y: box.y + inset,
+        width: box.width - 2 * inset,
+        height: box.height - 2 * inset,
+      },
+    })
+    return meanDeviation(decodePng(shot))
   }
 
   let page = null
@@ -802,68 +825,129 @@ describeIf('the zone patterns, rendered', () => {
     }
   }, SLOW)
 
-  it('draws water and production as different marks, not one mark in two colours', async () => {
+  it('draws water and production as different KINDS of mark, not one mark in two colours', async () => {
     // The claim is that a reader can tell WHICH STEP a mark belongs to. The
-    // ink measure cannot see shape, so this asks the geometry directly: the
-    // patterns are built from different elements.
-    const shapes = await page.evaluate(() =>
-      ['production', 'survey-embankment', 'survey-excavated'].map((t) => {
-        const pattern = document.getElementById(`zone-pattern-${t}`)
-        return [...pattern.children].map((n) => n.tagName.toLowerCase()).join(',')
-      })
-    )
-    expect(shapes[0]).toBe('path')
-    expect(shapes[1]).toBe('circle,circle')
-    expect(shapes[2]).toBe('circle,circle')
-    expect(shapes[1]).not.toBe(shapes[0])
-    // ONE PATTERN IN TWO VALUES for the two survey types: same shapes.
-    expect(shapes[2]).toBe(shapes[1])
+    // ink measure cannot see shape, so this asks the geometry directly -- and
+    // the answer is now stronger than "different elements": production is a
+    // paint server made of ruled paths and water is not a paint server at all.
+    const marks = await page.evaluate(() => {
+      const defOf = (t) => document.getElementById(`zone-pattern-${t}`)
+      const production = defOf('production')
+      return {
+        productionShapes: [...production.children].map((n) => n.tagName.toLowerCase()).join(','),
+        waterDefs: ['survey-embankment', 'survey-excavated'].map((t) => defOf(t)),
+        waterFills: ['survey-embankment', 'survey-excavated'].map((t) =>
+          document.querySelector(`[data-testid="swatch-${t}-active"] rect`).getAttribute('fill')
+        ),
+      }
+    })
+    expect(marks.productionShapes).toBe('path')
+    // NO <pattern> DEF FOR EITHER WATER TREATMENT. A tint has no paint server
+    // to point at, and an empty def nothing references would be the smell.
+    expect(marks.waterDefs).toEqual([null, null])
+    // A FLAT COLOUR EACH, and the two are different blues -- one mark, two
+    // values, which is what tells the survey TYPES apart within the step.
+    for (const fill of marks.waterFills) expect(fill).not.toMatch(/^url\(#/)
+    expect(marks.waterFills[0]).not.toBe(marks.waterFills[1])
   }, SLOW)
 
-  it('gives every stipple dot a --halo casing under it', async () => {
+  it('cases every tint outline on --halo, under the line and wider than it', async () => {
     const cased = await page.evaluate(() => {
       const halo = getComputedStyle(document.documentElement).getPropertyValue('--halo').trim()
       return ['survey-embankment', 'survey-excavated'].map((t) => {
-        const dots = [...document.getElementById(`zone-pattern-${t}`).children]
+        const svg = document.querySelector(`[data-testid="swatch-${t}-active"]`)
+        const strokes = [...svg.querySelectorAll('rect[stroke]')]
         return {
-          haloFirst: dots[0].getAttribute('fill') === halo,
-          haloWider: Number(dots[0].getAttribute('r')) > Number(dots[1].getAttribute('r')),
-          concentric: dots[0].getAttribute('cx') === dots[1].getAttribute('cx'),
+          outlined: svg.dataset.outlined === 'true',
+          count: strokes.length,
+          haloFirst: strokes[0]?.getAttribute('stroke') === halo,
+          haloWider:
+            Number(strokes[0]?.getAttribute('stroke-width')) >
+            Number(strokes[1]?.getAttribute('stroke-width')),
+          lineIsTheFill:
+            strokes[1]?.getAttribute('stroke') === svg.querySelector('rect').getAttribute('fill'),
         }
       })
     })
-    // CASING FIRST so it paints underneath, wider than the dot, and centred on
-    // it -- the boundary's own halo-casing rule, moved from the zone's edge to
-    // the pattern's marks because a pattern has no edge.
-    for (const dot of cased) {
-      expect(dot.haloFirst).toBe(true)
-      expect(dot.haloWider).toBe(true)
-      expect(dot.concentric).toBe(true)
+    // CASING FIRST so it paints underneath, and wider than the line over it --
+    // the boundary's own halo-casing rule, back on the zone's edge now that a
+    // tinted zone has one. It sat on the stipple's dots while no zone did.
+    for (const mark of cased) {
+      expect(mark.outlined).toBe(true)
+      expect(mark.count).toBe(2)
+      expect(mark.haloFirst).toBe(true)
+      expect(mark.haloWider).toBe(true)
+      // AND THE LINE IS THE WASH'S OWN COLOUR. One colour, both halves.
+      expect(mark.lineIsTheFill).toBe(true)
     }
   }, SLOW)
 
-  it('keeps the two steps\' patterns at comparable weight', async () => {
-    // NEITHER STEP SHOUTS OVER THE OTHER. From the roads step onward both are
-    // on the map at once, and a pattern that inks five times as much page as
-    // its neighbour reads as the important one whatever it means. The first
-    // stipple spacing did exactly that -- 5x the hatch -- and was caught here
-    // rather than by eye.
+  it('keeps water a SCREEN rather than paint, and keeps production visible beside it', async () => {
+    /**
+     * WHAT THIS REPLACED, AND WHY THE OLD ASSERTION COULD NOT SURVIVE THE MARK
+     * CHANGE. This held the hatch and the stipple within 2.5x of each other's
+     * ink, because both were sparse PATTERNS and a pattern that inks five
+     * times as much page as its neighbour reads as the important one whatever
+     * it means. That comparison assumed two marks of the same kind. A tint
+     * covers all of the ground it is over and a hatch covers an eighth of it,
+     * so measured this way water now reads about 19x the hatch -- and that is
+     * a fact about the two KINDS of mark, not a regression a number can hold
+     * back. Lowering the tint until the ink matched would need an alpha around
+     * 0.012, which is not a tint, it is nothing.
+     *
+     * SO THE GUARD MOVED TO THE CLAIM THAT IS STILL TRUE OF A TINT: it must be
+     * a SCREEN. The ground has to read through it, and that is measurable --
+     * against the same colour at full opacity, which is arithmetic rather than
+     * a second render. The ratio between the two IS the effective alpha, and
+     * the assertion is that the aerial frame is more than half of what you see
+     * even on the most present state there is.
+     *
+     * MEASURED INSIDE THE OUTLINE. The wash is what is being asked about; the
+     * line around it is ink at full strength and is meant to be. See inkOf's
+     * own note for why that matters at 90px and not on a real zone.
+     */
+    const opaqueDeviation = await page.evaluate((state) => {
+      const hex = getComputedStyle(document.documentElement)
+        .getPropertyValue('--survey-embankment')
+        .trim()
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+      // meanDeviation's own measure, against its own mid-grey base, for the
+      // colour laid down solid.
+      return (Math.abs(r - 128) + Math.abs(g - 128) + Math.abs(b - 128)) / (3 * 255)
+    })
+
     const hatch = await inkOf(page, 'production', 'active')
-    for (const stipple of ['survey-embankment', 'survey-excavated']) {
-      const ink = await inkOf(page, stipple, 'active')
-      const ratio = Math.max(ink, hatch) / Math.min(ink, hatch)
-      expect(ratio, `${stipple} against the hatch`).toBeLessThan(2.5)
+    for (const tint of ['survey-embankment', 'survey-excavated']) {
+      const focused = await inkOf(page, tint, 'focused', { inset: 8 })
+      const screened = focused / opaqueDeviation
+      // eslint-disable-next-line no-console
+      console.log(
+        `    ink  ${tint.padEnd(18)} focused ${focused.toFixed(4)}  ` +
+          `opaque ${opaqueDeviation.toFixed(4)}  (screened ${screened.toFixed(2)})`
+      )
+      expect(screened, `${tint} must remain a screen`).toBeLessThan(0.5)
     }
+
+    // AND PRODUCTION IS STILL THERE BESIDE IT. The hatch is the quieter mark
+    // by construction now; what it may not be is invisible, because from the
+    // roads step onward both are on the map at once.
+    expect(hatch, 'the hatch is still on the page').toBeGreaterThan(0.004)
   }, SLOW)
 
-  it('lets production-committed and water-active share the map readably', async () => {
-    // THE STATE FROM THE ROADS STEP ONWARD. Both present, both above the
-    // visibility floor, and the committed one the quieter of the two.
+  it('lets production-committed and water-committed share the map readably', async () => {
+    // THE STATE FROM THE ROADS STEP ONWARD. Both present and both above the
+    // visibility floor. The old form of this asserted that the committed
+    // production hatch was QUIETER than the active water wash, which was a
+    // real comparison while both were patterns on one scale; a wash and a
+    // hatch are two kinds of ink and ranking them by this measure says nothing
+    // about which one a reader notices.
     const committedProduction = await inkOf(page, 'production', 'committed')
+    const committedWater = await inkOf(page, 'survey-embankment', 'committed')
     const activeWater = await inkOf(page, 'survey-embankment', 'active')
     expect(committedProduction).toBeGreaterThan(0.004)
-    expect(activeWater).toBeGreaterThan(0.004)
-    expect(committedProduction).toBeLessThan(activeWater)
+    expect(committedWater).toBeGreaterThan(0.004)
+    // A committed water zone is context, not a decision being made.
+    expect(committedWater).toBeLessThan(activeWater)
   }, SLOW)
 })
 

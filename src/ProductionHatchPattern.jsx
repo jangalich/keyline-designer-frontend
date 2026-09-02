@@ -5,33 +5,56 @@ import { readToken } from './geo.js'
 /**
  * ProductionHatchPattern
  *
- * THE MAP'S PATTERN DEFS -- one <pattern> per zone TREATMENT, injected once.
+ * WHAT EVERY ZONE TREATMENT LOOKS LIKE -- the one table, plus the <pattern>
+ * defs the pattern-kind rows need, injected once.
  *
- * THE MARK IS THE PATTERN, AND THE PATTERN IS THE STEP. A zone carries no
- * outline in any state: a hard edge reads as a surveyed line -- a boundary, a
- * fence, something someone measured and agreed -- and that is wrong for a
- * recommendation whose edge is its least certain part. The zone's extent is
- * where the pattern stops, and every state is a variation of the pattern's
- * OPACITY (see index.css's --pattern-* levels). The one survivor is the drawn
- * zone, whose edge was placed vertex by vertex and for which a hard line is
- * TRUE.
+ * A STEP IS TOLD BY ITS MARK, AND A TYPE WITHIN A STEP BY ITS VALUE.
+ * Production hatches; water is a SCREENED TINT with an outline. Water's two
+ * survey types are one tint in two blues rather than two marks, so a reader
+ * learns one new mark per step rather than one per layer.
  *
- * SO A STEP IS TOLD BY ITS PATTERN, AND A TYPE WITHIN A STEP BY ITS VALUE.
- * Production hatches; water stipples. Water's two survey types are one stipple
- * in two blues rather than two patterns, so a reader learns one new mark per
- * step rather than one per layer.
+ * TWO KINDS OF MARK, AND ONLY ONE OF THEM IS A PATTERN.
+ *
+ *   hatch  a <pattern> of ruled strokes, pointed at by url(#id). Mostly
+ *          unfilled, so the imagery reads through the gaps, and it carries no
+ *          outline in any state -- a hard edge reads as a surveyed line, a
+ *          boundary or a fence, something someone measured and agreed, and
+ *          that is wrong for a recommendation whose edge is its least certain
+ *          part. The zone's extent is where the hatch stops.
+ *   tint   a flat wash of the treatment's own colour, screened back so the
+ *          imagery reads through it, WITH an outline in that same colour.
+ *          There is no paint server: the fill is the colour.
+ *
+ * WHY WATER STOPPED BEING A PATTERN. A stipple says "sampling" where ruled
+ * lines say "cultivation", which was the right distinction; what it could not
+ * do was hold a survey area's SHAPE. A hulled compartment is read for whether
+ * it is worth walking, and scattered dots leave the reader inferring where the
+ * claim ends from where the dots thin out. A tint states the area and its
+ * outline states the boundary, at a glance and at every zoom.
+ *
+ * SO A TINTED ZONE DOES CARRY AN OUTLINE, and the no-edge rule above now
+ * scopes to the marks it was written for. The rule it does not break is the
+ * one underneath: a mark is CASED rather than recoloured (see layers.jsx's
+ * casing pass), because no single colour clears the range of tones in one
+ * aerial frame. The stipple carried that casing per dot; the tint carries it
+ * under its outline.
  *
  * THE FILE KEPT ITS NAME AND ITS DEFAULT EXPORT while growing past the one
- * pattern it was written for. Renaming it would be a rename in the same commit
- * as a behaviour change, and two suites assert this path survived the spike
- * migration -- so the name is stale by one step and the docblock says so
- * rather than a git move hiding a functional change.
+ * pattern it was written for -- and is now staler still, since half the rows
+ * in its table are not patterns at all. The reason is the same one as last
+ * time: renaming it would be a rename in the same commit as a behaviour
+ * change, and two suites assert this path survived the spike migration. The
+ * name is stale by two steps and the docblock says so rather than a git move
+ * hiding a functional change.
  *
  * WHY THIS IS IMPERATIVE. A Leaflet path takes a colour, not a paint server,
- * so the pattern has to exist in a <defs> in the same document and the fill is
+ * so a PATTERN has to exist in a <defs> in the same document and the fill is
  * then pointed at it by `url(#id)`. layers.jsx hands Leaflet exactly that
- * string as the path's fill, so a treatment resolves to its pattern with no
- * stylesheet rule per treatment and no colour literal anywhere but :root.
+ * string as the path's fill, so a treatment resolves to its mark with no
+ * stylesheet rule per treatment and no colour literal anywhere but :root. A
+ * TINT needs none of this -- its fill IS a colour, which is what a Leaflet
+ * path wanted all along -- so the defs below carry only the pattern rows and
+ * zoneMark() is what both kinds resolve through.
  *
  * WHERE IT LIVES. In its own hidden <svg> attached to the map container, NOT
  * inside a Leaflet pane's own <svg>. Two reasons, both learned the hard way:
@@ -71,56 +94,75 @@ export const HATCH_PATTERN_ID = patternIdFor('production')
 /**
  * EVERY TREATMENT THIS BUILD DRAWS, and the mark each one gets.
  *
- * A TABLE RATHER THAN A COMPONENT PER PATTERN. The steps declare treatments;
+ * A TABLE RATHER THAN A COMPONENT PER MARK. The steps declare treatments;
  * this says what a treatment looks like. A step added later adds a row, and
  * the row is the only place its mark is described.
  *
- * `token` is read off :root at mount rather than written here, so this file
- * stays free of colour literals like every other map component.
+ * `token` is read off :root at resolve time rather than written here, so this
+ * file stays free of colour literals like every other map component.
  */
-const PATTERNS = [
+const TREATMENT_MARKS = [
   // PRODUCTION: diagonal hatch. Judged rendered across the zoom range -- at
   // 6px it closed into a flat tint at the zoom someone draws at; at 10px a
   // small zone caught two or three strokes and read as stray lines. 8px with a
   // 1px stroke is an eighth of the area inked: enough to register as worked
   // ground, open enough that the eligible tint and the imagery read through.
   { treatment: 'production', kind: 'hatch', token: '--oxide', spacing: 8, weight: 1 },
-  // WATER: stipple, in the two survey values. Dots rather than lines because
-  // the step has to be legible as a different KIND of statement at a glance,
-  // and because a survey area is ground to walk rather than ground to work --
-  // scattered marks read as sampling where ruled lines read as cultivation.
+  // WATER: a screened tint with an outline, in the two survey values -- one
+  // mark, two blues, so the step is carried by the mark and the type by the
+  // value.
   //
-  // THE SPACING IS SET AGAINST THE HATCH'S INK SHARE, MEASURED. The first
-  // attempt was 7px with a 1.5px dot, described in this comment as "close to
-  // the hatch"; rendered and measured it put FIVE TIMES as much ink on the
-  // page, because a dot and its casing cover far more of a tile than a
-  // one-pixel line crossing it. Water would have shouted over production from
-  // the roads step onward, which is exactly what these two numbers exist to
-  // prevent. 11px with a 1.3px dot brings them within a factor of two
-  // (measured: 0.0145 of the page inked for the hatch against 0.0261 for the
-  // stipple, and part of that remainder is the white casing the measure counts
-  // as ink). layout.test.jsx screenshots both, prints them, and holds the
-  // ratio, so the two cannot drift apart again unnoticed.
-  { treatment: 'survey-embankment', kind: 'stipple', token: '--survey-embankment', spacing: 11, radius: 1.3 },
-  { treatment: 'survey-excavated', kind: 'stipple', token: '--survey-excavated', spacing: 11, radius: 1.3 },
+  // WHAT THIS REPLACED, AND WHY THE MEASUREMENT NOTE WENT WITH IT. Water
+  // stippled: dots at 11px with a 1.3px radius, a spacing arrived at by
+  // rendering and MEASURING against the hatch's ink share after a first
+  // attempt put five times as much ink on the page. That tuning is gone
+  // because the thing it tuned is gone -- but the constraint it existed for
+  // is not, and it moved to --tint-* in index.css: neither step may shout
+  // over the other, and layout.test.jsx still screenshots both, prints the
+  // numbers and holds the ratio.
+  //
+  // A TINT HAS NO SPACING AND NO RADIUS. Its whole description is its colour;
+  // how heavy the wash is, and how present its outline, are STATE (the
+  // --tint-* and --pattern-* levels), not properties of the mark.
+  { treatment: 'survey-embankment', kind: 'tint', token: '--survey-embankment' },
+  { treatment: 'survey-excavated', kind: 'tint', token: '--survey-excavated' },
 ]
 
 /**
- * HOW WIDE THE HALO UNDER A STIPPLE DOT IS.
+ * WHAT ONE TREATMENT PAINTS WITH, resolved: the fill Leaflet writes into the
+ * path, and the outline colour -- or null for a treatment nothing declares.
  *
- * THE CASING MOVED FROM THE ZONE'S EDGE TO THE PATTERN'S OWN MARKS, which is
- * what the halo-casing rule becomes once no zone has an edge. The rule itself
- * is unchanged and so is the reason for it: no single colour clears the range
- * of tones in one aerial frame -- water, canopy and bare soil together -- so a
- * mark is cased rather than recoloured. A dot with a --halo ring under it
- * carries its own contrast onto whatever is beneath it, exactly as the
- * boundary's line does.
+ * ONE RESOLVER FOR BOTH KINDS, because the caller's question is the same for
+ * both ("what does this treatment paint with") and only the answer's shape
+ * differs. A hatch resolves to a paint-server reference and NO outline; a tint
+ * resolves to its own colour, twice -- once as the wash and once as the line
+ * around it. layers.jsx branches on `kind` to decide whether to stroke, and on
+ * nothing else.
  *
- * IT IS ALSO WHY THE TWO BLUES ONLY HAVE TO CLEAR EACH OTHER AND THE HALO.
- * See index.css's derivation: the casing is doing the work against the
- * imagery, so the values are free to be a tonal pair.
+ * READ AT CALL TIME, NOT AT MODULE LOAD. Leaflet cannot resolve a var() in a
+ * pathOption, so a colour has to be read off the document -- and reading it
+ * when the style is built is what keeps a token change one edit rather than
+ * one edit plus a reload.
  */
-const STIPPLE_HALO_PX = 1
+export function zoneMark(treatment) {
+  const spec = TREATMENT_MARKS.find((entry) => entry.treatment === treatment)
+  if (!spec) return null
+  if (spec.kind === 'tint') {
+    const colour = readToken(spec.token)
+    return { kind: 'tint', fill: colour, stroke: colour }
+  }
+  return { kind: 'pattern', fill: `url(#${patternIdFor(treatment)})`, stroke: null }
+}
+
+/**
+ * Does this treatment's mark carry an outline? The question FeatureLayer asks
+ * to decide whether to lay a halo casing under the zone -- see its casing pass
+ * -- and it must not need a document to answer, because it is asked while
+ * deciding what to render rather than while styling a path.
+ */
+export function isTintTreatment(treatment) {
+  return TREATMENT_MARKS.some((entry) => entry.treatment === treatment && entry.kind === 'tint')
+}
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
@@ -143,35 +185,19 @@ function hatchTile(spec, colour) {
 }
 
 /**
- * A stipple tile: one dot, cased.
+ * Inject every PATTERN-kind mark into `container`, and return the teardown.
  *
- * TWO DOTS AT ONE CENTRE, the halo first so it paints underneath -- the same
- * casing-then-line order the boundary and the drawn zones use, and the same
- * order elements paint in within one SVG. Offset to the tile's centre so the
- * dot never straddles a tile edge and gets clipped into two half-dots.
- */
-function stippleTile(spec, colour, halo) {
-  const centre = spec.spacing / 2
-  const dot = (r, fill) => {
-    const circle = document.createElementNS(SVG_NS, 'circle')
-    circle.setAttribute('cx', String(centre))
-    circle.setAttribute('cy', String(centre))
-    circle.setAttribute('r', String(r))
-    circle.setAttribute('fill', fill)
-    return circle
-  }
-  return [dot(spec.radius + STIPPLE_HALO_PX, halo), dot(spec.radius, colour)]
-}
-
-/**
- * Inject every pattern into `container`, and return the teardown.
+ * TINT ROWS PASS THROUGH UNTOUCHED, and that is not an omission: a tint has no
+ * paint server to inject. Its fill is a colour, which is what a Leaflet path
+ * takes directly, so there is nothing for a <defs> to hold. A def emitted for
+ * it would be an empty <pattern> that nothing points at.
  *
- * SEPARATE FROM THE COMPONENT BECAUSE IT NEEDS NO MAP. What a pattern looks
- * like is a fact about ink on a page; the only thing the map contributes is
- * an element to hang the defs on. Splitting it is what lets the layout
- * harness render the nine treatment/level swatches in a browser and measure
- * whether they are actually tellable apart -- see layout.test.jsx -- without
- * standing up Leaflet and a tile server to ask.
+ * SEPARATE FROM THE COMPONENT BECAUSE IT NEEDS NO MAP. What a mark looks like
+ * is a fact about ink on a page; the only thing the map contributes is an
+ * element to hang the defs on. Splitting it is what lets the layout harness
+ * render the nine treatment/level swatches in a browser and measure whether
+ * they are actually tellable apart -- see layout.test.jsx -- without standing
+ * up Leaflet and a tile server to ask.
  */
 export function injectZonePatterns(container) {
   const host = document.createElementNS(SVG_NS, 'svg')
@@ -187,8 +213,8 @@ export function injectZonePatterns(container) {
   const defs = document.createElementNS(SVG_NS, 'defs')
   host.appendChild(defs)
 
-  const halo = readToken('--halo')
-  for (const spec of PATTERNS) {
+  for (const spec of TREATMENT_MARKS) {
+    if (spec.kind !== 'hatch') continue
     const pattern = document.createElementNS(SVG_NS, 'pattern')
     pattern.setAttribute('id', patternIdFor(spec.treatment))
     pattern.setAttribute('patternUnits', 'userSpaceOnUse')
@@ -197,10 +223,7 @@ export function injectZonePatterns(container) {
     // The colours on this surface are the only ones not set from a
     // stylesheet, so they are read from their tokens rather than written
     // as literals.
-    const colour = readToken(spec.token)
-    const marks =
-      spec.kind === 'hatch' ? hatchTile(spec, colour) : stippleTile(spec, colour, halo)
-    for (const mark of marks) pattern.appendChild(mark)
+    for (const mark of hatchTile(spec, readToken(spec.token))) pattern.appendChild(mark)
     defs.appendChild(pattern)
   }
 

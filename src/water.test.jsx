@@ -95,11 +95,11 @@ beforeAll(() => {
   for (const [, name, value] of tokens.matchAll(/(--[a-z0-9-]+):\s*(#[0-9a-fA-F]{3,8})\s*;/g)) {
     document.documentElement.style.setProperty(name, value)
   }
-  // THE PATTERN LEVELS TOO, and for the same reason: they are numbers rather
+  // BOTH LEVEL SCALES TOO, and for the same reason: they are numbers rather
   // than colours, but they are read off the document by the same mechanism --
   // Leaflet cannot resolve a var() in a pathOption, so a level is a token read
   // at render. Without them every zone renders at opacity 0 under jsdom.
-  for (const [, name, value] of tokens.matchAll(/(--pattern-[a-z-]+):\s*([\d.]+)\s*;/g)) {
+  for (const [, name, value] of tokens.matchAll(/(--(?:pattern|tint)-[a-z-]+):\s*([\d.]+)\s*;/g)) {
     document.documentElement.style.setProperty(name, value)
   }
 })
@@ -435,7 +435,7 @@ describe('3. two treatments, both cased', () => {
     expect(embankment).not.toBeNull()
 
     // BOTH BLUE, ONE LIGHTER -- and a TONAL PAIR rather than two colours:
-    // same hue and saturation, so the step is carried by the pattern and only
+    // same hue and saturation, so the step is carried by the mark and only
     // the type is carried by the value.
     expect(isBlue(embankment[1])).toBe(true)
     expect(isBlue(excavated[1])).toBe(true)
@@ -447,8 +447,10 @@ describe('3. two treatments, both cased', () => {
      * THE CEILING, DERIVED HERE RATHER THAN TAKEN ON TRUST.
      *
      * The embankment blue has to clear the excavated blue AND the --halo its
-     * own stipple dots sit on, and it has to be LIGHTER than the excavated
-     * one -- so it is squeezed between the two. The best any colour between
+     * outline is cased on, and it has to be LIGHTER than the excavated one --
+     * so it is squeezed between the two. (When water stippled, that --halo
+     * was the ring under each dot; the casing moved with the edge and the two
+     * constraints are the same two.) The best any colour between
      * two others can manage against both is the geometric mean of the pair's
      * own contrast: at the midpoint the two ratios are equal, and any move
      * from it raises one only by lowering the other.
@@ -498,23 +500,26 @@ describe('3. two treatments, both cased', () => {
     }
   })
 
-  it('cases the pattern\'s own marks, now that no zone has an edge to case', () => {
-    const patterns = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
-    // THE CASING MOVED INTO THE PATTERN. A stipple dot carries a --halo ring
-    // under it -- the same halo-casing rule the boundary and the drawn zones
-    // use, applied to the marks that now do the work, because a pattern has no
-    // outline to lay a casing under.
-    expect(patterns).toContain('STIPPLE_HALO_PX')
-    expect(patterns).toContain("readToken('--halo')")
-    expect(patterns).toMatch(/stippleTile\(spec, colour, halo\)/)
-
-    // AND THE ZONE ITSELF IS NOT CASED. layers.jsx cases a drawn shape and
-    // nothing else; a treated layer used to be cased and no longer is.
+  it('cases the tint\'s outline, because a tinted zone has an edge again', () => {
+    // THE CASING FOLLOWS THE EDGE. It sat on the zone's outline, moved into
+    // the stipple's own dots when no zone had an outline, and is back on the
+    // outline now that a tinted zone carries one. The rule never moved: no
+    // single colour clears the range of tones in one aerial frame, so a mark
+    // is cased rather than recoloured.
     const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
-    expect(layers).toMatch(/\{isDrawn\s*$/m)
-    expect(layers).not.toMatch(/isDrawn \|\| treatment/)
+    expect(layers).toMatch(/\{isDrawn \|\| isTinted/)
+    // ASKED OF THE MARK, NOT OF THE STEP. A list of treatment names over here
+    // would be a second table of what a treatment looks like.
+    expect(layers).toContain('isTintTreatment(treatment)')
+    expect(layers).not.toMatch(/survey-embankment|survey-excavated/)
+
+    // AND THE PATTERN NO LONGER CASES ITSELF, because a hatch has no edge and
+    // there are no stipple dots left to ring.
+    const marks = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+    expect(marks).not.toContain('STIPPLE_HALO_PX')
+    expect(marks).not.toContain('stippleTile')
   })
 
   liveIt('renders the two types into two panes with two classes', async () => {
@@ -535,19 +540,22 @@ describe('3. two treatments, both cased', () => {
     expect(excavatedPaths.length).toBe(excavated.length)
     expect(embankmentPane.querySelector('.zone--survey-excavated')).toBeNull()
 
-    // DISTINCT FILLS, EACH POINTING AT ITS OWN PATTERN -- and NO STROKE on
-    // either. This assertion used to compare the two paths' `stroke`
-    // attributes, back when a treatment was a cased line; the mark is the
-    // pattern now and a zone carries no edge in any state.
-    const fills = new Set([
-      embankmentPaths[0].getAttribute('fill'),
-      excavatedPaths[0].getAttribute('fill'),
-    ])
-    expect(fills.size).toBe(2)
-    expect([...fills].every((fill) => fill.startsWith('url(#zone-pattern-'))).toBe(true)
-    for (const path of [embankmentPaths[0], excavatedPaths[0]]) {
-      expect(path.getAttribute('stroke')).toBe('none')
+    // DISTINCT FILLS, EACH ITS OWN BLUE, AND EACH OUTLINED IN THE SAME BLUE
+    // IT IS FILLED WITH. Not a paint-server reference on either: a tint's
+    // fill IS a colour.
+    const tokenOf = (name) =>
+      getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+    const pairs = [
+      [embankmentPaths[0], tokenOf('--survey-embankment')],
+      [excavatedPaths[0], tokenOf('--survey-excavated')],
+    ]
+    for (const [path, colour] of pairs) {
+      expect(path.getAttribute('fill')).toBe(colour)
+      expect(path.getAttribute('stroke')).toBe(colour)
+      expect(path.getAttribute('fill')).not.toMatch(/^url\(#/)
     }
+    // ...and the two are different blues, which is what tells the types apart.
+    expect(pairs[0][1]).not.toBe(pairs[1][1])
 
     await ui.unmount()
   })
@@ -886,9 +894,6 @@ describe('the pattern is the mark', () => {
     { name: 'uncommitted, in the commit, not being read', style: { treatment: 'production' } },
     { name: 'focused -- the one being read', style: { treatment: 'production', isFocused: true } },
     { name: 'committed', style: { treatment: 'production', isCommitted: true } },
-    { name: 'water, uncommitted', style: { treatment: 'survey-embankment' } },
-    { name: 'water, focused', style: { treatment: 'survey-excavated', isFocused: true } },
-    { name: 'water, committed', style: { treatment: 'survey-excavated', isCommitted: true } },
     { name: 'a layer that declared no treatment', style: {} },
   ]
 
@@ -899,6 +904,39 @@ describe('the pattern is the mark', () => {
       // Not merely `stroke: false` with a weight left behind for something to
       // switch back on.
       expect(style.weight).toBeUndefined()
+      expect(style.dashArray).toBeUndefined()
+    })
+  }
+
+  /**
+   * WATER IS THE OTHER KIND OF MARK, AND IT DOES CARRY AN EDGE.
+   *
+   * THE RULE SCOPED, IT DID NOT BEND. "No hard edge" was an argument about a
+   * HATCH: mostly unfilled, imagery reading through the gaps, so the extent is
+   * legible from where the marks stop and a drawn line would be claiming a
+   * precision the recommendation does not have. A tint has no gaps to infer an
+   * extent from -- the reader would be left guessing where the wash ends
+   * against the imagery under it -- so its boundary is drawn.
+   *
+   * IN ITS OWN COLOUR, at the mark levels, over a --halo casing. One colour
+   * for the wash and the line; a second would be a second thing to learn about
+   * a boundary the wash already names.
+   */
+  const tinted = [
+    { name: 'water, uncommitted', style: { treatment: 'survey-embankment' } },
+    { name: 'water, focused', style: { treatment: 'survey-excavated', isFocused: true } },
+    { name: 'water, committed', style: { treatment: 'survey-excavated', isCommitted: true } },
+  ]
+
+  for (const state of tinted) {
+    it(`outlines the tint in its own colour: ${state.name}`, () => {
+      const style = styleFor({ ...state.style, colors: COLORS })
+      expect(style.stroke).toBe(true)
+      expect(style.weight).toBeGreaterThan(0)
+      // THE SAME COLOUR, BOTH HALVES -- and it is a colour, not a paint server.
+      expect(style.color).toBe(style.fillColor)
+      expect(style.fillColor).not.toMatch(/^url\(#/)
+      // Never a dash: a state is an opacity, not a line style.
       expect(style.dashArray).toBeUndefined()
     })
   }
@@ -938,50 +976,88 @@ describe('the pattern is the mark', () => {
    =========================================================================== */
 
 describe('one pattern per step, three levels per pattern', () => {
-  it('points each treatment at its own pattern, and water is not production', () => {
+  it('points each treatment at its own mark, and water is not production', () => {
     const production = styleFor({ treatment: 'production', colors: COLORS })
     const embankment = styleFor({ treatment: 'survey-embankment', colors: COLORS })
     const excavated = styleFor({ treatment: 'survey-excavated', colors: COLORS })
+    const tokenOf = (name) =>
+      document.documentElement.style.getPropertyValue(name).trim()
 
+    // PRODUCTION RESOLVES TO A PAINT SERVER; the two water treatments resolve
+    // to their own colours, which is what a Leaflet path wanted all along.
     expect(production.fillColor).toBe(`url(#${patternIdFor('production')})`)
-    expect(embankment.fillColor).toBe(`url(#${patternIdFor('survey-embankment')})`)
-    expect(excavated.fillColor).toBe(`url(#${patternIdFor('survey-excavated')})`)
+    expect(embankment.fillColor).toBe(tokenOf('--survey-embankment'))
+    expect(excavated.fillColor).toBe(tokenOf('--survey-excavated'))
     // WATER NO LONGER INHERITS PRODUCTION'S MARK, which is what the blanket
     // stylesheet rule used to make unavoidable.
     expect(embankment.fillColor).not.toBe(production.fillColor)
+    // ...and the two survey types are not each other.
+    expect(embankment.fillColor).not.toBe(excavated.fillColor)
   })
 
-  it('draws water as stipple and production as hatch', () => {
-    const patterns = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+  it('draws water as a tint and production as a hatch', () => {
+    const marks = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
     const spec = (treatment) =>
-      patterns.match(new RegExp(`treatment: '${treatment}', kind: '(\\w+)'`))?.[1]
+      marks.match(new RegExp(`treatment: '${treatment}', kind: '(\\w+)'`))?.[1]
     expect(spec('production')).toBe('hatch')
-    expect(spec('survey-embankment')).toBe('stipple')
-    expect(spec('survey-excavated')).toBe('stipple')
+    expect(spec('survey-embankment')).toBe('tint')
+    expect(spec('survey-excavated')).toBe('tint')
+
+    // AND A TINT GETS NO <pattern> DEF, because it has no paint server to
+    // point at -- an empty pattern nothing references would be the smell.
+    expect(marks).toMatch(/if \(spec\.kind !== 'hatch'\) continue/)
   })
 
-  it('is ONE pattern in two values for the two survey types, not two patterns', () => {
-    // The STEP distinction is carried by the pattern; the TYPE distinction
-    // within a step by the value. A reader learns one new mark per step.
-    const patterns = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
-    const stipples = [...patterns.matchAll(/kind: 'stipple'/g)]
-    expect(stipples).toHaveLength(2)
-    expect(patterns).toContain("token: '--survey-embankment'")
-    expect(patterns).toContain("token: '--survey-excavated'")
+  it('is ONE mark in two values for the two survey types, not two marks', () => {
+    // The STEP distinction is carried by the mark; the TYPE distinction within
+    // a step by the value. A reader learns one new mark per step.
+    const marks = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+    // THE TABLE ITSELF, not the whole file -- zoneMark() also spells the kind
+    // when it resolves one, and counting that would be counting the reader.
+    const table = marks.slice(
+      marks.indexOf('const TREATMENT_MARKS = ['),
+      marks.indexOf(']', marks.indexOf('const TREATMENT_MARKS = ['))
+    )
+    const tintRows = [...table.matchAll(/\{[^}]*kind: 'tint'[^}]*\}/g)].map((m) => m[0])
+    expect(tintRows).toHaveLength(2)
+    expect(table).toContain("token: '--survey-embankment'")
+    expect(table).toContain("token: '--survey-excavated'")
+    // A tint's whole description is its colour: no spacing and no radius, so
+    // the two rows cannot drift into being two different marks. How heavy the
+    // wash is and how present the outline are STATE, not the mark.
+    for (const row of tintRows) {
+      expect(row).not.toMatch(/spacing|radius|weight/)
+    }
   })
 
-  it('declares the three levels as tokens, so the remaining steps inherit them', () => {
+  it('declares three levels per SCALE as tokens, so the remaining steps inherit them', () => {
     const tokens = readFileSync(path.join(SRC, 'index.css'), 'utf8')
-    const level = (name) => Number(tokens.match(new RegExp(`--pattern-${name}:\\s*([\\d.]+)`))[1])
+    const level = (scale, name) =>
+      Number(tokens.match(new RegExp(`--${scale}-${name}:\\s*([\\d.]+)`))[1])
 
-    // THREE LEVELS PER STEP, declared once rather than per step.
-    expect(level('committed')).toBeLessThan(level('active'))
-    expect(level('active')).toBeLessThan(level('focused'))
-    expect(level('focused')).toBe(1)
+    // THREE LEVELS PER SCALE, declared once rather than per step, and the same
+    // committed < active < focused relationship in both.
+    for (const scale of ['pattern', 'tint']) {
+      expect(level(scale, 'committed')).toBeLessThan(level(scale, 'active'))
+      expect(level(scale, 'active')).toBeLessThan(level(scale, 'focused'))
+    }
+
+    // THE MARK SCALE TOPS OUT AT FULL. A hatch is mostly unfilled, so the
+    // imagery reads through it even at 1.
+    expect(level('pattern', 'focused')).toBe(1)
+
+    // THE SCREEN SCALE MUST NOT. A wash covers all of the ground it is over,
+    // so at 1 it stops being a screen and becomes paint -- and "screened"
+    // means the aerial frame reads through. Every tint level sits well below
+    // its opposite number on the mark scale.
+    expect(level('tint', 'focused')).toBeLessThan(0.5)
+    for (const name of ['committed', 'active', 'focused']) {
+      expect(level('tint', name)).toBeLessThan(level('pattern', name))
+    }
 
     // ...and layers.jsx reads them rather than owning them.
     const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
-    expect(layers).toContain('--pattern-${name}')
+    expect(layers).toContain('`--${scale}-${name}`')
     // Every fill opacity a ZONE takes comes from a level; the only literal
     // left is the rejection overlay, which is not a zone state.
     const literals = layers.replace(/\/\*[\s\S]*?\*\//g, '').match(/fillOpacity: [\d.]+/g) ?? []
@@ -1004,20 +1080,38 @@ describe('one pattern per step, three levels per pattern', () => {
 
   it('lets a committed production layer and an active water layer share the map', () => {
     // THE STATE FROM THE ROADS STEP ONWARD, and the two must stay readable
-    // together: different patterns, different colours, and the committed one
-    // the quieter of the two.
+    // together: different marks, different colours, and the committed one the
+    // quieter of the two.
     const committedProduction = styleFor({
       treatment: 'production',
       isCommitted: true,
       colors: COLORS,
     })
+    const activeProduction = styleFor({ treatment: 'production', colors: COLORS })
     const activeWater = styleFor({ treatment: 'survey-embankment', colors: COLORS })
+    const committedWater = styleFor({
+      treatment: 'survey-embankment',
+      isCommitted: true,
+      colors: COLORS,
+    })
 
     expect(committedProduction.fillColor).not.toBe(activeWater.fillColor)
-    expect(committedProduction.fillOpacity).toBeLessThan(activeWater.fillOpacity)
-    // Neither is invisible.
+
+    // COMPARED WITHIN EACH SCALE, NOT ACROSS THEM. This assertion used to read
+    // committedProduction.fillOpacity < activeWater.fillOpacity, which was a
+    // real comparison while both were patterns on one scale and is a category
+    // error now that a wash and a hatch are measured on two. "Which of these
+    // shouts louder" is a question about rendered INK and it is asked in
+    // layout.test.jsx, which has a browser to ask it with.
+    expect(committedProduction.fillOpacity).toBeLessThan(activeProduction.fillOpacity)
+    expect(committedWater.fillOpacity).toBeLessThan(activeWater.fillOpacity)
+    // Neither is invisible in its own terms.
     expect(committedProduction.fillOpacity).toBeGreaterThan(0.15)
-    expect(activeWater.fillOpacity).toBeGreaterThan(0.15)
+    expect(committedWater.fillOpacity).toBeGreaterThan(0.05)
+    // AND THE COMMITTED WATER ZONE KEEPS A LEGIBLE BOUNDARY while its wash
+    // falls back to context -- the reason the outline is on the mark scale.
+    expect(committedWater.stroke).toBe(true)
+    expect(committedWater.opacity).toBeGreaterThan(committedWater.fillOpacity)
   })
 
   it('declares the committed layers so a committed step keeps its own mark', () => {
