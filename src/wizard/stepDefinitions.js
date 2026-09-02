@@ -1649,17 +1649,15 @@ export function surveyZoneName(properties) {
   return `${title} ${properties?.rank ?? '?'}`
 }
 
-/**
- * WHAT A ZONE'S FLAGS MEAN, in the terms someone standing on the land would
- * use. Keyed on water_survey_areas' own FLAG_* constants, which are the stable
- * identifiers -- the same posture UNAVAILABLE_CONSEQUENCE takes toward the
- * exclusion layers' `type`.
- */
-const ZONE_FLAG_CONSEQUENCE = {
-  below_min_area: 'its envelope is under the minimum area floor',
-  sparse_anchor: 'little of the envelope is high-suitability ground',
-  no_service_relationship: 'no committed production area is within service range',
-}
+/* THE FLAG-CONSEQUENCE TABLE IS GONE, and its absence is the point.
+   It translated water_survey_areas' FLAG_* constants into the terms someone
+   standing on the land would use -- which is exactly the editorial decision
+   the backend's `panel` block now makes, beside the measurements, as data.
+   A second table over here would be a second set of words for one set of
+   facts, and the one over here is the copy that goes stale silently.
+   (UNAVAILABLE_CONSEQUENCE and WATER_UNCHECKED_CONSEQUENCE stay: those are
+   STEP-LEVEL notices about checks that did not run, which no per-zone panel
+   row answers.) */
 
 /**
  * WHICH CHECKS DID NOT RUN, for a step whose availability signals are shaped
@@ -1716,84 +1714,118 @@ function zoneFeature(proposals, featureId) {
 }
 
 /**
- * THE GRAVITY READING, in one prose line.
+ * THE PANEL: THE SERVER'S OWN ROWS FOR ONE ZONE, joined by feature id.
  *
- * WHY IT IS HERE AND NOT IN THE TAB. On a keyline farm "can this pond reach
- * production without a pump" is arguably the most decision-relevant thing
- * about a site, which is the case for putting it in the tab's three rows. It
- * does not survive that case. A tab row is a right-aligned monospace value
- * against a left-aligned label, and this reading is CATEGORICAL -- it has no
- * decimal point to hold still and nothing above or below it to line up with.
- * Landing it in that column would right-align a word against nothing and widen
- * the figure track for every other tab, which is the exact failure the detail
- * panel's own measured/prose split was introduced to fix.
+ * WHAT CHANGED, AND WHY IT IS NOT A REFACTOR. This panel used to be four
+ * groups of fields chosen HERE -- gravity and acreage, terrain, agreement,
+ * cautions -- each reading a named property off the feature. Two things were
+ * wrong with that and only one of them was verbosity.
  *
- * So it leads the DETAIL PANEL instead, and it leads it -- first field of the
- * first group, ahead of the acreage. Acreage and suitability keep the tab
- * because they are what you COMPARE zones by and they are figures; gravity is
- * what you read once you have picked one out, and it is the first thing you
- * should read.
+ * THE TYPE. `anchor acres` and `members` are EXCAVATED vocabulary. An
+ * embankment zone is a valley compartment and has neither, so those two rows
+ * rendered an em dash on half the zones on the map -- not a missing
+ * measurement, a question that does not apply. A field list written on this
+ * side cannot dispatch on a type whose vocabulary it does not own.
  *
- * THREE ANSWERS, NOT TWO. `has_service_relationship` false is a real, computed
- * "nothing in range" -- the backend flags it rather than dropping the zone,
- * because gravity is ranking context and never a gate -- and a below-elevation
- * relationship survives with its meaning intact: the water is there, it just
- * needs a pump to get where it is going.
+ * THE ALTITUDE. A survey panel answers one question -- SHOULD I WALK THIS --
+ * and slope, depression depth, catchment acreage, representative elevation
+ * and the per-criterion scores do not help answer it. They are the DIAGNOSTIC
+ * record, they are all still on the feature, and the diagnostic view is the
+ * export.
+ *
+ * Both are editorial decisions about measurements, and they belong beside the
+ * measurements. water_survey_areas.build_zone_panel() now makes them and
+ * ships the result as DATA: an ordered list of {key, label, value, unit}, type
+ * dispatched, cautions present only when they fire. So the panel can be
+ * retuned -- a row added, dropped, reordered, relabelled -- without a
+ * deploy of this file, and the two survey types cannot drift into being
+ * rendered by one hardcoded list again.
+ *
+ * WHAT THIS SIDE STILL OWNS is typography: which column a value sits in, and
+ * how a scale is read against it. That is the split the backend's own note
+ * makes -- `key` is the stable identifier, `label` is display prose.
+ *
+ * THE JOIN IS ON feature_id, WHICH THE PAYLOAD GIVES US. `payload.zones` is
+ * the backend's tabular digest, keyed by the INTERNAL zone id; the tabs, the
+ * map and the commit body all key on the WIRE feature id. Every row carries
+ * `feature_id` -- carried off its own feature by the assembler, never rebuilt
+ * from a template -- so this is a lookup rather than a reconstruction. The
+ * same precedent production's zone list follows.
  */
-export function gravityReading(properties) {
-  const primary = properties?.primary_production_area_relationship
-  if (!properties?.has_service_relationship || !primary) {
-    return 'no production area within service range'
-  }
-  return primary.above_production_area
-    ? `sits above production area ${primary.production_area_id} — gravity feed`
-    : `sits below production area ${primary.production_area_id} — a pump would be needed`
+export function surveyZonePanel(proposals, featureId) {
+  const row = (proposals?.zones ?? []).find((entry) => entry.feature_id === featureId)
+  return Array.isArray(row?.panel) ? row.panel : []
 }
 
 /**
- * THE AGREEMENT REPORT: what share of THIS zone's envelope each surviving zone
- * of the OTHER type covers.
+ * ONE PANEL ROW, rendered.
  *
- * THE MOST INTERESTING FIELD ON THIS PANEL, and the reason is that it is the
- * only one that is about two things at once. Every other figure is one survey
- * instrument's reading of one piece of ground. This is the two instruments --
- * the embankment surface and the excavated surface, scored separately, ranked
- * separately -- independently arriving at the same ground. Someone choosing
- * across both types is choosing partly on this.
+ * NULL IS AN EM DASH AND IS NEVER A ZERO. The backend puts a never-checked
+ * overlap on the panel as its own row with a null value precisely so it can be
+ * told apart from a measured 0.0 -- which it omits entirely, having nothing to
+ * caution anyone about. A `?? 0` anywhere on this path would print an
+ * unmeasured thing as a measured absence, which is the one coercion this whole
+ * contract exists to prevent.
  *
- * IT DOES NOT MOVE WHEN THE SELECTION DOES. attach_cross_type_overlaps() runs
- * at GENERATE time over the SURVIVING zones and is not recomputed against a
- * commit set, on purpose: it is a finding about the ground, not about the
- * choice. Closing a zone's eye does not make the other instrument stop
- * agreeing with it. So this reads the payload's own value and never the
- * draft's -- there is no `draft` in this function's arguments and that is
- * deliberate.
+ * A BOOLEAN ROW IS PRESENT ONLY WHEN IT FIRES, so `true` is the only value one
+ * can carry and "yes" is what it says. There is no "no" case to render.
  *
- * THE PERCENT IS A UNIT RESTATEMENT, NOT A DERIVATION. The feature carries
- * `fraction` (0.0-1.0); the backend's own narrative digest of the same value
- * carries `overlap_pct` as round(fraction * 100, 1). Both are the same
- * measurement -- this prints the one the feature carries, in the unit the
- * backend itself prints it in, rather than joining across two representations
- * of one number.
+ * TWO ROWS READ AGAINST THE `scales` BLOCK, which is the whole reason that
+ * block is on the wire:
+ *
+ *   rank         `2` alone is not a reading. `scales.rank[type].count` is the
+ *                denominator and rank is PER TYPE, so it renders "2 of 3".
+ *   suitability  `0.53` against a theoretical 1.0 says "barely half". The
+ *                soil criterion's parcel range caps the blend, so the honest
+ *                denominator is the parcel's own attainable ceiling --
+ *                `scales.suitability.parcel_observed_max[type]`, measured by
+ *                the backend off its own surface.
+ *
+ * Both fall back to the bare number when the scale is absent: a payload
+ * without scales is older, not wrong, and a missing denominator must not blank
+ * a measurement.
+ *
+ * EVERY OTHER NUMBER IS PRINTED AS THE BACKEND SENT IT -- no toFixed, no
+ * rescale. The pipeline rounds at its own documented boundary and those values
+ * are contractually FINAL; a second rounding pass here would be a second
+ * boundary for numbers that already have one.
  */
-export function crossTypeReadings(proposals, properties) {
-  const overlaps = properties?.cross_type_overlaps ?? []
-  if (!overlaps.length) return []
+export function panelValue(row, scales, surveyType) {
+  if (row.value == null) return '\u2014'
+  if (row.value === true) return 'yes'
+  if (row.key === 'rank') {
+    const count = scales?.rank?.[surveyType]?.count
+    return count == null ? String(row.value) : `${row.value} of ${count}`
+  }
+  if (row.key === 'suitability') {
+    const ceiling = scales?.suitability?.parcel_observed_max?.[surveyType]
+    return ceiling == null ? String(row.value) : `${row.value} of ${ceiling}`
+  }
+  return String(row.value)
+}
 
-  // The other zones, by their INTERNAL zone_id -- which is what
-  // cross_type_overlaps names, and is not the wire feature id.
-  const byZoneId = new Map(
-    surveyZoneFeatures(proposals).map((feature) => [feature.properties?.zone_id, feature.properties])
-  )
-
-  return overlaps.map((entry) => {
-    const other = byZoneId.get(entry.zone_id)
-    return {
-      label: `% overlapped by ${other ? surveyZoneName(other) : `zone ${entry.zone_id}`}`,
-      value: measure(entry.fraction == null ? null : entry.fraction * 100),
-      measured: true,
-    }
-  })
+/**
+ * The backend's rows as detail-panel fields, in the backend's order.
+ *
+ * MEASURED IFF THE VALUE IS A NUMBER, which is what puts figures in the fixed
+ * width first column and leaves categorical readings -- the survey type, the
+ * water-delivery answer, which terminator a dam reach sits against -- as prose
+ * spanning both. The panel's own two-column rule, applied to a row set this
+ * side did not choose.
+ *
+ * THE UNIT RIDES THE LABEL, not the figure. "20 feet" in the figure column
+ * widens the column for every other row with a word, which is the exact
+ * failure the measured/prose split was introduced to fix; the backend's labels
+ * deliberately never spell their own unit, so appending it here adds the
+ * backend's own word rather than one of ours.
+ */
+export function panelFields(rows, scales) {
+  const surveyType = rows.find((row) => row.key === 'survey_type')?.value
+  return rows.map((row) => ({
+    label: row.unit ? `${row.label} (${row.unit})` : row.label,
+    value: panelValue(row, scales, surveyType),
+    measured: typeof row.value === 'number',
+  }))
 }
 
 /**
@@ -1802,11 +1834,18 @@ export function crossTypeReadings(proposals, properties) {
  * NOT MEASURE_DP, AND SEE measure()'s NOTE FOR WHY. mean_suitability is a
  * weighted-overlay fraction on 0-1 (0.5260, 0.7933, 0.5586 on the reference
  * parcel), so one decimal place prints all three as "0.5" -- a column of
- * identical numbers for zones the pipeline ranked apart. Depth and catchment
- * are small metric and acreage figures for the same reason.
+ * identical numbers for zones the pipeline ranked apart.
+ *
+ * TWO OF THE THREE WENT WITH THE PANEL. METRIC_DP existed for the depth and
+ * catchment figures the detail panel printed, and those are not on the panel
+ * any more (they are on the feature, and the export reads them); the
+ * PANEL's own numbers are printed as the backend sent them, at the backend's
+ * own rounding boundary -- see panelValue(). What is left is the TAB's
+ * suitability figure, which this side still chooses the precision of because
+ * the tab's two rows are this side's design, and the dropped-count in the
+ * step notice.
  */
 const SUITABILITY_DP = 2
-const METRIC_DP = 2
 const COUNT_DP = 0
 
 export const WATER_STEP = documentStep({
@@ -2068,120 +2107,48 @@ export const WATER_STEP = documentStep({
   },
 
   /**
-   * WHAT THE DETAIL PANEL SAYS ABOUT ONE SURVEY AREA: four groups, in the
-   * order they should be read.
+   * WHAT THE DETAIL PANEL SAYS ABOUT ONE SURVEY AREA: THE SERVER'S ROWS, IN
+   * THE SERVER'S ORDER.
    *
-   * IT READS THE FEATURE, NOT THE NARRATIVE TABLE. The payload carries both --
-   * `survey_zones` (the FeatureCollection) and `zones` (the backend's imperial
-   * digest of the same zones) -- and everything below is on the FEATURE. That
-   * is one join fewer (the digest's `id` is the internal zone id, while the
-   * tabs, the map and the commit all key on the wire feature id) and it is
-   * also the only complete source: slope_median_pct, representative_elevation_m,
-   * served_production_area_ids and soil_coverage_fraction are on the feature
-   * and are not in the digest at all.
+   * ONE UNLABELLED GROUP, WHICH IS THE HONEST SHAPE NOW. The four labelled
+   * groups this replaces existed because the ORDER was this file's argument
+   * and the groups were how it was made. The order is the backend's argument
+   * now -- build_zone_panel() ships the rows already sequenced, the five
+   * always-rows first and every caution after them, present only when it
+   * fires -- so grouping them again over here would be this side re-asserting
+   * a structure it no longer decides.
    *
-   * THE SENTINELS SURVIVE BECAUSE NOTHING COERCES THEM. measure() prints an em
-   * dash for null and "0.0" for zero, and the three overlap fields reach it
-   * exactly as the wire sent them. That matters more here than anywhere else
-   * in this app: canopy, road and production can each be independently
-   * unchecked, so a `?? 0` anywhere on this path would print three separate
-   * measured zeros for three things nobody looked at.
+   * IT READS THE TABULAR ROW, NOT THE FEATURE, AND THAT IS THE REVERSAL. The
+   * old note here argued for reading the feature because it was "the only
+   * complete source" -- slope, elevation, soil coverage and the rest are on
+   * the feature and not in the digest. All of that is still true and none of
+   * it is on this panel any more: those are the DIAGNOSTIC record, the
+   * feature keeps every one of them, and the export is where they are read.
+   * What this panel needs is the curated subset, and that is on the row.
+   *
+   * THE NAME STILL COMES FROM THE FEATURE. surveyZoneName() is this app's
+   * vocabulary for an identity the tabs and the map use too, and it must be
+   * the same words in all three places.
+   *
+   * THE SENTINELS SURVIVE BECAUSE NOTHING COERCES THEM, still. The backend
+   * omits a measured 0.0 overlap (nothing to caution about) and KEEPS a
+   * never-checked one as a row with a null value; panelValue() prints an em
+   * dash for that null and nothing on this path can turn it into a zero.
+   *
+   * NO cautions CHANNEL. That channel carries the exclusion layers' own
+   * `{type, label, acres}` and a survey zone crosses none of them; the
+   * cautions that DO apply to a zone are rows the backend chose, in the run
+   * of rows above.
    */
   detail: ({ proposals }, featureId) => {
     const feature = zoneFeature(proposals, featureId)
     if (!feature) return null
-    const p = feature.properties ?? {}
+    const rows = surveyZonePanel(proposals, featureId)
+    if (!rows.length) return null
 
     return {
-      name: surveyZoneName(p),
-      groups: [
-        {
-          /* 1. GRAVITY, THEN THE OTHER ACREAGE.
-             Gravity leads because it is the most decision-relevant fact about
-             a pond site and it could not go in the tab (see gravityReading()).
-             The acreage follows because the difference between the anchoring
-             signal and the walkable envelope is the most EXPLANATORY thing
-             about a survey area -- the tab showed one of the pair, and this is
-             where the other one and its meaning live. */
-          label: 'gravity and acreage',
-          fields: [
-            { label: 'gravity', value: gravityReading(p) },
-            {
-              label: 'serves',
-              value: p.served_production_area_ids?.length
-                ? p.served_production_area_ids.join(', ')
-                : '—',
-            },
-            {
-              label: 'anchor acres',
-              value: measure(p.member_acres),
-              measured: true,
-            },
-            { label: 'members', value: measure(p.member_count, COUNT_DP), measured: true },
-          ],
-        },
-        {
-          label: 'terrain',
-          fields: [
-            { label: 'slope % median', value: measure(p.slope_median_pct), measured: true },
-            {
-              label: 'depression m',
-              value: measure(p.depression_depth_max_m, METRIC_DP),
-              measured: true,
-            },
-            {
-              label: 'catchment ac',
-              value: measure(p.contributing_area_acres_at_wettest_cell, METRIC_DP),
-              measured: true,
-            },
-            {
-              label: 'elevation m',
-              value: measure(p.representative_elevation_m),
-              measured: true,
-            },
-          ],
-        },
-        {
-          /* 3. THE TWO INSTRUMENTS AGREEING. Empty when they do not, rather
-             than a line saying they do not: an absent overlap is not a
-             measurement and has nothing to report. */
-          label: 'agreement',
-          fields: crossTypeReadings(proposals, p),
-        },
-        {
-          /* 4. CAUTIONS.
-             THE THREE OVERLAPS ARE MEASURED FIELDS, NOT `cautions`. The
-             panel's caution channel carries the exclusion layers' own
-             `{type, label, acres}` -- an ACREAGE and the layer's own words --
-             and these are percentages of an envelope with no layer behind
-             them. Putting them through that channel would have meant either
-             rewriting what a caution is or printing a percentage under a
-             heading that says acres. */
-          label: 'cautions',
-          fields: [
-            { label: 'canopy %', value: measure(p.canopy_overlap_pct), measured: true },
-            { label: 'road %', value: measure(p.road_overlap_pct), measured: true },
-            { label: 'production %', value: measure(p.production_overlap_pct), measured: true },
-            {
-              label: 'sparse anchor',
-              value: p.sparse_anchor ? 'yes' : 'no',
-            },
-            {
-              label: 'below floor',
-              value: p.below_min_area ? 'yes' : 'no',
-            },
-            {
-              label: 'flags',
-              value: p.flags?.length
-                ? p.flags.map((flag) => ZONE_FLAG_CONSEQUENCE[flag] ?? flag).join('; ')
-                : 'none',
-            },
-          ],
-        },
-      ],
-      // A survey zone crosses no exclusion gate this step measured with an
-      // acreage, and the three overlaps it DOES measure are percentages in the
-      // cautions group above. The channel stays landform's.
+      name: surveyZoneName(feature.properties),
+      fields: panelFields(rows, proposals?.scales),
       cautions: [],
     }
   },
