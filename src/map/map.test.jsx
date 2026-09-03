@@ -52,7 +52,6 @@ import {
   LAYER_KINDS,
   LAYER_SOURCES,
   STEP_DEFINITIONS,
-  WATER_STEP,
   definitionMap,
   registryProposalFeatures,
 } from '../wizard/stepDefinitions'
@@ -1678,8 +1677,11 @@ describe('11. a generated step with no proposals', () => {
     // THE COMMIT THAT WAS WITHHELD WOULD HAVE BEEN EMPTY, and this is the
     // reason rather than the symptom: with no proposals in the store there
     // are no candidates for the draft's selection to resolve against.
-    expect(buildCommitBody(ui.state, 'water', WATER_STEP.proposalFeatures).features.features)
-      .toHaveLength(0)
+    // Through the reader the APP passes, not a step's own -- so this is the
+    // body that would actually have gone on the wire.
+    expect(
+      buildCommitBody(ui.state, 'water', registryProposalFeatures).features.features
+    ).toHaveLength(0)
 
     // Let it land.
     await React.act(async () => {
@@ -1755,6 +1757,201 @@ describe('11. a generated step with no proposals', () => {
     await ui.unmount()
   })
 })
+
+/* ===========================================================================
+   12. A COMMIT'S FEATURES COME OUT OF ITS OWN STEP'S COLLECTION
+   ===========================================================================
+
+   THE THIRD PASS OVER ONE CLASS OF BUG. An empty commit is LEGAL --
+   `min_features: 0` is declared for every step, because "no water zones on
+   this parcel" is a decision the NO_WATER_ZONE sentinel exists to carry -- so
+   a lost selection does not error. It produces a valid request that returns
+   200 and records the opposite of what the user chose. Three failures have
+   hidden inside that: buildCommitBody reading `suggested_zones` for every
+   step, the missing loadLayers call, and hydrate() dropping proposals while
+   keeping a draft.
+
+   THE RESOLVER WAS THE LAST SITE, AND IT IDENTIFIED THE STEP BY SNIFFING.
+   registryProposalFeatures took no `stepId`: it walked the registry and
+   returned the first definition whose `proposalCollection` was present in the
+   payload as a FeatureCollection. Sound today, because no two steps share a
+   collection name -- but the guard was the payload's SHAPE where the caller
+   already had an IDENTITY, and four more definitions are coming, each with a
+   collection of its own.
+   =========================================================================== */
+
+describe('12. the commit body reads the step being committed', () => {
+  /**
+   * A session with BOTH steps live, so the resolver has a real choice to get
+   * wrong.
+   *
+   * `landformCommitted` is what decides which of the two can be committed:
+   * water is unreachable until landform is committed, and landform's own
+   * proposals do not survive a hydration that says it is (proposalsSurvive
+   * requires `generated`). So the two cases below are two documents rather
+   * than one -- each with both payloads fetched, each committing the step
+   * that is actually committable.
+   */
+  async function bothSteps({ landformCommitted = false } = {}) {
+    const landform = landformCommitted
+      ? committedStep(2, LAYERS_PAYLOAD.suggested_zones)
+      : { status: GENERATED, revision: 1 }
+
+    const calls = installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/[^/]+$/, {
+        body: serverDocument({
+          revision: 3,
+          steps: { landform, water: { status: GENERATED, revision: 2 } },
+        }),
+      }),
+      route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
+      route('GET', /\/steps\/water\/layers$/, { body: WATER_PAYLOAD }),
+      route('POST', /\/steps\/landform\/commit$/, {
+        body: serverDocument({
+          revision: 4,
+          steps: {
+            landform: committedStep(2, LAYERS_PAYLOAD.suggested_zones),
+            water: { status: GENERATED, revision: 2 },
+          },
+        }),
+      }),
+      route('POST', /\/steps\/water\/commit$/, {
+        body: serverDocument({
+          revision: 5,
+          steps: {
+            landform: committedStep(2, LAYERS_PAYLOAD.suggested_zones),
+            water: committedStep(3, WATER_PAYLOAD.survey_zones),
+          },
+        }),
+      }),
+    ])
+
+    const ui = await renderSurface()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+    // Each step's own machine fetches its payload when the cursor names it,
+    // so visiting both is what puts both in the store.
+    await ui.run((_a, cursor) => cursor.open('landform'))
+    await ui.run((_a, cursor) => cursor.open('water'))
+    return { ui, calls }
+  }
+
+  const sentTo = (calls, step) =>
+    pathsOf(calls, 'POST', new RegExp(`/steps/${step}/commit$`))[0]?.body.features.features.map(
+      (feature) => feature.id
+    ) ?? null
+
+  it('sends water’s survey zones from a water commit', async () => {
+    const { ui, calls } = await bothSteps({ landformCommitted: true })
+    expect(ui.cursor.cursorStepId).toBe('water')
+    await ui.click('commit-water')
+
+    // THE ASSERTION IS THE REQUEST BODY. Not the draft, not the store: what
+    // went on the wire, which is what the user's decision has to survive
+    // into. A resolver reading landform's collection sends [] here, and the
+    // server answers 200.
+    expect(sentTo(calls, 'water')).toEqual(['pond-1', 'pond-2'])
+
+    await ui.unmount()
+  })
+
+  it('sends landform’s suggested zones from a landform commit', async () => {
+    const { ui, calls } = await bothSteps()
+    // Water's payload is in the store too -- its machine fetched it when the
+    // cursor passed through -- so both collections are live for this commit.
+    expect(ui.state.steps.water.proposals).toEqual(WATER_PAYLOAD)
+    await ui.run((_a, cursor) => cursor.open('landform'))
+    await ui.click('commit-landform')
+
+    expect(sentTo(calls, 'landform')).toEqual(['zone-1', 'zone-2'])
+
+    await ui.unmount()
+  })
+
+  it('resolves a colliding payload by the step, not by which key it found first', () => {
+    /**
+     * THE BUG BEING CLOSED, AS A DIRECT QUESTION. One payload carrying BOTH
+     * collections, which no backend produces today and any of the four
+     * remaining steps could produce tomorrow. The old resolver walked the
+     * registry in order and took the first key it recognised, so BOTH of
+     * these resolved through landform's reader -- the water one to `[]`,
+     * because the water draft's ids are not in `suggested_zones`.
+     *
+     * BOTH DIRECTIONS, because "resolves by the step" is only a claim if it
+     * can be wrong in two ways. A resolver that always returned water's
+     * collection would pass one of these.
+     */
+    const collided = {
+      suggested_zones: LAYERS_PAYLOAD.suggested_zones,
+      survey_zones: WATER_PAYLOAD.survey_zones,
+    }
+    const state = {
+      steps: {
+        landform: { status: GENERATED, revision: 1, proposals: collided },
+        water: { status: GENERATED, revision: 1, proposals: collided },
+      },
+      drafts: {
+        landform: draftOf(['zone-1', 'zone-2']),
+        water: draftOf(['pond-1', 'pond-2']),
+      },
+    }
+
+    expect(
+      buildCommitBody(state, 'water', registryProposalFeatures).features.features.map((f) => f.id)
+    ).toEqual(['pond-1', 'pond-2'])
+    expect(
+      buildCommitBody(state, 'landform', registryProposalFeatures).features.features.map(
+        (f) => f.id
+      )
+    ).toEqual(['zone-1', 'zone-2'])
+  })
+
+  it('raises when a payload does not carry the collection its step declares', () => {
+    // THE DISAGREEMENT SILENT RESOLUTION WAS HIDING. A payload arrived and
+    // does not hold what this step says its proposals are called. There is no
+    // reading of that which is worth guessing at, and the guess it used to
+    // make -- no features -- is a legal commit.
+    const state = {
+      steps: { water: { status: GENERATED, revision: 1, proposals: LAYERS_PAYLOAD } },
+      drafts: { water: draftOf(['pond-1']) },
+    }
+    expect(() => buildCommitBody(state, 'water', registryProposalFeatures)).toThrow(
+      /survey_zones/
+    )
+  })
+
+  it('reads an absent payload as no proposals, which is a different fact', () => {
+    /**
+     * NOT A HOLE, AND THE DISTINCTION IS DELIBERATE. "The payload disagrees
+     * with the definition" is an error. "There is no payload" is a state:
+     * a generated step whose fetch has not landed, or a step that proposes
+     * nothing at all and commits only what the user drew.
+     *
+     * NEITHER CAN LOSE A SELECTION. The first cannot be committed -- the
+     * machine reads it as `loading` and withholds the button (see LOADING) --
+     * and the second has no proposals for a selection to be lost from, while
+     * its drawn features come off the draft and reach the body untouched.
+     */
+    const drawn = { type: 'Feature', id: 'drawn-1', properties: {}, geometry: null }
+    const state = {
+      steps: { landform: { status: NOT_STARTED, revision: 0, proposals: null } },
+      drafts: { landform: { ...draftOf(['drawn-1']), drawnFeatures: [drawn] } },
+    }
+    const body = buildCommitBody(state, 'landform', registryProposalFeatures)
+    expect(body.features.features.map((f) => f.id)).toEqual(['drawn-1'])
+  })
+
+  it('raises for a step the registry does not carry', () => {
+    const state = { steps: {}, drafts: {} }
+    expect(() => buildCommitBody(state, 'roads', registryProposalFeatures)).toThrow(/roads/)
+  })
+})
+
+/** A draft holding a selection and nothing else. */
+function draftOf(selectedFeatureIds) {
+  return { selectedFeatureIds, drawnFeatures: [], inputs: {}, seeded: false }
+}
 
 const BAND_RANK = Object.fromEntries(LAYER_BANDS.map((band, index) => [band, index]))
 const byBand = (a, b) => BAND_RANK[a] - BAND_RANK[b]

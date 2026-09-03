@@ -2190,43 +2190,85 @@ export const STEP_DEFINITIONS = Object.freeze([BOUNDARY_STEP, LANDFORM_STEP, WAT
 /**
  * WHICH COLLECTION A COMMIT'S FEATURES COME OUT OF, for the store.
  *
- * THIS COMPLETES A SEAM THE STORE ALREADY NAMED, and finding that it was never
- * connected is the second definition's doing. SessionStore's
- * defaultProposalFeatures() says so in its own note: "per-step payload
- * knowledge belongs in the step definitions (F2), not here. The provider takes
- * this as a prop so F2 can hand it the registry's answer without this module
- * growing a table of step ids it cannot see." Nothing ever handed it one, so
- * buildCommitBody() has been reading `payload.suggested_zones` for every step.
+ * THIS COMPLETES A SEAM THE STORE NAMED AND NOBODY CONNECTED. SessionStore
+ * declared `proposalFeatures` as a prop so that per-step payload knowledge
+ * could live here rather than there, and defaulted it to a reader for
+ * `suggested_zones` in the meantime. Nothing ever passed one, so every commit
+ * in the app read landform's collection -- and water's proposals are under
+ * `survey_zones`, so a full water selection resolved to an empty
+ * FeatureCollection and went out as a VALID request. `min_features` is 0,
+ * because "no water zones on this parcel" is a decision the pipeline has to
+ * be able to carry, so the server answered 200 and the user's choice was
+ * replaced by its opposite with nothing reporting a problem. The store has no
+ * default any more; this is the only reader in the app.
  *
- * That worked while landform was the only step with a commit. It does not
- * survive a second: water's proposals are under `survey_zones`, so every water
- * commit would have assembled an empty FeatureCollection and succeeded --
- * min_features is 0, so an empty body is a VALID commit meaning "no water
- * zones on this parcel". The user's selection would have vanished into a legal
- * request. That is the worst shape a bug can have here and it is why this is
- * wired rather than reported and left.
  *
- * THE SEAM IS NARROWER THAN THE QUESTION, AND THAT IS THE GAP TO REPORT. The
- * prop is `(payload) => features`; it is never told WHICH STEP the payload
- * belongs to, so this cannot look the step up. It identifies the step by the
- * collection its payload carries instead -- the first registered definition
- * whose `proposalCollection` is present as a FeatureCollection wins, and that
- * definition's own `proposalFeatures` reads it (which is what drops water's
- * member footprints).
+ * IT RESOLVES BY THE STEP BEING COMMITTED, WHICH IT USED TO HAVE TO GUESS
  *
- * That is sound today and it is sound for a reason rather than by luck: a
- * `proposalCollection` is the name of ONE step's proposals on the wire, and
- * two steps sharing one would be two steps sharing a commit contract. But it
- * is an identification where the caller already had an identity, and the fix
- * is one parameter in the store -- `proposalFeatures(payload, stepId)` -- not
- * a cleverer function here.
+ * The first version of this took no `stepId`. It walked the registry and
+ * returned the first definition whose `proposalCollection` was present in the
+ * payload as a FeatureCollection -- an identification by the payload's SHAPE,
+ * made at a call site that already knew the step's IDENTITY.
+ *
+ * That was sound for a reason rather than by luck: a `proposalCollection` is
+ * the name of ONE step's proposals on the wire, and two steps sharing one
+ * would be two steps sharing a commit contract. But soundness that rests on
+ * "no two payloads collide" is a property of today's four collections, and
+ * four more definitions are coming. Demonstrated rather than imagined: given a
+ * payload carrying both `suggested_zones` and `survey_zones`, a WATER commit
+ * resolved through landform's reader and sent `[]`.
+ *
+ * The store knows which step it is building a body for. It passes it now.
+ *
+ *
+ * TWO ANSWERS THAT LOOK THE SAME AND ARE NOT
+ *
+ *   NO PAYLOAD -> no proposals. A step whose layers have not arrived, or a
+ *   step that proposes nothing and commits only what the user drew. Neither
+ *   can lose a selection: the first is `loading` to the machine, which
+ *   withholds the commit button entirely (see useStepMachine's LOADING), and
+ *   the second has no proposals for a selection to be lost from while its
+ *   drawn features come off the draft untouched.
+ *
+ *   A PAYLOAD WITHOUT THIS STEP'S COLLECTION -> an error, raised. The
+ *   definition and the payload disagree about what this step's proposals are
+ *   called, and there is no reading of that worth guessing at. The guess the
+ *   old resolver made was "no features", which is precisely the legal empty
+ *   commit this whole class of bug hides inside.
  */
-export function registryProposalFeatures(payload, definitions = STEP_DEFINITIONS) {
-  for (const definition of definitions) {
-    const collection = payload?.[definition.proposalCollection]
-    if (Array.isArray(collection?.features)) return definition.proposalFeatures(payload)
+export function registryProposalFeatures(payload, stepId, definitions = STEP_DEFINITIONS) {
+  const definition = definitions.find((entry) => entry.id === stepId)
+  if (!definition) {
+    throw new Error(
+      `No step definition is registered for '${stepId}', so there is nothing to say ` +
+        'which collection its commit reads. A step that can be committed has a ' +
+        'definition; one that has none cannot assemble a body.'
+    )
   }
-  return []
+
+  const collection = definition.proposalCollection
+  if (!collection) {
+    throw new Error(
+      `Step '${stepId}' declares no \`proposalCollection\`, so its proposals cannot be ` +
+        'read out of a layers payload. A step that commits something other than ' +
+        'proposals says how in its own `commit.run`.'
+    )
+  }
+
+  // Nothing has arrived, or this step never proposes anything. See above.
+  if (payload == null) return []
+
+  if (!Array.isArray(payload?.[collection]?.features)) {
+    throw new Error(
+      `Step '${stepId}' declares its proposals live under '${collection}', and the ` +
+        `payload in hand does not carry a FeatureCollection there (it has: ` +
+        `${Object.keys(payload).join(', ') || 'nothing'}). That is the definition and ` +
+        'the wire disagreeing. Resolving it to no features would be a LEGAL empty ' +
+        'commit, so it is raised instead.'
+    )
+  }
+
+  return definition.proposalFeatures(payload)
 }
 
 export function definitionMap(definitions = STEP_DEFINITIONS) {

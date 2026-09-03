@@ -954,7 +954,11 @@ export function buildCommitBody(state, stepId, proposalFeatures) {
   requireProposalFeatures(proposalFeatures, 'buildCommitBody')
   const draft = selectDraft(state, stepId)
   const selectedIds = new Set(draft.selectedFeatureIds)
-  const candidates = proposalFeatures(selectStepProposals(state, stepId))
+  // THE STEP'S ID GOES WITH ITS PAYLOAD. The reader used to be handed the
+  // payload alone and had to work out whose it was by looking at which
+  // collection keys were in it -- an identification made at a call site that
+  // already had the identity. See registryProposalFeatures.
+  const candidates = proposalFeatures(selectStepProposals(state, stepId), stepId)
 
   const features = []
   const provenance = {}

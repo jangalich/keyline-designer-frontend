@@ -57,9 +57,11 @@ const BASEMAP = {
 function App() {
   return (
     /* THE REGISTRY'S ANSWER TO "WHICH COLLECTION DOES A COMMIT COME FROM",
-       handed to the store through the prop the store declared for it. Without
-       it every step's commit reads landform's payload key -- see
-       registryProposalFeatures() for what that costs the second step. */
+       handed to the store through the prop the store declared for it. It is
+       REQUIRED -- the store has no default and this mount would throw without
+       it -- because there is no safe guess: a payload the reader does not
+       recognise resolves to no features, and no features is a legal commit
+       rather than an error. See registryProposalFeatures(). */
     <SessionProvider proposalFeatures={registryProposalFeatures}>
       <WizardCursorProvider>
         <DrawingProgressProvider>
