@@ -169,6 +169,40 @@ const DETAIL_ROWS = number('detail', 0)
 const SHOW_ZONES = params.get('zones') === '1'
 const SWATCH_PX = 90
 
+const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated']
+
+/**
+ * THE SAME MARKS, OVER GROUND THEY ACTUALLY HAVE TO SIT ON.
+ *
+ * The grid above sits on flat mid-grey, which is the right backdrop for the
+ * questions it answers -- two STATES of one mark compared with each other,
+ * where a neutral ground keeps the comparison about the opacity step and
+ * nothing else. It is the wrong backdrop for one question, and that question
+ * is the whole of what a committed zone's level has to satisfy: is the mark
+ * still THERE, on the imagery, at whole-parcel zoom.
+ *
+ * Mid-grey flatters every mark equally. An aerial frame does not: canopy is
+ * dark and desaturated, bare soil is bright and warm, and one parcel carries
+ * both in the same frame. A committed level tuned against grey can be legible
+ * there and gone over one of these two -- which is exactly the report that
+ * sent this branch looking ("barely visible" over committed landform zones
+ * during water).
+ *
+ * TWO TONES, THE EXTREMES RATHER THAN THE AVERAGE. Closed deciduous canopy
+ * and dry bare soil are about as far apart as one NAIP frame of a small
+ * property gets, so a mark that holds up on both holds up on what is between
+ * them. Flat colours rather than a photograph: the measure below is the ink a
+ * mark ADDS over its own ground, and that subtraction needs a ground with no
+ * texture of its own to be confused with the mark's.
+ */
+const GROUNDS = [
+  { id: 'canopy', color: '#2e3a24' },
+  { id: 'soil', color: '#cbb896' },
+]
+
+/** Clear of the mid-grey grid above, which is three rows of SWATCH_PX. */
+const GROUND_TOP = SWATCH_PX * 3 + 20
+
 /**
  * WHAT THE SWATCH FOR ONE TREATMENT IS MADE OF -- read from the same table the
  * map reads, so a swatch cannot be a picture of a mark the map does not draw.
@@ -248,7 +282,7 @@ function ZoneSwatches() {
     zoneMark(treatment)?.kind === 'tint' ? tintLevel(state) : patternLevel(state)
 
   const cells = []
-  for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
+  for (const treatment of TREATMENTS) {
     for (const state of ['committed', 'active', 'focused']) cells.push({ treatment, state })
   }
 
@@ -276,6 +310,42 @@ function ZoneSwatches() {
           <rect width={SWATCH_PX} height={SWATCH_PX} fillOpacity={fillLevel(treatment, state)} />
         </svg>
       ))}
+      {GROUNDS.map((ground, row) =>
+        [null, ...cells].map((cell, column) => (
+          <div
+            key={`${ground.id}-${cell ? `${cell.treatment}-${cell.state}` : 'bare'}`}
+            data-testid={
+              cell
+                ? `ground-${ground.id}-${cell.treatment}-${cell.state}`
+                : `ground-${ground.id}-bare`
+            }
+            style={{
+              position: 'absolute',
+              left: column * SWATCH_PX,
+              top: GROUND_TOP + row * SWATCH_PX,
+              width: SWATCH_PX,
+              height: SWATCH_PX,
+              background: ground.color,
+            }}
+          >
+            {cell ? (
+              <svg
+                data-testid={`ground-mark-${ground.id}-${cell.treatment}-${cell.state}`}
+                data-treatment={cell.treatment}
+                data-state={cell.state}
+                width={SWATCH_PX}
+                height={SWATCH_PX}
+              >
+                <rect
+                  width={SWATCH_PX}
+                  height={SWATCH_PX}
+                  fillOpacity={fillLevel(cell.treatment, cell.state)}
+                />
+              </svg>
+            ) : null}
+          </div>
+        ))
+      )}
     </div>
   )
 }

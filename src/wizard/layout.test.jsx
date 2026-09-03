@@ -929,6 +929,71 @@ describeIf('the zone patterns, rendered', () => {
     expect(hatch, 'the hatch is still on the page').toBeGreaterThan(0.004)
   }, SLOW)
 
+  /**
+   * HOW MUCH INK A MARK ADDS OVER THE GROUND IT IS ON, 0..1.
+   *
+   * The mid-grey measure above is deviation from a KNOWN flat base, which is
+   * the right measure when the base is neutral and the question is "how much
+   * ink". Over canopy or soil the ground is itself far from grey, so that
+   * measure would report the ground and the mark together. This subtracts:
+   * the same swatch with the mark and the bare ground beside it, differenced
+   * pixel for pixel. What comes out is the mark's own contribution, which is
+   * the thing legibility is a claim about.
+   */
+  async function addedInkOver(page, ground, treatment, state) {
+    const marked = decodePng(
+      await (await page.$(`[data-testid="ground-${ground}-${treatment}-${state}"]`)).screenshot({
+        type: 'png',
+      })
+    )
+    const bare = decodePng(
+      await (await page.$(`[data-testid="ground-${ground}-bare"]`)).screenshot({ type: 'png' })
+    )
+    return meanAbsDifference(marked, bare)
+  }
+
+  it('keeps a committed zone legible over canopy and over bare soil', async () => {
+    /**
+     * THE ADJUSTMENT THIS TEST EXISTS FOR. --pattern-committed was 0.3 and
+     * committed landform zones read as "barely visible" on imagery while the
+     * water step was being worked. The mid-grey measure could not see it: on
+     * a neutral backdrop 0.3 is plainly there, and the two tests above both
+     * passed throughout.
+     *
+     * THE FLOOR IS THE SAME NUMBER THE MID-GREY MEASURE USES -- 0.004, the
+     * visibility floor those tests assert the committed hatch against -- held
+     * over each of the two extremes rather than over their average. That is
+     * the whole of the tightening: the claim was always "a committed layer is
+     * context, not a layer that has been turned off", and this is that claim
+     * asked where it can actually fail.
+     *
+     * AND STILL QUIETER THAN ACTIVE, on the same ground. Raising committed
+     * until it competed with the step in hand would trade one wrong reading
+     * for another, and the relationship between the three levels is what the
+     * scale is.
+     */
+    for (const ground of ['canopy', 'soil']) {
+      for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
+        const committed = await addedInkOver(page, ground, treatment, 'committed')
+        const active = await addedInkOver(page, ground, treatment, 'active')
+        // eslint-disable-next-line no-console
+        console.log(
+          `    ink  ${ground.padEnd(6)} ${treatment.padEnd(18)} ` +
+            `committed ${committed.toFixed(4)}  active ${active.toFixed(4)}  ` +
+            `(committed/active ${(committed / active).toFixed(2)}x)`
+        )
+        expect(
+          committed,
+          `${treatment} committed must be legible over ${ground}`
+        ).toBeGreaterThan(0.004)
+        expect(
+          committed,
+          `${treatment} committed must stay quieter than active over ${ground}`
+        ).toBeLessThan(active)
+      }
+    }
+  }, SLOW)
+
   it('lets production-committed and water-committed share the map readably', async () => {
     // THE STATE FROM THE ROADS STEP ONWARD. Both present and both above the
     // visibility floor. The old form of this asserted that the committed
@@ -1015,6 +1080,30 @@ function decodePng(buffer) {
     }
   }
   return { width, height, channels, pixels }
+}
+
+/**
+ * How far, on average, two images of the same size sit from each other.
+ *
+ * meanDeviation's measure with the base read per pixel out of a second image
+ * instead of given as a constant -- so it answers the same question in the
+ * same units over a ground that is not grey. Same 0..1 range, same three
+ * channels, same mean.
+ */
+function meanAbsDifference(a, b) {
+  if (a.pixels.length !== b.pixels.length || a.channels !== b.channels) {
+    throw new Error('meanAbsDifference needs two images of the same size and shape')
+  }
+  let sum = 0
+  let count = 0
+  for (let i = 0; i < a.pixels.length; i += a.channels) {
+    sum +=
+      Math.abs(a.pixels[i] - b.pixels[i]) +
+      Math.abs(a.pixels[i + 1] - b.pixels[i + 1]) +
+      Math.abs(a.pixels[i + 2] - b.pixels[i + 2])
+    count++
+  }
+  return sum / count / (3 * 255)
 }
 
 /** How far, on average, the image sits from the harness's flat mid-grey. */

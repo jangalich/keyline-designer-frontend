@@ -210,8 +210,47 @@
      opacity step is invisible at the zoom where the whole parcel is in frame
      -- and an indicator you can only see zoomed in is not an indicator.
      Nearly 2x between active and focused; measured in water.test.jsx at
-     whole-parcel zoom rather than judged here. */
-  --pattern-committed: 0.3;
+     whole-parcel zoom rather than judged here.
+
+     COMMITTED WAS 0.3 AND IS 0.4, AND THE REASON THE OLD VALUE SURVIVED SO
+     LONG IS THAT NOTHING WAS MEASURING WHERE IT FAILS.
+
+     The three levels were tuned against a flat mid-grey swatch, which is the
+     right backdrop for comparing two STATES of one mark -- a neutral ground
+     keeps the comparison about the opacity step. It is the wrong backdrop for
+     asking whether a mark is THERE, because mid-grey flatters every mark
+     equally and an aerial frame does not: canopy is dark and desaturated,
+     bare soil is bright and warm, and one small parcel carries both in the
+     same frame. Committed landform zones read as barely visible on imagery
+     while water was being worked, and both mid-grey assertions passed
+     throughout.
+
+     MEASURED OVER BOTH EXTREMES, at the same 90px square, as the ink the mark
+     ADDS over its own ground (layout.test.jsx's `addedInkOver`):
+
+                              canopy            bare soil
+       0.3  (was)             0.0067            0.0127
+       0.4  (is)              0.0088            0.0170      +31%
+       0.45 (rejected)        0.0101            0.0191
+
+     THE CEILING IS THE RELATIONSHIP, NOT THE LEGIBILITY. Ink is linear in
+     alpha here, so the committed level IS its fraction of active: 0.3 was
+     0.55 of it, 0.4 is 0.73, and 0.45 would be 0.82 -- at which point the
+     quiet layer and the working one are the same weight of mark and the
+     scale has stopped saying anything. 0.4 is the largest step that keeps
+     committed under three quarters of active, which is what "settled, without
+     competing with the step in hand" is worth in a number.
+
+     ACTIVE AND FOCUSED ARE UNTOUCHED. Raising them to restore the old ratios
+     would undo the change: the complaint is about absolute presence on
+     imagery, and moving every level up moves the problem rather than the
+     mark.
+
+     IT ALSO MOVES A TINTED ZONE'S OUTLINE, which is correct and is the reason
+     the outline is on this scale at all -- a committed survey area's boundary
+     gets the same lift its neighbouring hatch does, while its wash stays on
+     the --tint-* levels below. */
+  --pattern-committed: 0.4;
   --pattern-active: 0.55;
   --pattern-focused: 1;
 
@@ -229,7 +268,16 @@
      THE RELATIONSHIP IS THE PATTERN SCALE'S, KEPT: committed quietest,
      focused fullest, and nearly 2x between active and focused (1.82 here,
      against the pattern scale's 1.82) -- because the reason for the wide gap
-     is unchanged. A small opacity step is invisible at the zoom where the
+     is unchanged.
+
+     THE COMMITTED END IS NOT FOLLOWING THE PATTERN SCALE'S UP, and the
+     asymmetry is the point of having two scales. The pattern scale's
+     committed level was raised because a HATCH is mostly unfilled and had
+     gone faint on imagery. A wash has no gaps: it already covers all of the
+     ground it is over, so it was never in danger of disappearing, and
+     0.12/0.22 is where a committed wash stops reading as the step in hand.
+     A tinted zone gets its lift where it needed one -- in the OUTLINE, which
+     is on the pattern scale. A small opacity step is invisible at the zoom where the
      whole parcel is in frame, and an indicator you can only see zoomed in is
      not an indicator. Measured at that size in layout.test.jsx rather than
      judged here.
