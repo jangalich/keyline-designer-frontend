@@ -36,7 +36,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { NOT_STARTED, SessionProvider, useSession } from '../session/SessionStore'
 import { resetStepCatalog } from './stepCatalog.jsx'
-import { BOUNDARY_STEP_ID, STEP_DEFINITIONS } from './stepDefinitions'
+import {
+  BOUNDARY_STEP_ID,
+  STEP_DEFINITIONS,
+  registryProposalFeatures,
+} from './stepDefinitions'
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
 
@@ -125,7 +129,7 @@ async function renderRail({ resume = false } = {}) {
 
   await React.act(async () => {
     root.render(
-      <SessionProvider autoResume={false}>
+      <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
         <WizardCursorProvider definitions={STEP_DEFINITIONS}>
           <Probe />
           <WizardShell />

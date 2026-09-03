@@ -54,6 +54,7 @@ import {
   STEP_DEFINITIONS,
   WATER_STEP,
   definitionMap,
+  registryProposalFeatures,
 } from '../wizard/stepDefinitions'
 import { resetStepCatalog } from '../wizard/stepCatalog.jsx'
 import WizardShell from '../wizard/WizardShell.jsx'
@@ -333,7 +334,7 @@ async function renderSurface({ definitions = STEP_DEFINITIONS, children = null }
 
   await React.act(async () => {
     root.render(
-      <SessionProvider autoResume={false}>
+      <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
         <WizardCursorProvider definitions={definitions}>
           <Probe />
           <MapContainer center={[40.715, -74]} zoom={14} style={{ height: 600, width: 600 }}>

@@ -885,18 +885,42 @@ export function forgetSessionId() {
    --------------------------------------------------------------------------- */
 
 /**
- * The default way to find a step's candidate features inside its layers
- * payload.
+ * THERE IS NO DEFAULT READER ANY MORE, AND THE DELETED ONE IS THE WHOLE
+ * ARGUMENT FOR THAT.
  *
- * A SEAM, NAMED AS ONE. `suggested_zones` is where the only registered step's
- * payload puts its FeatureCollection today (production_zone_payload.py), and
- * per-step payload knowledge belongs in the step definitions (F2), not here.
- * The provider takes this as a prop so F2 can hand it the registry's answer
- * without this module growing a table of step ids it cannot see.
+ * `defaultProposalFeatures(payload)` read `payload.suggested_zones` and stood
+ * here as the provider's fallback. Its own note called itself a seam --
+ * "per-step payload knowledge belongs in the step definitions, not here. The
+ * provider takes this as a prop so F2 can hand it the registry's answer" --
+ * and for two branches nothing handed it one, so every commit in the app read
+ * landform's collection. Water's proposals are under `survey_zones`, so a full
+ * water selection resolved to ZERO features and went out as a valid request:
+ * `min_features` is 0, the server answered 200, and the user's decision was
+ * replaced by the opposite decision with nothing anywhere reporting a problem.
+ *
+ * That was fixed by wiring the prop in App.jsx -- and the default stayed, which
+ * left the fix one forgotten prop from being undone. Seven of the nine mounts
+ * in this repo were taking it. A default that is WRONG for every step but one
+ * is not a fallback, it is a guess with a plausible shape, and the failure it
+ * produces is silent by construction.
+ *
+ * SO THE PROP IS REQUIRED AND ITS ABSENCE THROWS. Loudly, at mount, rather
+ * than as a warning: a warning is the same silence in a different colour, and
+ * this exact class of bug has now cost three separate failures precisely
+ * because nothing raised.
  */
-export function defaultProposalFeatures(payload) {
-  const collection = payload?.suggested_zones
-  return Array.isArray(collection?.features) ? collection.features : []
+function requireProposalFeatures(proposalFeatures, caller) {
+  if (typeof proposalFeatures !== 'function') {
+    throw new Error(
+      `${caller} needs a \`proposalFeatures\` reader and was given ` +
+        `${proposalFeatures === undefined ? 'nothing' : typeof proposalFeatures}. ` +
+        'It says which collection inside a step\'s layers payload holds the features ' +
+        'a commit may carry, and it cannot be guessed: an unrecognised payload reads ' +
+        'as no features, which is a LEGAL empty commit rather than an error. ' +
+        'Pass stepDefinitions\' registryProposalFeatures.'
+    )
+  }
+  return proposalFeatures
 }
 
 /**
@@ -926,7 +950,8 @@ export function defaultProposalFeatures(payload) {
  * (DRAFT_SHAPE_ADDED) and on every seed (DRAFT_SEEDED), so "in the draft" and
  * "in the commit" stop being the same statement for shapes the user authored.
  */
-export function buildCommitBody(state, stepId, proposalFeatures = defaultProposalFeatures) {
+export function buildCommitBody(state, stepId, proposalFeatures) {
+  requireProposalFeatures(proposalFeatures, 'buildCommitBody')
   const draft = selectDraft(state, stepId)
   const selectedIds = new Set(draft.selectedFeatureIds)
   const candidates = proposalFeatures(selectStepProposals(state, stepId))
@@ -958,11 +983,12 @@ export function buildCommitBody(state, stepId, proposalFeatures = defaultProposa
 
 const SessionContext = createContext(null)
 
-export function SessionProvider({
-  children,
-  proposalFeatures = defaultProposalFeatures,
-  autoResume = true,
-}) {
+export function SessionProvider({ children, proposalFeatures, autoResume = true }) {
+  // BEFORE THE FIRST HOOK, so the throw is a mount that did not happen rather
+  // than a provider that half exists. See requireProposalFeatures for why the
+  // absence is an error and not a default.
+  requireProposalFeatures(proposalFeatures, 'SessionProvider')
+
   const [state, dispatch] = useReducer(reducer, initialState)
 
   // One AbortController per in-flight generate, keyed by step. A ref rather

@@ -44,7 +44,11 @@ import {
   useSession,
 } from './session/SessionStore'
 import { API_URL } from './session/apiClient'
-import { LANDFORM_SHAPE, PRODUCTION_AREA_LAYER } from './wizard/stepDefinitions'
+import {
+  LANDFORM_SHAPE,
+  PRODUCTION_AREA_LAYER,
+  registryProposalFeatures,
+} from './wizard/stepDefinitions'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
 import MapLayerStack from './map/MapLayerStack.jsx'
@@ -127,7 +131,7 @@ async function renderApp() {
 
   await React.act(async () => {
     root.render(
-      <SessionProvider autoResume={false}>
+      <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
         <WizardCursorProvider>
           <DrawingProgressProvider>
             <Probe />

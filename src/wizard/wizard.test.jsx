@@ -41,6 +41,7 @@ import {
   BOUNDARY_STEP_ID,
   LANDFORM_STEP,
   STEP_DEFINITIONS,
+  registryProposalFeatures,
   documentStep,
   wizardStepOrder,
 } from './stepDefinitions'
@@ -244,7 +245,7 @@ async function renderWizard({ definitions = STEP_DEFINITIONS, autoResume = false
 
   await React.act(async () => {
     root.render(
-      <SessionProvider autoResume={autoResume}>
+      <SessionProvider autoResume={autoResume} proposalFeatures={registryProposalFeatures}>
         <WizardCursorProvider definitions={definitions}>
           <Probe />
           <WizardShell />

@@ -39,6 +39,7 @@ import {
   GENERATE_BUTTON,
   LANDFORM_STEP,
   STEP_DEFINITIONS,
+  registryProposalFeatures,
 } from './stepDefinitions'
 import {
   COMMITTING,
@@ -165,7 +166,7 @@ async function renderShell() {
 
   await React.act(async () => {
     root.render(
-      <SessionProvider autoResume={false}>
+      <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
         <WizardCursorProvider definitions={STEP_DEFINITIONS}>
           <Probe />
           <WizardShell />

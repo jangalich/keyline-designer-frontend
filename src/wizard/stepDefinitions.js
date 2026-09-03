@@ -72,9 +72,11 @@
  *                      that would 409.
  *
  *   proposalFeatures   The FeatureCollection inside this step's layers
- *     (payload)        payload. The store already names this seam
- *                      (defaultProposalFeatures) and takes it as a prop; the
- *                      registry is what fills it in.
+ *     (payload)        payload. The store takes a reader as a REQUIRED prop
+ *                      and has no default -- there is no safe guess, since an
+ *                      unrecognised payload reads as no features and no
+ *                      features is a legal commit. registryProposalFeatures()
+ *                      is what fills it in.
  *
  *   shape              null, or {live(context), close(context)}. HOW THIS
  *                      STEP READS A SHAPE THE USER DRAWS -- what it clamps it

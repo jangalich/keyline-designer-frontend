@@ -33,7 +33,11 @@ import {
   selectDraft,
   useSession,
 } from '../session/SessionStore'
-import { LANDFORM_STEP, STEP_DEFINITIONS } from './stepDefinitions'
+import {
+  LANDFORM_STEP,
+  STEP_DEFINITIONS,
+  registryProposalFeatures,
+} from './stepDefinitions'
 import { resetStepCatalog } from './stepCatalog.jsx'
 import WizardShell, { UNDO_WINDOW_MS } from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
@@ -181,7 +185,7 @@ async function renderSurface() {
 
   await React.act(async () => {
     root.render(
-      <SessionProvider autoResume={false}>
+      <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
         <WizardCursorProvider definitions={STEP_DEFINITIONS}>
           <DrawingProgressProvider>
             <Probe />

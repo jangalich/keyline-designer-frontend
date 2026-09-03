@@ -42,6 +42,7 @@ import {
   CEILING_ADVISORY_PCT,
   LANDFORM_STEP,
   STEP_DEFINITIONS,
+  registryProposalFeatures,
   defineStep,
   documentStep,
   stepButton,
@@ -224,7 +225,7 @@ async function renderShell({ definitions = STEP_DEFINITIONS } = {}) {
 
   await React.act(async () => {
     root.render(
-      <SessionProvider autoResume={false}>
+      <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
         <WizardCursorProvider definitions={definitions}>
           <Probe />
           <WizardShell />

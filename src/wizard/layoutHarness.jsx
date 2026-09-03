@@ -50,6 +50,7 @@ import {
   BOUNDARY_STEP,
   documentStep,
   measure,
+  registryProposalFeatures,
   stepButton,
 } from './stepDefinitions'
 import { injectZonePatterns, zoneMark } from '../ProductionHatchPattern.jsx'
@@ -406,7 +407,7 @@ function OpenStep({ stepId }) {
 
 function Harness() {
   return (
-    <SessionProvider autoResume={false}>
+    <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
       <WizardCursorProvider definitions={[BOUNDARY_STEP, HARNESS_STEP]}>
         <OpenStep stepId="landform" />
         {/* THE SHIPPED STAGE ELEMENT. `.map-stage` is what carries the chrome's

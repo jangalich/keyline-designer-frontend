@@ -50,6 +50,7 @@ import {
   STEP_PROPOSALS_LOADED,
   SessionProvider,
   assertFeaturesCameFromServer,
+  buildCommitBody,
   initialState,
   reducer,
   selectDownstreamSteps,
@@ -182,7 +183,28 @@ function route(method, pattern, responses) {
 }
 
 /** Render a provider and hand back live access to its context value. */
-async function renderProvider(props = {}) {
+/**
+ * THE READER THIS FILE HANDS THE PROVIDER, and it is deliberately NOT the
+ * registry's.
+ *
+ * The store's contract is that a reader is REQUIRED and is called with the
+ * step's payload and the step's id. Which collection any particular step
+ * keeps its proposals in is the step definitions' business, and importing
+ * their answer here would make a test of the store fail when a definition
+ * changed. This is the shape, stated locally: `suggested_zones` is what every
+ * payload in this file carries.
+ */
+const readProposals = (payload) =>
+  Array.isArray(payload?.suggested_zones?.features) ? payload.suggested_zones.features : []
+
+/**
+ * `proposalFeatures` IS DEFAULTED HERE AND NOWHERE ELSE, which is what a
+ * required prop with thirteen call sites looks like from a test file. The
+ * provider itself has no default -- see requireProposalFeatures -- and the
+ * case that asserts the throw passes its own value rather than relying on
+ * this one being absent.
+ */
+async function renderProvider({ proposalFeatures = readProposals, ...props } = {}) {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -196,7 +218,7 @@ async function renderProvider(props = {}) {
 
   await React.act(async () => {
     root.render(
-      <SessionProvider {...props}>
+      <SessionProvider proposalFeatures={proposalFeatures} {...props}>
         <Probe />
       </SessionProvider>
     )
@@ -966,5 +988,78 @@ describe('9. no derived design content', () => {
     // The one legitimately client-authored thing in this store did not reach
     // the committed feature set.
     expect(selectStepFeatures(after, 'water').features.map((f) => f.id)).toEqual(['pond-1'])
+  })
+})
+
+/* ===========================================================================
+   10. THE READER IS REQUIRED
+   ===========================================================================
+
+   WHY A MISSING PROP IS AN ERROR AND NOT A DEFAULT. `proposalFeatures` says
+   which collection inside a step's layers payload holds the features a commit
+   may carry. There is no safe guess: an unrecognised payload reads as NO
+   features, and no features is a LEGAL commit -- every step's contract sets
+   `min_features: 0`, because "no water zones on this parcel" is a real
+   decision the pipeline has to be able to carry. So a wrong reader does not
+   fail; it silently records the opposite of what the user chose and the
+   server answers 200.
+
+   The provider used to default to a reader for `suggested_zones`, which was
+   right for exactly one of the registered steps and had already produced one
+   of the three failures in this class. This asserts the default is gone.
+   =========================================================================== */
+
+describe('10. proposalFeatures is required', () => {
+  /**
+   * MOUNTED WITHOUT THE HELPER, on purpose. renderProvider() defaults the
+   * reader so that thirteen unrelated cases do not each have to name one --
+   * which means it is the one thing that cannot ask this question. This
+   * renders the provider exactly as an app file would, with the prop written
+   * or not written at all.
+   */
+  async function mount(props) {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    try {
+      await React.act(async () => {
+        root.render(<SessionProvider {...props}>{null}</SessionProvider>)
+      })
+    } finally {
+      container.remove()
+    }
+  }
+
+  it('throws at mount when it is missing, rather than warning', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // A THROW, NOT A WARNING. A warning is the same silence in a different
+    // colour: the mount succeeds, the commit goes out empty, and the only
+    // trace is a line in a console nobody is reading during a demo.
+    await expect(mount({})).rejects.toThrow(/needs a `proposalFeatures` reader/)
+    expect(warn).not.toHaveBeenCalled()
+
+    // React logs the thrown error itself; what matters is that nothing
+    // downgraded it to a warning and no provider came out the other side.
+    error.mockRestore()
+    warn.mockRestore()
+  })
+
+  it('throws for a value that is not a function, naming what it got', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(mount({ proposalFeatures: 'suggested_zones' })).rejects.toThrow(
+      /was given string/
+    )
+    error.mockRestore()
+  })
+
+  it('refuses to assemble a commit body without one', () => {
+    // The other door into the same seam. buildCommitBody is exported and is
+    // called directly by tests and by the store; both go through the guard.
+    expect(() => buildCommitBody(initialState, 'water')).toThrow(
+      /needs a `proposalFeatures` reader/
+    )
   })
 })
