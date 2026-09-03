@@ -285,6 +285,7 @@ import {
   EDITING,
   GENERATING,
   IDLE,
+  LOADING,
   MACHINE_STATES,
   REVIEWING,
   STEP_COMMITTED,
@@ -635,6 +636,8 @@ export function documentStep({
   commit,
   reopen = { label: 'Edit this step' },
   proposalCollection = 'suggested_zones',
+  instructions = {},
+  buttons = {},
   Panel,
   ...rest
 }) {
@@ -645,6 +648,27 @@ export function documentStep({
     layers,
     tools,
     inputs,
+    /**
+     * THE `loading` CHROME IS THE FACTORY'S, and every document-backed step
+     * gets it without asking.
+     *
+     * It is the one state no step has anything of its own to say about: the
+     * fact is "this step's payload has not arrived", which is the same fact
+     * for landform, water and the four still to come. A per-step sentence
+     * would be four rewrites of one sentence.
+     *
+     * NO BUTTONS AT ALL, which is the whole point of the state. The bar and
+     * the banner both fall back safely for an undeclared state -- the blurb,
+     * and nothing -- but falling back is not the same as saying so, and the
+     * commit this state exists to withhold is too important to leave to a
+     * default. See LOADING in useStepMachine for what an armed commit costs
+     * here.
+     *
+     * A STEP MAY OVERRIDE EITHER, the same as every other default in this
+     * factory: the spread puts the step's own declaration last.
+     */
+    instructions: { [LOADING]: 'Fetching what this step proposed…', ...instructions },
+    buttons: { [LOADING]: [], ...buttons },
     generate:
       generate === null
         ? null

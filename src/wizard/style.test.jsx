@@ -45,6 +45,7 @@ import {
   EDITING,
   GENERATING,
   IDLE,
+  LOADING,
   MACHINE_STATES,
   REVIEWING,
   STEP_COMMITTED,
@@ -534,11 +535,20 @@ describe('4. one accent per state', () => {
         [STEP_COMMITTED]: 0,
         // Unreachable -- boundary declares no generate.
         [GENERATING]: 0,
+        // Unreachable too: `loading` is a `generated` step waiting for its
+        // payload, and boundary's status is whether a session exists. It
+        // declares nothing for the state and therefore offers nothing.
+        [LOADING]: 0,
       },
       landform: {
         [IDLE]: 1,
         // A job is running. Nothing to press, and nothing to urge.
         [GENERATING]: 0,
+        // THE PAYLOAD IS NOT HERE, and the zero is the whole reason the state
+        // exists. An oxide commit over a step whose proposals are still in
+        // flight is a decision the user cannot see being recorded, and the
+        // contract's `min_features=0` makes it a legal one. See LOADING.
+        [LOADING]: 0,
         [REVIEWING]: 1,
         // ONE BUTTON, AND IT IS AN ESCAPE. A ring going down is closed on the
         // MAP by clicking its first corner; the banner has no forward move to

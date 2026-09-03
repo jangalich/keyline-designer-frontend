@@ -9,6 +9,12 @@
  *                                   ^                                     |
  *                                   +--------------- reopen --------------+
  *
+ *   loading -> reviewing            arriving at a `generated` step by a reload
+ *                                   or a navigation rather than by the
+ *                                   generate that carried its payload. See
+ *                                   LOADING; it is the one state that is about
+ *                                   the DATA rather than about a decision.
+ *
  * WHERE THE STATE COMES FROM, which is the rule that keeps this honest:
  *
  *   THE DOCUMENT IS TRUTH. `committed`, `reviewing`, `editing` and `idle` are
@@ -61,6 +67,31 @@ import { JOB_RUNNING } from '../session/jobs'
 /* The machine's states. Exported so panels and tests name them rather than
    comparing strings, and so a typo is a reference error. */
 export const IDLE = 'idle'
+/**
+ * THE STEP IS GENERATED AND ITS PAYLOAD IS NOT HERE.
+ *
+ * A state about the DATA rather than about a decision, and the only one. The
+ * document says this step has proposals; this client does not have them yet,
+ * because it arrived by a reload or by a navigation rather than by the
+ * generate that carried them. The fetch below is on its way, or has failed
+ * and put its reason in the step's error.
+ *
+ * IT EXISTS BECAUSE THE ALTERNATIVE WAS AN ARMED COMMIT OVER AN EMPTY MAP.
+ * Without it `status === GENERATED` alone read as REVIEWING, so the bar said
+ * to review the proposals, the strip had no tabs to review, and the primary
+ * button read "Commit no water zones" -- one click from recording a decision
+ * the user never made, and a LEGAL one: the contract sets `min_features=0`,
+ * so the request returns 200 and nothing anywhere reports a problem.
+ *
+ * AND IT IS NOT MERELY A LABEL FOR THAT. buildCommitBody resolves the draft's
+ * selected ids against `state.steps[id].proposals`; with those absent, the
+ * candidate list is EMPTY and every selected proposal is dropped on the way
+ * to the wire. A commit issued in this state cannot carry a proposal, whatever
+ * the draft holds. So the state is not "the screen is not ready yet" -- it is
+ * "a commit made here is structurally incapable of saying what the user
+ * means", which is why it beats the draft rather than deferring to it.
+ */
+export const LOADING = 'loading'
 export const GENERATING = 'generating'
 export const REVIEWING = 'reviewing'
 export const EDITING = 'editing'
@@ -69,6 +100,7 @@ export const STEP_COMMITTED = 'committed'
 
 export const MACHINE_STATES = Object.freeze([
   IDLE,
+  LOADING,
   GENERATING,
   REVIEWING,
   EDITING,
@@ -120,6 +152,14 @@ function draftHasWork(state, stepId) {
  *
  *   generating next: a running job is the store's own fact, not a guess.
  *
+ *   loading next, and it beats the draft rather than deferring to it. A
+ *   `generated` step whose proposals are not here cannot commit what the user
+ *   means -- see LOADING -- so it does not get to look like a step that can.
+ *   That reading also covers the case the old `hasDraftWork` fallback was
+ *   written for, a payload evicted under work already drawn: the drawn shapes
+ *   are still on the map and still in the draft, and they become committable
+ *   again the moment the payload lands.
+ *
  *   then reviewing/editing, which need proposals to exist at all.
  *
  *   idle last -- nothing generated, nothing drawn, nothing in flight.
@@ -128,10 +168,11 @@ export function deriveMachineState({ status, pending, isGenerating, hasProposals
   if (status === COMMITTED) return STEP_COMMITTED
   if (pending === COMMITTING) return COMMITTING
   if (isGenerating) return GENERATING
-  if (hasProposals || status === GENERATED) return hasDraftWork ? EDITING : REVIEWING
+  if (status === GENERATED && !hasProposals) return LOADING
+  if (hasProposals) return hasDraftWork ? EDITING : REVIEWING
   // A step with no proposals but work in the draft is being edited: this is
-  // boundary before its first commit, and it is also any step whose payload
-  // was evicted while the user had already drawn something.
+  // boundary before its first commit, which has no `generated` status to
+  // reach and so never sees LOADING above.
   if (hasDraftWork) return EDITING
   return IDLE
 }
@@ -377,7 +418,10 @@ export function useStepMachine(definition) {
     reachable &&
     status !== COMMITTED &&
     machineState !== GENERATING &&
-    machineState !== COMMITTING
+    machineState !== COMMITTING &&
+    // NOT WHILE THE PAYLOAD IS COMING. A regenerate would race the fetch for
+    // the same answer and throw away a payload the server already has.
+    machineState !== LOADING
 
   // The commit button's own words. A function when the step's commit can mean
   // more than one thing -- landform's empty commit renames the button rather
@@ -388,11 +432,24 @@ export function useStepMachine(definition) {
       : definition.commit.label
 
   const commitBlockedReason = definition.commit.blockedReason?.(context) ?? null
+  /**
+   * THE COMMIT IS DISARMED WHILE THE PAYLOAD IS ABSENT, and this line is the
+   * guard rather than the definition's own predicate.
+   *
+   * It has to be here because the predicate cannot say it. Both steps that
+   * allow an empty commit declare `canCommit: () => true` -- correctly, since
+   * "no zones on this parcel" is a decision the design carries -- so nothing
+   * a definition writes could tell the deliberate empty commit from the one
+   * that is empty only because buildCommitBody had no candidates to match the
+   * draft against. The machine knows the difference; the definition does not
+   * and should not have to.
+   */
   const canCommit =
     reachable &&
     status !== COMMITTED &&
     machineState !== GENERATING &&
     machineState !== COMMITTING &&
+    machineState !== LOADING &&
     definition.commit.canCommit(context)
 
   const canReopen = definition.reopen != null && status === COMMITTED

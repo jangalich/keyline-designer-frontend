@@ -40,22 +40,30 @@
  * is unchanged -- every key a definition may declare is a machine state, and
  * MACHINE_STATES is still the closed list the schema checks against.
  *
- * THE THREE STATES THE ARMING CANNOT OVERRIDE are the ones that are not about
- * hands at all: a job is running, a request is in flight, or the document says
- * the step is done. A tool armed across any of those is a leftover, and the
- * bar must report the fact rather than the leftover.
+ * THE FOUR STATES THE ARMING CANNOT OVERRIDE are the ones that are not about
+ * hands at all: the step's payload has not arrived, a job is running, a
+ * request is in flight, or the document says the step is done. A tool armed
+ * across any of those is a leftover, and the bar must report the fact rather
+ * than the leftover.
+ *
+ * `loading` joined that list rather than the overridable ones because the fact
+ * it reports -- this step does not have the thing it is deciding about -- is
+ * true whatever the user's hands are doing, and a bar saying "click to place
+ * each corner" over a step whose proposals are still in flight would be the
+ * leftover winning.
  */
 
 import {
   COMMITTING,
   EDITING,
   GENERATING,
+  LOADING,
   REVIEWING,
   STEP_COMMITTED,
 } from '../useStepMachine'
 
 /** The states in which what the map is doing beats what the hands are doing. */
-const NOT_ABOUT_HANDS = [GENERATING, COMMITTING, STEP_COMMITTED]
+const NOT_ABOUT_HANDS = [LOADING, GENERATING, COMMITTING, STEP_COMMITTED]
 
 export function chromeStateFor({ machineState, armed }) {
   if (NOT_ABOUT_HANDS.includes(machineState)) return machineState

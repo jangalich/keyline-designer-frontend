@@ -834,6 +834,13 @@ describe('9. an unreachable step', () => {
       route('GET', /^\/api\/sessions\/sess-1$/, {
         body: serverDocument({ steps: { landform: { status: GENERATED } } }),
       }),
+      // SERVED, BECAUSE THE CURSOR'S STEP NOW FETCHES WHAT IT IS DECIDING
+      // ABOUT. This case used to reach landform's reviewing chrome with
+      // `proposals` null -- the state the LOADING machine state exists to
+      // stop -- and asserting the reviewing pair from there was asserting the
+      // bug. The route is what puts the step in the state the assertion is
+      // about.
+      route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
     ])
 
     const ui = await renderWizard({ definitions: WITH_WATER })

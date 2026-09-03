@@ -38,6 +38,7 @@ import {
   PROVENANCE_USER_ADDED,
   STEP_MODES,
   SessionProvider,
+  buildCommitBody,
   selectDraft,
   selectSessionId,
   useSession,
@@ -51,6 +52,7 @@ import {
   LAYER_KINDS,
   LAYER_SOURCES,
   STEP_DEFINITIONS,
+  WATER_STEP,
   definitionMap,
 } from '../wizard/stepDefinitions'
 import { resetStepCatalog } from '../wizard/stepCatalog.jsx'
@@ -276,7 +278,13 @@ function installFetch(routes) {
     const responses = Array.isArray(route.responses) ? route.responses : [route.responses]
     const index = Math.min(cursors.get(route) ?? 0, responses.length - 1)
     cursors.set(route, index + 1)
-    const { status = 200, body, blob } = responses[index]
+    const { status = 200, body, blob, gate } = responses[index]
+
+    // A RESPONSE A TEST CAN HOLD OPEN. Everything else here resolves within
+    // the act() that triggered it, which makes "what does the chrome look
+    // like while the request is in flight" unaskable -- and that question is
+    // the whole of what the loading state is for.
+    if (gate) await gate
 
     return {
       ok: status >= 200 && status < 300,
@@ -1470,6 +1478,191 @@ describe('10. the bare-map click', () => {
     // commit button over an empty map.
     expect(ui.find('edit-landform')).not.toBeNull()
     expect(ui.find('commit-landform')).toBeNull()
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   11. A STEP ARRIVED AT WITHOUT ITS PROPOSALS
+   ===========================================================================
+
+   THE SECOND SEVERE BUG, AND IT IS THE SAME SHAPE AS THE FIRST ONE THIS APP
+   HAD. A generate carries its own payload back with the job result, so within
+   one session the proposals were always already there. Arrive at a
+   `generated` step any other way -- a reload, or a navigation back to it --
+   and they are not: `resume` hydrates a document that says `generated` and
+   fetches no payload.
+
+   deriveMachineState read `hasProposals || status === GENERATED`, so the step
+   landed in REVIEWING: no tabs, no zones on the map, and a primary button
+   reading "Commit no water zones". One click recorded a decision the user
+   never made, and `min_features: 0` made it a legal request that returned
+   200. That is the second bug the legal empty commit has swallowed; the first
+   was buildCommitBody reading `suggested_zones` for every step.
+
+   AND THE EMPTY COMMIT WOULD HAVE BEEN EMPTY EVEN WITH A FULL DRAFT.
+   buildCommitBody resolves the draft's selected ids against the step's
+   proposals; with those absent the candidate list is empty and every selected
+   id is dropped on the way to the wire. So the guard is not cosmetic -- see
+   LOADING, and the assertion below that says so directly.
+   =========================================================================== */
+
+describe('11. a generated step with no proposals', () => {
+  const RELOADED = () =>
+    serverDocument({
+      revision: 3,
+      steps: {
+        landform: committedStep(1, featureCollection('zone-1')),
+        water: { status: GENERATED, revision: 2 },
+      },
+    })
+
+  /** A promise a test resolves when it wants the layers response delivered. */
+  function gate() {
+    let open = null
+    const promise = new Promise((resolve) => {
+      open = resolve
+    })
+    return { promise, open }
+  }
+
+  it('loads its proposals on a reload, and draws them', async () => {
+    const calls = installFetch([
+      route('GET', /^\/api\/sessions\/[^/]+$/, { body: RELOADED() }),
+      route('GET', /\/steps\/water\/layers$/, { body: WATER_PAYLOAD }),
+    ])
+
+    const ui = await renderSurface()
+    // A RELOAD, not a session created in this test: the store hydrates a
+    // document that says `generated` and fetches no payload with it.
+    await ui.run((a) => a.resume('sess-1'))
+
+    expect(ui.cursor.cursorStepId).toBe('water')
+    expect(pathsOf(calls, 'GET', /\/steps\/water\/layers$/)).toHaveLength(1)
+    expect(ui.state.steps.water.proposals).toEqual(WATER_PAYLOAD)
+
+    // THE TABS ARE THERE. Two survey areas, one tab each.
+    expect(ui.find('tab-pond-1')).not.toBeNull()
+    expect(ui.find('tab-pond-2')).not.toBeNull()
+
+    // AND THE ZONES ARE ON THE MAP, one per editable layer, split by the
+    // declared filter rather than by anything this test knows.
+    expect(ui.pane('water--water-embankment').pane.querySelectorAll('path')).toHaveLength(1)
+    expect(ui.pane('water--water-excavated').pane.querySelectorAll('path')).toHaveLength(1)
+
+    // The commit is armed now, and says what it would carry.
+    expect(ui.find('commit-water')).not.toBeNull()
+    expect(ui.text('commit-water')).toContain('Commit water zones')
+
+    await ui.unmount()
+  })
+
+  it('renders no armed commit until the proposals arrive', async () => {
+    const held = gate()
+    installFetch([
+      route('GET', /^\/api\/sessions\/[^/]+$/, { body: RELOADED() }),
+      route('GET', /\/steps\/water\/layers$/, { body: WATER_PAYLOAD, gate: held.promise }),
+    ])
+
+    const ui = await renderSurface()
+    await ui.run((a) => a.resume('sess-1'))
+
+    // IN FLIGHT. The document says `generated`; this client has nothing to
+    // review.
+    expect(ui.state.steps.water.proposals).toBeNull()
+    expect(ui.find('step-water').dataset.stepState).toBe('loading')
+    expect(ui.find('step-water').dataset.chromeState).toBe('loading')
+    expect(ui.text('instruction-water')).toBe('Fetching what this step proposed…')
+    // The banner is on screen and holds nothing, which is a state that has
+    // said so rather than a banner that failed to render.
+    expect(ui.find('actions-water').children).toHaveLength(0)
+
+    // NO COMMIT BUTTON AT ALL -- not a disabled one, and above all not the
+    // one that would have read "Commit no water zones".
+    expect(ui.find('commit-water')).toBeNull()
+    // And nothing else to press either: a generate here would race the fetch
+    // for the same answer.
+    expect(ui.find('generate-water')).toBeNull()
+    // Nothing to review, and the strip says so by having nothing in it.
+    expect(ui.find('tab-pond-1')).toBeNull()
+
+    // THE COMMIT THAT WAS WITHHELD WOULD HAVE BEEN EMPTY, and this is the
+    // reason rather than the symptom: with no proposals in the store there
+    // are no candidates for the draft's selection to resolve against.
+    expect(buildCommitBody(ui.state, 'water', WATER_STEP.proposalFeatures).features.features)
+      .toHaveLength(0)
+
+    // Let it land.
+    await React.act(async () => {
+      held.open()
+      await held.promise
+    })
+
+    expect(ui.state.steps.water.proposals).toEqual(WATER_PAYLOAD)
+    expect(ui.find('commit-water')).not.toBeNull()
+
+    await ui.unmount()
+  })
+
+  it('does not re-fire a failing layers fetch', async () => {
+    const calls = installFetch([
+      route('GET', /^\/api\/sessions\/[^/]+$/, { body: RELOADED() }),
+      route('GET', /\/steps\/water\/layers$/, { status: 500, body: { error: 'boom' } }),
+    ])
+
+    const ui = await renderSurface()
+    await ui.run((a) => a.resume('sess-1'))
+
+    const layerCalls = () => pathsOf(calls, 'GET', /\/steps\/water\/layers$/).length
+    expect(layerCalls()).toBe(1)
+    expect(ui.state.steps.water.proposals).toBeNull()
+
+    // A FAILED FETCH LEAVES `proposals` NULL, which is the very state that
+    // triggered it -- so the guard has to be an attempt key rather than a
+    // read of the store. Drive a run of unrelated store writes past it and
+    // count again: each one re-renders the hook and re-runs the effect.
+    for (let i = 0; i < 5; i++) {
+      await ui.run((a) => a.clearStepError('water'))
+      await ui.run((_a, cursor) => cursor.focusFeature(`pond-${i}`))
+      await ui.run((_a, cursor) => cursor.blurFeature())
+    }
+    expect(layerCalls()).toBe(1)
+
+    // AND STILL NO ARMED COMMIT. A failure is not a licence to offer the
+    // empty one: the user is no closer to knowing what they would be sending.
+    expect(ui.find('commit-water')).toBeNull()
+
+    await ui.unmount()
+  })
+
+  it('spends a fresh attempt when the cursor comes back to the step', async () => {
+    const calls = installFetch([
+      route('GET', /^\/api\/sessions\/[^/]+$/, { body: RELOADED() }),
+      route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
+      // First attempt fails; the second is the navigation's.
+      route('GET', /\/steps\/water\/layers$/, [
+        { status: 500, body: { error: 'boom' } },
+        { body: WATER_PAYLOAD },
+      ]),
+    ])
+
+    const ui = await renderSurface()
+    await ui.run((a) => a.resume('sess-1'))
+    expect(pathsOf(calls, 'GET', /\/steps\/water\/layers$/)).toHaveLength(1)
+    expect(ui.state.steps.water.proposals).toBeNull()
+    expect(ui.find('commit-water')).toBeNull()
+
+    // MOVING THE CURSOR AWAY AND BACK IS THE RETRY, and it is a gesture a
+    // user can actually make -- the chrome is keyed by the step, so coming
+    // back remounts the machine and its attempt key with it.
+    await ui.run((_a, cursor) => cursor.open('landform'))
+    await ui.run((_a, cursor) => cursor.open('water'))
+
+    expect(pathsOf(calls, 'GET', /\/steps\/water\/layers$/)).toHaveLength(2)
+    expect(ui.state.steps.water.proposals).toEqual(WATER_PAYLOAD)
+    expect(ui.find('tab-pond-1')).not.toBeNull()
+    expect(ui.find('commit-water')).not.toBeNull()
 
     await ui.unmount()
   })
