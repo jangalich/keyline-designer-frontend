@@ -971,6 +971,28 @@ describe('6. the committed band', () => {
 
     await ui.unmount()
   })
+
+  it('leaves the boundary reachable too, whose ring was its only other route', async () => {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
+    ])
+
+    const ui = await renderSurface()
+    await withLandform(ui)
+    expect(ui.cursor.cursorStepId).toBe('landform')
+
+    // THE ONE ROW MOST AT RISK FROM THIS REMOVAL. The boundary cannot be
+    // reopened -- its committed chrome is the restart, which ends the session
+    // -- and the committed ring was the only thing on the map that reached
+    // it. The rail row is a plain button on every row, reachable or not, so
+    // that route is unchanged.
+    await ui.click(`rail-${BOUNDARY_STEP_ID}`)
+    expect(ui.cursor.cursorStepId).toBe(BOUNDARY_STEP_ID)
+    expect(ui.find(`restart-${BOUNDARY_STEP_ID}`)).not.toBeNull()
+
+    await ui.unmount()
+  })
 })
 
 /* ===========================================================================
