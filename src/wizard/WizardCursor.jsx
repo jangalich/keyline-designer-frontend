@@ -265,13 +265,18 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
   const anyArmed = armedSlot.tool !== null
 
   /**
-   * Open a step. WHAT A COMMITTED LAYER'S CLICK DOES, and what a click on the
-   * step rail does, and all either does: the cursor moves, the chrome renders
-   * whatever affordance that step's own definition declares for the state it
-   * is in, and NOTHING IS ARMED. Clicking settled geometry -- or the rail --
-   * offers navigation to the step that owns it; it does not put the user into
-   * an edit mode they did not ask for, and it cannot, since this touches the
-   * cursor and never the slot.
+   * Open a step. WHAT A CLICK ON THE STEP RAIL DOES, and all it does: the
+   * cursor moves, the chrome renders whatever affordance that step's own
+   * definition declares for the state it is in, and NOTHING IS ARMED. The
+   * rail offers navigation; it does not put the user into an edit mode they
+   * did not ask for, and it cannot, since this touches the cursor and never
+   * the slot.
+   *
+   * THE RAIL IS THE ONLY CALLER NOW. A click on committed geometry used to
+   * come through here too, and does not: the map's settled bands are
+   * read-only (see MapLayerStack). That is a route removed rather than a
+   * destination -- the reopen and its confirmation are unchanged, and the
+   * rail reaches every step at a constant size however many have committed.
    */
   const open = useCallback((stepId) => setOpenStepId(stepId), [])
 

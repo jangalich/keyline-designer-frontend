@@ -150,7 +150,7 @@ const SCRIM_OPACITY = 0.55
 // halo-casing rule DrawTool established for LINES.
 const ELIGIBLE_OPACITY = 0.32
 
-/** Committed geometry is settled: no dash, no fill weight, nothing to invite a click. */
+/** Committed geometry is settled: no dash, no fill weight, and no click to make. */
 const COMMITTED_FILL_OPACITY = 0.12
 
 
@@ -217,7 +217,7 @@ function RingLayer({ layer, interactive, onLayerClick }) {
   const { field, halo } = getStackColors()
   const closed = layer.ring.length >= 3
   const Shape = closed ? Polygon : Polyline
-  const navigates = Boolean(interactive && onLayerClick)
+  const takesClicks = Boolean(interactive && onLayerClick)
 
   return (
     <>
@@ -232,49 +232,37 @@ function RingLayer({ layer, interactive, onLayerClick }) {
         interactive={false}
         pathOptions={{ color: halo, weight: CASING_WEIGHT, fill: false }}
       />
-      {/* THE INTERIOR IS NOT THE RING. It is drawn as its own path, and that
-          path NEVER takes a click.
+      {/* THE WHOLE RING IS THE HIT AREA, INTERIOR INCLUDED, and it has exactly
+          one caller: DeleteGesture's RingDelete, which mounts this over an
+          editable ring while `delete` is ARMED. A clear-the-boundary gesture
+          that demanded a 2px line would be a gesture nobody can make.
 
-          It used to be the same path as the line, and a committed ring's
-          `interactive` therefore put a click target over the ENTIRE PARCEL --
-          the one shape on this map that spans every other step's ground. A
-          click on bare soil in the middle of the water step was a click on
-          the boundary layer, so the stack navigated to boundary and the user
-          watched the wizard jump back to `Start a different boundary` for
-          doing the one gesture that is supposed to mean "nothing, thanks".
-
-          Splitting the fill off is what makes "a committed layer offers
-          navigation" true of the RING rather than of the ground inside it.
-          Nothing about the paint changes: an SVG path fills before it
-          strokes, so a fill path under a stroke path is the same picture the
-          single path drew. */}
-      {closed ? (
-        <Polygon
-          positions={layer.ring}
-          interactive={false}
-          pathOptions={{
-            stroke: false,
-            fill: true,
-            fillColor: field,
-            fillOpacity: COMMITTED_FILL_OPACITY,
-          }}
-        />
-      ) : null}
-      {/* THE LINE, and the whole of what a click on this layer can reach. */}
+          THE PREVIOUS BRANCH SPLIT THE FILL OFF SO THAT IT TOOK NO CLICKS,
+          because the committed boundary ring was interactive whenever a
+          session existed -- which put a cursor-moving click target over the
+          entire parcel, and every click on bare ground threw the wizard back
+          to `Start a different boundary`. That split has nothing left to do:
+          the committed band takes no clicks at all now (see MapLayerStack), so
+          the guarantee lives at the band rather than inside this renderer, and
+          the only ring that is ever interactive is one a tool armed. */}
       <Shape
         positions={layer.ring}
-        interactive={navigates}
-        pathOptions={{ color: field, weight: LINE_WEIGHT, fill: false }}
+        interactive={takesClicks}
+        pathOptions={{
+          color: field,
+          weight: LINE_WEIGHT,
+          fill: closed,
+          fillOpacity: closed ? COMMITTED_FILL_OPACITY : 0,
+        }}
         eventHandlers={
-          navigates
+          takesClicks
             ? {
-                // THE CLICK STOPS HERE, for FeatureLayer's reason and it was
-                // missing here: a Leaflet path click also reaches the map,
-                // and the map's own click is what clears the focus. Without
-                // this, clicking the boundary line navigated AND blurred in
-                // one gesture -- two answers to one click, from a listener
-                // that is documented to fire "only when the click reached
-                // nothing".
+                // THE CLICK STOPS HERE, which FeatureLayer's already did and
+                // this one did not. A Leaflet path click also reaches the
+                // map, and the map's own click is what clears the focus -- so
+                // without this an armed ring delete would clear the ring AND
+                // blur, from a listener documented to fire "only when the
+                // click reached nothing".
                 click: (event) => {
                   L.DomEvent.stopPropagation(event)
                   onLayerClick(layer)
@@ -372,8 +360,8 @@ function ReferenceLayer() {
  *
  * THE TREATMENT COMES OFF THE DECLARATION, not off a step id:
  *
- *   band 'committed'    settled. A thin line and a light fill; nothing to
- *                       invite a click except the navigation the stack offers.
+ *   band 'committed'    settled. A thin line and a light fill, and nothing
+ *                       to click: the stack mounts this band read-only.
  *
  *   source 'proposals'  a candidate being decided about. Hatch with no outline
  *                       and no fill of its own -- suggested ground IS eligible
@@ -401,13 +389,7 @@ function ReferenceLayer() {
  * a separately addressable layer, which is what makes them selectable and what
  * lets a 422 colour exactly the offending one.
  */
-function FeatureLayer({
-  layer,
-  interactive,
-  onFeatureClick,
-  onLayerClick,
-  focusedFeatureId = null,
-}) {
+function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null }) {
   const { field, accent, ink, halo } = getStackColors()
   const selected = new Set(layer.selectedFeatureIds ?? [])
   const rejections = layer.rejections ?? {}
@@ -500,10 +482,16 @@ function FeatureLayer({
                     // the focus in the same gesture. Leaflet's own helper
                     // rather than the DOM's: the handler is given Leaflet's
                     // wrapped event.
+                    //
+                    // ONE THING A FEATURE CLICK CAN MEAN, where there used to
+                    // be two. The `else` arm called the stack's `onLayerClick`
+                    // and was how a committed feature offered navigation; the
+                    // committed band takes no clicks now (see MapLayerStack),
+                    // so the only interactive feature layer is one a tool is
+                    // rendering, and `interactive` here is that tool's answer.
                     click: (event) => {
                       L.DomEvent.stopPropagation(event)
-                      if (isEditable) onFeatureClick?.(layer, feature)
-                      else onLayerClick?.(layer, feature)
+                      onFeatureClick?.(layer, feature)
                     },
                   }
                 : undefined

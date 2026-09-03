@@ -851,43 +851,123 @@ describe('5. the context band: scrim, highlight, and data nothing draws', () => 
 })
 
 /* ===========================================================================
-   6. A COMMITTED LAYER OFFERS NAVIGATION, NOT AN EDIT MODE
+   6. A COMMITTED LAYER IS NOT A CONTROL
+   ===========================================================================
+
+   THIS SECTION USED TO ASSERT THE OPPOSITE, and the affordance it asserted
+   was sound: a click on committed geometry called the cursor's `open()`,
+   moving the wizard to the step that owns it, where that step's own reopen
+   was waiting. It never armed a tool.
+
+   It is withdrawn because it does not survive a document with more than one
+   committed step. During water, committed production zones cover much of the
+   parcel: a click landing on one is far more likely to mean "put this panel
+   away" than "take me back to landform". By fencing there are five committed
+   layers blanketing the ground, every one a cursor-moving target, and the map
+   becomes a surface where most clicks navigate.
+
+   The rail is the route that keeps working -- it lists every step, carries
+   the reopen with its confirmation, and is the same size whatever the
+   document holds. Section 7 below asserts it still does.
    =========================================================================== */
 
 describe('6. the committed band', () => {
-  it('navigates to the owning step on a click, and arms nothing', async () => {
+  it('takes no click, and moves nothing, in landform and in water', async () => {
     installFetch([
       route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
       route('GET', /^\/api\/sessions\/[^/]+$/, {
         body: serverDocument({
-          revision: 2,
-          steps: { landform: committedStep(1, featureCollection('zone-1')) },
+          revision: 3,
+          steps: {
+            landform: committedStep(1, featureCollection('zone-1')),
+            water: { status: GENERATED, revision: 2 },
+          },
         }),
       }),
       route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
+      route('GET', /\/steps\/water\/layers$/, { body: WATER_PAYLOAD }),
     ])
 
     const ui = await renderSurface()
-    await withLandform(ui, { steps: true })
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+
+    // IN WATER, with landform's zones on the map as context beneath it.
     expect(ui.cursor.cursorStepId).toBe('water')
+    const committed = ui.pane('landform--landform-committed').pane
+    const path = committed.querySelector('path')
 
-    const pane = ui.panes().find((p) => p.key === 'landform--landform-committed')
-    const path = pane.pane.querySelector('path')
-    // Committed geometry takes a click -- that is what makes it navigable.
-    expect(path.classList.contains('leaflet-interactive')).toBe(true)
+    // The geometry is DRAWN and takes no clicks. `interactive` is not a style
+    // prop -- it is whether Leaflet registers the path as a target at all --
+    // so this is the whole assertion and not a proxy for one.
+    expect(path).not.toBeNull()
+    expect(path.classList.contains('leaflet-interactive')).toBe(false)
 
+    // And a click on it does nothing: it is not in the map's target registry,
+    // so the event reaches the map, which clears the focus and no more.
+    await ui.run((_a, cursor) => cursor.focusFeature('pond-1'))
     await ui.clickPath(path)
+    expect(ui.cursor.cursorStepId).toBe('water')
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+    expect(ui.cursor.armed).toBeNull()
+    expect(ui.state.drafts.landform).toBeUndefined()
 
-    // THE CURSOR MOVED, AND NOTHING WAS ARMED. The panel is now landform's,
-    // with the Edit affordance its own definition declares; the map did not
-    // hand the user a tool they did not ask for.
+    // IN LANDFORM: the cursor on the committed step itself, its own features
+    // still drawn, and still not a control.
+    await ui.run((_a, cursor) => cursor.open('landform'))
+    const own = ui.pane('landform--landform-committed').pane.querySelector('path')
+    expect(own).not.toBeNull()
+    expect(own.classList.contains('leaflet-interactive')).toBe(false)
+
+    await ui.clickPath(own)
     expect(ui.cursor.cursorStepId).toBe('landform')
     expect(ui.cursor.armed).toBeNull()
     expect(ui.armedTools()).toEqual([])
-    expect(ui.find('edit-landform')).not.toBeNull()
 
-    // And no draft was created by looking at it.
-    expect(ui.state.drafts.landform).toBeUndefined()
+    await ui.unmount()
+  })
+
+  it('leaves the rail as the route to a committed step, reopen and all', async () => {
+    const calls = installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/[^/]+$/, {
+        body: serverDocument({
+          revision: 3,
+          steps: {
+            landform: committedStep(1, featureCollection('zone-1')),
+            water: { status: GENERATED, revision: 2 },
+          },
+        }),
+      }),
+      route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
+      route('GET', /\/steps\/water\/layers$/, { body: WATER_PAYLOAD }),
+      route('POST', /\/steps\/landform\/reopen$/, {
+        body: serverDocument({
+          revision: 4,
+          steps: { landform: { status: GENERATED, revision: 3 } },
+        }),
+      }),
+    ])
+
+    const ui = await renderSurface()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+    expect(ui.cursor.cursorStepId).toBe('water')
+
+    // THE RAIL ROW, clicked the way a user clicks it.
+    await ui.click('rail-landform')
+    expect(ui.cursor.cursorStepId).toBe('landform')
+    expect(ui.cursor.armed).toBeNull()
+
+    // THE REOPEN IS UNCHANGED, confirmation and all: the button only REQUESTS
+    // it, and nothing reaches the server until the cost has been named.
+    await ui.click('edit-landform')
+    expect(ui.find('reopen-confirm-landform')).not.toBeNull()
+    expect(pathsOf(calls, 'POST', /\/reopen$/)).toHaveLength(0)
+
+    await ui.click('reopen-confirm-yes-landform')
+    expect(pathsOf(calls, 'POST', /\/reopen$/)).toHaveLength(1)
+    expect(ui.state.steps.landform.status).toBe(GENERATED)
 
     await ui.unmount()
   })
@@ -1326,14 +1406,23 @@ describe('10. the bare-map click', () => {
     return ui
   }
 
-  /** The parcel INTERIOR: the committed ring's fill path, which is not the ring. */
+  /**
+   * WHAT A CLICK ON BARE GROUND INSIDE THE PARCEL ACTUALLY LANDS ON: the
+   * committed boundary ring's painted path, which carries the parcel fill and
+   * therefore spans every square foot of it.
+   *
+   * The casing pass beside it is `fill: none`; this is the other one. A DOM
+   * click dispatched on it is the honest simulation of that gesture, and what
+   * it proves is where Leaflet routes the event -- the path is not in the
+   * map's target registry, so the map's own click handler is what runs.
+   */
   function parcelInterior(ui) {
     const pane = ui.pane('boundary--boundary-committed').pane
-    const fill = [...pane.querySelectorAll('path')].find(
-      (path) => path.getAttribute('fill') && path.getAttribute('fill') !== 'none'
+    const painted = [...pane.querySelectorAll('path')].find(
+      (path) => path.getAttribute('fill') !== 'none'
     )
-    if (!fill) throw new Error('the committed ring drew no fill')
-    return fill
+    if (!painted) throw new Error('the committed ring drew no filled path')
+    return painted
   }
 
   it('leaves the cursor exactly where it was, in water', async () => {
@@ -1405,29 +1494,27 @@ describe('10. the bare-map click', () => {
     await ui.unmount()
   })
 
-  it('makes the parcel interior take no clicks at all, and the ring take them', async () => {
+  it('leaves no interactive path anywhere in the settled bands', async () => {
     const ui = await surfaceAtWater()
-    const pane = ui.pane('boundary--boundary-committed').pane
-    const paths = [...pane.querySelectorAll('path')]
 
-    // EXACTLY ONE INTERACTIVE PATH IN THE COMMITTED RING'S PANE, and it is a
-    // LINE. A filled interactive path here is the bug, whatever else is true
-    // of it, because the fill spans the whole parcel.
-    const interactive = paths.filter((path) => path.classList.contains('leaflet-interactive'))
-    expect(interactive).toHaveLength(1)
-    expect(interactive[0].getAttribute('fill')).toBe('none')
+    // THE STRUCTURAL FORM OF THIS SECTION'S CLAIM. The bug was one committed
+    // layer being a click target over the whole parcel; the guarantee is not
+    // "that one is fixed" but "the settled bands are read-only", and that is
+    // a fact about every pane rather than about the ring.
+    const settled = ui.panes().filter((entry) => entry.band !== 'editable')
+    expect(settled.length).toBeGreaterThan(1)
+    for (const entry of settled) {
+      const interactive = [...entry.pane.querySelectorAll('path.leaflet-interactive')]
+      expect({ pane: entry.key, interactive: interactive.length }).toEqual({
+        pane: entry.key,
+        interactive: 0,
+      })
+    }
 
-    // The fill is still drawn -- this is a click fix, not a paint change.
-    const filled = paths.filter(
-      (path) => path.getAttribute('fill') && path.getAttribute('fill') !== 'none'
-    )
-    expect(filled).toHaveLength(1)
-    expect(filled[0].classList.contains('leaflet-interactive')).toBe(false)
-
-    // AND THE RING ITSELF STILL NAVIGATES. The affordance the committed band
-    // declares is unchanged; what changed is where it lives.
-    await ui.clickPath(interactive[0])
-    expect(ui.cursor.cursorStepId).toBe(BOUNDARY_STEP_ID)
+    // And the paint is untouched: the ring still draws its casing and its
+    // filled line, and the committed zone still draws its hatch.
+    expect(ui.pane('boundary--boundary-committed').pane.querySelectorAll('path')).toHaveLength(2)
+    expect(ui.pane('landform--landform-committed').pane.querySelectorAll('path')).toHaveLength(1)
 
     await ui.unmount()
   })

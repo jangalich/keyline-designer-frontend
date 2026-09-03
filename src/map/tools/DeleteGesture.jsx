@@ -38,8 +38,8 @@ export default function DeleteGesture({ layer, armed, renders, stepId }) {
        *
        * NOTHING ARMED: focus. A shape on the map should answer a click by
        * saying what it is, and the detail panel is where that answer goes.
-       * It is the same click a suggestion takes (see SelectGesture) and the
-       * same click committed geometry takes -- navigation, not a tool.
+       * It is the same click a suggestion takes (see SelectGesture) -- a
+       * reading, not a tool. Committed geometry answers no click at all.
        *
        * ANOTHER TOOL ARMED: nothing. A drawn shape that took clicks under a
        * live draw would swallow the vertex being placed on top of it, which

@@ -8,23 +8,39 @@
  *                          this component's.
  *   2. Context             read-only server geometry, subdued. Never takes a
  *                          click -- there is nothing to say about it.
- *   3. Committed           every committed step's features. A click OFFERS
- *                          NAVIGATION to the step that owns them, and does
- *                          nothing else. See below.
+ *   3. Committed           every committed step's features. READ-ONLY, and
+ *                          that now means it takes no clicks at all. See
+ *                          below.
  *   4. Active editable     the cursor step's own layers, drawn and acted on by
  *                          the tools its definition declares.
  *
  * IT DOES NOT KNOW WHICH STEP IT IS RENDERING. The order above is fixed; the
  * contents come off the layer declarations, and layerStack.js composes them.
  *
- * A COMMITTED LAYER'S CLICK DOES NOT ENTER AN EDIT MODE, and cannot. It calls
- * the cursor's `open()` -- which moves the panel column to that step, where
- * whatever affordance the step's own definition declares is waiting (an "Edit
- * this step" that names what a reopen costs, or, for the boundary, a note
- * saying it cannot be reopened at all). It never touches the arming slot, so
- * there is no path from clicking settled geometry to a live tool. Committing
- * and then clicking your own work should offer to take you back to it; it
- * should not silently hand you a pencil.
+ *
+ * A COMMITTED LAYER IS NOT A CONTROL, AND THAT IS A DELIBERATE REMOVAL
+ *
+ * It used to be. A click on committed geometry called the cursor's `open()`,
+ * which moved the wizard to the step that owns it, where that step's own
+ * reopen affordance was waiting. Nothing about it was unsound -- it never
+ * armed a tool, and it offered navigation rather than an edit -- and it is
+ * withdrawn anyway, for two reasons that only show up once more than one step
+ * has committed.
+ *
+ * IT IS THE WRONG READING OF THE GESTURE. During water, committed production
+ * zones cover much of the parcel. A click that lands on one is far more
+ * likely to mean "put this panel away" than "take me back to landform", and
+ * answering the second is a step change the user did not ask for.
+ *
+ * AND IT DOES NOT SCALE. By fencing there are five committed layers blanketing
+ * the parcel, every one of them a cursor-moving click target, and the map
+ * becomes a surface where most clicks navigate. The step rail already lists
+ * every step, already handles the reopen with the confirmation that names
+ * what it costs, and is the same size whatever the document holds. One route
+ * to that destination is enough, and the rail is the one that keeps working.
+ *
+ * WHAT DID NOT CHANGE: the reopen itself, its confirmation, and the rail. This
+ * removed a route, not a destination.
  */
 
 import { useMapEvent } from 'react-leaflet'
@@ -39,7 +55,7 @@ import { StackLayer } from './layers.jsx'
 
 export default function MapLayerStack() {
   const { state } = useSession()
-  const { cursorStepId, definition, definitions, open, focusedFeatureId, blurFeature } =
+  const { cursorStepId, definition, definitions, focusedFeatureId, blurFeature } =
     useWizardCursor()
 
   const stack = composeLayerStack({ state, definitions, cursorStepId })
@@ -65,13 +81,13 @@ export default function MapLayerStack() {
           come and go, and two panes reference this one pattern. See
           ProductionHatchPattern for both reasons at length. */}
       <ProductionHatchPattern />
+      {/* THE SETTLED BANDS, DRAWN AND NOTHING ELSE. No `interactive`, no
+          handler, and no branch on the band -- context and committed are the
+          same kind of thing to this loop now, which is what "read-only" was
+          always supposed to mean. See the note above for what was removed and
+          why the rail is where that gesture went. */}
       {settled.map((layer) => (
-        <StackLayer
-          key={layer.paneName}
-          layer={layer}
-          interactive={layer.band === 'committed'}
-          onLayerClick={() => open(layer.stepId)}
-        />
+        <StackLayer key={layer.paneName} layer={layer} />
       ))}
       {/* A CLICK ON BARE MAP MEANS "NOTHING, THANKS". It is the only way to
           put the detail panel away, and it has to be the map's own click

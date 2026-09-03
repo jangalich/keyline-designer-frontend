@@ -22,10 +22,10 @@
  *
  * BUT IT TAKES CLICKS ONLY WHILE NOTHING IS ARMED, which is not the same rule
  * it used to follow. Toggling was a TOOL and was gated on `select` being the
- * armed one; focusing is navigation, like the click on committed geometry the
- * stack already offers, and nothing arms it. What it must not do is swallow a
- * click meant to place a vertex -- so it stands down whenever any tool is
- * live, reading the register's OCCUPANCY exactly as DrawGesture does.
+ * armed one; focusing is a reading rather than an edit, and nothing arms it.
+ * What it must not do is swallow a click meant to place a vertex -- so it
+ * stands down whenever any tool is live, reading the register's OCCUPANCY
+ * exactly as DrawGesture does.
  */
 
 import { useWizardCursor } from '../../wizard/WizardCursor.jsx'

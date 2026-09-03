@@ -11,8 +11,9 @@
  *                         order, so the user sees what is theirs and what
  *                         qualifies before they try to draw on it.
  *   2. Committed          every committed step's features. Settled styling,
- *                         never editable. A click offers navigation to that
- *                         step and nothing else.
+ *                         never editable, and it takes no clicks -- see the
+ *                         note in MapLayerStack for what was removed there
+ *                         and why the rail carries it instead.
  *   3. Active editable    the cursor step's own layers, and the only band any
  *                         tool can touch.
  *
