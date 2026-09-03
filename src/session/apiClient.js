@@ -206,7 +206,25 @@ async function request(path, { method = 'GET', body, signal } = {}) {
     return payload
   }
 
-  const context = { status: response.status, url }
+  // THE PARSED BODY GOES ON THE ERROR, and until this branch it did not.
+  // `ApiError` has carried a `body` field since it was written, the four typed
+  // subclasses below all pass one, and the plain-ApiError line at the bottom
+  // of this function passed a context WITHOUT it -- so every failure that was
+  // not a 404, 422 or 409 arrived at the store with `body: null` and nothing
+  // but a message string.
+  //
+  // WHAT THAT THREW AWAY IS `failed_layer`. An upstream data source that does
+  // not answer is reported as {error, failed_layer: {type, label}} -- a stable
+  // identity to branch on and display prose to show (api.py's
+  // production-zones endpoint documents the shape and the reasoning). The
+  // client parsed that body, read `.error` out of it for the message, and
+  // dropped the rest on the floor. The UI could then say only that something
+  // had failed, which is Fix 3's whole complaint.
+  //
+  // NOT A WIRE CHANGE AND NOT A CONTRACT CHANGE: the same request, the same
+  // response, the same class, the same message. One field that was already
+  // parsed stops being discarded.
+  const context = { status: response.status, url, body: payload }
   if (response.status === 404) throw new NotFoundError(payload, context)
   if (response.status === 422) throw new CommitRejectedError(payload, context)
   if (response.status === 409) {

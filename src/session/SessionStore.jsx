@@ -1088,10 +1088,37 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
         return 'absent'
       }
 
+      /**
+       * EVERYTHING ELSE: the request did not land. A transport failure, or a
+       * status this surface has no typed class for -- which is what a hard
+       * upstream failure arrives as.
+       *
+       * `failedLayer` IS CARRIED WHEN THE BODY HAS ONE. A data source that
+       * did not answer puts {type, label} on the error body, and that pair is
+       * the only part of such a failure a user can act on: which source, and
+       * therefore whether waiting will help. It rode in the response, the api
+       * client now keeps it (see the note there), and this is where it stops
+       * being the api client's and becomes state the chrome can read. `?? null`
+       * because most failures have no layer -- an absent one is a real answer
+       * and the chrome has copy for it.
+       *
+       * THE MESSAGE IS STILL RECORDED AND IS NOT WHAT GETS RENDERED. It can be
+       * the api client's `Request failed (500).` fallback, which is a status
+       * code, and a status code in front of someone looking at their own field
+       * is noise they cannot act on. See InstructionBar's dataSourceNotice().
+       */
+      const failedLayer = error?.body?.failed_layer ?? null
       if (stepId) {
-        dispatchIfMounted({ type: STEP_ERROR_SET, stepId, error: { kind: 'network', message: error.message } })
+        dispatchIfMounted({
+          type: STEP_ERROR_SET,
+          stepId,
+          error: { kind: 'network', message: error.message, failedLayer },
+        })
       } else {
-        dispatchIfMounted({ type: SESSION_ERROR_SET, error: { kind: 'network', message: error.message } })
+        dispatchIfMounted({
+          type: SESSION_ERROR_SET,
+          error: { kind: 'network', message: error.message, failedLayer },
+        })
       }
       return 'error'
     },

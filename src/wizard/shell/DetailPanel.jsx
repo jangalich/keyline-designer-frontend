@@ -60,6 +60,28 @@
  * the figures still share one column and one decimal point, and a long word
  * still cannot widen it.
  *
+ *
+ * A HEADER THAT STAYS, AND A BODY THAT SCROLLS
+ *
+ * The panel's footprint is CAPPED (see .chrome-detail) and its content runs
+ * past the cap on a zone with enough cautions. What runs past it is the BODY:
+ * the groups and the cautions, in `.chrome-detail__body`. The feature's NAME
+ * is outside that box and does not move.
+ *
+ * That split is not tidiness. The panel exists to say what one zone is, and a
+ * reader who has scrolled to the third caution while the zone's name has left
+ * the top of the box is reading measurements about something they can no
+ * longer identify -- on a map where two zones' panels differ only in their
+ * figures. The name is the one line that has to survive every scroll position.
+ *
+ * THE WRAPPER IS ALSO WHY `.chrome-detail__group:first-child` FINALLY BITES.
+ * That rule has been in the stylesheet since groups arrived and never matched:
+ * the heading was the aside's first child, so no group ever was. The first
+ * group is the BODY's first child, so its top margin now drops to zero -- and
+ * that is right rather than incidental. A top margin inside a scrolling region
+ * is dead space that scrolls away and never comes back, which reads as the
+ * content having started somewhere above the box.
+ *
  * A LABEL IS NEVER REWORDED. `caution.label` is the exclusion layer's own
  * words, straight off the payload ("wet (hydric) soil"), and the branching is
  * on the stable `type`. The backend splits those two fields precisely so a
@@ -169,23 +191,25 @@ export default function DetailPanel({ machine }) {
           <p className="chrome-detail__name" data-testid={`detail-name-${stepId}`}>
             Drawing a zone
           </p>
-          {/* The in-flight vertex count, so the panel says something is
-              happening while the map is where the work is. It was the panel
-              column's `landform-vertex-count` and it went with it. */}
-          <p className="chrome-detail__field" data-testid={`detail-vertices-${stepId}`}>
-            <span className="measure">{points.length}</span>
-            <span className="chrome-detail__label">
-              point{points.length === 1 ? '' : 's'} placed
-              {points.length < 3 ? ' — 3 close the shape' : ''}
-            </span>
-          </p>
-          {liveCautions.length ? (
-            <ul className="chrome-detail__cautions" data-testid={`detail-cautions-${stepId}`}>
-              {liveCautions.map((caution) => (
-                <CautionLine key={caution.type} caution={caution} />
-              ))}
-            </ul>
-          ) : null}
+          <div className="chrome-detail__body">
+            {/* The in-flight vertex count, so the panel says something is
+                happening while the map is where the work is. It was the panel
+                column's `landform-vertex-count` and it went with it. */}
+            <p className="chrome-detail__field" data-testid={`detail-vertices-${stepId}`}>
+              <span className="measure">{points.length}</span>
+              <span className="chrome-detail__label">
+                point{points.length === 1 ? '' : 's'} placed
+                {points.length < 3 ? ' — 3 close the shape' : ''}
+              </span>
+            </p>
+            {liveCautions.length ? (
+              <ul className="chrome-detail__cautions" data-testid={`detail-cautions-${stepId}`}>
+                {liveCautions.map((caution) => (
+                  <CautionLine key={caution.type} caution={caution} />
+                ))}
+              </ul>
+            ) : null}
+          </div>
         </>
       ) : (
         <>
@@ -208,16 +232,18 @@ export default function DetailPanel({ machine }) {
               WHAT CHANGED IS THE SORT, NOT THE SETTING. Both are still set
               differently and the figures still share one column; they are no
               longer reordered to do it. See GROUPS above. */}
-          {groupsOf(detail).map((group, index) => (
-            <Group key={group.label ?? `group-${index}`} group={group} stepId={stepId} />
-          ))}
-          {detail.cautions.length ? (
-            <ul className="chrome-detail__cautions" data-testid={`detail-cautions-${stepId}`}>
-              {detail.cautions.map((caution) => (
-                <CautionLine key={caution.type} caution={caution} />
-              ))}
-            </ul>
-          ) : null}
+          <div className="chrome-detail__body">
+            {groupsOf(detail).map((group, index) => (
+              <Group key={group.label ?? `group-${index}`} group={group} stepId={stepId} />
+            ))}
+            {detail.cautions.length ? (
+              <ul className="chrome-detail__cautions" data-testid={`detail-cautions-${stepId}`}>
+                {detail.cautions.map((caution) => (
+                  <CautionLine key={caution.type} caution={caution} />
+                ))}
+              </ul>
+            ) : null}
+          </div>
         </>
       )}
     </aside>

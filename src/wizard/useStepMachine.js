@@ -53,6 +53,7 @@ import {
   selectFailedLayer,
   selectHasDraft,
   selectJobForStep,
+  selectSessionError,
   selectSessionId,
   selectStepError,
   selectStepFeatures,
@@ -406,6 +407,47 @@ export function useStepMachine(definition) {
   const rejectedFeatureIds = useMemo(() => Object.keys(rejections), [rejections])
   const failedLayer = selectFailedLayer(state, stepId)
 
+  /**
+   * A COMMIT THAT DID NOT LAND, and the reason it did not, when there is one.
+   *
+   * `failedLayer` above is a failed GENERATE JOB's -- the store reads it off
+   * the job table. A COMMIT has no job: it is one request, and when it fails
+   * the store writes an error instead. Two different places, one question, so
+   * the chrome gets one answer.
+   *
+   * THE SESSION ERROR IS HALF OF IT, AND IT HAD NO READER AT ALL.
+   * selectSessionError has been exported since the store was written and
+   * nothing in the app has ever called it -- which is precisely why a failed
+   * boundary commit said nothing. The boundary's commit is
+   * actions.startSession(), startSession reports its failure with no step id
+   * (it is creating the session that step ids are recorded against, so there
+   * is not one yet), handleFailure therefore takes the SESSION branch, and the
+   * chrome only ever read the STEP branch. The button came back, the failure
+   * went into the store, and nobody looked.
+   *
+   * THE STEP ERROR IS THE OTHER HALF, for every step whose commit is a step
+   * commit rather than a session create. Same failure, same copy, one notice.
+   * Only `network` kind: a 409 conflict and a 422 rejection are answers about
+   * the request, they have their own renderings, and they are not a data
+   * source being down.
+   *
+   * IT IS NOT A STATE. The commit is retryable and the machine returns to
+   * `reviewing` with the button back -- which is correct and is not what was
+   * broken. What was broken is that the return was the ONLY thing that
+   * happened. This is a notice beside a button that works, not a state that
+   * withholds one.
+   */
+  const sessionError = selectSessionError(state)
+  const commitFailure = useMemo(() => {
+    const failure =
+      sessionError?.kind === 'network'
+        ? sessionError
+        : error?.kind === 'network'
+          ? error
+          : null
+    return failure ? { failedLayer: failure.failedLayer ?? null } : null
+  }, [sessionError, error])
+
   /* -----------------------------------------------------------------------
      What may happen next
      ----------------------------------------------------------------------- */
@@ -542,6 +584,7 @@ export function useStepMachine(definition) {
     rejections,
     rejectedFeatureIds,
     failedLayer,
+    commitFailure,
     context,
     canGenerate,
     canCommit,

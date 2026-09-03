@@ -35,6 +35,8 @@
  *   ?notice=...    'long' | 'stacked' | 'short'         (default none)
  *   ?steps=0       serve NO step catalogue              (default: the six)
  *   ?buttons=N     how many buttons the action card has (default 2)
+ *   ?detail=N      give the step a detail of N rows over four groups
+ *                  (default 0). NOTHING IS FOCUSED -- click a tab for that.
  */
 
 import React, { useEffect, useRef, useState } from 'react'
@@ -149,6 +151,54 @@ const NOTICE_KIND = params.get('notice') ?? 'none'
  * and fourteen rows is a real payload's panel, not a stress case.
  */
 const DETAIL_ROWS = number('detail', 0)
+
+/**
+ * N FIELD ROWS, DEALT ROUND FOUR GROUPS -- water's shape, which is the panel
+ * this branch has to hold.
+ *
+ * Referenced by HARNESS_STEP since the `?detail=` case was scaffolded and
+ * never written, so the case threw a ReferenceError the moment anything asked
+ * for it. Nothing did, which is why it sat.
+ *
+ * THE ROWS ARE WATER'S OWN, NOT INVENTED ONES, and that matters for the only
+ * number this case is used to choose: the panel's height cap. A synthetic row
+ * carrying a phrase long enough to wrap is a TALLER row than the backend ever
+ * sends -- water's panel values are an acreage, "embankment", "2 of 3",
+ * "gravity_feed" -- and a cap measured against wrapped rows would be sized for
+ * a panel that does not exist. So the cycle below is build_zone_panel's own
+ * rows, in its own order, with its own values, and a measured row and a prose
+ * one alternate because the backend's do.
+ *
+ * PAST THE CYCLE THE ROWS REPEAT, which is what makes a count far above any
+ * real payload (the scroll case) still a panel of realistic rows rather than
+ * one row's height multiplied.
+ *
+ * GROUPS ARE FILLED IN ORDER AND AN EMPTY ONE IS DROPPED -- groupsOf() filters
+ * those anyway, so ?detail=2 is two rows in one group rather than two rows and
+ * three empty headings.
+ */
+const DETAIL_GROUP_LABELS = ['Extent', 'Terrain', 'Agreement', 'Sources']
+
+/** build_zone_panel's rows, as the wire sends them. */
+const DETAIL_ROW_CYCLE = [
+  { label: 'area to survey (acres)', value: measure(12.4), measured: true },
+  { label: 'survey type', value: 'embankment', measured: false },
+  { label: 'suitability', value: measure(0.53), measured: true },
+  { label: 'rank', value: '2 of 3', measured: false },
+  { label: 'water delivery', value: 'gravity_feed', measured: false },
+  { label: 'elevation above production area (feet)', value: measure(31), measured: true },
+  { label: 'canopy overlap (%)', value: measure(4.2), measured: true },
+  { label: 'confidence', value: 'moderate', measured: false },
+]
+
+function detailGroups(rows) {
+  const groups = DETAIL_GROUP_LABELS.map((label) => ({ label, fields: [] }))
+  for (let i = 0; i < rows; i += 1) {
+    const row = DETAIL_ROW_CYCLE[i % DETAIL_ROW_CYCLE.length]
+    groups[i % DETAIL_GROUP_LABELS.length].fields.push({ ...row, label: `${row.label} ${i + 1}` })
+  }
+  return groups.filter((group) => group.fields.length)
+}
 
 /**
  * ?zones=1  render the zone MARKS -- production's hatch and both water tints --
@@ -395,13 +445,15 @@ const HARNESS_STEP = documentStep({
 function OpenStep({ stepId }) {
   const { open, focusFeature } = useWizardCursor()
   useEffect(() => open(stepId), [open, stepId])
-  // ?detail=N also FOCUSES a feature, because the panel is absent unless one
-  // is focused -- that absence is the shell's own design and not something to
-  // arrange around. The id is the first tab's, so the case is one a click
-  // could actually produce.
-  useEffect(() => {
-    if (DETAIL_ROWS > 0) focusFeature('zone-1')
-  }, [focusFeature])
+  // NOTHING IS FOCUSED HERE, AND THAT IS DELIBERATE. The detail panel is
+  // absent unless a feature is focused, and the gesture that focuses one is a
+  // TAB CLICK (TabStrip's onClick -> focusFeature). A test that wants the
+  // panel clicks a tab, which is both the real gesture and the only way to
+  // measure the shell BEFORE and AFTER the panel opens on ONE page -- two
+  // pages would be two layouts, and "the strip did not move" is a claim about
+  // one. `focusFeature` stays in the destructuring above for the panel's own
+  // absence to be the shell's design rather than this file's arrangement.
+  void focusFeature
   return null
 }
 

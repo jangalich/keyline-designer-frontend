@@ -908,6 +908,261 @@ describe('8. the ceiling advisory', () => {
   })
 })
 
+/* ===========================================================================
+   9. A COMMIT IN FLIGHT, AND A COMMIT THAT DID NOT LAND
+   ===========================================================================
+   THREE THINGS THE COMMIT DID NOT SAY, all of them about the same few seconds.
+
+   WHILE IT RUNS   the banner emptied. `committing` declares no buttons, which
+                   is right -- there is nothing to press -- but the CARD stayed,
+                   so the button unmounted and left its padding and its hairline
+                   drawn around nothing. A small white square in the corner of
+                   the map.
+
+   WHEN IT FAILS   nothing at all. The boundary's commit is startSession(),
+                   which reports its failure with no step id, so the store took
+                   the SESSION branch -- and selectSessionError had no reader
+                   anywhere in the app. The button came back and that was the
+                   entire report. The user cannot tell a mistake of their own
+                   from a public data source being down.
+
+   AND WHAT IT MUST NOT SAY   the status code or the exception. The api client's
+                   fallback message is literally `Request failed (500).`, and a
+                   person looking at their own field can do nothing with it.
+
+   THE ASSERTIONS ARE ON RENDERED CONTENT, never on the absence of the button.
+   "The commit button is gone" was already true of the bug.
+   =========================================================================== */
+
+/**
+ * A fetch whose POST /api/sessions is held open until the test releases it.
+ *
+ * `installFetch` answers immediately, which is right for every other test here
+ * and useless for this one: the state under test EXISTS ONLY WHILE A REQUEST IS
+ * OUT, and a promise that has already resolved never has a `committing` frame
+ * to look at. This keeps the request in flight so the frame can be measured,
+ * then settles it with whatever the case needs.
+ */
+function installHeldSession(settle) {
+  let release = null
+  const held = new Promise((resolve) => {
+    release = resolve
+  })
+
+  globalThis.fetch = vi.fn(async (rawUrl, init = {}) => {
+    const url = new URL(rawUrl)
+    if (url.pathname === '/api/steps') {
+      return { ok: true, status: 200, json: async () => ({ step_order: [...STEP_ORDER] }) }
+    }
+    if (url.pathname === '/api/sessions' && (init.method ?? 'GET') === 'POST') {
+      await held
+      const { status, body } = settle()
+      return { ok: status >= 200 && status < 300, status, json: async () => body }
+    }
+    throw new Error(`no route for ${init.method ?? 'GET'} ${url.pathname}`)
+  })
+
+  return () => release()
+}
+
+/** Drive the boundary to the point where Commit is on screen and press it. */
+async function commitBoundary(ui) {
+  await ui.run((a) => a.setDraftInput(BOUNDARY_STEP_ID, BOUNDARY_RING_INPUT, RING))
+  expect(ui.find(`commit-${BOUNDARY_STEP_ID}`)).not.toBeNull()
+  await ui.click(`commit-${BOUNDARY_STEP_ID}`)
+}
+
+/**
+ * The failed_layer the backend sends, verbatim from production_zone_payload's
+ * LAYER_CANOPY: a stable `type` to branch on, and display prose in `label`.
+ *
+ * A REAL PAIR RATHER THAN A TIDY ONE, and it is worth saying why, because the
+ * tidy version made a false assertion look true. Both of the backend's pairs
+ * -- ("elevation", "elevation data") and this one -- have the type as a
+ * SUBSTRING of the label. So "the internal type never reaches the DOM" is not
+ * a claim that can hold: displaying the label displays those letters. What
+ * holds is that the type is never what is DISPLAYED and the label is never
+ * reworded, which is what the notice's exact text below actually pins.
+ */
+const FAILED_LAYER = { type: 'canopy', label: 'tree canopy height' }
+
+describe('9. the commit reports itself, running and failed', () => {
+  it('renders a working indicator while committing, not an empty card', async () => {
+    // TEST 6. On CONTENT: the card is there and it SAYS something. Asserting
+    // that the button is gone would have passed against the bug, which is the
+    // whole reason that is not the assertion.
+    const release = installHeldSession(() => ({ status: 201, body: serverDocument() }))
+    const ui = await renderShell()
+    await ui.run((a) => a.setDraftInput(BOUNDARY_STEP_ID, BOUNDARY_RING_INPUT, RING))
+
+    // PRESS COMMIT AND DO NOT WAIT FOR IT. The click is not awaited because
+    // the state being measured only exists while the request is out; the
+    // microtask turn is enough for setPending(COMMITTING) to reach the DOM
+    // and not enough for the held request to answer.
+    const button = ui.find(`commit-${BOUNDARY_STEP_ID}`)
+    await React.act(async () => {
+      button.click()
+      await Promise.resolve()
+    })
+
+    // THE STATE IS THE ONE UNDER TEST.
+    expect(ui.find(`step-${BOUNDARY_STEP_ID}`).dataset.stepState).toBe(COMMITTING)
+
+    // THE CARD IS STILL THERE.
+    const banner = ui.find(`banner-${BOUNDARY_STEP_ID}`)
+    expect(banner, 'the action card must not vanish while a commit runs').not.toBeNull()
+
+    // AND IT HAS CONTENT. A word that says what is happening, plus the pulse.
+    const working = ui.find(`working-${BOUNDARY_STEP_ID}`)
+    expect(working, 'committing must render an indicator').not.toBeNull()
+    expect(working.textContent.trim()).toBe('Committing…')
+    expect(banner.querySelector('.chrome-banner__pulse')).not.toBeNull()
+
+    // THE CARD IS NOT AN EMPTY BOX -- said as the bug would have failed it:
+    // the region renders text, rather than a bordered square of nothing.
+    expect(banner.textContent.replace(/\s/g, '')).not.toBe('')
+
+    await React.act(async () => {
+      release()
+      await Promise.resolve()
+    })
+    await ui.unmount()
+  })
+
+  it('names the layer that failed and brings the Commit button back', async () => {
+    // TEST 7.
+    installFetch([
+      route('POST', /^\/api\/sessions$/, {
+        status: 500,
+        body: { error: 'boom', failed_layer: FAILED_LAYER },
+      }),
+    ])
+    const ui = await renderShell()
+    await commitBoundary(ui)
+
+    // THE NOTICE IS THERE AND IT NAMES THE SOURCE, in the backend's own words.
+    const notice = ui.text(`commit-failed-${BOUNDARY_STEP_ID}`)
+    expect(notice, 'a failed commit must raise a notice').not.toBeNull()
+    expect(notice).toContain(FAILED_LAYER.label)
+
+    // IN CONSEQUENCE TERMS, and with the fault placed upstream -- the three
+    // things ProductionZonePanel's copy did and this inherits.
+    expect(notice).toContain('did not respond')
+    expect(notice).toContain('public datasets')
+
+    // THE BOUNDARY IS UNCHANGED AND CAN BE RETRIED, said in the notice and
+    // true in the store.
+    expect(notice).toContain('kept exactly as you drew it')
+    expect(ui.state.drafts[BOUNDARY_STEP_ID].inputs[BOUNDARY_RING_INPUT]).toEqual(RING)
+    expect(ui.state.sessionId).toBeNull()
+
+    // AND THE BUTTON IS BACK. The retry-ability was always correct; it was the
+    // silence beside it that was not.
+    expect(ui.find(`commit-${BOUNDARY_STEP_ID}`)).not.toBeNull()
+    expect(ui.find(`commit-${BOUNDARY_STEP_ID}`).disabled).toBe(false)
+    expect(ui.cursor.cursorStepId).toBe(BOUNDARY_STEP_ID)
+
+    await ui.unmount()
+  })
+
+  it('says the data sources did not respond when the failure names no layer', async () => {
+    // An unclassified failure carries prose and NO failed_layer, deliberately
+    // (step_registry.py). That is a real answer with its own sentence, not a
+    // gap to fill with the exception text.
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 500, body: { error: 'boom' } }),
+    ])
+    const ui = await renderShell()
+    await commitBoundary(ui)
+
+    const notice = ui.text(`commit-failed-${BOUNDARY_STEP_ID}`)
+    expect(notice).toContain('The data sources did not respond')
+    expect(notice).toContain('kept exactly as you drew it')
+
+    await ui.unmount()
+  })
+
+  it('clears the notice when the retry succeeds', async () => {
+    // TEST 8. Two responses on one route: the first fails, the second is the
+    // document. The retry is the same click on the same button.
+    installFetch([
+      route('POST', /^\/api\/sessions$/, [
+        { status: 500, body: { error: 'boom', failed_layer: FAILED_LAYER } },
+        { status: 201, body: serverDocument() },
+      ]),
+    ])
+    const ui = await renderShell()
+    await commitBoundary(ui)
+    expect(ui.find(`commit-failed-${BOUNDARY_STEP_ID}`)).not.toBeNull()
+
+    // RETRY. The button came back, so this is the user's own second press.
+    await ui.click(`commit-${BOUNDARY_STEP_ID}`)
+
+    // THE SESSION LANDED, AND THE NOTICE IS GONE -- from the boundary's chrome
+    // and from the step the wizard advanced to. A notice that survived onto
+    // landform would be reporting a failure that no longer happened.
+    expect(ui.state.sessionId).toBe('sess-1')
+    expect(ui.cursor.cursorStepId).toBe('landform')
+    expect(ui.find(`commit-failed-${BOUNDARY_STEP_ID}`)).toBeNull()
+    expect(ui.find('commit-failed-landform')).toBeNull()
+
+    await ui.unmount()
+  })
+
+  it('puts no status code, exception text or internal identifier in the DOM', async () => {
+    // TEST 9. Against the WORST body the wire can carry: a traceback in the
+    // prose, and a status this surface has no typed class for -- which is the
+    // case whose api-client message is the bare `Request failed (500).`
+    const TRACEBACK =
+      'Traceback (most recent call last):\n  File "parcel_data.py", line 91, in fetch\n' +
+      '    raise LayerFetchError(layer)\nrasterio.errors.RasterioIOError: HTTP 503'
+
+    installFetch([
+      route('POST', /^\/api\/sessions$/, {
+        status: 500,
+        body: { error: TRACEBACK, failed_layer: FAILED_LAYER },
+      }),
+    ])
+    const ui = await renderShell()
+    await commitBoundary(ui)
+
+    // The notice is on screen, so this is not passing by rendering nothing.
+    const notice = ui.text(`commit-failed-${BOUNDARY_STEP_ID}`)
+    expect(notice).not.toBeNull()
+
+    // THE NOTICE IS EXACTLY THE COMPOSED COPY, character for character. This
+    // is the assertion that does the work: a notice that is precisely these
+    // three sentences cannot also be carrying a traceback, a status code, an
+    // exception class or a module name, whatever the body held. The token list
+    // below is a second, blunter net over the WHOLE document.
+    expect(notice).toBe(
+      'The tree canopy height source did not respond. These are public datasets ' +
+        'that go down from time to time. Nothing is wrong with your boundary and ' +
+        'it has been kept exactly as you drew it. Try again in a moment.'
+    )
+
+    const rendered = ui.container.textContent
+    for (const forbidden of [
+      'Traceback',
+      'LayerFetchError',
+      'RasterioIOError',
+      'parcel_data.py',
+      '503',
+      '500',
+      'Request failed',
+    ]) {
+      expect(rendered, `"${forbidden}" must not reach the DOM`).not.toContain(forbidden)
+    }
+
+    // And what SHOULD be there, is -- so the loop above is a filter and not a
+    // description of an empty document.
+    expect(rendered).toContain(FAILED_LAYER.label)
+
+    await ui.unmount()
+  })
+})
+
+
 /** Every .js/.jsx file under src/. */
 function sourceFiles(root) {
   const { readdirSync, statSync } = require('node:fs')

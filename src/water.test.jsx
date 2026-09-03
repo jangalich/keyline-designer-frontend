@@ -1535,8 +1535,19 @@ describe('10. the attribution sits in the top-left card gap', () => {
     // colliding, which is a second layout rather than insurance.
     expect(css).not.toMatch(/@media[^{]*max-height[^{]*\{[^}]*leaflet-top/)
 
+    // THE FIRST ROW IS `auto` AND THE LAST IS `auto`, which is the whole of
+    // what this claim rests on: the gap is the first row's height, that row is
+    // sized to the instruction bar's content, and no viewport dimension is in
+    // it.
+    //
+    // THE MIDDLE TRACK IS minmax(0, 1fr) AND WAS `1fr`, and the difference is
+    // not this test's subject -- it is the detail-panel decoupling (see
+    // .chrome's own note). It is asserted here only so that a change BACK to
+    // `1fr` cannot pass: `1fr` means minmax(auto, 1fr), which lets the middle
+    // row grow to its content and pushes the bottom row down. That is a fact
+    // about the rows this test reads, so it is worth failing on.
     const grid = ruleFor(css, '.chrome')
-    expect(grid).toContain('grid-template-rows: auto 1fr auto')
+    expect(grid).toContain('grid-template-rows: auto minmax(0, 1fr) auto')
     expect(ruleFor(css, '.chrome-rail')).toContain('align-self: start')
   })
 

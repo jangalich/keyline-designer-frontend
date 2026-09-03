@@ -20,6 +20,12 @@
  * disabled placeholder, and both of those are a control that does nothing.
  * An empty list is a real answer too: a request in flight offers nothing.
  *
+ * BUT "NO BUTTONS" IS NOT "NOTHING TO SAY", and conflating the two is what put
+ * an empty white square in the corner during every commit. A state with a
+ * request in flight has something to report and no control to report it with,
+ * so it gets a line instead of a button; a state with neither gets no card at
+ * all. See WORKING below and the guard beneath it.
+ *
  * TWO CONFIRMATIONS, AND THEY ARE NOT THE SAME MECHANISM ON PURPOSE.
  *
  *   THE REOPEN's is the MACHINE's, because the cost it has to name -- which
@@ -40,6 +46,39 @@
 import { useState } from 'react'
 
 import { useWizardCursor } from '../WizardCursor.jsx'
+import { COMMITTING, GENERATING, LOADING } from '../useStepMachine'
+
+/**
+ * THE THREE STATES THAT OFFER NOTHING BECAUSE SOMETHING IS IN FLIGHT, and what
+ * the card says while they last.
+ *
+ * THIS SET IS NOT A LIST TO KEEP IN AGREEMENT WITH ANYTHING -- it is exactly
+ * the set of states that declare `[]` buttons, and they declare `[]` for one
+ * reason: a request is out and there is nothing to press until it answers.
+ * `loading` gets it from documentStep's factory default, `generating` and
+ * `committing` from every step that has them. No step declares an empty list
+ * for any other reason, and a step that wanted to would be declaring a state
+ * with no way out of it.
+ *
+ * WHY THE CARD STAYS AND DOES NOT EMPTY. The banner is where machine state is
+ * reported, and `committing` is the machine state that most needs reporting:
+ * the commit is the one action here that talks to a server, takes real time,
+ * and can come back having done nothing. Before this, clicking Commit removed
+ * the button and left the card's padding and hairline drawn around nothing --
+ * a small white square in the corner, which says neither "working" nor
+ * "finished" and reads as a rendering fault. The button unmounted; the region
+ * did not.
+ *
+ * THE COPY IS THE MACHINE'S, NOT THE STEP'S. What is happening in these three
+ * states is the same fact for all six steps, exactly as the instruction bar's
+ * `loading` sentence is -- so a per-step declaration would be six rewrites of
+ * three words, and the shell would be naming steps to do it.
+ */
+const WORKING = Object.freeze({
+  [LOADING]: 'Fetching…',
+  [GENERATING]: 'Generating…',
+  [COMMITTING]: 'Committing…',
+})
 
 /** A step id as a person reads it, from its definition when we have one. */
 function titleFor(stepId, definitions) {
@@ -60,9 +99,34 @@ export default function ActionBanner({ machine, chromeState, definitions }) {
   const chrome = { machine, arm, disarm, armed, advance }
 
   const pending = confirming ? buttons.find((button) => button.key === confirming) : null
+  const working = WORKING[chromeState] ?? null
+
+  /**
+   * NOTHING TO OFFER, NOTHING IN FLIGHT, NOTHING TO CONFIRM -> NO CARD.
+   *
+   * The other half of the empty-box fix, and the reason it is a rule rather
+   * than a patch on `committing`. A region draws a surface and a hairline
+   * because it has something to say; one with no buttons, no working line and
+   * no dialogue has nothing, and an empty bordered box in the corner of a map
+   * is the same defect wherever it comes from. Every state reachable today
+   * either declares buttons or is one of the three above -- so this returns
+   * null for no case that currently exists, and for every case a seventh state
+   * or a fourth step definition could introduce. The detail panel takes the
+   * same posture and its docblock makes the same argument: absent beats empty.
+   */
+  if (!buttons.length && !working && !pending && !machine.confirmingReopen) return null
 
   return (
     <div className="chrome-banner" data-testid={`banner-${stepId}`}>
+      {working ? (
+        /* A LINE THAT SAYS WHAT IS HAPPENING, in the space the buttons had.
+           `role="status"` so it is announced rather than silently swapped in,
+           which is the same treatment the instruction bar's direction takes. */
+        <p className="chrome-banner__working" data-testid={`working-${stepId}`} role="status">
+          <span className="chrome-banner__pulse" aria-hidden="true" />
+          {working}
+        </p>
+      ) : null}
       <div className="chrome-banner__actions" data-testid={`actions-${stepId}`}>
         {buttons.map((button) => {
           const enabled = button.enabled(chrome)

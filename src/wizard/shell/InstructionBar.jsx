@@ -19,13 +19,17 @@
  *
  * THE DIRECTION IS THE DEFINITION'S AND THE NOTICES ARE MOSTLY NOT.
  *
- * Five of the six notice kinds below are read off the MACHINE and are the
+ * Six of the seven notice kinds below are read off the MACHINE and are the
  * same for every step -- an unreachable step naming what is in its way, a
- * failed generate naming the layer, a commit's per-feature rejections, a step
+ * failed generate naming the layer, a commit's per-feature rejections, a
+ * COMMIT THAT DID NOT LAND naming the source that did not answer, a step
  * error, and what a draw gesture said about the last shape it closed. None of
- * those needed a step to declare anything, so none of them does. (The sixth
- * machine-side reason a user can be stuck -- why a commit is refused -- is on
- * the refused button itself in the banner, where the pointer already is.)
+ * those needed a step to declare anything, so none of them does. (The other
+ * machine-side reason a user can be stuck -- why a commit is REFUSED before it
+ * is sent -- is on the refused button itself in the banner, where the pointer
+ * already is. A commit that was sent and did not land is a different thing and
+ * belongs here: the button is not refusing anything, it has come back ready to
+ * be pressed again, and by itself that says nothing at all.)
  *
  * The last is `definition.notices(context)`: what only THIS step can know
  * is worth saying. Landform's 80% ceiling advisory is the whole of the current
@@ -76,6 +80,47 @@ function NoticeText({ text }) {
   )
 }
 
+/**
+ * A COMMIT THAT DID NOT LAND BECAUSE AN UPSTREAM SOURCE DID NOT ANSWER.
+ *
+ * THIS IS ProductionZonePanel'S COPY, kept because it was already right. It
+ * did three things in two sentences and all three still have to be done:
+ *
+ *   NAMES THE SOURCE      from `failed_layer.label` -- the backend's own
+ *                         display prose, verbatim. Which source failed is the
+ *                         only part of this a user can act on, because it is
+ *                         what tells them whether waiting will help.
+ *   PLACES THE FAULT      "public datasets that go down from time to time".
+ *                         Upstream, and not the user. Without this the retry
+ *                         reads as "you did it wrong, do it again".
+ *   SAYS THE WORK SURVIVED  the boundary is exactly as drawn. This is the
+ *                         sentence that turns a dead end into a retry, and it
+ *                         is TRUE by the backend's own contract:
+ *                         session_manager.create_session() persists nothing
+ *                         unless every step of it succeeded.
+ *
+ * NO LABEL IS A REAL CASE AND HAS ITS OWN SENTENCE. An unclassified failure
+ * carries prose and no `failed_layer` on purpose (step_registry.py says so),
+ * so "The data sources did not respond" is the honest thing to say rather
+ * than a gap to fill with the exception.
+ *
+ * WHAT IS NEVER IN HERE: the error's own `message`. It can be the api client's
+ * `Request failed (500).` fallback -- a status code -- or a backend string
+ * from a path that quotes one. A person looking at their own field cannot act
+ * on either, and the backend sends a stable layer identity precisely so this
+ * does not have to quote a traceback at them.
+ */
+function dataSourceNotice(failedLayer) {
+  const source = failedLayer?.label
+    ? `The ${failedLayer.label} source did not respond.`
+    : 'The data sources did not respond.'
+  return (
+    `${source} These are public datasets that go down from time to time. ` +
+    'Nothing is wrong with your boundary and it has been kept exactly as you ' +
+    'drew it. Try again in a moment.'
+  )
+}
+
 export default function InstructionBar({ machine, chromeState, definitions, undo = null }) {
   const { definition, stepId } = machine
   const { notice: gestureNotice } = useDrawingProgress()
@@ -118,7 +163,32 @@ export default function InstructionBar({ machine, chromeState, definitions, undo
     })
   }
 
-  if (machine.error && machine.error.kind !== 'rejected') {
+  /**
+   * A COMMIT THAT CAME BACK WITHOUT LANDING.
+   *
+   * KEYED ON THE LAYER'S STABLE `type`, NOT ON ITS LABEL. Two different
+   * sources failing are two different notices, and `type` is the identifier
+   * the backend guarantees across a copy edit to `label` -- the same split
+   * the cautions in DetailPanel branch on. The label is DISPLAYED and never
+   * reworded; the type is never displayed.
+   */
+  if (machine.commitFailure) {
+    const failed = machine.commitFailure.failedLayer
+    notices.push({
+      key: failed?.type ? `commit-failed-${failed.type}` : 'commit-failed',
+      tone: 'error',
+      testId: `commit-failed-${stepId}`,
+      text: dataSourceNotice(failed),
+    })
+  }
+
+  // EVERY OTHER STEP ERROR, in the server's own words. `network` is excluded
+  // because the notice above is already reporting it, in copy that names the
+  // source and places the fault -- and because this line renders `message`
+  // raw, which for a transport failure is the api client's status-code
+  // fallback. Two notices for one failure, one of them quoting a 500 at
+  // somebody, was the state of things before that exclusion.
+  if (machine.error && machine.error.kind !== 'rejected' && machine.error.kind !== 'network') {
     notices.push({
       key: 'error',
       tone: 'error',

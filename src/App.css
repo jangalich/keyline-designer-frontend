@@ -617,7 +617,38 @@
   z-index: 400;
   display: grid;
   grid-template-columns: auto 1fr auto;
-  grid-template-rows: auto 1fr auto;
+  /* THE MIDDLE ROW IS minmax(0, 1fr) AND NOT `1fr`, AND THAT ONE WORD IS THE
+     WHOLE OF THE SHELL'S PREMISE HOLDING OR NOT HOLDING.
+
+     `1fr` IS SHORTHAND FOR `minmax(auto, 1fr)`. The `auto` is a MINIMUM, and
+     an auto minimum is the row's CONTENT's min-content height -- so a `1fr`
+     row is not "whatever is left" at all. It is "whatever is left, OR my
+     content's height, WHICHEVER IS LARGER". The rail and the detail panel sit
+     in this row. The moment either of them is taller than the leftover space,
+     the row stops being leftover space and becomes content-sized, the three
+     rows no longer sum to the container, and the `bottom` row -- the tab strip
+     and the action card -- is pushed down by exactly the excess. Off the
+     bottom of the stage entirely, at a big enough panel.
+
+     THAT IS HOW A PANEL IN THE TOP RIGHT MOVED A STRIP AT THE BOTTOM. Not
+     through any rule naming both; through the row they share a container with.
+     Measured before the fix, at 1280x800 with realistic water rows: at 13 rows
+     the strip did not move at all, at 14 it dropped 51px, at 19 -- water's
+     maximal panel -- 203px, which puts it 190px below the stage. A THRESHOLD,
+     then a drop that tracks the content, which is why the symptom read as
+     "some zones push it and some do not".
+
+     `minmax(0, 1fr)` sets that minimum to zero. The row is then leftover space
+     and nothing else, the rows always sum to the container, and NO CONTENT OF
+     THIS ROW CAN MOVE ANOTHER ROW -- which is what "every region floats" has
+     to mean if it means anything. An over-tall item now OVERFLOWS ITS OWN AREA
+     rather than growing the row, which is why the detail panel is also capped
+     and scrolled internally (see .chrome-detail): decoupling stops the push,
+     the cap stops the overlap that would otherwise replace it.
+
+     `.chrome__bottom` already spells its own free track this way, for the same
+     reason. This is that fix, one level up, where it was missed. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
     'bar    bar   bar'
     'rail   free  detail'
@@ -890,6 +921,48 @@
    style and no toggle to style it with. See DetailPanel.jsx.
    --------------------------------------------------------------------------- */
 
+/* THE PANEL'S FOOTPRINT IS A CONSTANT, WHICH IS THE OTHER HALF OF THE FIX.
+
+   Decoupling the row (see .chrome) stops a tall panel from MOVING the strip.
+   It does not stop it from REACHING it: an item taller than its area now
+   overflows the area instead of growing it, so an uncapped panel would simply
+   be drawn over the tab strip rather than shoving it downward. Both are the
+   same bug -- a region whose size is a function of its content deciding what
+   another region gets -- and only a bounded footprint answers it.
+
+   So the panel is capped and scrolls inside the cap, exactly as the tab strip
+   is capped at three rows and scrolls past them. The argument is the tab
+   strip's argument: the panel's content is the STEP's, four groups for water
+   and fewer for landform and unknown for the four steps not yet built, and a
+   region sized by content nobody has written yet is a region that breaks the
+   shell on a Tuesday. A cap makes the footprint something the layout knows
+   without knowing the step.
+
+   THE CAP IS THE SMALLER OF TWO NUMBERS, BECAUSE THERE ARE TWO WAYS TO BE
+   TOO TALL:
+
+     30rem (480px)  THE CONTENT CEILING. Measured, not chosen: water's panel
+                    is build_zone_panel's five always-rows plus its
+                    conditionals, and at 1280x800 nine of those rows over four
+                    groups render 478.5px. Nine is a typical zone carrying
+                    cautions -- so the panel a real water zone produces opens
+                    fully visible and does not scroll from its first line.
+                    Past that it scrolls, which is the honest answer for
+                    water's 19-row maximum (796px): no cap that fits THAT also
+                    leaves a map underneath.
+
+     100% - 2x      THE ROOM CEILING, and the one that actually guarantees the
+     --space-3      strip is never covered. 100% here is the grid AREA's
+                    height -- the middle row, which minmax(0, 1fr) makes
+                    exactly the space between the instruction bar and the
+                    bottom row -- less the panel's own margins. Whatever the
+                    viewport, the panel cannot leave its row. On a short frame
+                    (620px, 480px) this term is the smaller and takes over;
+                    on a desktop frame the 30rem does.
+
+   A fixed rem alone would overflow a short viewport; the percentage alone
+   would let a tall monitor draw a full-height sidebar down the right edge of
+   the map. The minimum of the two is neither. */
 .chrome-detail {
   grid-area: detail;
   align-self: start;
@@ -898,10 +971,36 @@
   margin: var(--space-3) calc(var(--space-3) + 2.5rem);
   width: 15rem;
   max-width: 40vw;
+  max-height: min(30rem, 100% - 2 * var(--space-3));
   padding: var(--space-3);
   background: var(--paper);
   border: var(--hairline);
   border-radius: var(--radius);
+  /* The header does not scroll; the body does. Two rows, and the second one
+     takes what is left -- see .chrome-detail__body. */
+  display: flex;
+  flex-direction: column;
+}
+
+/* WHAT SCROLLS, AND WHAT STAYS PUT.
+
+   THE HEADING IS OUTSIDE THIS. The panel's title is the name of the thing
+   being described, and a panel whose reader has scrolled to a caution while
+   the zone's name has left the top of the box is a panel describing something
+   the reader can no longer see. It is the one line that must survive any
+   scroll position, so it sits above the scrolling region rather than in it.
+
+   `min-height: 0` IS LOAD-BEARING. A flex item's default minimum is its
+   content, which is the same defect as the grid row's `auto` minimum one
+   level up: without this the body refuses to shrink below its content, the
+   panel grows past its own max-height, and the cap silently does nothing.
+   Same word, same failure, second place it has to be said. */
+.chrome-detail__body {
+  min-height: 0;
+  overflow-y: auto;
+  /* The scrollbar rides the panel's padding edge rather than sitting on top
+     of the figures' column. */
+  scrollbar-width: thin;
 }
 
 /* The panel's title is a real heading, and the second place the display face
@@ -1329,6 +1428,53 @@
   justify-content: flex-end;
 }
 
+/* WHAT THE CARD HOLDS WHILE A REQUEST IS OUT.
+   Set as the banner's own quiet line rather than as a disabled button: it is
+   not a control and must not look like one that has stopped working. The face
+   is the data face, because what it reports is machine state rather than
+   prose. See ActionBanner's WORKING. */
+.chrome-banner__working {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+/* THE ONE MOVING THING IN THE SHELL, AND IT IS THREE PIXELS OF IT.
+   A pulsing dot rather than a spinning ring: a ring is a borrowed idiom that
+   would be the only circle in a system built from hairlines and squares, and
+   at this size it reads as a smudge. The dot carries --oxide because it is the
+   colour that means "this is the thing happening" everywhere else in the
+   chrome -- the same argument the primary button's fill makes. */
+.chrome-banner__pulse {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--oxide);
+  animation: chrome-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes chrome-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+/* A PULSE IS INFORMATION HERE, so it is not removed under reduced motion --
+   it is held still. The dot stays, at the opacity it spends most of its cycle
+   at, and the word beside it carries the whole message on its own. Removing
+   the element would leave the one state whose report is "something is
+   happening" with nothing that says so. */
+@media (prefers-reduced-motion: reduce) {
+  .chrome-banner__pulse {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
 .chrome-banner__button {
   padding: var(--space-2) var(--space-4);
   border: var(--hairline);
@@ -1440,6 +1586,39 @@
   .chrome-rail {
     width: auto;
     max-width: 60vw;
+  }
+
+  /* THE PANEL IS CAPPED AGAINST THE VIEWPORT HERE, NOT AGAINST ITS ROW, AND
+     THE NARROW GRID IS WHY.
+
+     THIS LAYOUT HAS THE COUPLING THE WIDE ONE JUST LOST, in a form the wide
+     one's fix cannot reach. Above, the panel sits in the `free` row --
+     minmax(0, 1fr), leftover space, definite -- so `100%` means "the space
+     between the bar and the bottom row" and capping against it guarantees the
+     panel stays inside it.
+
+     Here the areas are different: the panel shares a CONTENT-SIZED row with
+     the horizontal rail ('rail detail'), and the free map is a row of its own
+     below them. That row is `auto`, so its height is its content's -- which
+     puts the panel's height straight back into the row stack, pushing `free`
+     and then `bottom` down exactly as `1fr`'s auto minimum did. Measured at
+     700x620 before this rule: a 30-row panel moved the tab strip and the
+     action card 830px down, well off the stage.
+
+     AND THE PERCENTAGE TERM SILENTLY DOES NOTHING HERE. A percentage
+     max-height against a track whose size is `auto` is a percentage of an
+     indefinite height, which resolves to `none` -- so the shared rule's
+     `min(30rem, 100% - ...)` collapses to a flat 30rem, and 30rem is taller
+     than the whole map on a phone. It fails silently, which is the worst way
+     for a cap to fail.
+
+     40vh IS THE ROOM THIS LAYOUT ACTUALLY HAS. The row stack here is the bar,
+     this row, the free map and an 11rem bottom -- so a panel taking more than
+     about two fifths of the frame leaves no map to have selected a zone on.
+     It is measured against the viewport rather than the row because the row
+     is the thing that must not grow. */
+  .chrome-detail {
+    max-height: min(30rem, 40vh);
   }
 
   .chrome-rail__list {

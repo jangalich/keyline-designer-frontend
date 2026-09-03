@@ -68,6 +68,18 @@ const READING_MEASURE = 680
 const INSET = 12
 
 /**
+ * App.css's cap on the detail panel: `min(30rem, ...)` in px, at the root
+ * font size these pages render at.
+ *
+ * THE OTHER TERM OF THAT min() IS THE ROW'S OWN HEIGHT, so this is the cap
+ * only on a stage tall enough for it -- which the 800px default viewport is
+ * and the 480px case deliberately is not. The one test that asserts this
+ * number takes it at the default viewport; the short-frame cases assert the
+ * containment the percentage term gives instead.
+ */
+const PANEL_CAP = 480
+
+/**
  * `.map-stage` carries a hairline of its own, and getBoundingClientRect gives
  * the BORDER box -- so a region inset by --space-3 sits 13px from the stage's
  * measured left edge, not 12. Named rather than absorbed into a fudge factor,
@@ -591,6 +603,324 @@ describeIf('the rail, on screen', () => {
 
     await ui.close()
   }, SLOW)
+})
+
+/* ===========================================================================
+   THE DETAIL PANEL: IT MOVES NOTHING, AND ITS FOOTPRINT IS A CONSTANT
+   ===========================================================================
+   THE BUG THESE WERE WRITTEN AGAINST. Selecting a zone opened the panel in the
+   TOP RIGHT and pushed the tab strip at the BOTTOM downward -- off the stage
+   entirely on a panel with enough rows.
+
+   It happened through the grid row the panel sits in. `.chrome`'s middle row
+   was `1fr`, which is `minmax(auto, 1fr)`: an AUTO MINIMUM, meaning the row is
+   at least as tall as its content. Past the leftover space the row grew, the
+   three rows stopped summing to the container, and the bottom row went down by
+   the excess. Measured here before the fix, at 1280x800 with realistic water
+   rows: 13 rows moved the strip 0px, 14 moved it 51px, and 19 -- water's
+   maximal panel -- moved it 203px, which is 190px below the stage's bottom
+   edge. A threshold and then a drop that tracks the content, which is why the
+   symptom read as "some zones push it and some do not".
+
+   ONLY A REAL ENGINE CAN SETTLE ANY OF THIS. `minmax(auto, 1fr)` vs
+   `minmax(0, 1fr)` is a difference in what the layout algorithm does with a
+   row, and jsdom runs no layout algorithm. style.test.jsx can assert the
+   stylesheet says `minmax(0, 1fr)`; it cannot assert that the strip did not
+   move, which is the actual claim.
+
+   THE PANEL IS OPENED BY CLICKING A TAB, which is the gesture that opens it in
+   the app -- and the reason these measure BEFORE and AFTER on ONE page rather
+   than comparing two. Two pages are two layouts; "it did not move" is a claim
+   about one.
+   =========================================================================== */
+
+describeIf('the detail panel, measured', () => {
+  /** Open the panel the way a user does, and wait for it to be laid out. */
+  async function openPanel(ui) {
+    await ui.page.click('[data-testid="tab-zone-1"]')
+    await ui.page.waitForSelector('.chrome-detail')
+  }
+
+  it('does not move the tab strip when it opens', async () => {
+    // TEST 1. The whole branch in one assertion.
+    const ui = await openHarness({ tabs: 3, detail: 14 })
+
+    const before = {
+      strip: await ui.box(REGIONS.tabs),
+      action: await ui.box(REGIONS.action),
+      rail: await ui.box(REGIONS.rail),
+    }
+    // The panel is genuinely absent to begin with -- so what follows is an
+    // opening, not a re-measure of something already there.
+    expect(await ui.box(REGIONS.detail), 'no panel before the click').toBeNull()
+
+    await openPanel(ui)
+    expect(await ui.box(REGIONS.detail), 'the panel opened').not.toBeNull()
+
+    const after = {
+      strip: await ui.box(REGIONS.tabs),
+      action: await ui.box(REGIONS.action),
+      rail: await ui.box(REGIONS.rail),
+    }
+
+    // THE STRIP DID NOT MOVE. Not "moved less"; did not move.
+    expect(after.strip.y, 'the tab strip must not move when the panel opens').toBeCloseTo(
+      before.strip.y,
+      0
+    )
+    expect(after.strip.x).toBeCloseTo(before.strip.x, 0)
+    expect(after.strip.height).toBeCloseTo(before.strip.height, 0)
+
+    // NOR DID THE OTHER TWO REGIONS SHARING ITS ROWS. The claim is that the
+    // panel affects NO region's position, and the strip is only the one the
+    // bug was reported through.
+    expect(after.action.y).toBeCloseTo(before.action.y, 0)
+    expect(after.action.x).toBeCloseTo(before.action.x, 0)
+    expect(after.rail.y).toBeCloseTo(before.rail.y, 0)
+
+    // AND THE STRIP IS STILL ON THE STAGE, which is what the drop was
+    // ultimately costing.
+    const stage = await ui.stage()
+    expect(after.strip.y + after.strip.height).toBeLessThanOrEqual(
+      stage.y + stage.height - INSET
+    )
+
+    await ui.close()
+  }, SLOW)
+
+  it('puts the strip in the same place for a one-group panel and a four-group one', async () => {
+    // TEST 2. THE SECOND SYMPTOM THE COUPLING PREDICTED: a drop that varied
+    // with how much the panel held. That is what made it a property of the
+    // ROW rather than of any one height -- and it is why a fixed panel height
+    // alone would have been the wrong fix, freezing the strip at a wrong
+    // position instead of restoring it.
+    //
+    // FOUR COUNTS ACROSS THE OLD THRESHOLD: two below it, one just past it,
+    // and water's maximal panel well past it. Before the fix the first two
+    // agreed and the last two did not.
+    //
+    // ONE ROW IS THE ONE-GROUP CASE. detailGroups() deals rows round the four
+    // groups, so the group COUNT is min(rows, 4) -- two rows is already two
+    // groups, and one row is the only single-group panel there is.
+    const positions = []
+    for (const rows of [1, 8, 14, 19]) {
+      const ui = await openHarness({ tabs: 3, detail: rows })
+      await openPanel(ui)
+      const strip = await ui.box(REGIONS.tabs)
+      const panel = await ui.box(REGIONS.detail)
+      const groups = await ui.page.locator('.chrome-detail__group').count()
+      positions.push({ rows, y: strip.y, panelHeight: panel.height, groups })
+      await ui.close()
+    }
+
+    // The cases really are different panels -- one group against four -- so
+    // the agreement below is not four measurements of the same thing.
+    expect(positions[0].groups).toBe(1)
+    expect(positions[3].groups).toBe(4)
+    expect(positions[3].panelHeight).toBeGreaterThan(positions[0].panelHeight)
+
+    // AND THE STRIP IS IN THE SAME PLACE IN ALL FOUR.
+    for (const position of positions) {
+      expect(
+        position.y,
+        `${position.rows} rows: the strip must sit where it sits with every other panel`
+      ).toBeCloseTo(positions[0].y, 0)
+    }
+
+    await Promise.resolve()
+  }, MANY_PAGES)
+
+  it('scrolls its content past the cap without changing its own height', async () => {
+    // TEST 3. The cap is only a cap if the content that exceeds it is still
+    // REACHABLE -- otherwise it is a crop.
+    const under = await openHarness({ tabs: 3, detail: 6 })
+    await openPanel(under)
+    const underBox = await under.box(REGIONS.detail)
+    const underScroll = await under.page.evaluate(() => {
+      const el = document.querySelector('.chrome-detail__body')
+      return { scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }
+    })
+    await under.close()
+
+    // A panel comfortably under the cap does NOT scroll -- so the assertion
+    // below is about the cap and not about a body that always overflows.
+    expect(underScroll.scrollHeight).toBeLessThanOrEqual(underScroll.clientHeight + 1)
+
+    const over = await openHarness({ tabs: 3, detail: 30 })
+    await openPanel(over)
+    const overBox = await over.box(REGIONS.detail)
+    const overScroll = await over.page.evaluate(() => {
+      const el = document.querySelector('.chrome-detail__body')
+      return { scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }
+    })
+
+    // IT SCROLLS: there is more content than box.
+    expect(overScroll.scrollHeight).toBeGreaterThan(overScroll.clientHeight)
+
+    // AND THE BOX IS THE CAP, not the content. Five times the rows, same
+    // footprint -- which is the property the layout gets to depend on.
+    expect(overBox.height).toBeGreaterThan(underBox.height) // 6 rows is under the cap
+    expect(overBox.height).toBeCloseTo(PANEL_CAP, 0)
+
+    // THE CONTENT REALLY IS REACHABLE. Scroll to the bottom and the body's
+    // last child is inside the visible box.
+    const lastVisible = await over.page.evaluate(() => {
+      const body = document.querySelector('.chrome-detail__body')
+      body.scrollTop = body.scrollHeight
+      const last = body.lastElementChild.getBoundingClientRect()
+      const box = body.getBoundingClientRect()
+      return last.bottom <= box.bottom + 1 && last.top >= box.top - 1
+    })
+    expect(lastVisible, 'the last row must be reachable by scrolling').toBe(true)
+
+    await over.close()
+  }, SLOW)
+
+  it('keeps the header visible while the body scrolls', async () => {
+    // TEST 4. The panel exists to say what ONE zone is; a reader who has
+    // scrolled to a caution while the zone's name has left the box is reading
+    // figures about something they can no longer identify.
+    const ui = await openHarness({ tabs: 3, detail: 30 })
+    await openPanel(ui)
+
+    const heading = '.chrome-detail__name'
+    const before = await ui.box(heading)
+    expect(before).not.toBeNull()
+
+    await ui.page.evaluate(() => {
+      const body = document.querySelector('.chrome-detail__body')
+      body.scrollTop = body.scrollHeight
+    })
+    const scrolled = await ui.page.evaluate(
+      () => document.querySelector('.chrome-detail__body').scrollTop
+    )
+    expect(scrolled, 'the body actually scrolled').toBeGreaterThan(0)
+
+    // THE HEADING DID NOT MOVE, and is still inside the panel.
+    const after = await ui.box(heading)
+    expect(after.y).toBeCloseTo(before.y, 0)
+    const panel = await ui.box(REGIONS.detail)
+    expect(after.y).toBeGreaterThanOrEqual(panel.y - 1)
+    expect(after.y + after.height).toBeLessThanOrEqual(panel.y + panel.height + 1)
+
+    // AND IT STILL SAYS THE ZONE'S NAME.
+    expect(await ui.page.locator(heading).textContent()).toBe('Embankment 1')
+
+    await ui.close()
+  }, SLOW)
+
+  it('moves nothing on the NARROW layout either, where the grid is a different one', async () => {
+    // THE SAME CLAIM, ON THE OTHER GRID, and it needs its own test because the
+    // wide layout's fix cannot reach this one.
+    //
+    // Under `max-width: 46rem` the chrome re-lays out: the rail goes
+    // horizontal and joins the panel in a row of their own, and the free map
+    // becomes a row BELOW them ('rail detail' / 'free free'). So the panel's
+    // row is `auto` -- content-sized -- rather than the `1fr` the wide layout
+    // gives it. Two consequences, and both bite:
+    //
+    //   The panel's height goes straight back into the row stack, pushing the
+    //   free row and the bottom row down. Measured here before the narrow
+    //   cap: a 30-row panel moved the strip and the action card 830px, off
+    //   the stage.
+    //
+    //   And the shared rule's percentage term resolves against an INDEFINITE
+    //   height, so it silently evaluates to `none` and the cap collapses to a
+    //   flat 30rem -- taller than the map it is sitting on. A cap that fails
+    //   quietly is worse than one that fails loudly, so it is measured.
+    const ui = await openHarness({ tabs: 3, detail: 30 })
+    await ui.page.setViewportSize({ width: 700, height: 620 })
+    await ui.page.waitForFunction(
+      () => getComputedStyle(document.querySelector('.chrome')).gridTemplateAreas.includes('free')
+    )
+
+    const before = { strip: await ui.box(REGIONS.tabs), action: await ui.box(REGIONS.action) }
+    await openPanel(ui)
+    const after = { strip: await ui.box(REGIONS.tabs), action: await ui.box(REGIONS.action) }
+
+    expect(after.strip.y, 'the narrow layout must not move the strip either').toBeCloseTo(
+      before.strip.y,
+      0
+    )
+    expect(after.action.y).toBeCloseTo(before.action.y, 0)
+
+    // AND NOTHING LEFT THE STAGE.
+    const stage = await ui.stage()
+    const panel = await ui.box(REGIONS.detail)
+    for (const [name, box] of Object.entries({ ...after, panel })) {
+      expect(
+        box.y + box.height,
+        `${name} must stay on the stage at 700x620`
+      ).toBeLessThanOrEqual(stage.y + stage.height + 1)
+    }
+
+    // The flat-30rem failure would put the panel at 480px on a 620px frame.
+    expect(panel.height).toBeLessThan(PANEL_CAP)
+
+    await ui.close()
+  }, SLOW)
+
+  it('stays in the open map band and off the parcel, at four viewport heights', async () => {
+    // TEST 5. WHAT "DOES NOT COVER THE PARCEL" IS MEASURED AS, said plainly
+    // because the honest version is not the obvious one.
+    //
+    // There is no parcel on this page -- the harness mounts no Leaflet, for
+    // the reasons its own docblock gives -- and driving the real map to a
+    // committed boundary would make a geometry assertion depend on a session,
+    // a backend and a tile fetch. What CAN be measured is the property that
+    // actually keeps the parcel visible, and it is a stronger claim than
+    // "does not overlap some rectangle":
+    //
+    //   THE PANEL NEVER LEAVES THE OPEN MAP BAND. Clear of the instruction
+    //   card above and of the bottom row below, at every height. This is the
+    //   one that matters most after the decoupling: an item that can no longer
+    //   PUSH the strip can still be DRAWN OVER it, and that would be the same
+    //   bug wearing a different coat.
+    //
+    //   IT LEAVES THE MAP'S CENTRE CLEAR. Leaflet centres a fitted parcel in
+    //   its container, so the container's centre is the middle of the parcel
+    //   at whole-parcel zoom whatever the zoom actually is. A panel covering
+    //   that point is covering the parcel's middle.
+    //
+    //   AND IT IS A CORNER CARD, NOT A SIDEBAR. Bounded well under a third of
+    //   the stage's area, at every height.
+    for (const height of [1000, 800, 620, 480]) {
+      const ui = await openHarness({ tabs: 3, detail: 30 }) // past the cap: the tallest it gets
+      await ui.page.setViewportSize({ width: 1280, height })
+      await openPanel(ui)
+
+      const stage = await ui.stage()
+      const panel = await ui.box(REGIONS.detail)
+      const bar = await ui.box(REGIONS.instruction)
+      const strip = await ui.box(REGIONS.tabs)
+      const action = await ui.box(REGIONS.action)
+
+      // IN THE BAND, touching neither the row above nor the row below.
+      expect(overlaps(panel, bar), `${height}px: panel clear of the instruction card`).toBe(
+        false
+      )
+      expect(overlaps(panel, strip), `${height}px: panel clear of the tab strip`).toBe(false)
+      expect(overlaps(panel, action), `${height}px: panel clear of the action card`).toBe(false)
+      expect(panel.y + panel.height, `${height}px: panel above the bottom row`).toBeLessThanOrEqual(
+        strip.y + 1
+      )
+
+      // THE MAP'S CENTRE IS NOT UNDER IT.
+      const centre = { x: stage.x + stage.width / 2, y: stage.y + stage.height / 2 }
+      const coversCentre =
+        centre.x >= panel.x &&
+        centre.x <= panel.x + panel.width &&
+        centre.y >= panel.y &&
+        centre.y <= panel.y + panel.height
+      expect(coversCentre, `${height}px: the panel must not cover the map's centre`).toBe(false)
+
+      // A CORNER CARD.
+      const share = (panel.width * panel.height) / (stage.width * stage.height)
+      expect(share, `${height}px: the panel must stay a corner card`).toBeLessThan(0.25)
+
+      await ui.close()
+    }
+  }, MANY_PAGES)
 })
 
 /* ===========================================================================
