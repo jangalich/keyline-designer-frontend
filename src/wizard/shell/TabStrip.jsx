@@ -135,16 +135,59 @@ export function tabColumns(cells, cap = TAB_COLUMNS) {
   return Math.max(1, Math.min(cells, cap))
 }
 
+/**
+ * Is this tab the focused one -- by its own id, or by any feature it carries.
+ *
+ * A TAB MAY STAND FOR SEVERAL FEATURES (`featureIds`), because a tab is a
+ * unit of the commit decision and the roads step's unit is a network of
+ * branches. The focus slot holds whatever was clicked -- the tab's id, or a
+ * branch's -- and the tab is marked either way, which is what makes clicking
+ * a branch on the map and clicking its tab the same act.
+ */
+export function tabIsFocused(tab, focusedFeatureId) {
+  if (focusedFeatureId == null) return false
+  if (tab.id === focusedFeatureId) return true
+  return Array.isArray(tab.featureIds) && tab.featureIds.includes(focusedFeatureId)
+}
+
+/** The feature ids a tab's eye toggles: what it declares, or its own id. */
+function featureIdsOf(tab) {
+  return Array.isArray(tab.featureIds) && tab.featureIds.length ? tab.featureIds : [tab.id]
+}
+
+/**
+ * THE SELECTION AFTER ONE EYE IS PRESSED, in the step's declared mode.
+ *
+ *   multiple  a checkbox: the tab's features join the set or leave it, and
+ *             nothing else moves. What every eye was before roads.
+ *   radio     one or none: turning a tab ON is the whole selection -- every
+ *             other tab's features leave -- and turning it OFF leaves the set
+ *             empty. Commit-one-or-none, read off the definition rather than
+ *             off which step this is; the backend says the same thing as
+ *             `max_features: 1` counted by network.
+ */
+export function selectionAfterEye(current, tab, mode) {
+  const ids = featureIdsOf(tab)
+  const isOn = tab.selected !== false
+  if (isOn) return current.filter((id) => !ids.includes(id))
+  if (mode === 'radio') return [...ids]
+  return [...new Set([...current, ...ids])]
+}
+
 export default function TabStrip({ machine, onRemove }) {
   const [expanded, setExpanded] = useState(false)
   const { focusedFeatureId, focusFeature } = useWizardCursor()
   const { definition, stepId, actions } = machine
+  const mode = definition.selection?.mode ?? 'multiple'
 
   const tabs = definition.tabs(machine.context)
   if (!tabs.length) return null
 
+  // The focused tab, resolved once: a tab's id or one of its features.
+  const focusedTabId = tabs.find((tab) => tabIsFocused(tab, focusedFeatureId))?.id ?? null
+
   const overflowing = tabs.length > TAB_COLUMNS
-  const shown = expanded || !overflowing ? tabs : collapsedTabs(tabs, focusedFeatureId)
+  const shown = expanded || !overflowing ? tabs : collapsedTabs(tabs, focusedTabId)
   const hidden = tabs.length - shown.length
 
   // Every cell the list is about to hold: the tabs, plus the one affordance
@@ -161,6 +204,7 @@ export default function TabStrip({ machine, onRemove }) {
       data-tab-count={tabs.length}
       data-tab-columns={tabColumns(cells)}
       data-expanded={expanded ? 'true' : 'false'}
+      data-selection={mode}
       style={{
         '--tab-columns': tabColumns(cells),
         '--tab-columns-narrow': tabColumns(cells, TAB_COLUMNS_NARROW),
@@ -168,7 +212,7 @@ export default function TabStrip({ machine, onRemove }) {
     >
       <ul className="chrome-tabs__list">
         {shown.map((tab) => {
-          const focused = tab.id === focusedFeatureId
+          const focused = tab.id === focusedTabId
           const off = tab.eye && tab.selected === false
           return (
             <li
@@ -217,7 +261,15 @@ export default function TabStrip({ machine, onRemove }) {
                       : `Leave ${tab.name} out of this step`
                   }
                   data-testid={`tab-eye-${tab.id}`}
-                  onClick={() => actions.toggleSelection(stepId, tab.id)}
+                  data-selection={mode}
+                  role={mode === 'radio' ? 'radio' : undefined}
+                  aria-checked={mode === 'radio' ? tab.selected !== false : undefined}
+                  onClick={() =>
+                    actions.setSelection(
+                      stepId,
+                      selectionAfterEye(machine.draft.selectedFeatureIds, tab, mode)
+                    )
+                  }
                 >
                   <Eye open={tab.selected !== false} />
                 </button>
@@ -230,7 +282,7 @@ export default function TabStrip({ machine, onRemove }) {
                 <button
                   type="button"
                   className="chrome-tab__remove"
-                  aria-label={`Delete ${tab.name}`}
+                  aria-label={`${definition.removeTab ? 'Discard' : 'Delete'} ${tab.name}`}
                   data-testid={`tab-remove-${tab.id}`}
                   onClick={() => onRemove?.(tab.id)}
                 >

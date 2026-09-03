@@ -90,6 +90,8 @@
  * front of the backend's measurement.
  */
 
+import { useEffect, useRef } from 'react'
+
 import { useDrawingProgress } from '../../map/DrawingProgress.jsx'
 import { useWizardCursor } from '../WizardCursor.jsx'
 
@@ -124,11 +126,29 @@ function groupsOf(detail) {
  * fields keep their declared order. A measured field takes the two-column
  * treatment; a prose one spans both and is label-first.
  */
-function Group({ group, stepId }) {
+function Group({ group, stepId, scrollTarget = false }) {
+  const anchor = useRef(null)
+
+  // SCROLLED TO, WHEN THE DETAIL SAYS SO. A detail may name one group as
+  // `scrollTo` -- the branch that was clicked on the map, inside the panel
+  // for its whole network -- and the body scrolls that group into view so
+  // the click lands on the figures for the thing that was clicked. Guarded:
+  // a test environment has no layout and no scrollIntoView.
+  useEffect(() => {
+    if (scrollTarget && typeof anchor.current?.scrollIntoView === 'function') {
+      anchor.current.scrollIntoView({ block: 'nearest' })
+    }
+  }, [scrollTarget])
+
   return (
     <>
       {group.label ? (
-        <p className="chrome-detail__group" data-testid={`detail-group-${group.label}`}>
+        <p
+          ref={anchor}
+          className="chrome-detail__group"
+          data-testid={`detail-group-${group.id ?? group.label}`}
+          data-scroll-target={scrollTarget ? 'true' : undefined}
+        >
           {group.label}
         </p>
       ) : null}
@@ -138,7 +158,9 @@ function Group({ group, stepId }) {
           old single container has to change. */}
       <div
         className="chrome-detail__fields"
-        data-testid={group.label ? `detail-fields-${group.label}` : `detail-fields-${stepId}`}
+        data-testid={
+          group.label ? `detail-fields-${group.id ?? group.label}` : `detail-fields-${stepId}`
+        }
       >
         {group.fields.map((field) =>
           field.measured ? (
@@ -234,7 +256,12 @@ export default function DetailPanel({ machine }) {
               longer reordered to do it. See GROUPS above. */}
           <div className="chrome-detail__body">
             {groupsOf(detail).map((group, index) => (
-              <Group key={group.label ?? `group-${index}`} group={group} stepId={stepId} />
+              <Group
+                key={group.id ?? group.label ?? `group-${index}`}
+                group={group}
+                stepId={stepId}
+                scrollTarget={detail.scrollTo != null && group.id === detail.scrollTo}
+              />
             ))}
             {detail.cautions.length ? (
               <ul className="chrome-detail__cautions" data-testid={`detail-cautions-${stepId}`}>

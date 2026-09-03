@@ -234,7 +234,9 @@ describe('1. the rail at the boundary step', () => {
     // other thing, which is what keeps the distinction meaningful.
     expect(ui.statusWord(REGISTERED)).toBe('not yet')
     expect(ui.statusWord('water')).toBe('not yet')
-    for (const unbuilt of ['roads', 'trees', 'structures', 'fencing']) {
+    // ROADS MOVED TOO, with its own branch: it has a definition now.
+    expect(ui.statusWord('roads')).toBe('not yet')
+    for (const unbuilt of ['trees', 'structures', 'fencing']) {
       expect(ui.statusWord(unbuilt), `${unbuilt} has no definition yet`).toBe('not built yet')
     }
 

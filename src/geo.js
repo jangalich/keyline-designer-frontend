@@ -235,6 +235,18 @@ export function vertexAtPixel(clickPoint, points, project, radiusPx) {
    swap happens once per direction instead of at every call site.
    --------------------------------------------------------------------------- */
 
+/** One [lat, lng] point as a GeoJSON position [lng, lat]. */
+export function pointToGeoJSON([lat, lng]) {
+  return [lng, lat]
+}
+
+/** One GeoJSON position [lng, lat] as a [lat, lng] point. The ring helpers
+ *  below close and unclose; a single point must never pass through them, as a
+ *  one-point ring "closes on itself" and comes back empty. */
+export function pointFromGeoJSON([lng, lat]) {
+  return [lat, lng]
+}
+
 /** A ring of [lat, lng] points as a closed GeoJSON ring of [lng, lat]. */
 export function ringToGeoJSON(points) {
   const ring = points.map(([lat, lng]) => [lng, lat])

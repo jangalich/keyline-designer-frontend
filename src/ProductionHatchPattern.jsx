@@ -130,6 +130,13 @@ const TREATMENT_MARKS = [
   // --tint-* and --pattern-* levels), not properties of the mark.
   { treatment: 'survey-embankment', kind: 'tint', token: '--survey-embankment' },
   { treatment: 'survey-excavated', kind: 'tint', token: '--survey-excavated' },
+  // ROADS: a cased LINE. The first mark here that is not ground. Its whole
+  // description is its colour -- the weights are layers.jsx's LINE_WEIGHT and
+  // CASING_WEIGHT, the same pair every other line on this map takes -- and
+  // its presence in each state is the pattern level, like a hatch's. A line
+  // has no fill, so a paint server would be a def with nothing to reference
+  // it; there is none.
+  { treatment: 'road', kind: 'line', token: '--road' },
 ]
 
 /**
@@ -154,6 +161,10 @@ export function zoneMark(treatment) {
   if (spec.kind === 'tint') {
     const colour = readToken(spec.token)
     return { kind: 'tint', fill: colour, stroke: colour }
+  }
+  if (spec.kind === 'line') {
+    // A stroke and nothing to fill: the line IS the mark.
+    return { kind: 'line', fill: null, stroke: readToken(spec.token) }
   }
   return { kind: 'pattern', fill: `url(#${patternIdFor(treatment)})`, stroke: null }
 }

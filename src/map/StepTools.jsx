@@ -79,12 +79,18 @@ const CLAIMS = {
 const RENDERED_BY = {
   ring: ['draw', 'delete'],
   polygon: ['delete', 'draw'],
-  proposalPolygon: ['select'],
+  // THE ROADS STEP'S TWO KINDS. A draft LINE has no author yet (nothing draws
+  // a road by hand) and takes the polygon order; a draft POINT is placed by
+  // `draw` -- the row StepTools' header always said a point tool would add --
+  // and cleared by `delete` where a step declares one.
+  line: ['delete', 'draw'],
+  point: ['draw', 'delete'],
+  proposal: ['select'],
 }
 
 function rendererFor(layer, tools) {
   const order =
-    layer.source === 'proposals' ? RENDERED_BY.proposalPolygon : RENDERED_BY[layer.kind] ?? []
+    layer.source === 'proposals' ? RENDERED_BY.proposal : RENDERED_BY[layer.kind] ?? []
   return order.find((tool) => tools.includes(tool)) ?? null
 }
 
@@ -202,6 +208,6 @@ const EMPTY_REFERENCES = Object.freeze({})
 
 const ARMED_LINES = {
   select: 'Selecting: click a proposal to include or exclude it.',
-  draw: 'Drawing: click the map to place points, and the first point to close.',
+  draw: 'Drawing: click the map to place a point, or points and the first point to close.',
   delete: 'Deleting: click a shape you drew to remove it.',
 }

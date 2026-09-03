@@ -803,20 +803,23 @@ describe('7. the three deletions', () => {
     await ui.unmount()
   })
 
-  it('mounts no AccessPointTool, and holds no access point', () => {
+  it('mounts no AccessPointTool from the page, and holds no access point', () => {
     const app = appCode()
     expect(app).not.toContain('AccessPointTool')
     expect(app).not.toContain('accessPoint')
     expect(app).not.toContain('access_point')
 
-    // NOTHING ANYWHERE MOUNTS IT. The component itself is kept on disk on
-    // purpose -- it is the ROADS step's input, and roads is a later branch --
-    // but no file imports it, so it is on no map.
+    // EXACTLY ONE FILE MOUNTS IT, AND IT IS THE `draw` GESTURE. The component
+    // was kept on disk unimported for the roads step, and the roads step
+    // declares a `draw` over a point layer -- so DrawGesture is the one
+    // importer, and the pre-step it replaced is still gone from App.jsx.
+    const importers = []
     for (const file of sourceFiles(SRC)) {
       if (file.endsWith('AccessPointTool.jsx')) continue
       if (file.endsWith('.test.jsx')) continue
-      expect(readFileSync(file, 'utf8')).not.toMatch(/from '[^']*AccessPointTool\.jsx'/)
+      if (/from '[^']*AccessPointTool\.jsx'/.test(readFileSync(file, 'utf8'))) importers.push(file)
     }
+    expect(importers.map((file) => path.basename(file))).toEqual(['DrawGesture.jsx'])
   })
 
   it('closes the legacy arming door, which now has no callers', () => {

@@ -101,9 +101,11 @@ export default function WizardShell() {
  */
 function StepChrome({ definition, definitions }) {
   const machine = useStepMachine(definition)
-  const { armed, focusedFeatureId, blurFeature } = useWizardCursor()
+  const { armed, focusedFeatureId, blurFeature, focusFeature } = useWizardCursor()
   const chromeState = chromeStateFor({ machineState: machine.machineState, armed })
   const undo = useRemovalUndo(machine, focusedFeatureId, blurFeature)
+  const remove = useTabRemoval(machine, undo.remove, focusedFeatureId, blurFeature)
+  useSeedFocus(machine, focusedFeatureId, focusFeature)
 
   return (
     <>
@@ -116,7 +118,7 @@ function StepChrome({ definition, definitions }) {
       <DetailPanel machine={machine} />
       <div className="chrome__free" aria-hidden="true" />
       <div className="chrome__bottom">
-        <TabStrip machine={machine} onRemove={undo.remove} />
+        <TabStrip machine={machine} onRemove={remove} />
         <ActionBanner machine={machine} chromeState={chromeState} definitions={definitions} />
       </div>
     </>
@@ -178,6 +180,60 @@ function useRemovalUndo(machine, focusedFeatureId, blurFeature) {
     remove,
     offer: removed ? { text: 'Zone deleted.', run: restore } : null,
   }
+}
+
+/**
+ * WHAT A TAB'S × DOES: the step's own `removeTab` when it declares one, and
+ * the drawn-shape undo path otherwise.
+ *
+ * TWO KINDS OF REMOVAL, AND ONLY ONE IS UNDOABLE. A drawn shape is destroyed
+ * locally and held for a few seconds (useRemovalUndo). A step whose tabs are
+ * server-held candidates -- the roads step's networks -- declares `removeTab`,
+ * which calls a SERVER VERB (the discard) and refetches; there is nothing
+ * local to hold, so no undo is offered, and the way back is to place the
+ * point again. The shell reads which of the two applies off the definition
+ * and never off the step's name.
+ *
+ * THE FOCUS GOES WITH THE CANDIDATE, as it does with a destroyed shape: a
+ * panel describing a network that no longer exists is worse than none.
+ */
+function useTabRemoval(machine, removeDrawn, focusedFeatureId, blurFeature) {
+  return useCallback(
+    async (tabId) => {
+      if (typeof machine.definition.removeTab !== 'function') return removeDrawn(tabId)
+      const tab = machine.definition.tabs(machine.context).find((entry) => entry.id === tabId)
+      const focusedHere =
+        focusedFeatureId != null &&
+        (focusedFeatureId === tabId || tab?.featureIds?.includes(focusedFeatureId))
+      if (focusedHere) blurFeature()
+      return machine.definition.removeTab(machine.actions, machine.context, tabId)
+    },
+    [machine, removeDrawn, focusedFeatureId, blurFeature]
+  )
+}
+
+/**
+ * LOOK AT WHAT THE SEED SELECTED, once, when a step declares `focusSeed`.
+ *
+ * A draft seeded from a reopened commit re-selects the network the user
+ * committed; a draft seeded from a fresh generate selects the network just
+ * made. On a step whose candidates are drawn ONLY WHEN FOCUSED (see
+ * LAYER_SHOW), a seeded selection with no focus is a map with nothing on it
+ * and a tab saying something is committed -- so the step may say what to look
+ * at. Runs only while nothing is focused, so it never takes a focus the user
+ * has since moved.
+ */
+function useSeedFocus(machine, focusedFeatureId, focusFeature) {
+  const { definition, draft, proposals, context } = machine
+  const seeded = draft?.seeded === true
+  useEffect(() => {
+    if (typeof definition.focusSeed !== 'function') return
+    if (!seeded || proposals == null || focusedFeatureId != null) return
+    const target = definition.focusSeed(context)
+    if (target != null) focusFeature(target)
+    // Only the seed matters: a later focus change must not re-run this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [definition, seeded, proposals])
 }
 
 /**

@@ -262,11 +262,68 @@
  *      which names a token rather than carrying a colour: the literals stay
  *      at :root and this file stays free of them.
  *
- * WHAT IS NOT IN HERE. No step registers water, roads, trees, structures or
- * fencing: those are later branches, and a definition written now against a
- * payload nobody has seen would be a guess dressed as a contract. The order
- * they run in is not here either -- it comes off the document's `step_order`
- * (see wizardStepOrder), because the backend owns it.
+ * SIX FIELDS THE ROADS STEP ADDED, and every one is the schema admitting it
+ * assumed landform and water's shape. The third definition is the first that
+ * ACCUMULATES candidates across generates, the first that COLLECTS AN INPUT,
+ * and the first whose eye is a RADIO; each of those was a place the schema
+ * had no word, and the word was added rather than the shell learning a step.
+ *
+ *   6. `kind: 'line'` and `kind: 'point'`. Every layer so far was ground. A
+ *      road is a LineString per branch and an access point is one coordinate;
+ *      neither is a polygon and neither takes a fill, so LAYER_KINDS grew two
+ *      values with two renderers. A `point` layer declares `points(value)`, a
+ *      reader from its source's value to [{id, position}], the way `filter`
+ *      is a reader over one Feature -- the stack never learns what a network
+ *      record or an access-point input looks like.
+ *
+ *   7. `show: 'focused'` on a layer. THE VISIBILITY EXCEPTION, declared where
+ *      the layer is. Everywhere else focus changes a mark's OPACITY and every
+ *      eye-on feature stays drawn; three routed networks over one parcel is
+ *      unreadable line density, so a layer that declares this draws ONLY the
+ *      focused candidate and nothing when nothing is focused. index.css's
+ *      pattern-levels block records the exception beside the levels it
+ *      departs from, so the remaining three steps do not inherit it by
+ *      accident: a layer that does not declare it gets the pattern language.
+ *
+ *   8. `groupOf(feature)` on the definition. A tab is a UNIT OF THE COMMIT
+ *      DECISION, and for two steps the unit was one feature. A road network
+ *      commits as one feature PER BRANCH -- the backend's own wire shape,
+ *      trunk and spurs each carrying their grade and length -- so the unit is
+ *      the GROUP of features sharing `properties.network_id`. Tabs carry
+ *      `featureIds`, the eye toggles all of them, focusing a branch focuses
+ *      its network, and the stack draws by group. The backend says the same
+ *      thing as `feature_group` in its commit contract.
+ *
+ *   9. `selection: {mode: 'radio'}`. Commit-one-or-none. Turning on a tab
+ *      turns every other off. Landform and water are checkboxes, which was
+ *      the only mode there was -- so it was not a field. The backend
+ *      declares `max_features: 1` counted by network; this is the client
+ *      reading that constraint off its own definition rather than the strip
+ *      hardcoding which step is a radio.
+ *
+ *  10. `accumulate`. One generate per step was the whole model: proposals
+ *      REPLACE. Roads generates ONE network per access point and keeps them
+ *      side by side, up to a cap the server enforces. The declaration names
+ *      the input a candidate set is keyed by, the document key every tried
+ *      value is recorded under, the payload record that lists the candidate
+ *      sets, and the cap -- so the buttons, the notices and the discard verb
+ *      read the shape rather than knowing it.
+ *
+ *  11. `inputs[].commitValue(context)` and `removeTab`, `resetNote`,
+ *      `focusSeed`. An input's value at COMMIT time is not the draft's --
+ *      roads commits every access point the SERVER recorded, not the one
+ *      pending in the draft -- and the schema had only "the draft's inputs".
+ *      `removeTab` says what a tab's × does when it is not a drawn shape (a
+ *      server verb, here). `resetNote` says what a reset of this step costs,
+ *      for another step's reopen confirmation. `focusSeed` says what to look
+ *      at when the draft is first seeded. Each is a step's own knowledge the
+ *      shell used to have no way to ask for.
+ *
+ * WHAT IS NOT IN HERE. No step registers trees, structures or fencing: those
+ * are later branches, and a definition written now against a payload nobody
+ * has seen would be a guess dressed as a contract. The order they run in is
+ * not here either -- it comes off the document's `step_order` (see
+ * wizardStepOrder), because the backend owns it.
  */
 
 import {
@@ -276,11 +333,13 @@ import {
   selectIsStepReachable,
   selectBoundaryRing,
   selectSessionId,
+  selectStepInputs,
   selectStepsHoldingWork,
   selectStepOrder,
   selectStepStatus,
 } from '../session/SessionStore'
-import { polygonAreaAcres } from '../geo.js'
+import { polygonAreaAcres, pointFromGeoJSON, pointToGeoJSON } from '../geo.js'
+import { commitInputsFor, commitValueOf, requiredInputsMissing } from './stepInputs.js'
 import { cautionsFor, clampToBoundary } from '../zoneGeometry.js'
 import {
   COMMITTING,
@@ -392,7 +451,30 @@ export const LAYER_KINDS = Object.freeze([
   'scrim',
   'highlight',
   'reference',
+  // THE ROADS STEP'S TWO. A `line` is a FeatureCollection of LineStrings
+  // drawn as cased strokes -- a road is a line, so the no-stroke rule for
+  // ZONES does not apply to it, and the halo casing that rule was written
+  // against is exactly what keeps it legible over imagery. A `point` is one
+  // or more coordinates drawn as markers, read off its source through the
+  // layer's own `points()` reader. See LAYER SCHEMA item 6.
+  'line',
+  'point',
 ])
+
+/**
+ * What a layer says about WHICH of its features are drawn, beyond the eye.
+ *
+ *   'all'      the pattern language: every eye-on feature is drawn, and focus
+ *              changes the focused one's opacity.
+ *   'focused'  THE EXCEPTION. Only the focused candidate is drawn, at the
+ *              focused level; nothing is drawn when nothing is focused.
+ *              Declared by the roads step's editable network layer and by
+ *              nothing else -- see LAYER SCHEMA item 7 and index.css.
+ */
+export const LAYER_SHOW = Object.freeze(['all', 'focused'])
+
+/** How a step's eye behaves. 'multiple' is a checkbox; 'radio' commits one or none. */
+export const SELECTION_MODES = Object.freeze(['multiple', 'radio'])
 
 /** The three places a step's geometry can come from. */
 export const LAYER_SOURCES = Object.freeze(['proposals', 'draft', 'document'])
@@ -406,7 +488,17 @@ export const LAYER_SOURCES = Object.freeze(['proposals', 'draft', 'document'])
  * failing, and it says so here rather than being guessed at down there.
  */
 function defineLayer(stepId, layer) {
-  const { id, band, kind, source, key = null, filter = null, treatment = null } = layer
+  const {
+    id,
+    band,
+    kind,
+    source,
+    key = null,
+    filter = null,
+    treatment = null,
+    show = 'all',
+    points = null,
+  } = layer
 
   if (!id) throw new Error(`Step '${stepId}' declares a layer with no id.`)
   for (const [field, value, allowed] of [
@@ -438,7 +530,27 @@ function defineLayer(stepId, layer) {
     )
   }
 
-  return Object.freeze({ id, band, kind, source, key, filter, treatment })
+  if (!LAYER_SHOW.includes(show)) {
+    throw new Error(
+      `Step '${stepId}' layer '${id}' declares show='${show}'. ` +
+        `It has to be one of: ${LAYER_SHOW.join(', ')}.`
+    )
+  }
+
+  if (kind === 'point' && typeof points !== 'function') {
+    throw new Error(
+      `Step '${stepId}' layer '${id}' is a point layer with no \`points\` reader. ` +
+        'A point layer says how its source becomes [{id, position}]; the stack ' +
+        'never learns what the source looks like.'
+    )
+  }
+  if (kind !== 'point' && points !== null) {
+    throw new Error(
+      `Step '${stepId}' layer '${id}' declares \`points\` but is a ${kind}, not a point layer.`
+    )
+  }
+
+  return Object.freeze({ id, band, kind, source, key, filter, treatment, show, points })
 }
 
 /* ---------------------------------------------------------------------------
@@ -687,7 +799,15 @@ export function documentStep({
       // one thing; a step whose commit can mean two different things has to be
       // able to say which. See LANDFORM_STEP's, and StepPanel's commitLabel.
       label: commit?.label ?? 'Commit this step',
-      run: commit?.run ?? ((actions, { stepId }) => actions.commit(stepId)),
+      // THE DECLARED INPUTS RIDE THE COMMIT, assembled from the declarations
+      // rather than read raw off the draft -- see commitInputsFor. A step
+      // declaring none sends none, exactly as before.
+      run:
+        commit?.run ??
+        ((actions, context) =>
+          actions.commit(context.stepId, {
+            inputs: commitInputsFor(context.definition, context),
+          })),
       canCommit: commit?.canCommit ?? ((context) => context.committableCount > 0),
       blockedReason:
         commit?.blockedReason ??
@@ -771,9 +891,42 @@ export function defineStep(definition) {
     tabs = () => [],
     detail = () => null,
     Panel = null,
+    groupOf = null,
+    selection = { mode: 'multiple' },
+    accumulate = null,
+    removeTab = null,
+    resetNote = null,
+    focusSeed = null,
   } = definition
 
   if (!id) throw new Error('A step definition needs an id.')
+  if (!SELECTION_MODES.includes(selection?.mode)) {
+    throw new Error(
+      `Step '${id}' declares selection mode '${selection?.mode}'. ` +
+        `It has to be one of: ${SELECTION_MODES.join(', ')}.`
+    )
+  }
+  if (groupOf !== null && typeof groupOf !== 'function') {
+    throw new Error(`Step '${id}' declares a non-function \`groupOf\`.`)
+  }
+  if (accumulate !== null) {
+    for (const field of ['inputKey', 'inputsList', 'candidates', 'candidateKey']) {
+      if (typeof accumulate[field] !== 'string' || !accumulate[field]) {
+        throw new Error(`Step '${id}' accumulates but declares no \`accumulate.${field}\`.`)
+      }
+    }
+    if (!inputs.some((input) => input.key === accumulate.inputKey)) {
+      throw new Error(
+        `Step '${id}' accumulates by input '${accumulate.inputKey}', which it does not declare.`
+      )
+    }
+    if (!Number.isInteger(accumulate.max) || accumulate.max < 1) {
+      throw new Error(`Step '${id}' accumulates with no positive \`accumulate.max\`.`)
+    }
+  }
+  for (const input of inputs) {
+    if (!input.key) throw new Error(`Step '${id}' declares an input with no key.`)
+  }
   if (typeof status !== 'function') {
     throw new Error(`Step '${id}' must say where its status comes from.`)
   }
@@ -829,8 +982,16 @@ export function defineStep(definition) {
     tabs,
     detail,
     Panel,
+    groupOf,
+    selection: Object.freeze({ ...selection }),
+    accumulate: accumulate && Object.freeze({ ...accumulate }),
+    removeTab,
+    resetNote,
+    focusSeed,
   })
 }
+
+export { commitValueOf, requiredInputsMissing, commitInputsFor }
 
 /* ===========================================================================
    BOUNDARY -- step 0
@@ -2181,11 +2342,651 @@ export const WATER_STEP = documentStep({
 })
 
 /* ===========================================================================
+   THE ROADS STEP
+   ===========================================================================
+   The third definition, and the first that breaks the model the first two
+   share. Landform and water receive N candidates from ONE generate and the
+   user picks among them. Roads receives ONE NETWORK per generate -- the
+   branches inside it are a tree, not alternatives -- and the CANDIDATES ARE
+   NETWORKS, made by generating from different access points. They
+   accumulate, up to three; any may be discarded; exactly one, or none, is
+   committed. See LAYER SCHEMA items 6-11 for the six fields that cost.
+   --------------------------------------------------------------------------- */
+
+/**
+ * The layer name the backend's roads commit contract requires, verbatim:
+ * wire_translation.LAYER_ROAD_CORRIDOR.
+ */
+export const ROAD_CORRIDOR_LAYER = 'suggested_road_corridor'
+
+/** The input the roads step collects, and the document key every tried value is recorded under. */
+export const ACCESS_POINT_INPUT = 'access_point'
+export const ACCESS_POINTS_LIST = 'access_points'
+
+/**
+ * The cap on candidate networks. THE SERVER OWNS THIS -- step_registry's
+ * Accumulation.max_candidates -- and refuses a fourth generate with a 409
+ * naming the three it holds. The client reads its own copy only to say so
+ * before the request; a drift between the two would show as a refusal the
+ * client did not predict, never as a fourth candidate.
+ */
+export const MAX_ROAD_NETWORKS = 3
+
+/** The branch roles the backend emits, in the order a panel lists them. */
+const BRANCH_ROLE_WORDS = Object.freeze({ trunk: 'Trunk', spur: 'Spur', water_spur: 'Water spur' })
+
+/** Whole feet: the tab's length figure. build_narrative_data() ships one decimal; a tab has no room for it. */
+const LENGTH_DP = 0
+
+/**
+ * WHICH NETWORK A BRANCH BELONGS TO. The backend stamps every branch with
+ * its network's id (`properties.network_id`, the same key the commit
+ * contract groups by), so grouping is a property read and never an
+ * inference from geometry.
+ */
+export function roadNetworkOf(feature) {
+  return feature?.properties?.network_id ?? null
+}
+
+/** The candidate records a roads payload carries, in the order tried. */
+export function roadNetworks(payload) {
+  return Array.isArray(payload?.networks) ? payload.networks : []
+}
+
+/** One network's record, by its id. */
+function roadNetwork(payload, networkId) {
+  return roadNetworks(payload).find((network) => network.network_id === networkId) ?? null
+}
+
+/**
+ * The access points a roads payload's networks were generated from, as
+ * markers: one per candidate, keyed by the network so a click on the marker
+ * is a click on the network.
+ *
+ * WIRE ORDER IN, MAP ORDER OUT. The record carries [lon, lat]; a marker takes
+ * [lat, lng]. pointFromGeoJSON does the one swap, the single-point sibling of
+ * the ring helper every other reader of wire coordinates uses (a one-point
+ * ring would "close on itself" and come back empty).
+ */
+export function networkAccessPoints(networks) {
+  return roadNetworks({ networks }).map((network, index) => ({
+    id: network.network_id,
+    position: pointFromGeoJSON(network.access_point),
+    label: `Access point ${index + 1}`,
+  }))
+}
+
+/** The access point placed and not yet generated from, if any. Held in [lat, lng]. */
+function pendingAccessPoint(value) {
+  return Array.isArray(value) && value.length === 2 ? [{ id: 'pending', position: value }] : []
+}
+
+/**
+ * The committed network's access point, off the committed features
+ * themselves: every branch carries `properties.access_point` [lon, lat], and
+ * every branch of one network carries the same one.
+ */
+function committedAccessPoints(collection) {
+  const seen = new Map()
+  for (const feature of collection?.features ?? []) {
+    const id = roadNetworkOf(feature)
+    const point = feature.properties?.access_point
+    if (id && Array.isArray(point) && !seen.has(id)) {
+      seen.set(id, { id, position: pointFromGeoJSON(point), label: 'Access point' })
+    }
+  }
+  return [...seen.values()]
+}
+
+/** The ordinal of a network among the candidates, 1-based, or null. */
+function networkIndex(payload, networkId) {
+  const index = roadNetworks(payload).findIndex((network) => network.network_id === networkId)
+  return index < 0 ? null : index + 1
+}
+
+/**
+ * A NETWORK'S NAME: "Access point N".
+ *
+ * THE DISTINGUISHING FACT IS WHERE THE DRIVEWAY MEETS THE ROAD, and the
+ * coordinates that say so are eleven digits each -- far too long for a tab
+ * row, and unreadable as an identity even if they fit. The ordinal is the
+ * order the user tried them in, which they will remember ("the second one I
+ * placed"), and the marker on the map is the location. The panel could
+ * carry the coordinates and does not: a lat/lng pair tells nobody standing
+ * on a field anything the marker does not.
+ *
+ * "Road network N" was the alternative and it names the wrong thing: the
+ * networks are what differ, but the ACCESS POINT is what the user chose and
+ * the network is what the pipeline made of it.
+ */
+export function roadNetworkName(payload, networkId) {
+  const index = networkIndex(payload, networkId)
+  return index == null ? 'Access point' : `Access point ${index}`
+}
+
+/**
+ * The [lon, lat] a generate sends for the draft's pending access point.
+ * The tool writes [lat, lng] (Leaflet's order, every drawing tool's); the
+ * wire wants [lon, lat]; pointToGeoJSON does the swap.
+ */
+export function accessPointParams(draft) {
+  const pending = draft?.inputs?.[ACCESS_POINT_INPUT]
+  if (!Array.isArray(pending) || pending.length !== 2) return null
+  return { [ACCESS_POINT_INPUT]: pointToGeoJSON(pending) }
+}
+
+/**
+ * EVERY ACCESS POINT THE SERVER RECORDED for this step, in wire order --
+ * what the commit sends under `access_points`.
+ *
+ * OFF THE MIRROR, NOT THE DRAFT. The draft holds the ONE point pending a
+ * generate; the list of every point tried is server state, written by each
+ * generate and each discard onto the document's step entry
+ * (design_document.record_step_inputs) and mirrored here. A commit body
+ * carries all of them, including the alternatives, so a reopen restores the
+ * user's whole work rather than the network they picked.
+ *
+ * [] WHEN NONE WAS EVER PLACED, and never undefined: "no road, and no access
+ * point was placed" is a legal empty commit. What would be undefined is a
+ * step entry that carries a list under some other shape, and that is a
+ * contract breach rather than an empty decision.
+ */
+export function recordedAccessPoints(state, stepId) {
+  const inputs = selectStepInputs(state, stepId)
+  const list = inputs?.[ACCESS_POINTS_LIST]
+  if (inputs == null || inputs[ACCESS_POINTS_LIST] === undefined) return []
+  return Array.isArray(list) ? list : undefined
+}
+
+/** How many candidate slots are free. Reads the recorded list, which the cap is enforced against. */
+export function roadSlotsRemaining(state, stepId) {
+  const recorded = recordedAccessPoints(state, stepId) ?? []
+  return Math.max(0, MAX_ROAD_NETWORKS - recorded.length)
+}
+
+/** Is the pending point one the server already holds -- a regenerate rather than a fourth candidate? */
+function pendingIsRecorded(state, stepId, draft) {
+  const params = accessPointParams(draft)
+  if (!params) return false
+  const [lon, lat] = params[ACCESS_POINT_INPUT]
+  return (recordedAccessPoints(state, stepId) ?? []).some(
+    (point) => Number(point[0]) === lon && Number(point[1]) === lat
+  )
+}
+
+/**
+ * Why a new access point cannot be added, or null when one can.
+ *
+ * THE UI REFLECTS THE CAP; IT DOES NOT OWN IT. The sentence is here so the
+ * button can say why before the server says 409, and the number comes off
+ * the same declaration the button reads.
+ */
+export function addAccessPointBlocked(context) {
+  if (roadSlotsRemaining(context.state, context.stepId) > 0) return null
+  return (
+    `${MAX_ROAD_NETWORKS} access points are placed, which is the most this step ` +
+    'compares. Discard one to try another.'
+  )
+}
+
+/**
+ * THE ONE BUTTON THAT PLACES AND GENERATES, in two states.
+ *
+ * With no point pending it ARMS the placement tool; with one pending it
+ * GENERATES from it. One slot in the banner carries both because they are
+ * one gesture in two halves -- put the point down, then route from it -- and
+ * the banner holds two buttons, the other of which is the commit.
+ *
+ * NEVER AUTO-ARMED. The step opens with this button and nothing armed; the
+ * user asks to place a point. A tool that armed itself on step entry would
+ * turn every stray map click into a decision about where the driveway is.
+ */
+const ROADS_ACCESS = stepButton({
+  key: 'access',
+  tone: 'primary',
+  label: ({ machine }) =>
+    accessPointParams(machine.draft) ? 'Generate from this point' : 'Add access point',
+  enabled: ({ machine }) => {
+    if (accessPointParams(machine.draft)) return machine.canGenerate
+    return machine.reachable && addAccessPointBlocked(machine.context) == null
+  },
+  blocked: ({ machine }) =>
+    accessPointParams(machine.draft) ? null : addAccessPointBlocked(machine.context),
+  run: async ({ machine, arm, disarm, focusFeature }) => {
+    if (!accessPointParams(machine.draft)) return arm('draw')
+    return generateRoadNetwork({ machine, disarm, focusFeature })
+  },
+})
+
+/**
+ * Route a network from the pending access point.
+ *
+ * THE PENDING POINT IS CLEARED ON SUCCESS AND FOCUS MOVES TO THE NEW
+ * NETWORK. The server has recorded the point (it is in the document that
+ * came back with the payload), so the draft's copy would now draw a second
+ * marker over the server's; and the network just made is the one the user
+ * is about to look at. On failure the point stays, so the retry is one click.
+ *
+ * THE CAP IS THE SERVER'S. A fourth point is refused with a 409 naming the
+ * three held (CandidateCapReachedError); the store surfaces it as a step
+ * error and the bar prints it. addAccessPointBlocked() means the button is
+ * disabled before that request goes out, so the 409 is the backstop and not
+ * the message.
+ */
+async function generateRoadNetwork({ machine, disarm, focusFeature }) {
+  const params = accessPointParams(machine.draft)
+  if (!params) return false
+  disarm()
+  const before = new Set(roadNetworks(machine.proposals).map((n) => n.network_id))
+  const generated = await machine.generate()
+  if (!generated) return false
+  machine.actions.setDraftInput(machine.stepId, ACCESS_POINT_INPUT, undefined)
+  // THE NETWORK THIS GENERATE ADDED is the one not there before it, read off
+  // the payload the generate resolved with (the machine in this closure still
+  // holds the payload from before the request). An access point already
+  // tried comes back as the same network (the ids are stable), so that one is
+  // found by its point instead. Not by comparing the point sent with the
+  // point returned, which the wire may have rounded.
+  const [lon, lat] = params[ACCESS_POINT_INPUT]
+  const made = roadNetworks(typeof generated === 'object' ? generated : null)
+  const target =
+    made.find((n) => !before.has(n.network_id)) ??
+    made.find((n) => Number(n.access_point?.[0]) === lon && Number(n.access_point?.[1]) === lat)
+  if (!target) return true
+  if (focusFeature) focusFeature(target.network_id)
+  // THE FIRST NETWORK IS THE ONE THAT COMMITS UNTIL THE USER SAYS OTHERWISE.
+  // A draft that has selected nothing (the point was placed before any
+  // proposals existed, so the store's seed never ran) takes this one; a later
+  // generate is a comparison and does not steal the eye from the network the
+  // user has already chosen.
+  if (!machine.draft?.selectedFeatureIds?.length && target.feature_ids?.length) {
+    machine.actions.setSelection(machine.stepId, [...target.feature_ids])
+  }
+  return true
+}
+
+/** While placing: generate from what is placed, or put the tool down. */
+const ROADS_GENERATE = stepButton({
+  key: 'generate',
+  tone: 'primary',
+  label: 'Generate network',
+  enabled: ({ machine }) =>
+    Boolean(accessPointParams(machine.draft)) &&
+    machine.canGenerate &&
+    (pendingIsRecorded(machine.context.state, machine.stepId, machine.draft) ||
+      addAccessPointBlocked(machine.context) == null),
+  blocked: ({ machine }) =>
+    accessPointParams(machine.draft)
+      ? addAccessPointBlocked(machine.context)
+      : 'Click the property boundary where it meets the road.',
+  run: ({ machine, disarm, focusFeature }) => generateRoadNetwork({ machine, disarm, focusFeature }),
+})
+
+/** Cancel placing: the tool goes down and the pending point with it. */
+const ROADS_CANCEL = disarmButton({
+  key: 'cancel',
+  label: 'Cancel',
+  run: ({ machine, disarm }) => {
+    machine.actions.setDraftInput(machine.stepId, ACCESS_POINT_INPUT, undefined)
+    disarm()
+  },
+})
+
+/**
+ * THE CONSTRAINTS A NETWORK WAS ROUTED UNDER, in consequence terms -- the
+ * same rule landform's UNAVAILABLE_CONSEQUENCE follows. A constraint that
+ * never ran is reported as NOT APPLIED, never as silently satisfied:
+ * build_narrative_data() carries `*_available` flags for exactly this.
+ */
+const ROADS_UNCHECKED_CONSEQUENCE = {
+  floodplain_data_available:
+    'Floodplain and wet-soil data was unavailable, so these networks were not routed around wet ground.',
+  canopy_data_available:
+    'Canopy data was unavailable, so these networks pay nothing for crossing wooded ground.',
+}
+
+/** A yes/no reading for a boolean the backend measured. */
+function yesNo(value) {
+  return value == null ? '—' : value ? 'yes' : 'no'
+}
+
+export const ROADS_STEP = documentStep({
+  id: 'roads',
+  title: 'Roads',
+  blurb: 'Farm roads grown from where the property meets the road.',
+  layers: [
+    { id: 'roads-offparcel', band: 'context', kind: 'scrim', source: 'document' },
+    /* THE NETWORKS. One collection carries every candidate's branches
+       (`road_corridors`), each branch stamped with its network; the stack
+       draws by group, and ONLY THE FOCUSED GROUP -- see `show`. */
+    {
+      id: 'roads-networks',
+      band: 'editable',
+      kind: 'line',
+      source: 'proposals',
+      key: 'road_corridors',
+      treatment: 'road',
+      show: 'focused',
+    },
+    /* THE ACCESS POINTS, ONE MARKER PER CANDIDATE, ALWAYS DRAWN. They are
+       what distinguishes the alternatives, so they stay whatever is focused
+       and whatever the eye says. Keyed by the network, so a click on one is
+       a click on its network -- the third way into the selection sync
+       beside the tab and the line. Above the lines in the band. */
+    {
+      id: 'roads-access-points',
+      band: 'editable',
+      kind: 'point',
+      source: 'proposals',
+      key: 'networks',
+      points: networkAccessPoints,
+    },
+    /* THE POINT PENDING A GENERATE, from the draft. The placement tool
+       writes it and draws it while armed; this declaration is what keeps it
+       on the map once the tool is down, and what the `draw` verb claims. */
+    {
+      id: 'roads-pending-access-point',
+      band: 'editable',
+      kind: 'point',
+      source: 'draft',
+      key: ACCESS_POINT_INPUT,
+      points: pendingAccessPoint,
+    },
+    /* COMMITTED: the one network, dimmed by the pattern level and drawn
+       whole -- `show: 'all'`, the default, because a settled network is
+       context for every later step and is not a candidate any more. Its
+       access point stays with it. */
+    { id: 'roads-committed', band: 'committed', kind: 'line', source: 'document', treatment: 'road' },
+    {
+      id: 'roads-committed-access-point',
+      band: 'committed',
+      kind: 'point',
+      source: 'document',
+      points: committedAccessPoints,
+    },
+  ],
+
+  /**
+   * SELECT AND DRAW. `draw` is the access-point placement -- a `draw` over a
+   * POINT layer, which StepTools serves with the point tool -- and `select`
+   * is what renders the candidates and takes the click that focuses one. No
+   * `delete`: a network is not destroyed by a map click, it is DISCARDED by
+   * its tab's ×, which is a server verb (see removeTab).
+   */
+  tools: ['select', 'draw'],
+
+  /**
+   * THE ACCESS POINT, DECLARED. The first input any step collects. Its
+   * generate value is the pending point in the draft (accessPointParams);
+   * its COMMIT value is every point the server recorded, under
+   * `access_points` -- see recordedAccessPoints. Required: a commit with no
+   * list is refused before any request, and an EMPTY list is a value.
+   */
+  inputs: [
+    {
+      key: ACCESS_POINT_INPUT,
+      label: 'Access point',
+      kind: 'point',
+      required: true,
+      commitKey: ACCESS_POINTS_LIST,
+      commitValue: ({ state, stepId }) => recordedAccessPoints(state, stepId),
+    },
+  ],
+  generate: { label: 'Generate network', params: accessPointParams },
+
+  /**
+   * ACCUMULATE. The declaration the buttons, the discard and the cap read.
+   * `candidates` names the payload record listing the sets (`networks`) and
+   * `candidateKey` the id each carries and every branch is stamped with.
+   */
+  accumulate: {
+    inputKey: ACCESS_POINT_INPUT,
+    inputsList: ACCESS_POINTS_LIST,
+    candidates: 'networks',
+    candidateKey: 'network_id',
+    max: MAX_ROAD_NETWORKS,
+  },
+
+  /** THE RADIO. One network or none -- the backend's max_features: 1 by network. */
+  selection: { mode: 'radio' },
+  groupOf: roadNetworkOf,
+
+  commit: {
+    label: ({ committableCount }) =>
+      committableCount === 0 ? 'Commit no road for this step' : 'Commit this network',
+    canCommit: () => true,
+    blockedReason: () => null,
+  },
+  reopen: { label: 'Edit this step', confirmTitle: 'Reopen roads?' },
+  proposalCollection: 'road_corridors',
+  shape: null,
+
+  /**
+   * WHAT A RESET OF THIS STEP COSTS, for the water step's reopen dialogue.
+   * Reopening water resets roads to not_started and discards every placed
+   * access point and the networks routed from them -- more work than any
+   * prior step loses to a cascade, and the confirmation says so in those
+   * terms rather than only naming the step.
+   */
+  resetNote: (state) => {
+    const count = (recordedAccessPoints(state, 'roads') ?? []).length
+    if (!count) return null
+    return `${count} placed access point${count === 1 ? '' : 's'} and the network${
+      count === 1 ? '' : 's'
+    } routed from ${count === 1 ? 'it' : 'them'}`
+  },
+
+  /**
+   * DISCARD IS A SERVER VERB. The × on a network's tab frees its slot on the
+   * server (POST .../discard) and refetches the candidates; it is not a draft
+   * deletion and it has no undo -- the way back is to place the point again.
+   */
+  removeTab: async (actions, context, tabId) => {
+    const network = roadNetwork(context.proposals, tabId)
+    if (!network) return false
+    return actions.discardCandidate(context.stepId, {
+      [ACCESS_POINT_INPUT]: network.access_point,
+    })
+  },
+
+  /** When the draft is first seeded, look at the network it selected. */
+  focusSeed: ({ draft, proposals }) => {
+    const selected = new Set(draft.selectedFeatureIds)
+    return (
+      roadNetworks(proposals).find((n) => n.feature_ids?.some((id) => selected.has(id)))
+        ?.network_id ?? null
+    )
+  },
+
+  instructions: {
+    [IDLE]: 'Add an access point where the property meets the road, and a network is routed from it.',
+    [EDITING]: 'Click the property boundary where it meets the road.',
+    [GENERATING]: 'Routing a network from the access point — grade, wet ground, canopy, and the water zone…',
+    [REVIEWING]:
+      'Click a network or its access point to read it. The eye on its tab decides which one is committed — one, or none.',
+    [COMMITTING]: 'Saving this network…',
+    [STEP_COMMITTED]: 'This network is committed. Trees, structures and fencing are measured against it.',
+  },
+  buttons: {
+    [IDLE]: [ROADS_ACCESS],
+    [EDITING]: [ROADS_CANCEL, ROADS_GENERATE],
+    [GENERATING]: [],
+    [REVIEWING]: [ROADS_ACCESS, COMMIT_BUTTON],
+    [COMMITTING]: [],
+    [STEP_COMMITTED]: [REOPEN_BUTTON],
+  },
+
+  /**
+   * WHAT ONLY THIS STEP KNOWS IS WORTH SAYING: the cap, a candidate that
+   * routed nothing, and a constraint that did not run.
+   */
+  notices: ({ state, stepId, proposals }) => {
+    const lines = []
+    const networks = roadNetworks(proposals)
+
+    if (networks.length && roadSlotsRemaining(state, stepId) === 0) {
+      lines.push({
+        key: 'cap',
+        tone: 'advisory',
+        text: [
+          measured(MAX_ROAD_NETWORKS, 0),
+          ' access points are placed, which is the most this step compares. Discard one to try another.',
+        ],
+      })
+    }
+
+    networks.forEach((network, index) => {
+      if (network.network_found) return
+      lines.push({
+        key: `no-network-${network.network_id}`,
+        tone: 'caution',
+        text: `Access point ${index + 1} routed no network: ${
+          network.stop_reason === 'corridor_too_short'
+            ? 'the ground it can serve is already within reach of the road.'
+            : `the router stopped (${network.stop_reason}).`
+        }`,
+      })
+    })
+
+    for (const flag of Object.keys(ROADS_UNCHECKED_CONSEQUENCE)) {
+      if (!networks.length) continue
+      if (!networks.every((network) => network.determination?.[flag] === false)) continue
+      lines.push({ key: `unchecked-${flag}`, tone: 'caution', text: ROADS_UNCHECKED_CONSEQUENCE[flag] })
+    }
+    if (networks.length && networks.every((n) => n.determination?.floodplain_data_is_fallback)) {
+      lines.push({
+        key: 'floodplain-fallback',
+        tone: 'caution',
+        text: 'Wet ground was estimated from elevation alone, not from stream or soil survey data.',
+      })
+    }
+    return lines
+  },
+
+  /**
+   * ONE TAB PER NETWORK, NEVER PER BRANCH. A network's branches are a tree;
+   * a spur without its trunk is incoherent and the backend rejects exactly
+   * that. So the tab is the unit of the commit decision and carries every
+   * branch id (`featureIds`), the eye toggles all of them, and the strip
+   * marks it focused when any of them is.
+   *
+   * THREE ROWS: identity, total length, served acres -- the shape landform
+   * and water set. Whole feet, because the tab has no room for a decimal
+   * that build_narrative_data() ships and nobody reads on a tab.
+   *
+   * A CANDIDATE THAT ROUTED NOTHING KEEPS ITS TAB, without an eye: the
+   * access point was tried and the slot is held, so it can be discarded,
+   * and there is no network to put in the commit.
+   */
+  tabs: ({ proposals, draft }) => {
+    const selected = new Set(draft.selectedFeatureIds)
+    return roadNetworks(proposals).map((network, index) => {
+      const featureIds = network.feature_ids ?? []
+      const tab = {
+        id: network.network_id,
+        name: `Access point ${index + 1}`,
+        featureIds,
+        removable: true,
+        rows: [
+          { value: measure(network.access?.total_length_ft, LENGTH_DP), label: 'feet' },
+          { value: measure(network.access?.served_acres), label: 'acres served' },
+        ],
+      }
+      if (featureIds.length) {
+        tab.eye = true
+        tab.selected = featureIds.every((id) => selected.has(id))
+      }
+      return tab
+    })
+  },
+
+  /**
+   * THE PANEL: network-level readings the tab had no room for, then one
+   * group per branch. A click on a branch focuses its network and names the
+   * branch, so the panel scrolls to that branch's group (`scrollTo`).
+   *
+   * PER-FEATURE VALUES OFF THE BRANCH FEATURES; STEP-LEVEL OFF
+   * build_narrative_data() -- the two-source split water established. Every
+   * figure is FINAL and printed as sent, through measure() so a null is an
+   * em dash and never a 0.0: a grade the pipeline did not measure is not a
+   * flat road.
+   */
+  detail: ({ proposals }, focusedId) => {
+    const features = (proposals?.road_corridors?.features ?? []).filter(
+      (feature) => feature.id === focusedId || roadNetworkOf(feature) === focusedId
+    )
+    const branch = features.find((feature) => feature.id === focusedId) ?? null
+    const networkId = branch ? roadNetworkOf(branch) : focusedId
+    const network = roadNetwork(proposals, networkId)
+    if (!network) return null
+
+    const access = network.access ?? {}
+    const determination = network.determination ?? {}
+    const branches = (proposals?.road_corridors?.features ?? []).filter(
+      (feature) => roadNetworkOf(feature) === networkId
+    )
+
+    const groups = [
+      {
+        id: 'network',
+        label: null,
+        fields: [
+          { label: 'feet of road', value: measure(access.total_length_ft, LENGTH_DP), measured: true },
+          { label: 'acres served', value: measure(access.served_acres), measured: true },
+          { label: 'acres unserved', value: measure(access.unserved_acres), measured: true },
+          { label: '% of production served', value: measure(access.served_pct_of_production), measured: true },
+          { label: 'max grade %', value: measure(determination.max_grade_pct), measured: true },
+          { label: 'steep feet', value: measure(determination.steep_ft), measured: true },
+          { label: 'branches', value: String(access.branch_count ?? '—') },
+          { label: 'reaches the water zone', value: yesNo(access.reaches_water_zone) },
+          { label: 'water zone excluded', value: yesNo(determination.water_zone_excluded) },
+          {
+            label: 'wet ground avoided',
+            value: determination.floodplain_data_available
+              ? determination.floodplain_data_is_fallback
+                ? 'estimated from elevation'
+                : 'yes'
+              : 'not applied',
+          },
+          { label: 'canopy avoided', value: determination.canopy_data_available ? 'yes' : 'not applied' },
+          { label: 'stopped because', value: String(network.stop_reason ?? '—') },
+        ],
+      },
+    ]
+
+    for (const feature of branches) {
+      const p = feature.properties ?? {}
+      const role = BRANCH_ROLE_WORDS[p.branch_role] ?? p.branch_role ?? 'Branch'
+      groups.push({
+        id: feature.id,
+        label: `${role} ${Number(p.branch_index ?? 0) + 1}`,
+        fields: [
+          { label: 'feet', value: measure(p.length_ft, LENGTH_DP), measured: true },
+          { label: 'avg grade %', value: measure(p.avg_grade_pct), measured: true },
+          { label: 'max grade %', value: measure(p.max_grade_pct), measured: true },
+          { label: 'steep feet', value: measure(p.steep_ft, LENGTH_DP), measured: true },
+          { label: 'acres newly served', value: measure(p.newly_served_acres), measured: true },
+          { label: 'crosses wet ground', value: yesNo(p.crosses_floodplain) },
+          { label: 'crosses production ground', value: yesNo(p.crosses_production_zone) },
+        ],
+      })
+    }
+
+    return {
+      name: roadNetworkName(proposals, networkId),
+      groups,
+      cautions: [],
+      scrollTo: branch ? branch.id : null,
+    }
+  },
+})
+
+/* ===========================================================================
    The registry, and the order steps run in
    =========================================================================== */
 
 /** Every definition this build registers, keyed by id. */
-export const STEP_DEFINITIONS = Object.freeze([BOUNDARY_STEP, LANDFORM_STEP, WATER_STEP])
+export const STEP_DEFINITIONS = Object.freeze([BOUNDARY_STEP, LANDFORM_STEP, WATER_STEP, ROADS_STEP])
 
 /**
  * WHICH COLLECTION A COMMIT'S FEATURES COME OUT OF, for the store.

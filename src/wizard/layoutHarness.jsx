@@ -56,6 +56,8 @@ import {
   stepButton,
 } from './stepDefinitions'
 import { injectZonePatterns, zoneMark } from '../ProductionHatchPattern.jsx'
+import { CASING_WEIGHT, LINE_WEIGHT } from '../map/layers.jsx'
+import { readToken } from '../geo.js'
 
 const params = new URLSearchParams(window.location.search)
 const number = (key, fallback) => {
@@ -220,7 +222,20 @@ function detailGroups(rows) {
 const SHOW_ZONES = params.get('zones') === '1'
 const SWATCH_PX = 90
 
-const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated']
+const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road']
+
+/**
+ * THE ROAD, ONCE MORE WITHOUT ITS CASING. Roads are lines, and a line's
+ * legibility over imagery is the casing's doing (layers.jsx LineLayer): the
+ * two ground rows carry the cased road at each level like every other mark,
+ * and these two cells beside them carry the same line with the halo pass
+ * left out, so the measurement can say what the casing is worth rather than
+ * assume it.
+ */
+const UNCASED = [
+  { treatment: 'road', state: 'committed', uncased: true },
+  { treatment: 'road', state: 'active', uncased: true },
+]
 
 /**
  * THE SAME MARKS, OVER GROUND THEY ACTUALLY HAVE TO SIT ON.
@@ -251,8 +266,11 @@ const GROUNDS = [
   { id: 'soil', color: '#cbb896' },
 ]
 
-/** Clear of the mid-grey grid above, which is three rows of SWATCH_PX. */
-const GROUND_TOP = SWATCH_PX * 3 + 20
+/** Clear of the mid-grey grid above, which is one row of SWATCH_PX per treatment. */
+const GROUND_TOP = SWATCH_PX * TREATMENTS.length + 20
+
+/** A ground's cells wrap at this many columns, to stay inside a 1280px frame. */
+const GROUND_COLUMNS = 14
 
 /**
  * WHAT THE SWATCH FOR ONE TREATMENT IS MADE OF -- read from the same table the
@@ -300,6 +318,30 @@ function ZoneSwatches() {
         defs.appendChild(clone)
         svg.insertBefore(defs, svg.firstChild)
         svg.querySelector('rect').setAttribute('fill', `url(#local-${svg.dataset.testid})`)
+        continue
+      }
+      if (mark.kind === 'line') {
+        // A ROAD: a cased line corner to corner, the halo pass under the
+        // coloured line, both at the state's level -- which is what LineLayer
+        // draws. `data-uncased` leaves the halo pass out, for the one
+        // measurement that asks what the casing is worth.
+        svg.querySelector('rect').setAttribute('fill', 'none')
+        const level = patternLevel(svg.dataset.state)
+        const passes = svg.dataset.uncased === 'true' ? [] : [[readToken('--halo'), CASING_WEIGHT]]
+        passes.push([mark.stroke, LINE_WEIGHT])
+        for (const [stroke, weight] of passes) {
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+          line.setAttribute('x1', '0')
+          line.setAttribute('y1', String(SWATCH_PX))
+          line.setAttribute('x2', String(SWATCH_PX))
+          line.setAttribute('y2', '0')
+          line.setAttribute('stroke', stroke)
+          line.setAttribute('stroke-width', String(weight))
+          line.setAttribute('stroke-opacity', level)
+          line.setAttribute('stroke-linecap', 'round')
+          svg.appendChild(line)
+        }
+        svg.dataset.cased = svg.dataset.uncased === 'true' ? 'false' : 'true'
         continue
       }
       // A TINT: the wash, then its outline over it -- one colour, one line,
@@ -362,18 +404,22 @@ function ZoneSwatches() {
         </svg>
       ))}
       {GROUNDS.map((ground, row) =>
-        [null, ...cells].map((cell, column) => (
+        [null, ...cells, ...UNCASED].map((cell, index) => (
           <div
-            key={`${ground.id}-${cell ? `${cell.treatment}-${cell.state}` : 'bare'}`}
+            key={`${ground.id}-${cell ? `${cell.treatment}-${cell.state}${cell.uncased ? '-uncased' : ''}` : 'bare'}`}
             data-testid={
               cell
-                ? `ground-${ground.id}-${cell.treatment}-${cell.state}`
+                ? `ground-${ground.id}-${cell.treatment}-${cell.state}${cell.uncased ? '-uncased' : ''}`
                 : `ground-${ground.id}-bare`
             }
             style={{
               position: 'absolute',
-              left: column * SWATCH_PX,
-              top: GROUND_TOP + row * SWATCH_PX,
+              left: (index % GROUND_COLUMNS) * SWATCH_PX,
+              top:
+                GROUND_TOP +
+                (row * Math.ceil((cells.length + UNCASED.length + 1) / GROUND_COLUMNS) +
+                  Math.floor(index / GROUND_COLUMNS)) *
+                  SWATCH_PX,
               width: SWATCH_PX,
               height: SWATCH_PX,
               background: ground.color,
@@ -381,9 +427,10 @@ function ZoneSwatches() {
           >
             {cell ? (
               <svg
-                data-testid={`ground-mark-${ground.id}-${cell.treatment}-${cell.state}`}
+                data-testid={`ground-mark-${ground.id}-${cell.treatment}-${cell.state}${cell.uncased ? '-uncased' : ''}`}
                 data-treatment={cell.treatment}
                 data-state={cell.state}
+                data-uncased={cell.uncased ? 'true' : undefined}
                 width={SWATCH_PX}
                 height={SWATCH_PX}
               >

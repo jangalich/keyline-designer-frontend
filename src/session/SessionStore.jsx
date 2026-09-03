@@ -49,6 +49,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import {
   commitStep as apiCommitStep,
   createSession as apiCreateSession,
+  discardCandidate as apiDiscardCandidate,
   getSession as apiGetSession,
   getStepLayers as apiGetStepLayers,
   reopenStep as apiReopenStep,
@@ -523,11 +524,16 @@ function reduce(state, action) {
     case DRAFT_INPUT_SET: {
       // The step's own user inputs -- the access point is one of these, on the
       // ROADS step, and not a global field.
+      //
+      // `undefined` CLEARS THE KEY rather than storing an undefined under it.
+      // A roads generate that succeeded clears its pending access point (the
+      // server holds it now); an input left as `undefined` would still be a
+      // key the commit assembler and the layer stack have to step around.
       const draft = draftOf(state, action.stepId)
-      return withDraft(state, action.stepId, {
-        ...draft,
-        inputs: { ...draft.inputs, [action.key]: action.value },
-      })
+      const inputs = { ...draft.inputs }
+      if (action.value === undefined) delete inputs[action.key]
+      else inputs[action.key] = action.value
+      return withDraft(state, action.stepId, { ...draft, inputs })
     }
 
     case DRAFT_DISCARDED: {
@@ -950,7 +956,18 @@ function requireProposalFeatures(proposalFeatures, caller) {
  * (DRAFT_SHAPE_ADDED) and on every seed (DRAFT_SEEDED), so "in the draft" and
  * "in the commit" stop being the same statement for shapes the user authored.
  */
-export function buildCommitBody(state, stepId, proposalFeatures) {
+/**
+ * `inputs`, WHEN THE CALLER SUPPLIES THEM, ARE SENT EXACTLY AS GIVEN -- an
+ * empty list included. The gap this closes: this used to send `inputs` only
+ * when the draft's map was non-empty, so a lost input left the key OFF the
+ * body rather than erroring, and the server read an absent decision. A step
+ * that declares inputs now assembles them from its declarations
+ * (stepDefinitions' commitInputsFor, which refuses a missing required one
+ * before this is reached) and hands them in here; the draft's own map is the
+ * fallback for a caller that did not, which is what every step without
+ * declared inputs still is.
+ */
+export function buildCommitBody(state, stepId, proposalFeatures, { inputs } = {}) {
   requireProposalFeatures(proposalFeatures, 'buildCommitBody')
   const draft = selectDraft(state, stepId)
   const selectedIds = new Set(draft.selectedFeatureIds)
@@ -977,7 +994,12 @@ export function buildCommitBody(state, stepId, proposalFeatures) {
     features: { type: 'FeatureCollection', features },
     provenance,
     baseRevision: selectBaseRevision(state, stepId),
-    inputs: Object.keys(draft.inputs).length ? draft.inputs : undefined,
+    inputs:
+      inputs !== undefined
+        ? inputs
+        : Object.keys(draft.inputs).length
+          ? draft.inputs
+          : undefined,
   }
 }
 
@@ -1190,7 +1212,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       try {
         const payload = await apiGetStepLayers(sessionId, stepId)
         dispatchIfMounted({ type: STEP_PROPOSALS_LOADED, stepId, payload })
-        return true
+        return payload
       } catch (error) {
         handleFailure(error, stepId)
         return false
@@ -1243,7 +1265,13 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
   )
 
   /**
-   * Generate a step. Resolves when the job reaches a terminal state.
+   * Generate a step. Resolves when the job reaches a terminal state: WITH THE
+   * PAYLOAD when the job produced one (truthy, and the same object the store
+   * just landed), false otherwise. The payload rather than `true` because a
+   * caller that awaited this is still holding the render from before the
+   * request -- a step whose generate accumulates (roads) wants to look at the
+   * candidate this call added, and the store's dispatch has not re-rendered
+   * anyone by the time the promise resolves.
    *
    * A SECOND GENERATE WHILE ONE IS RUNNING supersedes the first: the previous
    * poll is aborted and its job dropped from the store, so `selectJobForStep`
@@ -1280,7 +1308,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
 
         if (terminal.status === JOB_DONE) {
           onGenerated(stepId, terminal.result)
-          return true
+          return terminal.result.payload ?? true
         }
         if (terminal.status === JOB_EVICTED) {
           // The runner no longer holds the id -- it may well have finished and
@@ -1308,10 +1336,10 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
    * and highlights features on 'rejected'.
    */
   const commit = useCallback(
-    async (stepId) => {
+    async (stepId, { inputs } = {}) => {
       const sessionId = state.sessionId
       if (!sessionId) return 'error'
-      const body = buildCommitBody(state, stepId, proposalFeatures)
+      const body = buildCommitBody(state, stepId, proposalFeatures, { inputs })
       try {
         const document = await apiCommitStep(sessionId, stepId, body)
         // WHOLESALE, cascade and all -- then the draft goes, explicitly,
@@ -1344,6 +1372,30 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
     [state.sessionId, handleFailure, hydrateDocument, loadLayers]
   )
 
+  /**
+   * DISCARD ONE CANDIDATE SET of an accumulating step -- the roads step's
+   * networks. A SERVER VERB: the tried inputs are recorded on the document,
+   * so freeing a slot is a document write the server makes, hydrated here
+   * wholesale like every other; the remaining candidates then come back
+   * through layers, the same call a reopen makes. Nothing is dropped
+   * client-side first: a candidate the server still holds would come back on
+   * the next fetch, and a candidate it refused to drop is still there.
+   */
+  const discardCandidate = useCallback(
+    async (stepId, params) => {
+      const sessionId = state.sessionId
+      if (!sessionId) return false
+      try {
+        hydrateDocument(await apiDiscardCandidate(sessionId, stepId, params))
+        return await loadLayers(stepId)
+      } catch (error) {
+        handleFailure(error, stepId)
+        return false
+      }
+    },
+    [state.sessionId, handleFailure, hydrateDocument, loadLayers]
+  )
+
   const actions = useMemo(
     () => ({
       startSession,
@@ -1351,6 +1403,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       generate,
       commit,
       reopen,
+      discardCandidate,
       loadLayers,
       seedDraft: (stepId, selectedFeatureIds, drawnFeatures) =>
         dispatch({ type: DRAFT_SEEDED, stepId, selectedFeatureIds, drawnFeatures }),
@@ -1369,7 +1422,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
         dispatch({ type: SESSION_CLEARED, resume: 'idle' })
       },
     }),
-    [startSession, resume, generate, commit, reopen, loadLayers]
+    [startSession, resume, generate, commit, reopen, discardCandidate, loadLayers]
   )
 
   const value = useMemo(() => ({ state, actions }), [state, actions])

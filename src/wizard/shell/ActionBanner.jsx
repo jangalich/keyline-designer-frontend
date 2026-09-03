@@ -85,8 +85,19 @@ function titleFor(stepId, definitions) {
   return definitions?.get(stepId)?.title ?? stepId
 }
 
+/**
+ * What a reset of one downstream step costs, in that step's own words, or
+ * null. A definition may declare `resetNote(state)` -- the roads step says
+ * how many access points and networks go -- so the confirmation can say what
+ * losing a step actually MEANS rather than only that it resets.
+ */
+function resetNoteFor(stepId, definitions, state) {
+  const note = definitions?.get(stepId)?.resetNote
+  return typeof note === 'function' ? note(state) : null
+}
+
 export default function ActionBanner({ machine, chromeState, definitions }) {
-  const { arm, disarm, armed, advance } = useWizardCursor()
+  const { arm, disarm, armed, advance, focusFeature } = useWizardCursor()
   // Which button is waiting on its own confirmation, or null. One at a time:
   // a banner holds at most two buttons and a confirmation covers the banner.
   const [confirming, setConfirming] = useState(null)
@@ -96,7 +107,10 @@ export default function ActionBanner({ machine, chromeState, definitions }) {
 
   // Everything a button is handed. Assembled once, so a button reads the same
   // world the bar above it is describing.
-  const chrome = { machine, arm, disarm, armed, advance }
+  // `focusFeature` joined the context with the roads step, whose generate
+  // button looks at the network it just made. It is the cursor's own focus,
+  // handed through rather than reached for.
+  const chrome = { machine, arm, disarm, armed, advance, focusFeature }
 
   const pending = confirming ? buttons.find((button) => button.key === confirming) : null
   const working = WORKING[chromeState] ?? null
@@ -207,11 +221,23 @@ export default function ActionBanner({ machine, chromeState, definitions }) {
             </p>
           )}
           <ul data-testid={`reopen-reset-list-${stepId}`}>
-            {machine.stepsResetByReopen.map((id) => (
-              <li key={id} data-testid={`reopen-reset-${id}`}>
-                {titleFor(id, definitions)}
-              </li>
-            ))}
+            {machine.stepsResetByReopen.map((id) => {
+              const note = resetNoteFor(id, definitions, machine.context.state)
+              return (
+                <li key={id} data-testid={`reopen-reset-${id}`}>
+                  {titleFor(id, definitions)}
+                  {/* WHAT LOSING IT MEANS, when the step can say. Reopening
+                      water discards up to three placed access points and
+                      their networks -- more work than any prior step loses
+                      to a cascade, so the dialogue says so in those terms. */}
+                  {note ? (
+                    <span className="chrome-banner__reset-note" data-testid={`reopen-reset-note-${id}`}>
+                      {' '}— {note}
+                    </span>
+                  ) : null}
+                </li>
+              )
+            })}
           </ul>
           <button
             type="button"

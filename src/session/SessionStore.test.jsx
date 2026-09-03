@@ -647,7 +647,10 @@ describe('5. job lifecycle', () => {
     await ui.advance(1000)
     const ok = await ui.run(() => done)
 
-    expect(ok).toBe(true)
+    // RESOLVES WITH THE PAYLOAD IT LANDED, not a bare true: a caller that
+    // awaited this is still holding the render from before the request.
+    expect(ok).toBeTruthy()
+    expect(ok).toEqual(selectStepProposals(ui.state, 'landform'))
     expect(selectJobForStep(ui.state, 'landform')).toMatchObject({ status: 'done', error: null })
     expect(selectJobForStep(ui.state, 'landform').result).toEqual(generateResult())
     // The PAYLOAD half became the proposals; the document half was hydrated.
@@ -790,8 +793,9 @@ describe('6. job failure', () => {
     await ui.run((a) => a.startSession([[40.7, -74.01]]))
     const ok = await ui.run((a) => a.generate('landform'))
 
-    // An evicted job is not a failed one -- the work may well have landed.
-    expect(ok).toBe(true)
+    // An evicted job is not a failed one -- the work may well have landed,
+    // and what layers served is what this resolves with.
+    expect(ok).toEqual(LAYERS_PAYLOAD)
     expect(selectStepProposals(ui.state, 'landform')).toEqual(LAYERS_PAYLOAD)
     expect(selectFailedLayer(ui.state, 'landform')).toBeNull()
 
