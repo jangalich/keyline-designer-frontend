@@ -181,6 +181,67 @@ const LAYERS_PAYLOAD = {
   summary: { total_acres: 13.2, eligible_acres: 7.5 },
 }
 
+/**
+ * The water payload's map half, in the shape water_survey_areas ships: one
+ * FeatureCollection under `survey_zones` carrying an envelope per survey type,
+ * plus the tabular digest and the summary the notices read.
+ *
+ * Enough of the wire to render the step, and no more -- the figures themselves
+ * are water.test.jsx's business, against the real backend.
+ */
+const WATER_PAYLOAD = {
+  survey_zones: {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        id: 'pond-1',
+        properties: {
+          layer: 'survey_zone_embankment',
+          survey_type: 'embankment',
+          rank: 1,
+          zone_acres: 1.4,
+          mean_suitability: 0.71,
+          canopy_overlap_pct: 0.0,
+          road_overlap_pct: 0.0,
+          production_overlap_pct: 0.0,
+        },
+        geometry: polygon([
+          [-74.015, 40.705],
+          [-74.012, 40.705],
+          [-74.012, 40.708],
+          [-74.015, 40.705],
+        ]),
+      },
+      {
+        type: 'Feature',
+        id: 'pond-2',
+        properties: {
+          layer: 'survey_zone_excavated',
+          survey_type: 'excavated',
+          rank: 1,
+          zone_acres: 0.8,
+          mean_suitability: 0.63,
+          canopy_overlap_pct: 0.0,
+          road_overlap_pct: 0.0,
+          production_overlap_pct: 0.0,
+        },
+        geometry: polygon([
+          [-73.995, 40.722],
+          [-73.992, 40.722],
+          [-73.992, 40.725],
+          [-73.995, 40.722],
+        ]),
+      },
+    ],
+  },
+  zones: [
+    { feature_id: 'pond-1', rows: [] },
+    { feature_id: 'pond-2', rows: [] },
+  ],
+  summary: { soil_checked: true, zone_count: 2, dropped_count: 0 },
+}
+
 /* ===========================================================================
    Harness
    =========================================================================== */
@@ -1201,6 +1262,216 @@ describe('9. the mutual-exclusion assertions', () => {
     // it -- its own boundary buttons and the PDF path -- are both deleted.
     expect(app).not.toMatch(/const \[points, setPoints\]/)
     expect(app).not.toContain('selectBoundaryRing')
+  })
+})
+
+/* ===========================================================================
+   10. A CLICK ON BARE MAP MOVES NOTHING BUT THE FOCUS
+   ===========================================================================
+
+   THE BUG THIS SECTION IS THE RECORD OF. Clicking empty ground threw the
+   wizard back to an earlier step -- usually the boundary, where the banner
+   reads "Start a different boundary", sometimes landform. It reproduced on
+   EVERY click inside the parcel, in landform and in water alike.
+
+   AND THE CURSOR WAS NEVER THE THING AT FAULT. It is explicit state and
+   always was (WizardCursor's `openStepId`); nothing re-derived it and nothing
+   reset it. What happened is that the ground the user clicked was not bare:
+   the committed boundary's ring layer drew ONE path carrying both the line
+   and the parcel FILL, and the committed band makes its layers interactive so
+   that clicking settled geometry offers navigation. So the whole interior of
+   the parcel -- every square foot of ground every later step works on -- was
+   a click target belonging to the boundary, and the stack did exactly what it
+   is documented to do with a click on a committed layer: it called open().
+
+   The fill is its own non-interactive path now (see RingLayer), so a click on
+   the ground reaches the map, which is where BackgroundClick has always been
+   waiting to do the one thing it does. These tests assert the CURSOR, not
+   that the panel closed: the panel closing was never the part that broke.
+   =========================================================================== */
+
+describe('10. the bare-map click', () => {
+  /**
+   * Boundary committed, landform committed, water generated with proposals --
+   * so the map carries a committed ring, a committed zone and an editable
+   * band at once, which is the frame the bug was reported in.
+   */
+  async function surfaceAtWater() {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/[^/]+$/, {
+        body: serverDocument({
+          revision: 3,
+          steps: {
+            landform: committedStep(1, featureCollection('zone-1')),
+            water: { status: GENERATED, revision: 2 },
+          },
+        }),
+      }),
+      route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
+      route('GET', /\/steps\/water\/layers$/, { body: WATER_PAYLOAD }),
+    ])
+
+    const ui = await renderSurface()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+    return ui
+  }
+
+  /** The parcel INTERIOR: the committed ring's fill path, which is not the ring. */
+  function parcelInterior(ui) {
+    const pane = ui.pane('boundary--boundary-committed').pane
+    const fill = [...pane.querySelectorAll('path')].find(
+      (path) => path.getAttribute('fill') && path.getAttribute('fill') !== 'none'
+    )
+    if (!fill) throw new Error('the committed ring drew no fill')
+    return fill
+  }
+
+  it('leaves the cursor exactly where it was, in water', async () => {
+    const ui = await surfaceAtWater()
+    expect(ui.cursor.cursorStepId).toBe('water')
+
+    // Something is being read, so there is a focus to clear.
+    await ui.run((_a, cursor) => cursor.focusFeature('pond-1'))
+    expect(ui.cursor.focusedFeatureId).toBe('pond-1')
+
+    await ui.clickPath(parcelInterior(ui))
+
+    // THE ASSERTION IS THE CURSOR. The panel going away is the visible half
+    // and was never the half that failed.
+    expect(ui.cursor.cursorStepId).toBe('water')
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+    expect(ui.cursor.armed).toBeNull()
+
+    await ui.unmount()
+  })
+
+  it('leaves the cursor exactly where it was, in landform', async () => {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /\/steps\/landform\/layers$/, { body: LAYERS_PAYLOAD }),
+    ])
+
+    const ui = await renderSurface()
+    await withLandform(ui)
+    expect(ui.cursor.cursorStepId).toBe('landform')
+
+    await ui.run((_a, cursor) => cursor.focusFeature('zone-1'))
+    expect(ui.cursor.focusedFeatureId).toBe('zone-1')
+
+    const statusBefore = ui.state.steps.landform.status
+    const draftBefore = selectDraft(ui.state, 'landform')
+
+    await ui.clickPath(parcelInterior(ui))
+
+    expect(ui.cursor.cursorStepId).toBe('landform')
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+
+    // AND THE STEP IS UNTOUCHED. Not reopened, not reset, not re-seeded --
+    // the click said "nothing, thanks" and that is all it said.
+    expect(ui.state.steps.landform.status).toBe(statusBefore)
+    expect(selectDraft(ui.state, 'landform')).toBe(draftBefore)
+
+    await ui.unmount()
+  })
+
+  it('leaves the cursor alone over ground a committed zone sits under', async () => {
+    const ui = await surfaceAtWater()
+    expect(ui.cursor.cursorStepId).toBe('water')
+
+    // THE FALL-THROUGH PATH. The committed landform zone is on the map, in a
+    // pane of its own, at the same ground -- and the thing the pointer is
+    // over is the parcel fill, which takes no clicks. So the event reaches
+    // the map rather than the zone, and a click that reached nothing must
+    // move nothing.
+    const committed = ui.pane('landform--landform-committed').pane
+    expect(committed.querySelectorAll('path').length).toBeGreaterThan(0)
+
+    await ui.clickMap([40.715, -74.0])
+    expect(ui.cursor.cursorStepId).toBe('water')
+
+    await ui.clickPath(parcelInterior(ui))
+    expect(ui.cursor.cursorStepId).toBe('water')
+
+    await ui.unmount()
+  })
+
+  it('makes the parcel interior take no clicks at all, and the ring take them', async () => {
+    const ui = await surfaceAtWater()
+    const pane = ui.pane('boundary--boundary-committed').pane
+    const paths = [...pane.querySelectorAll('path')]
+
+    // EXACTLY ONE INTERACTIVE PATH IN THE COMMITTED RING'S PANE, and it is a
+    // LINE. A filled interactive path here is the bug, whatever else is true
+    // of it, because the fill spans the whole parcel.
+    const interactive = paths.filter((path) => path.classList.contains('leaflet-interactive'))
+    expect(interactive).toHaveLength(1)
+    expect(interactive[0].getAttribute('fill')).toBe('none')
+
+    // The fill is still drawn -- this is a click fix, not a paint change.
+    const filled = paths.filter(
+      (path) => path.getAttribute('fill') && path.getAttribute('fill') !== 'none'
+    )
+    expect(filled).toHaveLength(1)
+    expect(filled[0].classList.contains('leaflet-interactive')).toBe(false)
+
+    // AND THE RING ITSELF STILL NAVIGATES. The affordance the committed band
+    // declares is unchanged; what changed is where it lives.
+    await ui.clickPath(interactive[0])
+    expect(ui.cursor.cursorStepId).toBe(BOUNDARY_STEP_ID)
+
+    await ui.unmount()
+  })
+
+  it('navigates to an earlier committed step and back with every status unchanged', async () => {
+    const ui = await surfaceAtWater()
+    const before = Object.fromEntries(
+      Object.entries(ui.state.steps).map(([id, step]) => [id, step.status])
+    )
+    expect(ui.cursor.cursorStepId).toBe('water')
+
+    await ui.run((_a, cursor) => cursor.open('landform'))
+    expect(ui.cursor.cursorStepId).toBe('landform')
+
+    // A bare-map click while parked on the committed step: still no move.
+    await ui.clickPath(parcelInterior(ui))
+    expect(ui.cursor.cursorStepId).toBe('landform')
+
+    await ui.run((_a, cursor) => cursor.open('water'))
+    expect(ui.cursor.cursorStepId).toBe('water')
+
+    // NOTHING WAS REOPENED AND NOTHING CASCADED. Navigation is a statement
+    // about which panel is on screen and about nothing else.
+    const after = Object.fromEntries(
+      Object.entries(ui.state.steps).map(([id, step]) => [id, step.status])
+    )
+    expect(after).toEqual(before)
+    expect(after.landform).toBe(COMMITTED)
+    expect(after.water).toBe(GENERATED)
+
+    await ui.unmount()
+  })
+
+  it('renders a committed step’s own features with the cursor sitting on it', async () => {
+    const ui = await surfaceAtWater()
+    await ui.run((_a, cursor) => cursor.open('landform'))
+    expect(ui.cursor.cursorStepId).toBe('landform')
+
+    // THE COMMITTED BAND IS NOT THE CURSOR STEP'S -- it is gathered from every
+    // committed step -- so the step the cursor is ON keeps drawing its own
+    // settled work rather than dropping it for being "the active one".
+    const pane = ui.pane('landform--landform-committed')
+    expect(pane).toBeDefined()
+    expect(pane.band).toBe('committed')
+    expect(pane.pane.querySelectorAll('path')).toHaveLength(1)
+
+    // And the chrome is the committed step's: the reopen affordance, not a
+    // commit button over an empty map.
+    expect(ui.find('edit-landform')).not.toBeNull()
+    expect(ui.find('commit-landform')).toBeNull()
+
+    await ui.unmount()
   })
 })
 

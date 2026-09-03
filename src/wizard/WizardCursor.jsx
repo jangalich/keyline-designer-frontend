@@ -97,14 +97,31 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
   const order = useMemo(() => wizardStepOrder(state, catalog), [state, catalog])
 
   /**
-   * The user's explicit choice of panel, or null for "no explicit choice".
+   * THE CURSOR, AND IT IS STATE RATHER THAN A DERIVATION. The user's explicit
+   * choice of step, or null for "no explicit choice".
    *
-   * NOT the store's `activeStep`, and the difference is not a preference. The
-   * store validates that field against the DOCUMENT's `step_order` --
-   * hydrate() nulls it for any id not in it -- and the boundary step is
-   * deliberately not in `step_order`. A cursor kept there would be dropped the
-   * moment the session it just created arrived. See the note on `activeStep`
-   * in SessionStore's initialState; the two are documented against each other.
+   * WHY THE DERIVATION BELOW IS ONLY THE FALLBACK. "The first uncommitted
+   * step" is the right answer twice -- before the user has navigated at all,
+   * and again the moment a commit auto-advances (see `advance`) -- and it is
+   * the wrong answer at every other moment, because it is a fact about the
+   * DOCUMENT and where the user is looking is not. A cursor that re-derived
+   * on every render would send anyone who navigated back to a settled step
+   * home again on the next unrelated store write, which is not a slow leak:
+   * it is every click.
+   *
+   * SO NAVIGATION WRITES HERE AND NOTHING ELSE CLEARS IT. `open()` sets it,
+   * `advance()` drops it, and no other path in this file touches it. In
+   * particular the FOCUS does not: blurring a feature is a statement about
+   * the detail panel and has nothing to say about which step is open. See
+   * MapLayerStack's BackgroundClick, which is wired to `blurFeature` alone
+   * for exactly that reason.
+   *
+   * IT CAN NAME THE BOUNDARY, which is the other reason it could not have
+   * lived in the session store: that store is a mirror of the document, and
+   * the boundary is a top-level document field rather than an entry in
+   * `step_order`. The store's own `activeStep` -- a second, similarly-named
+   * slot that could never hold 'boundary' and that nothing read -- is deleted
+   * on this branch rather than left beside this one.
    */
   const [openStepId, setOpenStepId] = useState(null)
 

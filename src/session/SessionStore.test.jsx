@@ -24,7 +24,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   ALL_ACTIONS,
-  ACTIVE_STEP_SET,
   COMMITTED,
   DOCUMENT_HYDRATED,
   DRAFT_DISCARDED,
@@ -871,7 +870,6 @@ describe('9. no derived design content', () => {
       [RESUME_STARTED]: { type: RESUME_STARTED },
       [RESUME_ABSENT]: { type: RESUME_ABSENT },
       [SESSION_ERROR_SET]: { type: SESSION_ERROR_SET, error: { kind: 'network', message: 'x' } },
-      [ACTIVE_STEP_SET]: { type: ACTIVE_STEP_SET, stepId: 'water' },
       [STEP_PROPOSALS_LOADED]: { type: STEP_PROPOSALS_LOADED, stepId: 'water', payload: LAYERS_PAYLOAD },
       [STEP_PROPOSALS_CLEARED]: { type: STEP_PROPOSALS_CLEARED, stepId: 'water' },
       [STEP_ERROR_SET]: { type: STEP_ERROR_SET, stepId: 'water', error: { kind: 'rejected' } },

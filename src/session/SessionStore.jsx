@@ -102,7 +102,6 @@ export const SESSION_CLEARED = 'session/cleared'
 export const RESUME_STARTED = 'session/resumeStarted'
 export const RESUME_ABSENT = 'session/resumeAbsent'
 export const SESSION_ERROR_SET = 'session/errorSet'
-export const ACTIVE_STEP_SET = 'step/activeSet'
 export const STEP_PROPOSALS_LOADED = 'step/proposalsLoaded'
 export const STEP_PROPOSALS_CLEARED = 'step/proposalsCleared'
 export const STEP_ERROR_SET = 'step/errorSet'
@@ -139,7 +138,6 @@ export const ALL_ACTIONS = Object.freeze([
   RESUME_STARTED,
   RESUME_ABSENT,
   SESSION_ERROR_SET,
-  ACTIVE_STEP_SET,
   STEP_PROPOSALS_LOADED,
   STEP_PROPOSALS_CLEARED,
   STEP_ERROR_SET,
@@ -169,21 +167,23 @@ export const initialState = Object.freeze({
   stepOrder: [],
   // stepId -> {status, revision, features, provenance, inputs, proposals, error}
   steps: {},
-  // THE DOCUMENT'S CURSOR, and NOT the panel the user is looking at.
+  // THERE IS NO `activeStep` HERE ANY MORE, AND THAT IS THE COLLISION GONE.
   //
-  // Two similarly-named things exist and they answer different questions.
-  // This one is validated against `step_order` -- hydrate() nulls it for any
-  // id the document does not carry -- so it can only ever name a step the
-  // BACKEND runs. It cannot hold 'boundary', which is deliberately not in
-  // `step_order`, and it is nulled the moment a document arrives that does
-  // not carry whatever it held.
+  // This store used to carry one, described in its own comment as "THE
+  // DOCUMENT'S CURSOR, and NOT the panel the user is looking at" -- a second
+  // slot with almost the wizard's name for almost the wizard's question. It
+  // was written by one action nothing dispatched and read by two selectors
+  // nothing called, so its entire effect was to give the next reader a
+  // plausible wrong answer: it was validated against `step_order`, could
+  // never hold 'boundary', and hydrate() nulled it for any id the incoming
+  // document did not carry, so a reader reaching for "which step is open"
+  // got null on the step the user was actually looking at.
   //
-  // The visible panel is the WIZARD'S CURSOR (wizard/WizardCursor.jsx's
-  // `cursorStepId`), which is held in React state, always names a step the
-  // wizard is actually rendering, and CAN be 'boundary'. A reader reaching
-  // for `activeStep` expecting the open panel gets a subtly wrong answer --
-  // usually null.
-  activeStep: null,
+  // WHICH STEP IS OPEN HAS ONE ANSWER AND ONE HOME: the wizard's cursor,
+  // `useWizardCursor().cursorStepId` -- explicit React state, always naming a
+  // step the wizard is actually rendering, and able to name the boundary.
+  // Nothing about a session belongs in this store's answer to that, because
+  // it was never this store's question.
   // stepId -> {selectedFeatureIds, drawnFeatures, inputs}. THE ONLY
   // CLIENT-AUTHORED STATE IN THIS STORE.
   drafts: {},
@@ -344,7 +344,6 @@ function hydrate(state, document) {
     stepOrder,
     steps,
     drafts,
-    activeStep: stepOrder.includes(state.activeStep) ? state.activeStep : null,
     resume: 'ready',
     error: null,
   }
@@ -411,9 +410,6 @@ function reduce(state, action) {
 
     case SESSION_ERROR_SET:
       return { ...state, error: action.error, resume: state.resume === 'loading' ? 'idle' : state.resume }
-
-    case ACTIVE_STEP_SET:
-      return { ...state, activeStep: action.stepId }
 
     case STEP_PROPOSALS_LOADED:
       // FROM A LAYERS FETCH OR A FINISHED JOB, never from the document. The
@@ -633,11 +629,6 @@ export function reducer(state, action) {
 export const selectSessionId = (state) => state.sessionId
 export const selectDocument = (state) => state.document
 export const selectStepOrder = (state) => state.stepOrder
-/**
- * The document's cursor -- see `activeStep` in initialState. NOT the panel on
- * screen: that is the wizard's own cursor, `useWizardCursor().cursorStepId`.
- */
-export const selectActiveStep = (state) => state.activeStep
 export const selectResumeState = (state) => state.resume
 export const selectSessionError = (state) => state.error
 
@@ -765,8 +756,6 @@ export function selectStepsResetByReopen(state, stepId) {
 }
 
 export const selectDraft = (state, stepId) => state.drafts[stepId] ?? EMPTY_DRAFT
-export const selectActiveDraft = (state) =>
-  state.activeStep ? selectDraft(state, state.activeStep) : EMPTY_DRAFT
 export const selectHasDraft = (state, stepId) => state.drafts[stepId] !== undefined
 
 /**
@@ -1306,7 +1295,6 @@ export function SessionProvider({
       commit,
       reopen,
       loadLayers,
-      setActiveStep: (stepId) => dispatch({ type: ACTIVE_STEP_SET, stepId }),
       seedDraft: (stepId, selectedFeatureIds, drawnFeatures) =>
         dispatch({ type: DRAFT_SEEDED, stepId, selectedFeatureIds, drawnFeatures }),
       setSelection: (stepId, featureIds) =>

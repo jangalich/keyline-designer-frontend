@@ -217,7 +217,7 @@ function RingLayer({ layer, interactive, onLayerClick }) {
   const { field, halo } = getStackColors()
   const closed = layer.ring.length >= 3
   const Shape = closed ? Polygon : Polyline
-  const handlers = interactive && onLayerClick ? { click: () => onLayerClick(layer) } : undefined
+  const navigates = Boolean(interactive && onLayerClick)
 
   return (
     <>
@@ -232,16 +232,56 @@ function RingLayer({ layer, interactive, onLayerClick }) {
         interactive={false}
         pathOptions={{ color: halo, weight: CASING_WEIGHT, fill: false }}
       />
+      {/* THE INTERIOR IS NOT THE RING. It is drawn as its own path, and that
+          path NEVER takes a click.
+
+          It used to be the same path as the line, and a committed ring's
+          `interactive` therefore put a click target over the ENTIRE PARCEL --
+          the one shape on this map that spans every other step's ground. A
+          click on bare soil in the middle of the water step was a click on
+          the boundary layer, so the stack navigated to boundary and the user
+          watched the wizard jump back to `Start a different boundary` for
+          doing the one gesture that is supposed to mean "nothing, thanks".
+
+          Splitting the fill off is what makes "a committed layer offers
+          navigation" true of the RING rather than of the ground inside it.
+          Nothing about the paint changes: an SVG path fills before it
+          strokes, so a fill path under a stroke path is the same picture the
+          single path drew. */}
+      {closed ? (
+        <Polygon
+          positions={layer.ring}
+          interactive={false}
+          pathOptions={{
+            stroke: false,
+            fill: true,
+            fillColor: field,
+            fillOpacity: COMMITTED_FILL_OPACITY,
+          }}
+        />
+      ) : null}
+      {/* THE LINE, and the whole of what a click on this layer can reach. */}
       <Shape
         positions={layer.ring}
-        interactive={Boolean(handlers)}
-        pathOptions={{
-          color: field,
-          weight: LINE_WEIGHT,
-          fill: closed,
-          fillOpacity: closed ? COMMITTED_FILL_OPACITY : 0,
-        }}
-        eventHandlers={handlers}
+        interactive={navigates}
+        pathOptions={{ color: field, weight: LINE_WEIGHT, fill: false }}
+        eventHandlers={
+          navigates
+            ? {
+                // THE CLICK STOPS HERE, for FeatureLayer's reason and it was
+                // missing here: a Leaflet path click also reaches the map,
+                // and the map's own click is what clears the focus. Without
+                // this, clicking the boundary line navigated AND blurred in
+                // one gesture -- two answers to one click, from a listener
+                // that is documented to fire "only when the click reached
+                // nothing".
+                click: (event) => {
+                  L.DomEvent.stopPropagation(event)
+                  onLayerClick(layer)
+                },
+              }
+            : undefined
+        }
       />
     </>
   )
