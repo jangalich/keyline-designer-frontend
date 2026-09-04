@@ -1985,10 +1985,41 @@ export function panelValue(row, scales, surveyType) {
     return count == null ? String(row.value) : `${row.value} of ${count}`
   }
   if (row.key === 'suitability') {
-    const ceiling = scales?.suitability?.parcel_observed_max?.[surveyType]
+    const ceiling = suitabilityCeiling(scales, surveyType)
     return ceiling == null ? String(row.value) : `${row.value} of ${ceiling}`
   }
   return String(row.value)
+}
+
+/**
+ * THE PARCEL'S OWN ATTAINABLE SUITABILITY, for one survey type, or null.
+ *
+ * ONE READER FOR THE ONE FIGURE TWO SURFACES SHOW. The detail panel and the
+ * tab both print `mean_suitability`, and a fraction is only readable against
+ * a denominator -- so both have to reach the same one, off the same key, and
+ * a second spelling of that path is a second answer waiting to disagree with
+ * the first.
+ *
+ * WHY THIS DENOMINATOR RATHER THAN 1.0. `scales.suitability` says min 0.0,
+ * max 1.0 -- and reading 0.53 against 1.0 says "barely half" when the honest
+ * reading is "0.53 of an attainable 0.68". The soil criterion's own parcel
+ * range caps the blend: on a parcel whose best soil scores 0.6, no cell can
+ * reach 1.0 however good its slope, catchment and wetness. The backend
+ * measures the ceiling off its own gate-masked surface and ships it PER TYPE,
+ * because the two surfaces are kept apart end to end and are never comparable
+ * on one scale.
+ *
+ * NULL WHEN THE PAYLOAD DOES NOT CARRY IT, and every caller falls back to the
+ * bare number. A payload without `scales` is OLDER, not wrong, and a missing
+ * denominator must not blank a measurement.
+ *
+ * NO THRESHOLD AND NO DEFAULT CEILING IS WRITTEN HERE. That is the same rule
+ * scoreBandName() states for landform's bands: a copy of the backend's own
+ * numbers on this side is a second source of truth that goes stale silently
+ * the first time they are retuned.
+ */
+export function suitabilityCeiling(scales, surveyType) {
+  return scales?.suitability?.parcel_observed_max?.[surveyType] ?? null
 }
 
 /**
@@ -2274,23 +2305,66 @@ export const WATER_STEP = documentStep({
    */
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
+    const scales = proposals?.scales
 
     // EVERY TAB CARRIES AN EYE AND NO TAB CARRIES AN ×. Nothing here is
     // user-authored, so nothing here can be destroyed -- see `tools` above.
     // `removable` is simply not declared, which is how the strip is told.
-    return surveyZoneFeatures(proposals).map((feature) => ({
-      id: feature.id,
-      name: surveyZoneName(feature.properties),
-      eye: true,
-      selected: selected.has(feature.id),
-      rows: [
-        { value: measure(feature.properties?.zone_acres), label: 'acres' },
-        {
-          value: measure(feature.properties?.mean_suitability, SUITABILITY_DP),
-          label: 'suitability',
-        },
-      ],
-    }))
+    return surveyZoneFeatures(proposals).map((feature) => {
+      const ceiling = suitabilityCeiling(scales, feature.properties?.survey_type)
+      return {
+        id: feature.id,
+        name: surveyZoneName(feature.properties),
+        eye: true,
+        selected: selected.has(feature.id),
+        rows: [
+          { value: measure(feature.properties?.zone_acres), label: 'acres' },
+          {
+            /**
+             * THE SUITABILITY, AGAINST THE SCALE THE PAYLOAD SHIPPED FOR IT.
+             *
+             * A BARE "0.56" IS NOT A READING. It was the last figure on this
+             * step still printed with nothing to read it against -- the detail
+             * panel has read `scales` since the panel became the server's own
+             * rows, and the tab had not caught up. Two decimals of a 0-1
+             * fraction with no denominator is a number nobody can act on, and
+             * this tab exists to be acted on: it is the two figures someone
+             * scans to decide which area to walk.
+             *
+             * THE DENOMINATOR RIDES THE LABEL, NOT THE FIGURE, which is the
+             * rule the panel's own units follow (see panelFields). The value
+             * column is a fixed-width monospace column whose whole job is to
+             * hold the decimal point still down a strip of tabs; "0.56 of
+             * 0.68" in it widens that column for every tab and turns a column
+             * of figures into a column of phrases. The label is the prose
+             * half, and "of 0.68 suitability" is prose.
+             *
+             * NO BAND NAME, AND THAT IS THE PAYLOAD'S SHAPE RATHER THAN A
+             * CHOICE. Landform's `scales` carries `bands` and `band_bounds`,
+             * so scoreBandName() can name 74 "good" without this side knowing
+             * where good starts. WATER'S CARRIES NEITHER -- its scales block
+             * is {suitability, rank, overlap_pct, boundary_adjacency_pct,
+             * pinch_drainage_score, compartment_rank_score} -- so there is no
+             * band to look up, and inventing one here would mean writing this
+             * pipeline's thresholds down on the client, which is the one thing
+             * the block exists to prevent. What water DOES ship is the
+             * parcel's own measured ceiling, and that is what is rendered.
+             *
+             * BOTH FIGURES AT THE TAB'S OWN PRECISION. SUITABILITY_DP is this
+             * side's choice (see its note) and the ceiling is printed at it
+             * too -- "0.56 of 0.675" would be two precisions in one reading.
+             * The panel, which prints the backend's numbers as sent, shows the
+             * unrounded pair.
+             */
+            value: measure(feature.properties?.mean_suitability, SUITABILITY_DP),
+            label:
+              ceiling == null
+                ? 'suitability'
+                : `of ${measure(ceiling, SUITABILITY_DP)} suitability`,
+          },
+        ],
+      }
+    })
   },
 
   /**

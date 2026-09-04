@@ -1158,54 +1158,90 @@ describeIf('the zone patterns, rendered', () => {
     }
   }, SLOW)
 
-  it('draws water and production as different KINDS of mark, not one mark in two colours', async () => {
-    // The claim is that a reader can tell WHICH STEP a mark belongs to. The
-    // ink measure cannot see shape, so this asks the geometry directly -- and
-    // the answer is now stronger than "different elements": production is a
-    // paint server made of ruled paths and water is not a paint server at all.
+  it('draws three KINDS of mark, so the step AND the survey type are told by shape', async () => {
+    // The claim is that a reader can tell WHICH STEP a mark belongs to, and --
+    // for the one step whose two types overlap on purpose -- WHICH TYPE. The
+    // ink measure cannot see shape, so this asks the geometry directly.
     const marks = await page.evaluate(() => {
       const defOf = (t) => document.getElementById(`zone-pattern-${t}`)
-      const production = defOf('production')
+      const shapesOf = (t) =>
+        defOf(t) ? [...new Set([...defOf(t).children].map((n) => n.tagName.toLowerCase()))] : null
+      const fillOf = (t) =>
+        document.querySelector(`[data-testid="swatch-${t}-active"] rect`).getAttribute('fill')
       return {
-        productionShapes: [...production.children].map((n) => n.tagName.toLowerCase()).join(','),
-        waterDefs: ['survey-embankment', 'survey-excavated'].map((t) => defOf(t)),
-        waterFills: ['survey-embankment', 'survey-excavated'].map((t) =>
-          document.querySelector(`[data-testid="swatch-${t}-active"] rect`).getAttribute('fill')
-        ),
+        production: { shapes: shapesOf('production'), fill: fillOf('production') },
+        embankment: { shapes: shapesOf('survey-embankment'), fill: fillOf('survey-embankment') },
+        excavated: {
+          shapes: shapesOf('survey-excavated'),
+          fill: fillOf('survey-excavated'),
+          dots: defOf('survey-excavated').children.length,
+          radii: [
+            ...new Set([...defOf('survey-excavated').children].map((n) => n.getAttribute('r'))),
+          ],
+          strokes: [...defOf('survey-excavated').children].filter((n) =>
+            n.hasAttribute('stroke')
+          ).length,
+        },
       }
     })
-    expect(marks.productionShapes).toBe('path')
-    // NO <pattern> DEF FOR EITHER WATER TREATMENT. A tint has no paint server
-    // to point at, and an empty def nothing references would be the smell.
-    expect(marks.waterDefs).toEqual([null, null])
-    // A FLAT COLOUR EACH, and the two are different blues -- one mark, two
-    // values, which is what tells the survey TYPES apart within the step.
-    for (const fill of marks.waterFills) expect(fill).not.toMatch(/^url\(#/)
-    expect(marks.waterFills[0]).not.toBe(marks.waterFills[1])
+
+    // PRODUCTION: ruled paths in a paint server, and NO outline anywhere.
+    expect(marks.production.shapes).toEqual(['path'])
+
+    // EMBANKMENT: no paint server at all. A wash's fill is a colour, and an
+    // empty def nothing references would be the smell.
+    expect(marks.embankment.shapes).toBeNull()
+    expect(marks.embankment.fill).not.toMatch(/^url\(#/)
+
+    // EXCAVATED: a paint server too, and it is a FIELD OF DOTS rather than
+    // ruled lines -- so the two survey types differ in the KIND of mark, not
+    // just in the value of one mark. That is what makes their overlap read as
+    // two zones sharing ground instead of as a third, darker zone.
+    expect(marks.excavated.shapes).toEqual(['circle'])
+    expect(marks.excavated.fill).toMatch(/^url\(#/)
+    expect(marks.excavated.fill).not.toBe(marks.production.fill)
+
+    // MANY, AND FINE. "Static" is a fine dense irregular field; a handful of
+    // large dots is a texture with structure in it, which is what the previous
+    // stipple was.
+    expect(marks.excavated.dots).toBeGreaterThan(200)
+    expect(Number(marks.excavated.radii[0])).toBeLessThanOrEqual(0.75)
+
+    // AND NO PER-DOT CASING. The casing rule is for a LINE that has to survive
+    // imagery alone; a ring at the dot's own frequency is a second texture, and
+    // it is what killed the previous stipple.
+    expect(marks.excavated.strokes).toBe(0)
   }, SLOW)
 
-  it('outlines every tint in its own colour, with nothing under the line', async () => {
+  it('outlines both survey marks in their own colour, with nothing under the line', async () => {
     const outlined = await page.evaluate(() => {
       const halo = getComputedStyle(document.documentElement).getPropertyValue('--halo').trim()
+      const excavated = getComputedStyle(document.documentElement)
+        .getPropertyValue('--survey-excavated')
+        .trim()
       return ['survey-embankment', 'survey-excavated'].map((t) => {
         const svg = document.querySelector(`[data-testid="swatch-${t}-active"]`)
         const strokes = [...svg.querySelectorAll('rect[stroke]')]
+        const fill = svg.querySelector('rect').getAttribute('fill')
         return {
           outlined: svg.dataset.outlined === 'true',
           count: strokes.length,
-          lineIsTheFill:
-            strokes[0]?.getAttribute('stroke') === svg.querySelector('rect').getAttribute('fill'),
+          // THE LINE IS THE MARK'S OWN COLOUR. For the wash that is literally
+          // its fill; for the dot field the fill is a paint server, so the
+          // comparison is against the token both the dots and the line read.
+          lineIsTheMark:
+            strokes[0]?.getAttribute('stroke') === (fill.startsWith('url(#') ? excavated : fill),
           anyHalo: strokes.some((rect) => rect.getAttribute('stroke') === halo),
         }
       })
     })
-    // ONE LINE, ONE COLOUR, AND IT IS THE WASH'S. A second stroked rect would
-    // be a casing, which this mark deliberately does not take -- see the
-    // --survey-* note in index.css for what that costs and why.
+    // ONE LINE, ONE COLOUR, AND IT IS THE MARK'S. A second stroked rect would
+    // be a casing, which neither mark takes -- see the --survey-* note in
+    // index.css for what that costs and why.
     for (const mark of outlined) {
       expect(mark.outlined).toBe(true)
       expect(mark.count).toBe(1)
-      expect(mark.lineIsTheFill).toBe(true)
+      expect(mark.lineIsTheMark).toBe(true)
       expect(mark.anyHalo).toBe(false)
     }
   }, SLOW)
@@ -1273,6 +1309,13 @@ describeIf('the zone patterns, rendered', () => {
    * pixel for pixel. What comes out is the mark's own contribution, which is
    * the thing legibility is a claim about.
    */
+  /** One ground cell, decoded, by its full test id. */
+  async function swatchOf(page, testid) {
+    return decodePng(
+      await (await page.$(`[data-testid="${testid}"]`)).screenshot({ type: 'png' })
+    )
+  }
+
   async function addedInkOver(page, ground, treatment, state) {
     const marked = decodePng(
       await (await page.$(`[data-testid="ground-${ground}-${treatment}-${state}"]`)).screenshot({
@@ -1386,6 +1429,125 @@ describeIf('the zone patterns, rendered', () => {
     // A committed water zone is context, not a decision being made.
     expect(committedWater).toBeLessThan(activeWater)
   }, SLOW)
+
+  /**
+   * THE EXCAVATED DOT FIELD, MEASURED OVER BOTH GROUNDS.
+   *
+   * WHY THIS MARK GETS ITS OWN MEASUREMENT. #3d5a6c is the darker of the two
+   * survey blues and the dots sit DIRECTLY ON IMAGERY rather than on a wash --
+   * which over canopy is dark on dark, the same situation the road line hit
+   * before its casing carried it (the bare umber line measured 0.0008, a fifth
+   * of the floor). A dot field cannot take the road's answer: a per-dot halo is
+   * a ring at the dot's own frequency, a second texture rather than a support
+   * for the first, and it is what killed the previous stipple. So the only two
+   * levers are DENSITY and OPACITY, and this is the measurement that says
+   * whether they were enough.
+   *
+   * THE FIELD IS MEASURED WITHOUT ITS OUTLINE TOO, for the same reason the
+   * road is measured without its casing: a mark whose interior texture is
+   * carried entirely by its border is a mark that disappears in the middle of
+   * a large zone, and the outline would hide that in the combined figure.
+   */
+  it('keeps the excavated dot field legible over canopy and soil on density alone', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      for (const state of ['committed', 'active']) {
+        const whole = await addedInkOver(page, ground, 'survey-excavated', state)
+        const field = await addedInkOver(page, ground, 'survey-excavated', `${state}-unoutlined`)
+        // eslint-disable-next-line no-console
+        console.log(
+          `    ink  ${ground.padEnd(6)} survey-excavated ${state.padEnd(9)} ` +
+            `whole ${whole.toFixed(4)}  field-only ${field.toFixed(4)}  ` +
+            `(outline adds ${(whole - field).toFixed(4)})`
+        )
+        // ABOVE THE FLOOR ON BOTH GROUNDS, whole mark and field alone. The
+        // second is the load-bearing one: it is what says the DENSITY carries
+        // the mark, so the outline never had to take a halo casing.
+        expect(whole, `excavated ${state} must be legible over ${ground}`).toBeGreaterThan(0.004)
+        expect(
+          field,
+          `the excavated dot field must carry itself over ${ground} at ${state}`
+        ).toBeGreaterThan(0.004)
+      }
+      // AND STILL QUIETER WHEN COMMITTED, on this ground, like every other mark.
+      const committed = await addedInkOver(page, ground, 'survey-excavated', 'committed')
+      const active = await addedInkOver(page, ground, 'survey-excavated', 'active')
+      expect(committed).toBeLessThan(active)
+    }
+  }, SLOW)
+
+  /**
+   * THE OVERLAP, WHICH IS THE CASE THE PAIR OF MARKS EXISTS FOR.
+   *
+   * `cross_type_overlaps` is the payload's record of the two survey
+   * instruments independently identifying the same ground. While both types
+   * were washes, two translucent fills stacked multiplied into a third,
+   * darker fill and the overlap read as its own zone -- destroying exactly the
+   * reading the field is there to support.
+   *
+   * TWO MARKS, TWO SIGNATURES, MEASURED APART. A wash shifts the ground's mean
+   * tone and adds almost no local variation; a dot field barely moves the mean
+   * and adds a great deal of local variation. So the overlap is asked for both
+   * at once: is the wash's tone shift still there (compared with the dot field
+   * alone), and is the dot field's texture still there (compared with the wash
+   * alone). A single blended fill would fail the second -- that is what "one
+   * darker fill" means numerically.
+   */
+  it('keeps BOTH marks present where the two survey types coincide', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      const wash = await swatchOf(page, `ground-${ground}-survey-embankment-active`)
+      const dots = await swatchOf(page, `ground-${ground}-survey-excavated-active`)
+      const both = await swatchOf(page, `ground-${ground}-overlap-active`)
+
+      const tone = (png) => meanAbsDifference(png, bare)
+      // TEXTURE IS MEASURED IN THE INTERIOR, away from the outline. Every one
+      // of these marks draws a 2px edge, and an edge is two hard steps in
+      // every scanline -- which is local variation that says nothing about
+      // whether the FILL is a texture or a wash. Cropping it out is what makes
+      // the wash's reading the near-zero it ought to be.
+      const texture = (png) => localVariation(crop(png, 8))
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `    overlap ${ground.padEnd(6)} tone  wash ${tone(wash).toFixed(4)} ` +
+          `dots ${tone(dots).toFixed(4)} both ${tone(both).toFixed(4)}   ` +
+          `texture wash ${texture(wash).toFixed(4)} dots ${texture(dots).toFixed(4)} ` +
+          `both ${texture(both).toFixed(4)}`
+      )
+
+      // THE WASH IS STILL THERE. The overlap shifts the ground's tone by more
+      // than the dot field alone does -- the wash's own contribution survives
+      // having a texture laid over it.
+      expect(tone(both), `the embankment wash survives the overlap over ${ground}`).toBeGreaterThan(
+        tone(dots)
+      )
+
+      // THE CONTROL THAT MAKES THE NEXT ASSERTION MEAN SOMETHING. A wash
+      // covers every pixel equally, so its interior has essentially no local
+      // variation -- which is exactly what a SINGLE BLENDED FILL would read
+      // as, whatever its tone.
+      expect(texture(wash), `a wash has no texture of its own over ${ground}`).toBeLessThan(0.001)
+
+      // THE DOTS ARE STILL THERE, and this is the assertion a single blended
+      // fill fails. Held against the same 0.004 visibility floor the ink
+      // measures use, so "present" means the same thing here as it does there.
+      expect(
+        texture(both),
+        `the excavated dot field survives the overlap over ${ground}`
+      ).toBeGreaterThan(0.004)
+      // MOST OF IT, NOT ALL OF IT, AND THE SHORTFALL IS HONEST PHYSICS. The
+      // two survey values are one tonal pair, so the embankment wash moves the
+      // ground TOWARD the excavated dots' own colour and the dot-to-ground
+      // delta shrinks. Over canopy that costs about half the field's local
+      // contrast -- which is a cost, not a failure: the dots are still four
+      // times the wash's own reading, so the overlap still reads as a texture
+      // on a wash rather than as one darker fill.
+      expect(
+        texture(both) / texture(dots),
+        `the overlap keeps the dot field's texture over ${ground}`
+      ).toBeGreaterThan(0.4)
+    }
+  }, SLOW)
 })
 
 
@@ -1479,6 +1641,50 @@ function meanAbsDifference(a, b) {
       Math.abs(a.pixels[i + 1] - b.pixels[i + 1]) +
       Math.abs(a.pixels[i + 2] - b.pixels[i + 2])
     count++
+  }
+  return sum / count / (3 * 255)
+}
+
+/** The image with `inset` pixels taken off every side. */
+function crop({ pixels, channels, width, height }, inset) {
+  const w = width - 2 * inset
+  const h = height - 2 * inset
+  const out = new Uint8Array(w * h * channels)
+  for (let y = 0; y < h; y += 1) {
+    const from = ((y + inset) * width + inset) * channels
+    out.set(pixels.subarray(from, from + w * channels), y * w * channels)
+  }
+  return { width: w, height: h, channels, pixels: out }
+}
+
+/**
+ * HOW MUCH THE IMAGE CHANGES FROM ONE PIXEL TO THE NEXT -- the signature of a
+ * TEXTURE, as opposed to the signature of a wash.
+ *
+ * The mean-difference measures above answer "how much ink" and cannot tell a
+ * flat fill from a field of dots that puts the same total ink on the page:
+ * both shift the average by the same amount. This is the other half. A wash
+ * covers every pixel equally, so its horizontal neighbour differences are
+ * near zero; a 1px dot field alternates ink and ground at nearly every step,
+ * so they are large. That difference is what makes "the overlap is not a
+ * single blended fill" a measurement rather than an opinion.
+ *
+ * HORIZONTAL NEIGHBOURS ONLY, which is enough: an isotropic field shows the
+ * same variation along either axis, and one pass is one pass.
+ */
+function localVariation({ pixels, channels, width, height }) {
+  let sum = 0
+  let count = 0
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x + 1 < width; x += 1) {
+      const i = (y * width + x) * channels
+      const j = i + channels
+      sum +=
+        Math.abs(pixels[i] - pixels[j]) +
+        Math.abs(pixels[i + 1] - pixels[j + 1]) +
+        Math.abs(pixels[i + 2] - pixels[j + 2])
+      count += 1
+    }
   }
   return sum / count / (3 * 255)
 }

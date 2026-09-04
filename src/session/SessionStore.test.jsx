@@ -423,6 +423,48 @@ describe('2. wholesale application of a commit response', () => {
     // landform survived as a committed step, so its draft is still the user's.
     expect(after.drafts.landform.selectedFeatureIds).toEqual(['zone-1'])
   })
+
+  /**
+   * DRAFT_SELECTION_SET TAKES A LIST OR A FUNCTION OF THE LIST IN HAND.
+   *
+   * WHY THE SECOND FORM EXISTS. The tab strip's eye has to compute a whole
+   * SET rather than flip one id (radio mode clears every other tab), and it
+   * was computing it from the draft its own render was built with. Two
+   * dispatches in one React batch then both start from the pre-batch list and
+   * the second silently undoes the first. Moving the READ into the reducer is
+   * what makes them compose -- which is what the old DRAFT_SELECTION_TOGGLED
+   * did by construction.
+   */
+  it('composes two selection writes made against the same rendered draft', () => {
+    let state = hydrateInto(
+      initialState,
+      serverDocument({ steps: { water: { status: GENERATED } } })
+    )
+    state = reducer(state, {
+      type: DRAFT_SELECTION_SET,
+      stepId: 'water',
+      featureIds: ['a', 'b', 'c'],
+    })
+
+    // TWO UPDATERS BUILT FROM THE SAME LIST -- which is what two onClick
+    // closures rendered together are -- each removing one id.
+    const rendered = state.drafts.water.selectedFeatureIds
+    const drop = (id) => (current) => current.filter((entry) => entry !== id)
+    expect(rendered).toEqual(['a', 'b', 'c'])
+
+    state = reducer(state, { type: DRAFT_SELECTION_SET, stepId: 'water', featureIds: drop('a') })
+    state = reducer(state, { type: DRAFT_SELECTION_SET, stepId: 'water', featureIds: drop('b') })
+
+    // BOTH TOOK. Handing the reducer the ANSWER instead would have left ['a',
+    // 'c'] -- the second write computed from a list without 'b' removed and
+    // with 'a' still in it.
+    expect(state.drafts.water.selectedFeatureIds).toEqual(['c'])
+
+    // AND THE LIST FORM IS UNCHANGED, for every caller that is stating an
+    // outright new selection rather than composing with one.
+    state = reducer(state, { type: DRAFT_SELECTION_SET, stepId: 'water', featureIds: ['b'] })
+    expect(state.drafts.water.selectedFeatureIds).toEqual(['b'])
+  })
 })
 
 /* ===========================================================================
