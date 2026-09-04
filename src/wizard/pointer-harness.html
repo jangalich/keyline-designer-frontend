@@ -1,0 +1,28 @@
+<!doctype html>
+<!--
+  The page pointer.test.jsx drives. It exists so the shell can be CLICKED in a
+  real engine: see pointerHarness.jsx for why, and for the query string it
+  reads.
+
+  NOT part of the built application. Vite's dev server serves any HTML file
+  under the project root on request, so this needs no entry in vite.config.js
+  and never lands in `npm run build` output -- only index.html is an input
+  there. Same arrangement as layout-harness.html beside it.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chrome pointer harness</title>
+    <style>
+      /* The stage sizes itself off the viewport (see .map-stage), so the page
+         only has to get out of its way. */
+      html, body { margin: 0; height: 100%; }
+      #root { height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/wizard/pointerHarness.jsx"></script>
+  </body>
+</html>
