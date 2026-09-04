@@ -116,6 +116,7 @@ export const DRAFT_INPUT_SET = 'draft/inputSet'
 export const DRAFT_DISCARDED = 'draft/discarded'
 export const JOB_SUBMITTED = 'job/submitted'
 export const JOB_OBSERVED = 'job/observed'
+export const JOB_STARTED = 'job/started'
 export const JOB_FORGOTTEN = 'job/forgotten'
 
 /**
@@ -152,6 +153,7 @@ export const ALL_ACTIONS = Object.freeze([
   DRAFT_DISCARDED,
   JOB_SUBMITTED,
   JOB_OBSERVED,
+  JOB_STARTED,
   JOB_FORGOTTEN,
 ])
 
@@ -571,6 +573,47 @@ function reduce(state, action) {
       const drafts = { ...state.drafts }
       delete drafts[action.stepId]
       return { ...state, drafts }
+    }
+
+    case JOB_STARTED: {
+      /**
+       * A GENERATION HAS BEEN ASKED FOR, BEFORE THE SERVER HAS ANSWERED.
+       *
+       * THE REMAINING FLASH, AND WHY DROPPING THE STALE JOB DID NOT CLOSE IT.
+       * `generating` is read off this table, and until now the table did not
+       * learn about a generate until the POST came back with a job id. The
+       * round trip is short and it is not zero, and for its whole width the
+       * step still derived `reviewing` -- so the reviewing pair rendered for
+       * a split second on every press. Dropping the superseded job fixed the
+       * case where the buttons stayed for the WHOLE generate; this is the
+       * case where they stay for the first frames of it, and it is a
+       * different hole in the same wall.
+       *
+       * A REAL ENTRY, NOT A FLAG, so nothing has to learn a second way to
+       * ask. selectJobForStep already answers "what is this step's job", and
+       * an entry with no id yet is still the honest answer to it: a
+       * generation is in flight. JOB_SUBMITTED replaces this the moment the
+       * id arrives -- it drops every entry carrying the step's id, which is
+       * what this one carries -- so the placeholder never coexists with the
+       * real job and never outlives it.
+       *
+       * KEYED BY THE STEP so a second press cannot leave two behind, and
+       * `jobId: null` so any reader that reaches for one gets an absence
+       * rather than a plausible wrong id to poll.
+       */
+      return {
+        ...state,
+        jobs: {
+          ...state.jobs,
+          [`pending:${action.stepId}`]: {
+            jobId: null,
+            stepId: action.stepId,
+            status: JOB_RUNNING,
+            result: null,
+            error: null,
+          },
+        },
+      }
     }
 
     case JOB_SUBMITTED: {
@@ -1395,6 +1438,10 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       generationsRef.current.set(stepId, entry)
 
       dispatchIfMounted({ type: STEP_ERROR_CLEARED, stepId })
+      // BEFORE THE FIRST AWAIT, which is the whole point of it: the step is
+      // generating from the moment it is asked to, not from the moment the
+      // server agrees. See the JOB_STARTED case.
+      dispatchIfMounted({ type: JOB_STARTED, stepId })
 
       try {
         const terminal = await runGeneration(sessionId, stepId, params, {
@@ -1452,7 +1499,26 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
         handleFailure(error, stepId)
         return false
       } finally {
-        if (generationsRef.current.get(stepId) === entry) generationsRef.current.delete(stepId)
+        // ONLY THE GENERATION THAT STILL OWNS THE STEP CLEANS UP AFTER IT.
+        //
+        // THE PLACEHOLDER MUST NOT OUTLIVE THE ATTEMPT: JOB_SUBMITTED
+        // replaced it on every path where an id was issued, and this clears
+        // the paths where none ever was -- the POST threw, the transport
+        // failed, the caller aborted -- because on those the step is not
+        // generating and must not look as though it is.
+        //
+        // BUT A SUPERSEDED GENERATE MUST NOT CLEAR ITS SUCCESSOR'S. The
+        // placeholder is keyed by STEP, so a second press overwrites the
+        // first one's; the first then aborts and its `finally` runs AFTER
+        // that overwrite. Clearing unconditionally there would delete the
+        // live generation's entry and put the flash straight back, for the
+        // window until the second POST answers. The ref already names the
+        // owner -- the second press replaced it -- so the same check that
+        // decides whether to forget the ref decides this.
+        if (generationsRef.current.get(stepId) === entry) {
+          generationsRef.current.delete(stepId)
+          dispatchIfMounted({ type: JOB_FORGOTTEN, jobId: `pending:${stepId}` })
+        }
       }
     },
     [state.sessionId, dispatchIfMounted, handleFailure, loadLayers, onGenerated]

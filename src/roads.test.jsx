@@ -706,7 +706,12 @@ function installFetch(routes) {
     const responses = Array.isArray(route.responses) ? route.responses : [route.responses]
     const index = Math.min(cursors.get(route) ?? 0, responses.length - 1)
     cursors.set(route, index + 1)
-    const { status = 200, body } = typeof responses[index] === 'function' ? responses[index](calls[calls.length - 1]) : responses[index]
+    // AWAITED, so a route may HOLD ITS ANSWER. A function response that
+    // returns a promise lets a test keep a request in flight and look at the
+    // UI while it is -- which is the only way to see a state that lasts
+    // exactly as long as a round trip.
+    const answer = typeof responses[index] === 'function' ? await responses[index](calls[calls.length - 1]) : responses[index]
+    const { status = 200, body } = answer
     return { ok: status >= 200 && status < 300, status, json: async () => body }
   })
   return calls
@@ -1306,6 +1311,62 @@ describe('15. the generating state, and the two kinds of failed generate', () =>
     await ui.run(() => running)
     await ui.waitFor('the buttons back', () => ui.find('access-roads') !== null, 5000)
     expect(ui.find('commit-roads')).not.toBeNull()
+    await ui.unmount()
+  }, SECTION_15_TIMEOUT_MS)
+
+  /**
+   * [test 1, the split second] THE BUTTONS GO ON THE PRESS, NOT ON THE REPLY.
+   *
+   * THE SECOND HALF OF THE SAME BUG, and the half that survived the first
+   * fix. Dropping the superseded job stopped the reviewing pair staying for
+   * the WHOLE generate; it left them showing for the first frames of one,
+   * because `generating` is read off the store's job table and the table did
+   * not hear about a generate until the POST came back with an id. That round
+   * trip is short and it is not zero -- reported as "still showing up for a
+   * split second".
+   *
+   * SO THE POST IS HELD OPEN HERE, not the job. `release()` lets the submit
+   * answer; every assertion before it happens while the request is still in
+   * flight and no job id exists anywhere. A store that waits for the id
+   * cannot pass this.
+   */
+  it('drops the reviewing pair on the press, before the submit is answered', async () => {
+    let letSubmitAnswer = null
+    const held = new Promise((resolve) => {
+      letSubmitAnswer = resolve
+    })
+    const document_ = serverDocument({
+      roads: { status: GENERATED, inputs: { [ACCESS_POINTS_LIST]: [AP_A, AP_B] } },
+    })
+    installFetch([
+      route('GET', /^\/api\/sessions\/sess-roads$/, { body: document_ }),
+      route('GET', /\/steps\/roads\/layers$/, { body: roadsPayload() }),
+      route('POST', /\/steps\/roads\/generate$/, async () => {
+        await held
+        return { status: 202, body: { job_id: 'job-9', status: 'running' } }
+      }),
+      route('GET', /^\/api\/jobs\/job-9$/, {
+        body: { job_id: 'job-9', status: 'done', result: { payload: roadsPayload(), document: document_ } },
+      }),
+    ])
+    const ui = await renderApp({ center: [40.72, -74.0] })
+    await ui.run((a) => a.resume('sess-roads'))
+    await ui.waitFor('the roads payload', () => ui.roads != null, 5000)
+    expect(ui.find('access-roads')).not.toBeNull()
+    expect(ui.find('commit-roads')).not.toBeNull()
+
+    const running = ui.actions.generate('roads', accessPointParams([40.715, -74.01]))
+    // ONE FLUSH, NO POLLING. The submit has not answered and cannot while
+    // this runs, so if the pair is still here after React has rendered the
+    // dispatch, it is here for a user to see.
+    await ui.run(() => Promise.resolve())
+    expect(ui.find('access-roads'), 'the pair must go on the press').toBeNull()
+    expect(ui.find('commit-roads')).toBeNull()
+    expect(ui.find('working-roads').textContent).toMatch(/Generating/i)
+
+    letSubmitAnswer()
+    await ui.run(() => running)
+    await ui.waitFor('the buttons back', () => ui.find('access-roads') !== null, 5000)
     await ui.unmount()
   }, SECTION_15_TIMEOUT_MS)
 

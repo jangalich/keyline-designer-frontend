@@ -37,6 +37,7 @@ import {
   GENERATED,
   JOB_FORGOTTEN,
   JOB_OBSERVED,
+  JOB_STARTED,
   JOB_SUBMITTED,
   NOT_STARTED,
   RESUME_ABSENT,
@@ -960,6 +961,8 @@ describe('9. no derived design content', () => {
       [DRAFT_SHAPE_REMOVED]: { type: DRAFT_SHAPE_REMOVED, stepId: 'water', featureId: 'drawn-1' },
       [DRAFT_INPUT_SET]: { type: DRAFT_INPUT_SET, stepId: 'roads', key: 'access_point', value: [40.7, -74.0] },
       [DRAFT_DISCARDED]: { type: DRAFT_DISCARDED, stepId: 'water' },
+      // The placeholder a generate writes before the server has issued an id.
+      [JOB_STARTED]: { type: JOB_STARTED, stepId: 'water' },
       [JOB_SUBMITTED]: { type: JOB_SUBMITTED, jobId: 'job-1', stepId: 'water' },
       [JOB_OBSERVED]: { type: JOB_OBSERVED, snapshot: { job_id: 'job-1', status: 'done', result: LAYERS_PAYLOAD } },
       [JOB_FORGOTTEN]: { type: JOB_FORGOTTEN, jobId: 'job-1' },

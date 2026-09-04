@@ -176,25 +176,40 @@ const TREATMENT_MARKS = [
   // levers a dot field has -- density and opacity, since a per-dot casing is
   // the thing that must not come back. `grid` is dots per tile side (a
   // REGULAR lattice, one dot per cell at its centre -- see stippleTile) and
-  // `radius` is the dot. 24 dots per 64px side at r=0.55 inks 13.4% of the
-  // ground the mark covers, within a point of the hatch's eighth: the two
-  // are neighbours on one map and neither may shout.
+  // `radius` is the dot.
   //
-  // NO `jitter` FIELD ANY MORE, and its absence is the change. It displaced
-  // each dot within its cell, which cost the tile its clean repeat; the
-  // density it was tuned alongside is unchanged.
+  // THE DOTS WERE TOO SMALL TO BE DOTS. 24 per 64px side put them 2.67px
+  // apart at 1.1px across -- around one device pixel, which is not a dot but
+  // an anti-aliased smudge: the renderer had no room to draw a disc, so the
+  // field read as a flat grey tint rather than as a texture, which is
+  // precisely the reading the dot field exists to avoid (a wash is what
+  // embankment is, and the two types must not be one mark at two strengths).
+  // The COVERAGE was right and the SCALE was wrong, and coverage is what a
+  // measurement of added ink sees -- which is why every number this field
+  // was tuned against looked healthy while it did not read as dots.
+  //
+  // 8 PER SIDE AT r=1.6: 8.00px apart, 3.2px across. A dot is now several
+  // pixels wide and is drawn as a disc, and the spacing carries the same
+  // ratio of ink to ground it had -- 12.6% covered, still within a point of
+  // the hatch's eighth, so the two are neighbours on one map and neither
+  // shouts. 64 divides by 8 exactly, so the lattice still tiles with no seam
+  // and no clamp (see stippleTile).
+  //
+  // NO `jitter` FIELD, and its absence is what lets the lattice tile. It
+  // displaced each dot within its cell, which cost the tile its clean repeat.
   //
   // AND NO CASING FIELD, ANYWHERE. The previous stipple ringed every dot on
   // --halo and that is what killed it: a casing is for a LINE that has to
   // survive imagery alone, and a ring at the dot's own frequency is a second
-  // texture rather than a support for the first.
+  // texture rather than a support for the first. A 3.2px dot does not need
+  // one; it is legible because it is a dot.
   {
     treatment: 'survey-excavated',
     kind: 'stipple',
     token: '--survey-excavated',
     tile: 64,
-    grid: 24,
-    radius: 0.55,
+    grid: 8,
+    radius: 1.6,
   },
   // ROADS: a cased LINE. The first mark here that is not ground. Its whole
   // description is its colour -- the weights are layers.jsx's LINE_WEIGHT and
@@ -293,20 +308,23 @@ function hatchTile(spec, colour) {
  * the interior does not have, and since every tile carries the identical
  * clamped ring, the repeat draws a faint lattice of its own along the tile
  * boundaries -- the seam the jitter existed to avoid, reintroduced by the
- * fix for the jitter. A centred lattice has no such problem to solve: at
- * grid 24 on a 64px tile the first centre is 1.33px in and the last 62.67px,
- * both more than r clear of the edge, so nothing is clipped, nothing is
+ * fix for the jitter. A centred lattice has no such problem to solve: the
+ * first centre is half a cell in and the last half a cell from the far edge,
+ * both more than r clear of it, so nothing is clipped, nothing is
  * clamped, and the tile abuts its neighbour at exactly the cell spacing the
- * interior uses. It tiles perfectly because it is periodic to begin with.
+ * interior uses. It tiles perfectly because it is periodic to begin with. At
+ * grid 8 on a 64px tile the cell is 8.00px and the first centre sits 4.00px
+ * in, 2.4px clear of the edge at r=1.6.
  *
- * THE DENSITY IS UNCHANGED, DELIBERATELY, so this is a change of ARRANGEMENT
- * and not of weight. Same 24x24 lattice, same r=0.55, same 576 dots inking
- * the same 13.4% of the ground the mark covers -- within a point of the
- * hatch's eighth, which is what keeps the two neighbours on one map from
- * shouting over each other. What moved is where the dots sit, and the
- * measurements in layout.test.jsx are re-taken for it rather than inherited:
- * a regular field and an irregular one at one coverage do NOT read alike
- * against imagery, and the field-alone column is where that shows.
+ * THE DENSITY IS HELD AND THE SCALE IS NOT. 8x8 at r=1.6 inks 12.6% of the
+ * ground the mark covers, where the jittered 24x24 at r=0.55 inked 13.4% --
+ * the same weight, near enough, laid down in 64 dots of 3.2px instead of 576
+ * of 1.1px. The old dots were about one device pixel across and the renderer
+ * drew them as smudges rather than discs, so the field read as a flat tint;
+ * coverage could not see that, which is why the numbers stayed healthy while
+ * the mark stopped being a dot field. The measurements in layout.test.jsx are
+ * re-taken rather than inherited: arrangement and scale both moved, and a
+ * regular field at one coverage does not read like an irregular one.
  *
  * WHY NOT feTurbulence. Unchanged and still the reason: it does not TILE (the
  * noise is generated in the filter region's own coordinates, so a filtered

@@ -1201,11 +1201,37 @@ describeIf('the zone patterns, rendered', () => {
     expect(marks.excavated.fill).toMatch(/^url\(#/)
     expect(marks.excavated.fill).not.toBe(marks.production.fill)
 
-    // MANY, AND FINE. "Static" is a fine dense irregular field; a handful of
-    // large dots is a texture with structure in it, which is what the previous
-    // stipple was.
-    expect(marks.excavated.dots).toBeGreaterThan(200)
-    expect(Number(marks.excavated.radii[0])).toBeLessThanOrEqual(0.75)
+    // A HALFTONE: MANY DOTS, EACH ONE ACTUALLY DRAWABLE, GROUND BETWEEN THEM.
+    //
+    // THIS USED TO ASK FOR "MANY, AND FINE" -- over 200 dots a tile, radius
+    // at most 0.75 -- and both halves belonged to a field that no longer
+    // exists. They described STATIC: a fine dense IRREGULAR field, where the
+    // failure being guarded against was the stipple before it, a handful of
+    // large dots each wearing its own halo casing. The field is a regular
+    // lattice now, and the casing is refused directly two assertions below,
+    // which is where that guard actually belongs.
+    //
+    // AND "FINE" HAD BECOME THE BUG. r=0.55 is a 1.1px dot: about one device
+    // pixel, which no renderer can draw as a disc, so it came out as an
+    // anti-aliased smudge and the field read as a flat tint -- the one thing
+    // a dot field must not read as, since a flat tint is what embankment IS.
+    // Coverage could not see it (the ink measures all looked healthy) because
+    // coverage is blind to whether the ink is in drawable pieces.
+    //
+    // SO WHAT IS ASKED FOR NOW IS THE HALFTONE'S OWN SHAPE. Enough dots
+    // across a zone that it reads as tone rather than as countable objects --
+    // a 90px zone at this spacing carries about 11 to a side, near 130 in
+    // view. Each dot at least 2px across, so it is drawn as a disc. And a
+    // diameter well under its spacing, so ground shows between the dots and
+    // the field stays a texture rather than closing into a fill.
+    const tileSide = 64
+    const spacing = tileSide / Math.sqrt(marks.excavated.dots)
+    const diameter = 2 * Number(marks.excavated.radii[0])
+    expect(marks.excavated.dots).toBeGreaterThanOrEqual(36)
+    expect(diameter, 'a dot has to be big enough to be drawn as one').toBeGreaterThanOrEqual(2)
+    expect(diameter / spacing, 'ground has to show between the dots').toBeLessThan(0.5)
+    // ONE RADIUS, so it is a lattice and not a scatter of sizes.
+    expect(marks.excavated.radii).toHaveLength(1)
 
     // AND NO PER-DOT CASING. The casing rule is for a LINE that has to survive
     // imagery alone; a ring at the dot's own frequency is a second texture, and
@@ -1578,6 +1604,27 @@ describeIf('the zone patterns, rendered', () => {
         0.004
       )
     }
+
+    /**
+     * WHERE THE MARGIN IS THINNEST, SAID OUT LOUD. The 2px ground is the
+     * closest of the thirteen -- around 0.0038 against the 0.004 bound, where
+     * everything at 2.5px and coarser sits at 0.0031 or below. It is also the
+     * least real: a 2px period is one dark pixel and one light one, at the
+     * display's own Nyquist limit, and the ground is aliasing hard before the
+     * field is laid over it at all. No aerial frame carries structure that
+     * fine at the zooms this map runs at -- a NAIP pixel is about 0.6m and a
+     * tree crown is many pixels across -- so the band that matters is the
+     * coarse end, and the coarse end is clear. This is recorded rather than
+     * excluded: a bound that only holds where the question is easy is not a
+     * bound, and if a future change pushes this one over, the reading it
+     * pushed over should be the one already known to be tightest.
+     */
+    const tightest = rows.reduce((a, b) => (b.added > a.added ? b : a))
+    // eslint-disable-next-line no-console
+    console.log(
+      `    moire  tightest: ${tightest.added.toFixed(5)} at a ${tightest.period}px ground ` +
+        `(bound 0.004)`
+    )
   }, SLOW)
 
   it('keeps BOTH marks present where the two survey types coincide', async () => {
@@ -1593,14 +1640,17 @@ describeIf('the zone patterns, rendered', () => {
       // every scanline -- which is local variation that says nothing about
       // whether the FILL is a texture or a wash. Cropping it out is what makes
       // the wash's reading the near-zero it ought to be.
-      const texture = (png) => localVariation(crop(png, 8))
+      const texture = (png) => textureSpread(crop(png, 8))
+      const edges = (png) => localVariation(crop(png, 8))
 
       // eslint-disable-next-line no-console
       console.log(
         `    overlap ${ground.padEnd(6)} tone  wash ${tone(wash).toFixed(4)} ` +
           `dots ${tone(dots).toFixed(4)} both ${tone(both).toFixed(4)}   ` +
           `texture wash ${texture(wash).toFixed(4)} dots ${texture(dots).toFixed(4)} ` +
-          `both ${texture(both).toFixed(4)}`
+          `both ${texture(both).toFixed(4)}   ` +
+          `edges wash ${edges(wash).toFixed(4)} dots ${edges(dots).toFixed(4)} ` +
+          `both ${edges(both).toFixed(4)}`
       )
 
       // THE WASH IS STILL THERE. The overlap shifts the ground's tone by more
@@ -1760,6 +1810,40 @@ function crop({ pixels, channels, width, height }, inset) {
  * HORIZONTAL NEIGHBOURS ONLY, which is enough: an isotropic field shows the
  * same variation along either axis, and one pass is one pass.
  */
+/**
+ * HOW FAR THE INTERIOR'S PIXELS SIT FROM THEIR OWN MEAN, 0..1.
+ *
+ * "IS THIS ONE FLAT FILL, OR INK AND GROUND", asked directly. A wash paints
+ * every pixel the same value, so its spread is zero whatever its tone; a dot
+ * field paints some pixels dot and the rest ground, so its spread is real
+ * whatever the dots' SIZE. That last clause is the whole reason this exists
+ * beside localVariation() below.
+ *
+ * WHY NOT THE NEIGHBOUR DIFFERENCE. localVariation() averages |p - p_next|
+ * along each row, which counts EDGES: its answer scales with the total
+ * perimeter of the ink, not with how much of the ground is inked. At one
+ * coverage, 64 dots of r=1.6 have about a third the perimeter of 576 of
+ * r=0.55, so it reports a third the texture for a field that covers the same
+ * ground in larger pieces -- and larger pieces are MORE plainly discrete, not
+ * less. It scored the sub-pixel field highest of all, which is the field that
+ * actually read as a flat tint, because a 1.1px dot is nearly all edge.
+ *
+ * Both are kept and both are printed: the edge measure still says something
+ * real about fineness, and this one is what the "reads as two marks" claim is
+ * about.
+ */
+function textureSpread({ pixels, channels, width, height }) {
+  const values = []
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * channels
+      values.push((pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3)
+    }
+  }
+  const mean = values.reduce((a, b) => a + b, 0) / values.length
+  return values.reduce((a, b) => a + Math.abs(b - mean), 0) / values.length / 255
+}
+
 function localVariation({ pixels, channels, width, height }) {
   let sum = 0
   let count = 0
