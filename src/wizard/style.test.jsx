@@ -357,7 +357,7 @@ describe('2. measured values', () => {
     expect(value['text-align']).toBe('right')
 
     // The floor that keeps the decimal from sliding as the number changes. It
-    // moved onto the tab's BODY when the tab grew an eye and an × -- the tab
+    // moved onto the tab's BODY when the tab grew a checkbox and an × -- the tab
     // is the row holding those; the body is the figures.
     const body = propsOf(ruleFor(COMPONENTS, '.chrome-tab__body'))
     expect(body['grid-template-columns']).toBe('minmax(6ch, max-content) auto')
@@ -770,7 +770,7 @@ describe('5. the quality floor', () => {
     }
 
     // THE STRIP IS A LAYOUT, NOT A SURFACE. It sets no background and no
-    // border, and each of the three things it can place -- a tab, an eye-off
+    // border, and each of the three things it can place -- a tab, an unchecked
     // tab, the "+N more" -- carries --stock and a hairline of its own. The
     // "+N more" is the one that had to change: it was transparent, which
     // worked only while there was a strip behind it to be transparent against.

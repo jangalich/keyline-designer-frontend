@@ -20,10 +20,18 @@
  * highlights under the pointer; a closed one did not. That is not a state bug
  * and not an event-propagation bug. It is the browser deciding that the
  * element under the cursor is something else, and it is invisible to every
- * test in this repo, because every eye test in this repo REACHES THE HANDLER:
+ * test in this repo, because every test of that control REACHES THE HANDLER:
+ *
+ * THE EYE IS A CHECKBOX NOW, AND THAT IS WHY THIS FILE STILL MATTERS. The
+ * control changed shape and label; it did not move, did not leave the corner
+ * an overflowing tab name lands in, and did not stop being an in-flow sibling
+ * of a body that grows a stacking context when it goes quiet. It INHERITS the
+ * defect exactly, so it inherits these assertions exactly: the box is topmost
+ * at its own centre CHECKED and UNCHECKED, at both stages.
  *
  *   - water.test.jsx drives the store's reducer through the strip's own
- *     arithmetic (selectionAfterEye + setSelection);
+ *     arithmetic (selectionAfterEye + setSelection), for every step that
+ *     renders a box;
  *   - interaction.test.jsx and water.test.jsx's live cases call `.click()` on
  *     a node they queried by test id, which dispatches straight at it;
  *   - shell.test.jsx renders the strip and asserts on the state that came out.
@@ -34,13 +42,13 @@
  * SO THIS FILE NEVER CALLS A HANDLER. Every gesture under test is a mouse
  * moved to a coordinate and pressed there, in Chromium, with the browser's own
  * hit-testing deciding what receives it -- and the assertions are the two
- * halves of what the user saw: the SELECTION changed, and the eye was the
+ * halves of what the user saw: the SELECTION changed, and the box was the
  * element at its own centre. The second is the hover affordance itself, stated
  * as a claim a suite can hold.
  *
  * IT RUNS AT TWO STAGE WIDTHS, AND THE NARROW ONE IS THE TEST. The defect was
  * never visible at a roomy width: the tabs had room, nothing overflowed, and
- * the eye was on top in both states. It appears the moment the strip is
+ * the control was on top in both states. It appears the moment the strip is
  * squeezed -- measured on the reference parcel at 1120px for water and 980px
  * for landform, which is the whole of "why water and not landform". A suite
  * that only ever renders 1280px cannot see it, so SQUEEZED is where the claims
@@ -189,8 +197,9 @@ async function press(testid) {
  * The hover affordance, stated as a fact the suite can hold: a control the
  * pointer cannot reach shows no hover, takes no click, and looks exactly like
  * one that does. `hits` is true when the topmost element at the centre is the
- * control or something inside it -- the eye's own <svg> and its <path> both
- * count, because a press on either is a press on the button.
+ * control or something inside it. A checkbox has no children -- its tick is a
+ * pseudo-element and a pseudo-element takes no clicks -- so for it this is the
+ * strict claim: the input itself is what the browser finds there.
  */
 function topAt(testid) {
   return page.evaluate((id) => {
@@ -213,21 +222,28 @@ function topAt(testid) {
 
 const evaluate = (fn, arg) => page.evaluate(fn, arg)
 
-/** The strip's own reading of one tab's eye: 'on', 'off', or undefined. */
-const eyeOf = (tabId) =>
-  evaluate((id) => document.querySelector(`[data-testid="tab-${id}"]`)?.dataset.eye, tabId)
+/** The strip's own reading of one tab's box: 'true', 'false', or undefined. */
+const checkedOf = (tabId) =>
+  evaluate((id) => document.querySelector(`[data-testid="tab-${id}"]`)?.dataset.checked, tabId)
 
 /** Every tab the strip is rendering right now, in render order. */
 const shownTabs = () =>
   evaluate(() => [...document.querySelectorAll('[data-tab-id]')].map((li) => li.dataset.tabId))
 
-/** Every tab that is rendering an eye right now. */
-const shownEyes = () =>
+/** Every tab that is rendering a checkbox right now. */
+const shownBoxes = () =>
   evaluate(() =>
     [...document.querySelectorAll('[data-tab-id]')]
-      .filter((li) => li.querySelector('.chrome-tab__eye'))
+      .filter((li) => li.querySelector('.chrome-tab__check'))
       .map((li) => li.dataset.tabId)
   )
+
+/** What the control at this test id actually IS, and what state it is in. */
+const isCheckbox = (testid) =>
+  evaluate((id) => {
+    const el = document.querySelector(`[data-testid="${id}"]`)
+    return el ? { tag: el.tagName, type: el.type, checked: el.checked } : null
+  }, testid)
 
 /** What the commit would send for a step, as a string, so it compares byte for byte. */
 const commitBody = (stepId) =>
@@ -243,10 +259,10 @@ const commitBody = (stepId) =>
  * How many paths the map is drawing, all in.
  *
  * A COUNT RATHER THAN A LOOKUP BY ID, because the id a zone's path carries is
- * the layer stack's business and not this file's -- what the eye promises is
- * that closing it takes the shape OFF the map and opening it puts the shape
- * BACK, and a count either side of the pair says exactly that. water.test.jsx
- * counts the same way, per pane.
+ * the layer stack's business and not this file's -- what the box promises is
+ * that un-checking it takes the shape OFF the map and checking it puts the
+ * shape BACK, and a count either side of the pair says exactly that.
+ * water.test.jsx counts the same way, per pane.
  */
 const pathsOnMap = () =>
   evaluate(() => document.querySelectorAll('.leaflet-container path').length)
@@ -312,70 +328,81 @@ async function commit(stepId) {
 /**
  * THE CLAIM, ONE TAB AT A TIME, AND IT IS THE WHOLE FILE IN SIX LINES.
  *
- * The eye is topmost at its own centre while it is OPEN. A real press closes
- * it. It is STILL topmost at its own centre -- this is the assertion nothing
- * in the repo made, and the one the user could see and the suite could not.
- * A second real press opens it again.
+ * The box is topmost at its own centre while it is CHECKED. A real press
+ * un-checks it. It is STILL topmost at its own centre -- this is the assertion
+ * nothing in the repo made, and the one the user could see and the suite could
+ * not. A second real press checks it again.
  */
 async function pressableBothWays(stepId, tabId, where) {
   const at = `${stepId}/${tabId} on ${where}`
 
-  expect(await eyeOf(tabId), `${at}: starts open`).toBe('on')
-  expect(await topAt(`tab-eye-${tabId}`), `${at}: the OPEN eye is topmost at its own centre`)
+  expect(await checkedOf(tabId), `${at}: starts checked`).toBe('true')
+  expect(await isCheckbox(`tab-check-${tabId}`), `${at}: it is a real checkbox`).toMatchObject({
+    tag: 'INPUT',
+    type: 'checkbox',
+    checked: true,
+  })
+  expect(await topAt(`tab-check-${tabId}`), `${at}: the CHECKED box is topmost at its own centre`)
     .toMatchObject({ hits: true })
 
-  await press(`tab-eye-${tabId}`)
-  expect(await eyeOf(tabId), `${at}: a real click closed it`).toBe('off')
+  await press(`tab-check-${tabId}`)
+  expect(await checkedOf(tabId), `${at}: a real click un-checked it`).toBe('false')
+  expect(await isCheckbox(`tab-check-${tabId}`), `${at}: and the element itself says so`)
+    .toMatchObject({ checked: false })
 
-  expect(await topAt(`tab-eye-${tabId}`), `${at}: the CLOSED eye is topmost at its own centre`)
+  expect(await topAt(`tab-check-${tabId}`), `${at}: the UNCHECKED box is topmost at its own centre`)
     .toMatchObject({ hits: true })
 
-  await press(`tab-eye-${tabId}`)
-  expect(await eyeOf(tabId), `${at}: a real click on the CLOSED eye opened it again`).toBe('on')
+  await press(`tab-check-${tabId}`)
+  expect(await checkedOf(tabId), `${at}: a real click on the UNCHECKED box checked it again`).toBe('true')
 }
 
 /**
- * THE SAME CLAIM FOR AN EYE THAT MAY ALREADY BE CLOSED.
+ * THE SAME CLAIM FOR A BOX THAT MAY ALREADY BE UNCHECKED.
  *
- * A radio step's strip has at most one open eye, so "start from open" is not
- * a thing every tab can do. This drives whatever state the tab is in down to
- * CLOSED and back up, asserting the reading at each stop -- which is the
- * reported gesture exactly: an eye that is off, pressed, and on again.
+ * A radio step's strip has at most one checked box, so "start from checked" is
+ * not a thing every tab can do. This drives whatever state the tab is in down
+ * to UNCHECKED and back up, asserting the reading at each stop -- which is the
+ * reported gesture exactly: a control that is off, pressed, and on again.
  */
-async function openableFromOff(stepId, tabId, where) {
+async function checkableFromOff(stepId, tabId, where) {
   const at = `${stepId}/${tabId} on ${where}`
 
-  expect(await topAt(`tab-eye-${tabId}`), `${at}: the eye is topmost at its own centre`)
+  expect(await isCheckbox(`tab-check-${tabId}`), `${at}: it is a real checkbox`).toMatchObject({
+    tag: 'INPUT',
+    type: 'checkbox',
+  })
+  expect(await topAt(`tab-check-${tabId}`), `${at}: the box is topmost at its own centre`)
     .toMatchObject({ hits: true })
 
-  if ((await eyeOf(tabId)) === 'on') {
-    await press(`tab-eye-${tabId}`)
-    expect(await eyeOf(tabId), `${at}: a real click closed it`).toBe('off')
+  if ((await checkedOf(tabId)) === 'true') {
+    await press(`tab-check-${tabId}`)
+    expect(await checkedOf(tabId), `${at}: a real click un-checked it`).toBe('false')
   }
 
-  expect(await topAt(`tab-eye-${tabId}`), `${at}: the CLOSED eye is topmost at its own centre`)
+  expect(await topAt(`tab-check-${tabId}`), `${at}: the UNCHECKED box is topmost at its own centre`)
     .toMatchObject({ hits: true })
 
-  await press(`tab-eye-${tabId}`)
-  expect(await eyeOf(tabId), `${at}: a real click on the CLOSED eye opened it again`).toBe('on')
+  await press(`tab-check-${tabId}`)
+  expect(await checkedOf(tabId), `${at}: a real click on the UNCHECKED box checked it again`).toBe('true')
 }
 
 /* ===========================================================================
    1. THE MULTI-SELECT STEPS, DERIVED RATHER THAN LISTED
    =========================================================================== */
 
-describeIf('the eye takes a real click in both directions', () => {
+describeIf('the checkbox takes a real click in both directions', () => {
   liveIt('reaches the landform step', async () => {
     await startSession()
     await generate('landform')
     expect(await statusOf('landform')).toBe('generated')
-    expect((await shownEyes()).length).toBeGreaterThan(0)
+    expect((await shownBoxes()).length).toBeGreaterThan(0)
   })
 
   /**
    * THE LIST IS THE BUILD'S, NOT THIS FILE'S -- the both-directions assertion
    * in water.test.jsx derives its cases the same way, and for the same reason:
-   * a step registered later with checkbox eyes joins these cases by existing
+   * a step registered later with checkboxes joins these cases by existing
    * rather than by someone remembering. It is asserted rather than merely
    * iterated so that a new one FAILS here until its section below exists.
    */
@@ -389,9 +416,9 @@ describeIf('the eye takes a real click in both directions', () => {
   })
 
   for (const [where, viewport] of STAGES) {
-    liveIt(`landform: every eye, closed and opened by the mouse, on ${where}`, async () => {
+    liveIt(`landform: every box, un-checked and checked by the mouse, on ${where}`, async () => {
       await resize(viewport)
-      for (const tabId of await shownEyes()) {
+      for (const tabId of await shownBoxes()) {
         await pressableBothWays('landform', tabId, where)
       }
       await resize(ROOMY)
@@ -403,7 +430,7 @@ describeIf('the eye takes a real click in both directions', () => {
    2. THE × ON A DRAWN TAB, IN EVERY STATE IT RENDERS IN
    ===========================================================================
    The × is the other control on a tab, it is the only one that DESTROYS, and
-   it renders in four combinations: eye open or closed, focused or not. The
+   it renders in four combinations: box checked or not, focused or not. The
    defect this file was written for is "a control is styled interactive and is
    not hit-testable in one of its states", so every state it has is asked.
    =========================================================================== */
@@ -411,8 +438,8 @@ describeIf('the eye takes a real click in both directions', () => {
 describeIf('the × on a drawn tab', () => {
   const DRAWN = 'drawn-pointer-probe'
 
-  /** The drawn tab's eye, moved through the store: setup, never the gesture. */
-  const setDrawnEye = async (on) => {
+  /** The drawn tab's box, moved through the store: setup, never the gesture. */
+  const setDrawnBox = async (on) => {
     await evaluate(
       ([id, wanted]) =>
         window.__probe.actions.setSelection('landform', (current) =>
@@ -423,7 +450,7 @@ describeIf('the × on a drawn tab', () => {
     await page.waitForTimeout(120)
   }
 
-  liveIt('is hit-testable with the eye open or closed, focused or not, at both widths', async () => {
+  liveIt('is hit-testable with the box checked or not, focused or not, at both widths', async () => {
     // THE SHAPE IS SETUP, NOT THE GESTURE UNDER TEST. Tracing a polygon with
     // the mouse is DrawGesture's claim and it is asserted where that lives;
     // what is asked here is whether the tab's × can be pressed once the tab
@@ -448,20 +475,20 @@ describeIf('the × on a drawn tab', () => {
       await resize(viewport)
       for (const focused of [false, true]) {
         if (focused) await press(`tab-focus-${DRAWN}`)
-        for (const eye of ['on', 'off']) {
-          // THE EYE IS MOVED THROUGH THE STORE HERE, and only here. It is a
+        for (const checked of [true, false]) {
+          // THE BOX IS MOVED THROUGH THE STORE HERE, and only here. It is a
           // STATE this control has to survive, not the gesture being asked
           // about -- and pressing it with the mouse would make this test fail
-          // for the eye's reasons rather than the ×'s, which is exactly the
-          // confusion a control-specific claim should not carry.
-          await setDrawnEye(eye === 'on')
-          expect(await eyeOf(DRAWN)).toBe(eye)
+          // for the checkbox's reasons rather than the ×'s, which is exactly
+          // the confusion a control-specific claim should not carry.
+          await setDrawnBox(checked)
+          expect(await checkedOf(DRAWN)).toBe(String(checked))
           expect(
             await topAt(`tab-remove-${DRAWN}`),
-            `the × is topmost at its own centre on ${where}, eye ${eye}, focused ${focused}`
+            `the × is topmost at its own centre on ${where}, checked ${checked}, focused ${focused}`
           ).toMatchObject({ hits: true })
         }
-        await setDrawnEye(true)
+        await setDrawnBox(true)
         if (focused) await press(`tab-focus-${DRAWN}`)
       }
     }
@@ -492,21 +519,21 @@ describeIf('water', () => {
   })
 
   for (const [where, viewport] of STAGES) {
-    liveIt(`every eye on the collapsed strip, closed and opened by the mouse, on ${where}`, async () => {
+    liveIt(`every box on the collapsed strip, un-checked and checked by the mouse, on ${where}`, async () => {
       await resize(viewport)
-      for (const tabId of await shownEyes()) {
+      for (const tabId of await shownBoxes()) {
         await pressableBothWays('water', tabId, `${where}, collapsed`)
       }
       await resize(ROOMY)
     })
   }
 
-  liveIt('every eye on the expanded strip, on both stages', async () => {
+  liveIt('every box on the expanded strip, on both stages', async () => {
     const more = await page.$('[data-testid="tabs-more-water"]')
     if (more) await press('tabs-more-water')
     for (const [where, viewport] of STAGES) {
       await resize(viewport)
-      for (const tabId of await shownEyes()) {
+      for (const tabId of await shownBoxes()) {
         await pressableBothWays('water', tabId, `${where}, expanded`)
       }
       await resize(ROOMY)
@@ -520,18 +547,18 @@ describeIf('water', () => {
    */
   liveIt('restores the zone to the map and to the commit body, byte for byte', async () => {
     await resize(SQUEEZED)
-    const [tabId] = await shownEyes()
+    const [tabId] = await shownBoxes()
     const untouched = await commitBody('water')
     const paths = await pathsOnMap()
     expect(paths).toBeGreaterThan(0)
 
-    await press(`tab-eye-${tabId}`)
-    expect(await eyeOf(tabId)).toBe('off')
+    await press(`tab-check-${tabId}`)
+    expect(await checkedOf(tabId)).toBe('false')
     expect(await pathsOnMap(), 'the zone left the map').toBeLessThan(paths)
     expect(JSON.parse(await commitBody('water')).features.features.map((f) => f.id)).not.toContain(tabId)
 
-    await press(`tab-eye-${tabId}`)
-    expect(await eyeOf(tabId)).toBe('on')
+    await press(`tab-check-${tabId}`)
+    expect(await checkedOf(tabId)).toBe('true')
     expect(await pathsOnMap(), 'the zone came back to the map').toBe(paths)
     expect(await commitBody('water'), 'and the commit body is the one it started as').toBe(untouched)
     await resize(ROOMY)
@@ -539,16 +566,16 @@ describeIf('water', () => {
 })
 
 /* ===========================================================================
-   4. THE ROADS EYE, WHICH IS THE SAME EYE IN A DIFFERENT MODE
+   4. THE ROADS CHECKBOX, WHICH IS THE SAME BOX IN A DIFFERENT MODE
    ===========================================================================
    Roads is radio: one network or none. Its off state is reachable by pressing
-   its own eye (which empties the selection) and by turning another network on.
-   An unpressable off-eye there would be exactly as invisible as water's, and
-   the tab markup is shared -- so the claim is made here rather than assumed
-   from the shared component.
+   its own box (which empties the selection) and by ticking another network.
+   An unpressable unchecked box there would be exactly as invisible as
+   water's, and the tab markup is shared -- so the claim is made here rather
+   than assumed from the shared component.
    =========================================================================== */
 
-describeIf('the roads eye', () => {
+describeIf('the roads checkbox', () => {
   /** How many networks the payload is carrying right now. */
   const networkCount = () =>
     evaluate(() => (window.__probe.selectStepProposals(window.__probe.state, 'roads')?.networks ?? []).length)
@@ -617,12 +644,12 @@ describeIf('the roads eye', () => {
     }
     expect(await networkCount()).toBe(3)
 
-    const eyes = await shownEyes()
-    expect(eyes.length, 'the access points routed networks, so their tabs carry eyes').toBe(3)
+    const boxes = await shownBoxes()
+    expect(boxes.length, 'the access points routed networks, so their tabs carry boxes').toBe(3)
 
     for (const [where, viewport] of STAGES) {
       await resize(viewport)
-      for (const tabId of eyes) await openableFromOff('roads', tabId, where)
+      for (const tabId of boxes) await checkableFromOff('roads', tabId, where)
       await resize(ROOMY)
     }
   })
@@ -631,8 +658,8 @@ describeIf('the roads eye', () => {
 /* ===========================================================================
    5. THE REOPEN CONFIRMATION, WHICH HAS NEVER BEEN HIT-TESTED
    ===========================================================================
-   THE SAME DEFECT CLASS AS THE EYE, ASKED OF A CARD THAT WAS NEVER ASKED. The
-   eye bug was a control that looked pressable and was not, and every test in
+   THE SAME DEFECT CLASS AS THE STRIP'S, ASKED OF A CARD THAT WAS NEVER ASKED. The
+   defect was a control that looked pressable and was not, and every test in
    the repo passed because every one of them reached the handler. This
    dialogue's two buttons have never had a coordinate resolved to them by
    anything: jsdom clicks them by test id, and the browser tests that read

@@ -435,23 +435,23 @@ describe('2. landform in the new shell', () => {
     // No "+N more": three is under the cap.
     expect(ui.find('tabs-more-landform')).toBeNull()
 
-    // THE EYE IS WHAT INCLUDES A FEATURE IN THE COMMIT, and it is the same
-    // store action a click used to make from the map. Off, and the tab says so
-    // and stays -- which is what lets the map stop drawing a declined
-    // suggestion at all.
-    expect(ui.find('tab-zone-2').dataset.eye).toBe('on')
-    await ui.click('tab-eye-zone-2')
-    expect(ui.find('tab-zone-2').dataset.eye).toBe('off')
-    expect(ui.find('tab-zone-2').className).toContain('chrome-tab--off')
+    // THE CHECKBOX IS WHAT INCLUDES A FEATURE IN THE COMMIT, and it is the
+    // same store action a click used to make from the map. Unchecked, and the
+    // tab says so and stays -- which is what lets the map stop drawing a
+    // declined suggestion at all.
+    expect(ui.find('tab-zone-2').dataset.checked).toBe('true')
+    await ui.click('tab-check-zone-2')
+    expect(ui.find('tab-zone-2').dataset.checked).toBe('false')
+    expect(ui.find('tab-zone-2').className).toContain('chrome-tab--unchecked')
     expect(ui.state.drafts.landform.selectedFeatureIds).not.toContain('zone-2')
-    await ui.click('tab-eye-zone-2')
-    expect(ui.find('tab-zone-2').dataset.eye).toBe('on')
+    await ui.click('tab-check-zone-2')
+    expect(ui.find('tab-zone-2').dataset.checked).toBe('true')
 
     // A SUGGESTION HAS NO ×. It cannot be destroyed -- the server will
-    // regenerate it -- so the eye is its only removal.
+    // regenerate it -- so un-checking it is its only removal.
     expect(ui.find('tab-remove-zone-2')).toBeNull()
 
-    // ...and the eye put the machine in `editing` while nothing is armed,
+    // ...and the checkbox put the machine in `editing` while nothing is armed,
     // which the chrome reads as reviewing: the user is choosing among
     // proposals, not placing points.
     expect(ui.find('step-landform').dataset.stepState).toBe(EDITING)

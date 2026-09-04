@@ -267,18 +267,24 @@
      responding to it.
 
      ONE DOCUMENTED EXCEPTION: THE ROADS STEP'S CANDIDATE NETWORKS. Every
-     rule above says focus changes a mark's OPACITY and every eye-on feature
-     stays drawn. The roads step's editable network layer declares
-     `show: 'focused'` (stepDefinitions.js, LAYER SCHEMA item 7), and under
-     it ONLY THE FOCUSED CANDIDATE IS DRAWN -- at --pattern-focused -- and
-     nothing at all when nothing is focused. Three routed networks over one
-     parcel is unreadable line density, so unfocused candidates are absent
+     rule above says focus changes a mark's OPACITY and every checked feature
+     stays drawn. The roads step's editable network layer resolves to
+     `show: 'focused'` (stepDefinitions.js, LAYER SCHEMA items 7 and 12), and
+     under it ONLY THE FOCUSED CANDIDATE IS DRAWN -- at --pattern-focused --
+     and nothing at all when nothing is focused. Three routed networks over
+     one parcel is unreadable line density, so unfocused candidates are absent
      rather than quieter; the access-point markers stay, because they are
      what distinguishes the alternatives. It is an EXCEPTION, not an
-     extension: it is declared per layer, no other layer declares it, and a
-     step that does not declare it inherits the pattern language above. The
-     COMMITTED network is not under it -- it is drawn whole at
+     extension: exactly one layer in the build gets it, and a step that does
+     not bind its selection to its focus inherits the pattern language above.
+     The COMMITTED network is not under it -- it is drawn whole at
      --pattern-committed like every settled layer, and stays.
+
+     AND IT IS NO LONGER A SECOND OPINION. The rule used to be written on the
+     layer, beside a checkbox that agreed with it by hand; roads declares
+     `selection: { follows: 'focus' }` and the layer rule is derived from
+     that one line, so the drawn candidate and the checked one cannot part
+     company.
 
      THE GAP IS WIDE ON PURPOSE. A pattern is mostly unfilled, so a small
      opacity step is invisible at the zoom where the whole parcel is in frame

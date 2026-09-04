@@ -485,16 +485,16 @@ function reduce(state, action) {
       /**
        * A LIST, OR A FUNCTION OF THE LIST IN HAND.
        *
-       * THE ONE THE FUNCTION FORM EXISTS FOR. The tab strip's eye computes its
+       * THE ONE THE FUNCTION FORM EXISTS FOR. The tab strip's box computes its
        * next selection from `machine.draft.selectedFeatureIds` -- the draft the
        * strip was RENDERED with -- and dispatches the result. That is a stale
        * read the moment two presses land in one React batch: both closures
        * hold the same pre-batch list, both compute from it, and the second
        * write silently undoes the first. (Measured: from ['a','b','c'],
-       * pressing a's eye and then b's in one batch yields ['a','c'] -- a is
-       * back.) The eye used to dispatch DRAFT_SELECTION_TOGGLED, whose next
+       * ticking a's box and then b's in one batch yields ['a','c'] -- a is
+       * back.) The control used to dispatch DRAFT_SELECTION_TOGGLED, whose next
        * state IS computed here against the draft in hand, and composed
-       * correctly by construction; it stopped when the eye grew a selection
+       * correctly by construction; it stopped when the control grew a selection
        * MODE and had to compute a whole set rather than flip one id.
        *
        * NOT USER-REACHABLE TODAY -- two clicks are two events and React 18
@@ -532,7 +532,7 @@ function reduce(state, action) {
         ...draft,
         drawnFeatures: [...draft.drawnFeatures, action.feature],
         // IN THE COMMIT THE MOMENT IT EXISTS. Someone who has just drawn a
-        // shape has said they want it; the eye is there to take it back out,
+        // shape has said they want it; the checkbox is there to take it back out,
         // not to be found and switched on.
         selectedFeatureIds: draft.selectedFeatureIds.includes(action.feature.id)
           ? draft.selectedFeatureIds
@@ -1087,8 +1087,8 @@ function requireProposalFeatures(proposalFeatures, caller) {
  * It used to send every drawn feature unconditionally: a drawn shape committed
  * BY EXISTING, and the only way to leave one out was to delete it. That was
  * true while the panel column offered a suggestion "deselect" and a drawn zone
- * "delete" as two different verbs. The tab strip offers one verb to both -- an
- * eye that says whether a feature is in the commit -- and an eye that a drawn
+ * "delete" as two different verbs. The tab strip offers one verb to both -- a
+ * box that says whether a feature is in the commit -- and a box that a drawn
  * zone could not answer would be a control that does nothing on half the tabs
  * it appears on.
  *

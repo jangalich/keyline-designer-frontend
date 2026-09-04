@@ -21,10 +21,25 @@
  *                      opens the detail panel. It commits nothing and changes
  *                      nothing about what a commit would send.
  *
- *   THE EYE INCLUDES.  Whether the feature is in the commit. Eye-off hides it
- *                      from the map entirely and leaves it out of the commit
- *                      body; the tab stays, which is the whole reason the map
- *                      no longer needs a declined treatment of its own.
+ *                      EXCEPT ON A STEP THAT SAYS OTHERWISE IN ITS OWN
+ *                      DEFINITION. `selection: { follows: 'focus' }` says
+ *                      focus and the commit decision are ONE FACT there, and
+ *                      the body checks the box: roads' tabs are the choice of
+ *                      which network commits. See clickBody().
+ *
+ *   THE BOX INCLUDES.  A CHECKBOX, and it says what it does: checked is in
+ *                      the commit AND drawn, unchecked is out of the commit
+ *                      AND hidden. It used to be an EYE, which named a view
+ *                      concern while carrying a decision -- redundant with
+ *                      focus on roads and overloaded everywhere else. The
+ *                      behaviour is unchanged in both directions; the tab
+ *                      stays either way, which is the whole reason the map no
+ *                      longer needs a declined treatment of its own.
+ *
+ *                      HIDING IS DELIBERATE, NOT INCIDENTAL. On landform a
+ *                      user may draw their own zone over ground a suggestion
+ *                      already covers, and a suggestion still drawn underneath
+ *                      is confusing during a vertex-by-vertex placement.
  *
  *   THE × DESTROYS.    Only on a tab whose definition declares `removable`,
  *                      which is only ever a shape the user drew. A suggestion
@@ -150,18 +165,23 @@ export function tabIsFocused(tab, focusedFeatureId) {
   return Array.isArray(tab.featureIds) && tab.featureIds.includes(focusedFeatureId)
 }
 
-/** The feature ids a tab's eye toggles: what it declares, or its own id. */
+/** The feature ids a tab's checkbox toggles: what it declares, or its own id. */
 function featureIdsOf(tab) {
   return Array.isArray(tab.featureIds) && tab.featureIds.length ? tab.featureIds : [tab.id]
 }
 
 /**
- * THE SELECTION AFTER ONE EYE IS PRESSED, in the step's declared mode.
+ * THE SELECTION AFTER ONE BOX IS TICKED, in the step's declared mode.
  *
- *   multiple  a checkbox: the tab's features join the set or leave it, and
- *             nothing else moves. What every eye was before roads.
- *   radio     one or none: turning a tab ON is the whole selection -- every
- *             other tab's features leave -- and turning it OFF leaves the set
+ * THE NAME IS THE ONE IT WAS BORN WITH and it is deliberately not renamed with
+ * the control. The eye became a checkbox in shape and in label; this is the
+ * EFFECT, and the effect is unchanged in both directions -- so a rename here
+ * would be the one edit in this change that could not be read as a no-op.
+ *
+ *   multiple  every box is its own: the tab's features join the set or leave
+ *             it, and nothing else moves.
+ *   radio     one or none: ticking a tab is the whole selection -- every
+ *             other tab's features leave -- and un-ticking it leaves the set
  *             empty. Commit-one-or-none, read off the definition rather than
  *             off which step this is; the backend says the same thing as
  *             `max_features: 1` counted by network.
@@ -179,6 +199,72 @@ export default function TabStrip({ machine, onRemove }) {
   const { focusedFeatureId, focusFeature } = useWizardCursor()
   const { definition, stepId, actions } = machine
   const mode = definition.selection?.mode ?? 'multiple'
+
+  /**
+   * THE STEP THAT HAS NO "FOCUSED BUT UNCHECKED" STATE, read off its own
+   * definition rather than off which step it is.
+   *
+   * `selection.follows: 'focus'` says that on this step the focus and the
+   * commit decision are ONE FACT -- what you are looking at is what commits.
+   * Two consequences here, and they are the same consequence twice: the tab
+   * BODY ticks the box, and the BOX moves the focus. Either gesture leaves
+   * the pair agreeing, which is what makes the claim true of this strip
+   * rather than merely conventional. A focus arriving from OUTSIDE it -- the
+   * map, a generate -- can still disagree, and clickBody() below converges on
+   * that rather than deepening it.
+   *
+   * A TAB WITH NO BOX IS NOT PART OF THAT. Roads keeps a tab for an access
+   * point that routed nothing so the slot can still be discarded; it carries
+   * no checkbox because there is no network to commit, so its body focuses
+   * the way every other step's does.
+   */
+  const bindsFocus = definition.selection?.follows === 'focus'
+
+  /**
+   * FLIP ONE BOX. Both controls that can flip one call this, so there is one
+   * description of what ticking means and not two that agree.
+   *
+   * THE ARITHMETIC IS HANDED TO THE STORE, NOT THE ANSWER. `machine.draft` is
+   * the draft this render was built from, and computing the next selection
+   * out here means computing it from a list the store may already have
+   * replaced -- two presses in one batch and the second write undoes the
+   * first. The updater form runs against the draft in hand, which is what
+   * DRAFT_SELECTION_TOGGLED did before the control grew a mode. See
+   * SessionStore's DRAFT_SELECTION_SET.
+   */
+  const flip = (tab) => actions.setSelection(stepId, (current) => selectionAfterEye(current, tab, mode))
+
+  /** THE BOX. On a focus-bound step the focus follows what the box becomes. */
+  const check = (tab) => {
+    const ticking = tab.selected === false
+    flip(tab)
+    if (bindsFocus) focusFeature(ticking ? tab.id : null)
+  }
+
+  /**
+   * THE BODY OF A TAB ON A FOCUS-BOUND STEP, in one sentence: clicking a tab
+   * makes it THE checked one, unless it is already the checked one you are
+   * looking at, in which case it becomes neither.
+   *
+   * WHY IT IS NOT SIMPLY "FLIP THE BOX". Through the strip, checked and
+   * focused always agree, and the two rules are the same rule. They can
+   * disagree only when a focus arrived from OUTSIDE the strip -- an
+   * access-point marker, or the generate that focuses the network it has just
+   * routed without taking the tick off the one already chosen. Flipping the
+   * box there would punish the obvious gesture: click the tab of the network
+   * you have committed, merely to read it, and it would fall out of the
+   * commit. This rule CONVERGES on the disagreement instead of deepening it.
+   */
+  const clickBody = (tab, focused) => {
+    if (!bindsFocus || !tab.checkbox) {
+      focusFeature(focused ? null : tab.id)
+      return
+    }
+    const checked = tab.selected !== false
+    const letGo = checked && focused
+    if (checked === letGo) flip(tab)
+    focusFeature(letGo ? null : tab.id)
+  }
 
   const tabs = definition.tabs(machine.context)
   if (!tabs.length) return null
@@ -213,19 +299,19 @@ export default function TabStrip({ machine, onRemove }) {
       <ul className="chrome-tabs__list">
         {shown.map((tab) => {
           const focused = tab.id === focusedTabId
-          const off = tab.eye && tab.selected === false
+          const checked = tab.checkbox ? tab.selected !== false : null
           return (
             <li
               key={tab.id}
               className={
                 'chrome-tab' +
-                (off ? ' chrome-tab--off' : '') +
+                (checked === false ? ' chrome-tab--unchecked' : '') +
                 (focused ? ' chrome-tab--focused' : '') +
                 (tab.drawn ? ' chrome-tab--drawn' : '')
               }
               data-testid={`tab-${tab.id}`}
               data-tab-id={tab.id}
-              data-eye={tab.eye ? (tab.selected === false ? 'off' : 'on') : undefined}
+              data-checked={checked == null ? undefined : String(checked)}
               data-focused={focused ? 'true' : 'false'}
             >
               {/* THE BODY IS THE FOCUS TARGET, and it is a button so that a
@@ -237,7 +323,7 @@ export default function TabStrip({ machine, onRemove }) {
                 className="chrome-tab__body"
                 aria-pressed={focused}
                 data-testid={`tab-focus-${tab.id}`}
-                onClick={() => focusFeature(focused ? null : tab.id)}
+                onClick={() => clickBody(tab, focused)}
               >
                 <span className="chrome-tab__name">{tab.name}</span>
                 {/* Value and label spans are emitted FLAT rather than wrapped
@@ -250,36 +336,27 @@ export default function TabStrip({ machine, onRemove }) {
                 ))}
               </button>
 
-              {tab.eye ? (
-                <button
-                  type="button"
-                  className="chrome-tab__eye"
-                  aria-pressed={tab.selected !== false}
+              {/* A REAL CHECKBOX, NOT A BUTTON WEARING THE ROLE. Checked is in
+                  the commit and drawn; unchecked is out of the commit and
+                  hidden. The browser gives it the state, the keyboard gesture
+                  and the announcement for free, and the RADIO steps still use
+                  one: un-ticking is a legal move there (commit no road), which
+                  a radio cannot express. The mode says what happens to the
+                  OTHER boxes, not what this control is. */}
+              {tab.checkbox ? (
+                <input
+                  type="checkbox"
+                  className="chrome-tab__check"
+                  checked={checked}
                   aria-label={
-                    tab.selected === false
-                      ? `Include ${tab.name} in this step`
-                      : `Leave ${tab.name} out of this step`
+                    checked
+                      ? `Leave ${tab.name} out of this step`
+                      : `Include ${tab.name} in this step`
                   }
-                  data-testid={`tab-eye-${tab.id}`}
+                  data-testid={`tab-check-${tab.id}`}
                   data-selection={mode}
-                  role={mode === 'radio' ? 'radio' : undefined}
-                  aria-checked={mode === 'radio' ? tab.selected !== false : undefined}
-                  /* THE ARITHMETIC IS HANDED TO THE STORE, NOT THE ANSWER.
-                     `machine.draft` is the draft this render was built from,
-                     and computing the next selection out here means computing
-                     it from a list the store may already have replaced -- two
-                     presses in one batch and the second write undoes the
-                     first. The updater form runs against the draft in hand,
-                     which is what DRAFT_SELECTION_TOGGLED did before the eye
-                     grew a mode. See SessionStore's DRAFT_SELECTION_SET. */
-                  onClick={() =>
-                    actions.setSelection(stepId, (current) =>
-                      selectionAfterEye(current, tab, mode)
-                    )
-                  }
-                >
-                  <Eye open={tab.selected !== false} />
-                </button>
+                  onChange={() => check(tab)}
+                />
               ) : null}
 
               {/* HALF OUTSIDE THE CORNER, which is the familiar close gesture
@@ -327,33 +404,6 @@ export default function TabStrip({ machine, onRemove }) {
         ) : null}
       </ul>
     </div>
-  )
-}
-
-/**
- * The eye, drawn rather than typed.
- *
- * An SVG because the two states have to be the SAME MARK with one stroke
- * added -- an open eye and the same eye struck through. A glyph pair (👁 and a
- * crossed-out something) would be two different drawings at two different
- * weights, and the toggle would read as two unrelated icons rather than as one
- * control in two positions. currentColor throughout, so it inherits the tab's
- * own state colour and defines nothing.
- */
-function Eye({ open }) {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-      <path
-        d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.25"
-      />
-      <circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" strokeWidth="1.25" />
-      {open ? null : (
-        <path d="M2.5 13.5 13.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.25" />
-      )}
-    </svg>
   )
 }
 

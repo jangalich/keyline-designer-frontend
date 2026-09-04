@@ -741,10 +741,10 @@ function saturationOf(hex) {
 }
 
 /* ===========================================================================
-   4. THE EYE
+   4. THE CHECKBOX
    =========================================================================== */
 
-describe('4. the eye hides and excludes; the tab stays', () => {
+describe('4. the checkbox hides and excludes; the tab stays', () => {
   liveIt('takes a zone off the map and out of the commit body, and leaves its tab', async () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)
@@ -755,7 +755,7 @@ describe('4. the eye hides and excludes; the tab stays', () => {
 
     expect(pane().querySelectorAll('.zone--survey-embankment').length).toBe(embankment.length)
 
-    await ui.click(`tab-eye-${victim.id}`)
+    await ui.click(`tab-check-${victim.id}`)
 
     // HIDDEN FROM THE MAP ENTIRELY -- not dimmed, not dashed.
     expect(pane().querySelectorAll('.zone--survey-embankment').length).toBe(
@@ -764,12 +764,12 @@ describe('4. the eye hides and excludes; the tab stays', () => {
     // OUT OF THE COMMIT BODY.
     const body = buildCommitBody(ui.state, 'water', registryProposalFeatures)
     expect(body.features.features.map((f) => f.id)).not.toContain(victim.id)
-    // THE TAB STAYS, with its eye closed, so it can be put back.
+    // THE TAB STAYS, with its box unchecked, so it can be put back.
     const tab = ui.find(`tab-${victim.id}`)
     expect(tab).not.toBeNull()
-    expect(tab.getAttribute('data-eye')).toBe('off')
+    expect(tab.getAttribute('data-checked')).toBe('false')
 
-    await ui.click(`tab-eye-${victim.id}`)
+    await ui.click(`tab-check-${victim.id}`)
     expect(pane().querySelectorAll('.zone--survey-embankment').length).toBe(embankment.length)
 
     await ui.unmount()
@@ -791,7 +791,7 @@ describe('5. nothing here can be destroyed', () => {
       draft: { selectedFeatureIds: [], drawnFeatures: [] },
     })
     expect(tabs.length).toBeGreaterThan(0)
-    expect(tabs.every((tab) => tab.eye)).toBe(true)
+    expect(tabs.every((tab) => tab.checkbox)).toBe(true)
     expect(tabs.some((tab) => tab.removable)).toBe(false)
   })
 
@@ -803,9 +803,9 @@ describe('5. nothing here can be destroyed', () => {
     expect(tabs.length).toBeGreaterThan(0)
     for (const tab of tabs) {
       expect(tab.querySelector('.chrome-tab__remove')).toBeNull()
-      // The eye is there on every one of them, which is the other half of the
+      // The box is there on every one of them, which is the other half of the
       // asymmetry: the only removal is the one that can be undone.
-      expect(tab.querySelector('.chrome-tab__eye')).not.toBeNull()
+      expect(tab.querySelector('.chrome-tab__check')).not.toBeNull()
     }
     expect(ui.all('[data-testid^="tab-remove-"]')).toHaveLength(0)
 
@@ -829,7 +829,7 @@ describe('6. an empty commit is a decision', () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)
 
-    // Close every eye. The strip stays; the commit becomes an empty one.
+    // Un-check every box. The strip stays; the commit becomes an empty one.
     for (const feature of surveyZoneFeatures(ui.water)) await ui.toggle(feature.id)
     expect(selectDraft(ui.state, 'water').selectedFeatureIds).toEqual([])
 
@@ -999,7 +999,7 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
     expect(selectDraft(ui.state, 'water').selectedFeatureIds).not.toContain(other.id)
 
     // IT IS COMPUTED AT GENERATE TIME AGAINST SURVIVING ZONES AND IS NOT
-    // RECOMPUTED AGAINST THE COMMIT SET. Closing a zone's eye does not make
+    // RECOMPUTED AGAINST THE COMMIT SET. Un-checking a zone does not make
     // the other instrument stop agreeing with it -- nor does it move any other
     // row on this zone's panel, because the whole panel is a reading of the
     // GROUND and the commit set is not one of its inputs.
@@ -1124,13 +1124,13 @@ describe('the pattern is the mark', () => {
   }
 
   it('leaves the unselected state with nothing to draw at all', () => {
-    // THE FOURTH STATE IS AN ABSENCE. A zone whose eye is closed is not drawn
+    // THE FOURTH STATE IS AN ABSENCE. An unchecked zone is not drawn
     // -- FeatureLayer filters it before any style is chosen -- so "does it
-    // carry a stroke" has no path to ask it of. That is the eye's own
+    // carry a stroke" has no path to ask it of. That is the checkbox's own
     // treatment and it predates the pattern scheme.
     const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
     // The filter is visibleFeatures' now -- one function for the polygon and
-    // the line renderer -- and the eye rule inside it is unchanged: in the
+    // the line renderer -- and the checkbox rule inside it is unchanged: in the
     // editable band, only a selected feature is drawn.
     expect(layers).toMatch(/const features = visibleFeatures\(layer, focusedFeatureId\)/)
     expect(layers).toMatch(/layer\.features\.filter\(\(feature\) => selected\.has\(feature\.id\)\)/)
@@ -2518,29 +2518,31 @@ describe('the suitability figure is read against the payload\'s own scale', () =
 })
 
 /* ===========================================================================
-   THE EYE IS A TOGGLE IN BOTH DIRECTIONS
+   THE CHECKBOX IS A TOGGLE IN BOTH DIRECTIONS
    ===========================================================================
    REPORTED AS: a water zone whose eye is closed cannot be opened again.
 
    IT DOES NOT REPRODUCE, in any arrangement this suite can build -- see the
-   generic case below and the two live ones. What DID exist was a hole in the
-   assertions: every eye test in this repo pressed the eye ONCE. interaction
+   generic cases below and the two live ones. What DID exist was a hole in the
+   assertions: every test in this repo pressed the control ONCE. interaction
    .test.jsx's is even named "...and puts it back" and never puts it back;
    water's live one clicked twice but only counted paths on the map, so a
    selection that came back under a different identity would have passed.
 
    SO BOTH DIRECTIONS ARE ASSERTED NOW, on the map AND on the commit body, for
-   EVERY multi-select step -- which is what makes this a standing claim about
-   the shared strip rather than a story about one payload.
+   EVERY step that renders one -- which is what makes this a standing claim
+   about the shared strip rather than a story about one payload. The control
+   is a CHECKBOX now and was an eye; the claim is unchanged, which is the
+   whole point of the change.
    =========================================================================== */
 
-describe('the eye, both ways', () => {
+describe('the checkbox, both ways', () => {
   const MULTI_SELECT = STEP_DEFINITIONS.filter(
     (definition) => definition.selection?.mode === 'multiple' && definition.proposalCollection
   )
 
   it('covers every multi-select step this build registers', () => {
-    // THE LIST IS DERIVED, NOT WRITTEN. A step added later with checkbox eyes
+    // THE LIST IS DERIVED, NOT WRITTEN. A step added later with checkboxes
     // joins these cases by existing, instead of by someone remembering.
     expect(MULTI_SELECT.map((d) => d.id)).toEqual(['landform', 'water'])
   })
@@ -2550,8 +2552,8 @@ describe('the eye, both ways', () => {
       /**
        * THE STORE'S OWN REDUCER, THROUGH THE STRIP'S OWN ARITHMETIC.
        *
-       * selectionAfterEye() is what the eye button computes and setSelection
-       * is what it dispatches, so pressing the eye twice IS these two calls
+       * selectionAfterEye() is what the checkbox computes and setSelection
+       * is what it dispatches, so pressing the box twice IS these two calls
        * twice. Driven directly rather than through a rendered strip because
        * the claim is about the pair of transitions and not about the DOM --
        * the live cases below assert the DOM.
@@ -2602,11 +2604,11 @@ describe('the eye, both ways', () => {
   }
 
   /**
-   * THE ONE THING THE ROADS BRANCH DID CHANGE ABOUT THE SHARED EYE.
+   * THE ONE THING THE ROADS BRANCH DID CHANGE ABOUT THE SHARED CONTROL.
    *
-   * The eye used to dispatch DRAFT_SELECTION_TOGGLED -- one feature id, with
+   * It used to dispatch DRAFT_SELECTION_TOGGLED -- one feature id, with
    * the next state computed in the REDUCER against the draft in hand. Roads
-   * gave the eye a selection MODE (radio has to clear every other tab), so it
+   * gave it a selection MODE (radio has to clear every other tab), so it
    * became `setSelection(selectionAfterEye(machine.draft.selectedFeatureIds,
    * ...))`: a whole set, computed OUT HERE, from the draft this render was
    * built with. That is a stale read the moment two presses land in one batch.
@@ -2644,7 +2646,7 @@ describe('the eye, both ways', () => {
    * actually goes over the wire, so it is what is compared, byte for byte,
    * against a run that never pressed anything.
    */
-  liveIt('commits identically after a round trip through the eye, for water', async () => {
+  liveIt('commits identically after a round trip through the checkbox, for water', async () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)
     await expandTabs(ui)
@@ -2652,9 +2654,9 @@ describe('the eye, both ways', () => {
     const untouched = buildCommitBody(ui.state, 'water', registryProposalFeatures)
     const victim = surveyZoneFeatures(ui.water)[0]
 
-    await ui.click(`tab-eye-${victim.id}`)
+    await ui.click(`tab-check-${victim.id}`)
     expect(selectDraft(ui.state, 'water').selectedFeatureIds).not.toContain(victim.id)
-    await ui.click(`tab-eye-${victim.id}`)
+    await ui.click(`tab-check-${victim.id}`)
 
     const afterRoundTrip = buildCommitBody(ui.state, 'water', registryProposalFeatures)
     expect(afterRoundTrip).toEqual(untouched)
@@ -2675,20 +2677,20 @@ describe('the eye, both ways', () => {
     const onMap = () => ui.container.querySelectorAll(paneSelector).length
     const before = onMap()
     expect(before).toBeGreaterThan(0)
-    expect(ui.find(`tab-${featureId}`).getAttribute('data-eye')).toBe('on')
+    expect(ui.find(`tab-${featureId}`).getAttribute('data-checked')).toBe('true')
 
-    await ui.click(`tab-eye-${featureId}`)
+    await ui.click(`tab-check-${featureId}`)
     expect(onMap()).toBe(before - 1)
-    expect(ui.find(`tab-${featureId}`).getAttribute('data-eye')).toBe('off')
+    expect(ui.find(`tab-${featureId}`).getAttribute('data-checked')).toBe('false')
     expect(
       buildCommitBody(ui.state, stepId, registryProposalFeatures).features.features.map((f) => f.id)
     ).not.toContain(featureId)
 
     // AND BACK. The zone returns to the map, to the strip's own reading of
     // itself, and to the commit body.
-    await ui.click(`tab-eye-${featureId}`)
+    await ui.click(`tab-check-${featureId}`)
     expect(onMap()).toBe(before)
-    expect(ui.find(`tab-${featureId}`).getAttribute('data-eye')).toBe('on')
+    expect(ui.find(`tab-${featureId}`).getAttribute('data-checked')).toBe('true')
     expect(
       buildCommitBody(ui.state, stepId, registryProposalFeatures).features.features.map((f) => f.id)
     ).toContain(featureId)
@@ -2731,6 +2733,255 @@ describe('the eye, both ways', () => {
 
     // AND THE BODY IS THE ONE IT STARTED AS.
     expect(buildCommitBody(ui.state, 'landform', registryProposalFeatures)).toEqual(untouched)
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   EVERY STEP THAT RENDERS A CHECKBOX, DERIVED RATHER THAN LISTED
+   ===========================================================================
+   The block above drives the two MULTI-SELECT steps through the store's own
+   reducer. This one asks the same question of EVERY registered step whose
+   tabs carry a checkbox -- roads included, whose mode is a radio -- because
+   the control is one control and the claim is about the control.
+
+   THE PAYLOAD TABLE IS ASSERTED COMPLETE. A step registered later with
+   candidates and no row here FAILS, rather than quietly not being covered.
+   =========================================================================== */
+
+/** A roads payload in the backend's shape, cut down to what a tab reads. */
+function roadsCheckboxPayload() {
+  const branch = (id, network) => ({
+    type: 'Feature',
+    id,
+    properties: { network_id: network, branch_role: 'trunk', branch_index: 0 },
+    geometry: { type: 'LineString', coordinates: [[-74, 40.72], [-74.001, 40.721]] },
+  })
+  return {
+    networks: [
+      {
+        network_id: 'net-a',
+        access_point: [-74, 40.72],
+        feature_ids: ['a-trunk', 'a-spur'],
+        network_found: true,
+        access: { total_length_ft: 900, served_acres: 12 },
+        determination: {},
+      },
+      {
+        network_id: 'net-b',
+        access_point: [-74.01, 40.73],
+        feature_ids: ['b-trunk'],
+        network_found: true,
+        access: { total_length_ft: 400, served_acres: 5 },
+        determination: {},
+      },
+    ],
+    road_corridors: {
+      type: 'FeatureCollection',
+      features: [branch('a-trunk', 'net-a'), branch('a-spur', 'net-a'), branch('b-trunk', 'net-b')],
+    },
+  }
+}
+
+const LANDFORM_CHECKBOX_PAYLOAD = {
+  suggested_zones: {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', id: 'zone-1', properties: {}, geometry: null },
+      { type: 'Feature', id: 'zone-2', properties: {}, geometry: null },
+    ],
+  },
+  zones: [
+    { feature_id: 'zone-1', rank: 1, area_acres: 2.5, score: 81 },
+    { feature_id: 'zone-2', rank: 2, area_acres: 1.2, score: 64 },
+  ],
+  scales: {},
+  summary: {},
+}
+
+const CHECKBOX_PAYLOADS = {
+  landform: LANDFORM_CHECKBOX_PAYLOAD,
+  water: FIXTURE,
+  roads: roadsCheckboxPayload(),
+}
+
+describe('the checkbox, on every step that renders one', () => {
+  const WITH_CANDIDATES = STEP_DEFINITIONS.filter((definition) => definition.proposalCollection)
+
+  it('has a payload for every step this build registers candidates for', () => {
+    expect(Object.keys(CHECKBOX_PAYLOADS)).toEqual(WITH_CANDIDATES.map((d) => d.id))
+  })
+
+  for (const definition of WITH_CANDIDATES) {
+    it(`toggles the selection in BOTH directions: ${definition.id}`, () => {
+      const proposals = CHECKBOX_PAYLOADS[definition.id]
+      const tabsAt = (selectedFeatureIds) =>
+        definition.tabs({ proposals, draft: { selectedFeatureIds, drawnFeatures: [], inputs: {} } })
+
+      // EVERY TAB THAT CARRIES ONE. `checkbox` is the field the strip renders
+      // an <input type="checkbox"> for; a tab without it is not a commit
+      // decision (roads keeps one for an access point that routed nothing).
+      const boxed = tabsAt([]).filter((tab) => tab.checkbox)
+      expect(boxed.length, `${definition.id} renders at least one checkbox`).toBeGreaterThan(0)
+
+      // START CHECKED, in a state legal in BOTH modes: one tab's features.
+      const victim = boxed[0]
+      const ids = victim.featureIds ?? [victim.id]
+      const start = [...ids]
+      expect(tabsAt(start).find((t) => t.id === victim.id).selected).toBe(true)
+
+      // UN-CHECK. The features leave the set, and the strip says so -- which
+      // is what the user has to click again.
+      const off = selectionAfterEye(start, tabsAt(start).find((t) => t.id === victim.id), definition.selection.mode)
+      for (const id of ids) expect(off).not.toContain(id)
+      expect(tabsAt(off).find((t) => t.id === victim.id).selected).toBe(false)
+
+      // CHECK. They come back, and the set is the one it started as.
+      const back = selectionAfterEye(off, tabsAt(off).find((t) => t.id === victim.id), definition.selection.mode)
+      expect([...back].sort()).toEqual([...start].sort())
+      expect(tabsAt(back).find((t) => t.id === victim.id).selected).toBe(true)
+    })
+  }
+})
+
+/* ===========================================================================
+   THE TAB BODY, PER THE STEP'S OWN DEFINITION
+   ===========================================================================
+   TEST: on landform and water, clicking a tab BODY focuses and changes NO
+   selection. That was true of every step before roads' tab body learned to
+   check its box, and the whole point of declaring the collapse on the step
+   (`selection.follows`) rather than in the strip is that it reaches exactly
+   the step that declares it.
+
+   DERIVED, NOT LISTED. The cases come off STEP_DEFINITIONS: a step that binds
+   its selection to its focus is excluded BY ITS OWN DECLARATION, and a step
+   added later joins these cases by existing.
+   =========================================================================== */
+
+describe('the tab body focuses without choosing, unless the step says otherwise', () => {
+  /** A TabStrip on its own, over one step's payload, with a live selection. */
+  async function renderStrip(definition, proposals, selected) {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    let cursor = null
+    let selection = selected
+
+    function Probe() {
+      cursor = useWizardCursor()
+      return null
+    }
+    function Harness() {
+      const [ids, setIds] = React.useState(selected)
+      selection = ids
+      const machine = {
+        definition,
+        stepId: definition.id,
+        context: { proposals, draft: { selectedFeatureIds: ids, drawnFeatures: [], inputs: {} } },
+        actions: {
+          setSelection: (_stepId, next) => setIds((current) => (typeof next === 'function' ? next(current) : next)),
+        },
+      }
+      return <TabStrip machine={machine} />
+    }
+
+    await React.act(async () => {
+      root.render(
+        // THE PROVIDER, NOT THE APP. WizardCursorProvider reads the session
+        // for the cursor's step order; nothing below it here does, and no
+        // fetch is made because nothing resumes.
+        <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
+          <WizardCursorProvider>
+            <Probe />
+            <Harness />
+          </WizardCursorProvider>
+        </SessionProvider>
+      )
+    })
+
+    return {
+      get selection() {
+        return selection
+      },
+      get focused() {
+        return cursor.focusedFeatureId
+      },
+      find: (testid) => container.querySelector(`[data-testid="${testid}"]`),
+      click: async (testid) => {
+        const node = container.querySelector(`[data-testid="${testid}"]`)
+        expect(node, testid).not.toBeNull()
+        await React.act(async () => node.click())
+      },
+      unmount: async () => {
+        await React.act(async () => root.unmount())
+        container.remove()
+      },
+    }
+  }
+
+  const INDEPENDENT = STEP_DEFINITIONS.filter(
+    (definition) => definition.proposalCollection && definition.selection.follows == null
+  )
+
+  it('covers every step whose focus and selection are independent', () => {
+    expect(INDEPENDENT.map((d) => d.id)).toEqual(['landform', 'water'])
+  })
+
+  for (const definition of INDEPENDENT) {
+    it(`focuses without changing the selection: ${definition.id}`, async () => {
+      const proposals = CHECKBOX_PAYLOADS[definition.id]
+      const all = definition
+        .tabs({ proposals, draft: { selectedFeatureIds: [], drawnFeatures: [], inputs: {} } })
+        .filter((tab) => tab.checkbox)
+        .map((tab) => tab.id)
+      const ui = await renderStrip(definition, proposals, [...all])
+
+      const [first, second] = all
+      expect(second, `${definition.id} offers a second tab to move the focus to`).toBeDefined()
+
+      await ui.click(`tab-focus-${first}`)
+      expect(ui.focused).toBe(first)
+      expect([...ui.selection].sort()).toEqual([...all].sort())
+      expect(ui.find(`tab-${first}`).getAttribute('data-checked')).toBe('true')
+
+      // A SECOND TAB, and still nothing moves but the focus.
+      await ui.click(`tab-focus-${second}`)
+      expect(ui.focused).toBe(second)
+      expect([...ui.selection].sort()).toEqual([...all].sort())
+
+      // AND CLICKING THE FOCUSED TAB LETS GO OF THE FOCUS, without touching
+      // the commit either.
+      await ui.click(`tab-focus-${second}`)
+      expect(ui.focused).toBeNull()
+      expect([...ui.selection].sort()).toEqual([...all].sort())
+
+      // The CHECKBOX is still the one thing that changes it.
+      await ui.click(`tab-check-${first}`)
+      expect(ui.selection).not.toContain(first)
+
+      await ui.unmount()
+    })
+  }
+
+  it('is the roads step that declares otherwise, and only it', async () => {
+    const roads = STEP_DEFINITIONS.filter((d) => d.selection.follows === 'focus')
+    expect(roads.map((d) => d.id)).toEqual(['roads'])
+
+    const definition = roads[0]
+    const proposals = CHECKBOX_PAYLOADS.roads
+    const ui = await renderStrip(definition, proposals, ['a-trunk', 'a-spur'])
+
+    await ui.click('tab-focus-net-b')
+    expect(ui.focused).toBe('net-b')
+    expect([...ui.selection].sort()).toEqual(['b-trunk'])
+    expect(ui.find('tab-net-a').getAttribute('data-checked')).toBe('false')
+    expect(ui.find('tab-net-b').getAttribute('data-checked')).toBe('true')
+
+    await ui.click('tab-focus-net-b')
+    expect(ui.focused).toBeNull()
+    expect(ui.selection).toEqual([])
 
     await ui.unmount()
   })

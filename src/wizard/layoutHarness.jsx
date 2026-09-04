@@ -216,7 +216,7 @@ function tab(index) {
       { value: measure(2.5 + index), label: 'acres' },
       { value: measure((81 - index) / 100, 2), label: 'of 0.82 suitability' },
     ],
-    eye: true,
+    checkbox: true,
     selected: true,
     removable: false,
     drawn: false,
