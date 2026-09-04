@@ -44,40 +44,13 @@
  */
 
 import { useDrawingProgress } from '../../map/DrawingProgress.jsx'
+/* A notice's text is prose with measured values in it, and so is the reopen
+   confirmation's per-step note. One renderer, in MeasuredText.jsx. */
+import MeasuredText from './MeasuredText.jsx'
 
 /** A step id as a person reads it, from its definition when we have one. */
 function titleFor(stepId, definitions) {
   return definitions?.get(stepId)?.title ?? stepId
-}
-
-/**
- * A notice's text: a string, or a list of parts.
- *
- * A PART IS PROSE OR A MEASUREMENT, and the difference is set rather than
- * described. `{measure}` renders in the data face with tabular figures; a bare
- * string is prose. That is the whole of what the list form buys, and it buys
- * the thing this project loads three faces for -- a reader can tell at a
- * glance which half of "Selecting 83.3% of the parcel leaves little room" was
- * measured and which was written.
- *
- * The panel column had `.measure` for exactly this and every figure it printed
- * went through it. The notices are where those figures ended up.
- */
-function NoticeText({ text }) {
-  if (!Array.isArray(text)) return text
-  return (
-    <>
-      {text.map((part, index) =>
-        typeof part === 'string' ? (
-          <span key={index}>{part}</span>
-        ) : (
-          <span key={index} className="measure">
-            {part.measure}
-          </span>
-        )
-      )}
-    </>
-  )
 }
 
 /**
@@ -291,7 +264,7 @@ export default function InstructionBar({ machine, chromeState, definitions, undo
               <span
                 data-testid={notice.featureId ? `rejection-reason-${notice.featureId}` : undefined}
               >
-                <NoticeText text={notice.text} />
+                <MeasuredText text={notice.text} />
               </span>
               {notice.action ? (
                 <button

@@ -300,6 +300,9 @@ describe('1. the three faces', () => {
       '.chrome-bar__direction',
       '.chrome-bar__notice',
       '.chrome-banner__button',
+      '.chrome-banner__confirm',
+      '.chrome-banner__confirm-cost',
+      '.chrome-banner__reset-list',
       '.chrome-detail__caution-label',
       // A band name or an aspect is pipeline-derived but is not a
       // MEASUREMENT: no decimal to hold still, nothing to line up with. Prose.
@@ -312,6 +315,13 @@ describe('1. the three faces', () => {
     // the one place a heading is honest: it names a section with content under
     // it, where the rail names places to go.
     expect(face('.chrome-detail__name')).toBe('var(--font-display)')
+
+    // THE THIRD IS THE CONFIRMATION'S QUESTION. "Reopen landform?" NAMES a
+    // thing and asks about it; the sentence under it describes what happens.
+    // The dialogue had neither face -- it inherited one sans stack for the
+    // whole card -- which is the same defect the shell shipped with and the
+    // reason this list is a list rather than a pair.
+    expect(face('.chrome-banner__confirm-question')).toBe('var(--font-display)')
 
     // DATA: every measured value, and the eyebrow labels.
     for (const selector of [
@@ -485,6 +495,42 @@ describe('4. one accent per state', () => {
     const chromeBlock = chrome.slice(0, chrome.indexOf('.map-tools'))
     expect(chromeBlock).not.toContain('--field')
     expect(chromeBlock).not.toContain('--eligible')
+  })
+
+  /**
+   * THE DIALOGUE'S CONTROLS ARE THE BANNER'S CONTROLS, AND THAT IS THE FIX.
+   *
+   * WHAT SHIPPED. `.chrome-banner__confirm button` -- an ELEMENT selector
+   * inside the dialogue -- restated the outlined treatment for both answers.
+   * Two identically weighted buttons is a confirmation that will not say which
+   * answer is which, and it is worse here than anywhere else in this shell:
+   * one of these two discards work and the other keeps it. It also passed
+   * every check in this file, because every check in this file reads a rule
+   * that exists rather than the rule that WINS.
+   *
+   * So the rule is gone, the dialogue's buttons carry .chrome-banner__button
+   * like every other control in this card, and the tone modifier decides the
+   * weighting once for both rows. The computed fills are asserted in
+   * layout.test.jsx, in an engine that resolves a cascade.
+   */
+  it('leaves the confirmation no button rule of its own', () => {
+    const source = decl(COMPONENTS)
+    expect(source).not.toMatch(/\.chrome-banner__confirm\s+button\s*\{/)
+
+    // The dialogue's row is a row, and the buttons in it are the banner's.
+    const actions = propsOf(ruleFor(COMPONENTS, '.chrome-banner__confirm-actions'))
+    expect(actions.display).toBe('flex')
+    expect(actions['justify-content']).toBe('flex-end')
+
+    // AND THE MARKUP EMITS THE PAIR. One tone each, and they are not the same
+    // tone -- the source is read for the class strings rather than the render,
+    // because the state that shows this card is a committed step with a
+    // downstream one holding work, which is wizard.test.jsx's fixture and not
+    // this file's.
+    const banner = readFileSync(path.join(HERE, 'shell', 'ActionBanner.jsx'), 'utf8')
+    const tones = banner.match(/chrome-banner__button--(primary|secondary)/g) ?? []
+    expect(tones).toContain('chrome-banner__button--primary')
+    expect(tones).toContain('chrome-banner__button--secondary')
   })
 
   it('gives every state that offers a forward move EXACTLY one, and no state two', () => {

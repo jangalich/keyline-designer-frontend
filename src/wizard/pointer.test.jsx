@@ -627,3 +627,81 @@ describeIf('the roads eye', () => {
     }
   })
 })
+
+/* ===========================================================================
+   5. THE REOPEN CONFIRMATION, WHICH HAS NEVER BEEN HIT-TESTED
+   ===========================================================================
+   THE SAME DEFECT CLASS AS THE EYE, ASKED OF A CARD THAT WAS NEVER ASKED. The
+   eye bug was a control that looked pressable and was not, and every test in
+   the repo passed because every one of them reached the handler. This
+   dialogue's two buttons have never had a coordinate resolved to them by
+   anything: jsdom clicks them by test id, and the browser tests that read
+   their faces and their fills use Playwright's own click, which performs an
+   actionability check first and would report Playwright's opinion rather than
+   the browser's behaviour.
+
+   So this presses them with the mouse, at their own centres, and asks what
+   the browser says is there.
+
+   IT ARRIVES THE WAY THE REPORT DID: a real press on the RAIL, back onto a
+   committed step from a later one. That is the gesture the whole complaint
+   starts with, and it is also the claim that the dialogue does not open by
+   itself -- landform is committed and the card offers the affordance, and
+   nothing is asking anything until the affordance is pressed.
+   =========================================================================== */
+
+describeIf('the reopen confirmation', () => {
+  liveIt('opens only when the affordance is pressed, and both answers take a real click', async () => {
+    // BACK TO A COMMITTED STEP, ON THE RAIL, WITH THE MOUSE.
+    await press('rail-landform')
+    expect(await evaluate(() => window.__probe.cursor.cursorStepId)).toBe('landform')
+    expect(await statusOf('landform')).toBe('committed')
+
+    // ARRIVING IS NOT ASKING. A confirmation nobody requested is its own
+    // defect; what a committed step offers is the way back in.
+    expect(await page.$('[data-testid="reopen-confirm-landform"]')).toBeNull()
+    expect(await topAt('edit-landform'), 'the affordance is topmost at its own centre')
+      .toMatchObject({ hits: true })
+
+    await press('edit-landform')
+    expect(await page.$('[data-testid="reopen-confirm-landform"]')).not.toBeNull()
+
+    // AND THE AFFORDANCE IS GONE WHILE THE DIALOGUE IS UP. This is the
+    // reported bug in its own terms: it used to render above the open
+    // dialogue, where a press reached requestReopen() and set a flag that was
+    // already set -- a live control with nothing left to do, which looks
+    // exactly like a dead one.
+    expect(await page.$('[data-testid="edit-landform"]')).toBeNull()
+    expect(await page.$('[data-testid="actions-landform"]')).toBeNull()
+
+    // BOTH ANSWERS, AT BOTH WIDTHS. The card is in the corner the tab strip
+    // shares, and the strip grows leftward and upward into that row -- so a
+    // squeezed stage is where a control in this card would be covered.
+    for (const [where, viewport] of STAGES) {
+      await resize(viewport)
+      for (const testid of ['reopen-confirm-yes-landform', 'reopen-confirm-no-landform']) {
+        expect(await topAt(testid), `${testid} is topmost at its own centre on ${where}`)
+          .toMatchObject({ hits: true })
+      }
+    }
+    await resize(ROOMY)
+
+    // THE SAFE ANSWER TAKES A REAL PRESS: the dialogue closes, the step is
+    // still committed, and the way back in is where it was.
+    await press('reopen-confirm-no-landform')
+    expect(await page.$('[data-testid="reopen-confirm-landform"]')).toBeNull()
+    expect(await statusOf('landform')).toBe('committed')
+    expect(await topAt('edit-landform')).toMatchObject({ hits: true })
+
+    // AND SO DOES THE DESTRUCTIVE ONE -- hit-testable is not the same claim as
+    // wired, and this is the last section on this page precisely so the
+    // cascade it sets off can be asserted rather than avoided.
+    await press('edit-landform')
+    await press('reopen-confirm-yes-landform')
+    await waitForStore(
+      () => window.__probe.selectStepStatus(window.__probe.state, 'landform') === 'generated',
+      60_000
+    )
+    expect(await statusOf('water'), 'the cascade reached the step below').toBe('not_started')
+  })
+})

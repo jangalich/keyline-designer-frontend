@@ -38,6 +38,19 @@
  *   "start a different property" is the only current use, and what it costs is
  *   a sentence its own definition can write because it reads the same store.
  *
+ * EITHER ONE COVERS THE CARD WHILE IT IS UP, and that is one rule rather than
+ * two. A dialogue asks about the button that was just pressed; leaving that
+ * button rendered above it offers a second press of a question already asked.
+ * "Edit this step" over its own open confirmation was exactly that, and it is
+ * what the reopen was reported for -- see `dialogue` below, which is where the
+ * whole of that fix lives.
+ *
+ * THE ANSWERS ARE THE BANNER'S OWN BUTTONS. Same classes, same tones, same
+ * focus ring -- so "one oxide per state" is decided once for this card rather
+ * than twice, and the accent falls on the answer that KEEPS the work. See the
+ * stylesheet's note on .chrome-banner__confirm-actions for why that is the
+ * safe one and not the proceeding one.
+ *
  * THE COMMIT'S AUTO-ADVANCE IS NOT HERE. It is in COMMIT_BUTTON, which every
  * step shares -- see stepDefinitions. There is no "Next step" button in this
  * banner and there is not meant to be.
@@ -47,6 +60,9 @@ import { useState } from 'react'
 
 import { useWizardCursor } from '../WizardCursor.jsx'
 import { COMMITTING, GENERATING, LOADING } from '../useStepMachine'
+/* A reset note is prose with a counted figure in it, and the figure belongs in
+   the data face for the same reason a notice's does. One renderer, shared. */
+import MeasuredText from './MeasuredText.jsx'
 
 /**
  * THE THREE STATES THAT OFFER NOTHING BECAUSE SOMETHING IS IN FLIGHT, and what
@@ -86,10 +102,19 @@ function titleFor(stepId, definitions) {
 }
 
 /**
- * What a reset of one downstream step costs, in that step's own words, or
- * null. A definition may declare `resetNote(state)` -- the roads step says
- * how many access points and networks go -- so the confirmation can say what
- * losing a step actually MEANS rather than only that it resets.
+ * What a reset of one downstream step costs, IN THAT STEP'S OWN WORDS, or
+ * null.
+ *
+ * THE SHELL ASKS; IT NEVER ANSWERS. A definition declares `resetNote(state)`
+ * and reads its own document entry to write it -- roads counts the access
+ * points it recorded, landform and water count what they committed. Nothing
+ * here knows that roads has access points or that landform has zones, and
+ * nothing here may learn it: the moment this file carries a sentence about a
+ * particular step, every future step's loss is this file's problem.
+ *
+ * THE RETURN IS A STRING OR A PART LIST, which is the notice contract exactly
+ * -- see MeasuredText. A count is a MEASURED value and renders in the data
+ * face; the words around it are prose.
  */
 function resetNoteFor(stepId, definitions, state) {
   const note = definitions?.get(stepId)?.resetNote
@@ -116,6 +141,28 @@ export default function ActionBanner({ machine, chromeState, definitions }) {
   const working = WORKING[chromeState] ?? null
 
   /**
+   * A CONFIRMATION COVERS THE BANNER; IT DOES NOT OPEN BENEATH IT.
+   *
+   * THE BUG THIS IS. "Edit this step" rendered ABOVE the open reopen dialogue
+   * and did nothing when pressed. It was not unwired and it was not a stub:
+   * it is REOPEN_BUTTON, its `run` is `machine.requestReopen()`, and
+   * requestReopen sets `confirmingReopen` to true -- which it already was. The
+   * press reached the handler, the handler set the state it was already in,
+   * React saw the same value and rendered nothing new. A live control whose
+   * whole effect is already in effect looks exactly like a dead one, and the
+   * user cannot tell those apart.
+   *
+   * So the actions row is not rendered while a dialogue is open. The
+   * stylesheet has said this since the confirmation was written -- "a dialogue
+   * that leaves that button live invites the second press it exists to
+   * prevent" -- and the markup never did it. It is one flag rather than a
+   * patch on the reopen, because the same defect was sitting under the
+   * boundary's own confirm: two escapes from one question is one too many
+   * either way.
+   */
+  const dialogue = pending != null || machine.confirmingReopen
+
+  /**
    * NOTHING TO OFFER, NOTHING IN FLIGHT, NOTHING TO CONFIRM -> NO CARD.
    *
    * The other half of the empty-box fix, and the reason it is a rule rather
@@ -128,7 +175,7 @@ export default function ActionBanner({ machine, chromeState, definitions }) {
    * or a fourth step definition could introduce. The detail panel takes the
    * same posture and its docblock makes the same argument: absent beats empty.
    */
-  if (!buttons.length && !working && !pending && !machine.confirmingReopen) return null
+  if (!buttons.length && !working && !dialogue) return null
 
   return (
     <div className="chrome-banner" data-testid={`banner-${stepId}`}>
@@ -141,27 +188,30 @@ export default function ActionBanner({ machine, chromeState, definitions }) {
           {working}
         </p>
       ) : null}
-      <div className="chrome-banner__actions" data-testid={`actions-${stepId}`}>
-        {buttons.map((button) => {
-          const enabled = button.enabled(chrome)
-          return (
-            <button
-              key={button.key}
-              type="button"
-              className={`chrome-banner__button chrome-banner__button--${button.tone}`}
-              data-testid={`${button.key}-${stepId}`}
-              data-tone={button.tone}
-              disabled={!enabled}
-              title={enabled ? undefined : button.blocked(chrome) ?? undefined}
-              onClick={() =>
-                button.confirm ? setConfirming(button.key) : button.run(chrome)
-              }
-            >
-              {button.label(chrome)}
-            </button>
-          )
-        })}
-      </div>
+
+      {dialogue ? null : (
+        <div className="chrome-banner__actions" data-testid={`actions-${stepId}`}>
+          {buttons.map((button) => {
+            const enabled = button.enabled(chrome)
+            return (
+              <button
+                key={button.key}
+                type="button"
+                className={`chrome-banner__button chrome-banner__button--${button.tone}`}
+                data-testid={`${button.key}-${stepId}`}
+                data-tone={button.tone}
+                disabled={!enabled}
+                title={enabled ? undefined : button.blocked(chrome) ?? undefined}
+                onClick={() =>
+                  button.confirm ? setConfirming(button.key) : button.run(chrome)
+                }
+              >
+                {button.label(chrome)}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* A BUTTON THAT NAMES WHAT IT COSTS BEFORE IT ACTS. */}
       {pending ? (
@@ -169,29 +219,45 @@ export default function ActionBanner({ machine, chromeState, definitions }) {
           className="chrome-banner__confirm"
           role="dialog"
           aria-modal="true"
+          aria-labelledby={`${pending.key}-confirm-title-${stepId}`}
           data-testid={`${pending.key}-confirm-${stepId}`}
         >
-          <p data-testid={`${pending.key}-confirm-title-${stepId}`}>{pending.confirm.title}</p>
-          <p data-testid={`${pending.key}-confirm-cost-${stepId}`}>
+          <p
+            className="chrome-banner__confirm-question"
+            id={`${pending.key}-confirm-title-${stepId}`}
+            data-testid={`${pending.key}-confirm-title-${stepId}`}
+          >
+            {pending.confirm.title}
+          </p>
+          <p
+            className="chrome-banner__confirm-cost"
+            data-testid={`${pending.key}-confirm-cost-${stepId}`}
+          >
             {pending.confirm.body(chrome)}
           </p>
-          <button
-            type="button"
-            data-testid={`${pending.key}-confirm-yes-${stepId}`}
-            onClick={() => {
-              setConfirming(null)
-              pending.run(chrome)
-            }}
-          >
-            {pending.confirm.yes}
-          </button>
-          <button
-            type="button"
-            data-testid={`${pending.key}-confirm-no-${stepId}`}
-            onClick={() => setConfirming(null)}
-          >
-            {pending.confirm.no}
-          </button>
+          <div className="chrome-banner__confirm-actions">
+            <button
+              type="button"
+              className="chrome-banner__button chrome-banner__button--secondary"
+              data-tone="secondary"
+              data-testid={`${pending.key}-confirm-yes-${stepId}`}
+              onClick={() => {
+                setConfirming(null)
+                pending.run(chrome)
+              }}
+            >
+              {pending.confirm.yes}
+            </button>
+            <button
+              type="button"
+              className="chrome-banner__button chrome-banner__button--primary"
+              data-tone="primary"
+              data-testid={`${pending.key}-confirm-no-${stepId}`}
+              onClick={() => setConfirming(null)}
+            >
+              {pending.confirm.no}
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -199,60 +265,94 @@ export default function ActionBanner({ machine, chromeState, definitions }) {
           come from the store -- ONLY the downstream steps that actually HOLD
           work, never the full downstream list. Naming steps the user has never
           reached reads as a threat to work that does not exist, and trains
-          them to click through the warning that will one day be real. */}
+          them to click through the warning that will one day be real.
+
+          THE SENTENCE AND THE LIST SAY DIFFERENT THINGS. They used to say the
+          same one twice -- "This will discard the work in Water." over a
+          bullet reading "Water" -- which is a dialogue repeating itself and
+          still not answering the question a person actually has, which is WHAT
+          of theirs goes. So the sentence says what happens to the step in
+          hand, and the list says what each downstream step loses, in that
+          step's own words. See resetNoteFor. */}
       {machine.confirmingReopen ? (
         <div
           className="chrome-banner__confirm"
           role="dialog"
           aria-modal="true"
+          aria-labelledby={`reopen-confirm-title-${stepId}`}
           data-testid={`reopen-confirm-${stepId}`}
         >
-          <p data-testid={`reopen-confirm-title-${stepId}`}>
+          <p
+            className="chrome-banner__confirm-question"
+            id={`reopen-confirm-title-${stepId}`}
+            data-testid={`reopen-confirm-title-${stepId}`}
+          >
             {definition.reopen?.confirmTitle ?? `Reopen ${definition.title}?`}
           </p>
           {machine.stepsResetByReopen.length ? (
-            <p data-testid={`reopen-resets-${stepId}`}>
-              This will discard the work in{' '}
-              {machine.stepsResetByReopen.map((id) => titleFor(id, definitions)).join(', ')}.
+            <p className="chrome-banner__confirm-cost" data-testid={`reopen-resets-${stepId}`}>
+              This step goes back to editing, and every step below it starts
+              again. What that discards:
             </p>
           ) : (
-            <p data-testid={`reopen-resets-${stepId}`}>
-              No later step holds work yet, so nothing else will be discarded.
+            <p className="chrome-banner__confirm-cost" data-testid={`reopen-resets-${stepId}`}>
+              This step goes back to editing. No later step holds work yet, so
+              nothing else is discarded.
             </p>
           )}
-          <ul data-testid={`reopen-reset-list-${stepId}`}>
-            {machine.stepsResetByReopen.map((id) => {
-              const note = resetNoteFor(id, definitions, machine.context.state)
-              return (
-                <li key={id} data-testid={`reopen-reset-${id}`}>
-                  {titleFor(id, definitions)}
-                  {/* WHAT LOSING IT MEANS, when the step can say. Reopening
-                      water discards up to three placed access points and
-                      their networks -- more work than any prior step loses
-                      to a cascade, so the dialogue says so in those terms. */}
-                  {note ? (
-                    <span className="chrome-banner__reset-note" data-testid={`reopen-reset-note-${id}`}>
-                      {' '}— {note}
-                    </span>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ul>
-          <button
-            type="button"
-            data-testid={`reopen-confirm-yes-${stepId}`}
-            onClick={machine.confirmReopen}
-          >
-            Reopen this step
-          </button>
-          <button
-            type="button"
-            data-testid={`reopen-confirm-no-${stepId}`}
-            onClick={machine.cancelReopen}
-          >
-            Keep it as it is
-          </button>
+          {machine.stepsResetByReopen.length ? (
+            <ul className="chrome-banner__reset-list" data-testid={`reopen-reset-list-${stepId}`}>
+              {machine.stepsResetByReopen.map((id) => {
+                const note = resetNoteFor(id, definitions, machine.context.state)
+                return (
+                  <li
+                    key={id}
+                    className="chrome-banner__reset"
+                    data-testid={`reopen-reset-${id}`}
+                  >
+                    <span className="chrome-banner__reset-step">{titleFor(id, definitions)}</span>
+                    {/* WHAT LOSING IT MEANS, IN THAT STEP'S OWN TERMS, when the
+                        step can say. A step that cannot -- one this build has no
+                        definition for -- is named and nothing more, which is the
+                        honest answer rather than a sentence invented here. */}
+                    {note ? (
+                      <span
+                        className="chrome-banner__reset-note"
+                        data-testid={`reopen-reset-note-${id}`}
+                      >
+                        {' — '}
+                        <MeasuredText text={note} />
+                      </span>
+                    ) : null}
+                  </li>
+                )
+              })}
+            </ul>
+          ) : null}
+          <div className="chrome-banner__confirm-actions">
+            {/* THE DESTRUCTIVE MOVE IS THE UNWEIGHTED ONE. See the oxide note
+                in App.css: the accent marks the move this card is asking for,
+                and a confirmation is not asking you to reopen -- it is asking
+                whether you meant to. */}
+            <button
+              type="button"
+              className="chrome-banner__button chrome-banner__button--secondary"
+              data-tone="secondary"
+              data-testid={`reopen-confirm-yes-${stepId}`}
+              onClick={machine.confirmReopen}
+            >
+              Reopen this step
+            </button>
+            <button
+              type="button"
+              className="chrome-banner__button chrome-banner__button--primary"
+              data-tone="primary"
+              data-testid={`reopen-confirm-no-${stepId}`}
+              onClick={machine.cancelReopen}
+            >
+              Keep it as it is
+            </button>
+          </div>
         </div>
       ) : null}
     </div>

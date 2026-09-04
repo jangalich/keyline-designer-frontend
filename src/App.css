@@ -1587,36 +1587,103 @@
   outline-color: var(--ink);
 }
 
-/* A confirmation covers the banner rather than opening beside it: what it is
-   asking about is the button that was just pressed, and a dialogue that leaves
-   that button live invites the second press it exists to prevent. */
+/* THE CONFIRMATION IS THE CARD WHILE IT IS UP.
+
+   The rule was always that a confirmation COVERS the banner rather than
+   opening beside it -- what it is asking about is the button that was just
+   pressed, and a dialogue that leaves that button live invites the second
+   press it exists to prevent. The markup did not do it: the actions row went
+   on rendering above the dialogue, so "Edit this step" sat over its own open
+   confirmation looking dead. ActionBanner drops the row now, and this block
+   is written for a card's whole contents rather than for a footnote under a
+   row of buttons -- which is why the top margin and the divider rule that
+   used to separate the two are gone.
+
+   IT MISSED THE VISUAL SYSTEM ENTIRELY BEFORE THIS. One face, no accent, two
+   identically weighted outlined buttons, and a `button` selector of its own
+   that quietly opted its controls out of the banner's tone rules. Every line
+   below is the treatment the rest of the chrome already had. */
 .chrome-banner__confirm {
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   font-family: var(--font-prose);
-  font-size: var(--text-xs);
-}
-
-.chrome-banner__confirm p {
-  margin: 0 0 var(--space-2) 0;
-}
-
-.chrome-banner__confirm ul {
-  margin: 0 0 var(--space-2) 0;
-  padding-left: var(--space-4);
-}
-
-.chrome-banner__confirm button {
-  margin-right: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  background: var(--paper);
-  font-family: var(--font-prose);
-  font-size: inherit;
+  font-size: var(--text-sm);
   color: var(--ink);
-  cursor: pointer;
+}
+
+/* THE QUESTION, IN THE TITLING FACE.
+
+   It is the one line in this card that NAMES something rather than describing
+   it -- "Reopen landform?" is the same act the rail's step name performs --
+   and the display face is what the system uses to say so. Without it the
+   dialogue was three sizes of one face, which is a paragraph with buttons
+   under it rather than a question with an answer to give. */
+.chrome-banner__confirm-question {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* WHAT HAPPENS, AS PROSE. Muted against the question above it: the question
+   is the thing being asked and this is the ground for it. */
+.chrome-banner__confirm-cost {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+/* WHAT EACH STEP LOSES, ONE ROW EACH.
+
+   A list rather than a sentence because the losses are separate facts about
+   separate steps, and a person scanning this is scanning for THEIR step --
+   so the name leads the row in full ink and the step's own note follows it.
+   The counts inside a note carry `.measure` and come out in the data face,
+   which is the third face this card needs and the reason a note is a part
+   list rather than a string. */
+.chrome-banner__reset-list {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.chrome-banner__reset {
+  margin-bottom: var(--space-1);
+}
+
+.chrome-banner__reset-step {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.chrome-banner__reset-note {
+  color: var(--ink-muted);
+}
+
+/* THE DIALOGUE'S CONTROLS ARE THE BANNER'S CONTROLS.
+
+   They carry .chrome-banner__button and its tone modifier like every other
+   button in this card, so the weighting, the hover, the disabled state and
+   the focus ring are declared once. What was here before was a `.chrome-
+   banner__confirm button` rule that restated the outline treatment for both
+   of them -- two identically weighted buttons, which is a dialogue that will
+   not say which answer is which.
+
+   WHICH ONE CARRIES THE OXIDE IS THE WHOLE DECISION, and it is the SAFE one.
+   The accent means "this is the move this card is asking for" everywhere else
+   in the chrome; a confirmation is not asking you to reopen -- the press that
+   opened it already asked that -- it is asking whether you meant to. Marking
+   the destructive answer would make the accident this dialogue exists to
+   prevent the fastest target on the card. */
+.chrome-banner__confirm-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
 }
 
 /* --- Narrow screens, for the chrome ----------------------------------------

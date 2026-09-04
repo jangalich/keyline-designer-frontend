@@ -1039,6 +1039,218 @@ describeIf('the attribution, at four viewport heights', () => {
   }, SLOW)
 })
 
+/* ===========================================================================
+   THE REOPEN CONFIRMATION, IN THE FACES AND THE COLOURS IT ACTUALLY RENDERS IN
+   ===========================================================================
+   WHY THESE ARE HERE AND NOT IN style.test.jsx. That file says plainly what it
+   cannot do: jsdom applies no stylesheet, so it reads the PARSED rules and
+   matches them against the class names components emit. It caught none of this
+   card's defects, and it could not have: the markup named `.chrome-banner__
+   confirm`, the rule existed, and every one of its assertions passed while the
+   dialogue rendered in one sans face with two identically weighted outlined
+   buttons. What was wrong was WHICH RULE WON -- a `.chrome-banner__confirm
+   button` selector that took the dialogue's controls out of the banner's tone
+   rules -- and cascade is exactly what a parsed stylesheet cannot answer.
+
+   So these read `getComputedStyle` on the rendered nodes, in Chromium, after
+   the fonts have loaded. A computed font-family is the face the reader gets;
+   a class name is a claim that someone wrote a rule.
+
+   THE PAGE IS ?reopen=1, which is the shipped steps over a hydrated document
+   -- see layoutHarness. The dialogue is opened the way a person opens it, by
+   pressing the affordance that opens it.
+   =========================================================================== */
+
+describeIf('the reopen confirmation, in a real engine', () => {
+  /** The three faces, as index.css declares them, first family first. */
+  const DISPLAY = 'Bitter'
+  const PROSE = 'Source Serif 4'
+  const DATA = 'IBM Plex Mono'
+
+  /** :root's own values for the two colours a button can be filled with. */
+  const token = (page, name) =>
+    page.evaluate(
+      (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(),
+      name
+    )
+
+  /**
+   * Open the page, press "Edit this step", and park the mouse somewhere else.
+   *
+   * THE POINTER HAS TO LEAVE. The affordance is in the bottom-right card and
+   * the dialogue replaces it in the same corner, so the button that lands
+   * under the cursor comes up HOVERED -- and every colour read off it would be
+   * the hover value. The first run of this read --oxide-deep and called it a
+   * missing accent.
+   */
+  const openDialogue = async () => {
+    const ui = await openHarness({ reopen: 1 })
+    await ui.page.waitForSelector('[data-testid="edit-landform"]')
+    await ui.page.click('[data-testid="edit-landform"]')
+    await ui.page.mouse.move(20, 20)
+    await ui.page.waitForSelector('[data-testid="reopen-confirm-landform"]')
+    return ui
+  }
+
+  /** Everything one node is actually drawn with. */
+  const styleOf = (page, testid) =>
+    page.evaluate((id) => {
+      const el = document.querySelector(`[data-testid="${id}"]`)
+      if (!el) return null
+      const s = getComputedStyle(el)
+      return {
+        family: s.fontFamily,
+        size: s.fontSize,
+        weight: s.fontWeight,
+        color: s.color,
+        background: s.backgroundColor,
+      }
+    }, testid)
+
+  it('sets the question in the display face and the prose in the prose face', async () => {
+    const ui = await openDialogue()
+
+    // THE QUESTION IS THE ONE LINE HERE THAT NAMES SOMETHING, and the display
+    // face is how this system says so. Asserted on the COMPUTED family, so a
+    // rule that lost the cascade fails here rather than reading correct in the
+    // stylesheet.
+    const question = await styleOf(ui.page, 'reopen-confirm-title-landform')
+    expect(question.family.startsWith(DISPLAY)).toBe(true)
+    expect(question.weight).toBe('600')
+
+    // THE SENTENCE UNDER IT IS PROSE, and so is every row of the list.
+    const cost = await styleOf(ui.page, 'reopen-resets-landform')
+    expect(cost.family).toContain(PROSE)
+
+    const rows = await ui.page.evaluate(() =>
+      [...document.querySelectorAll('.chrome-banner__reset')].map(
+        (li) => getComputedStyle(li).fontFamily
+      )
+    )
+    expect(rows.length).toBe(3)
+    for (const family of rows) expect(family).toContain(PROSE)
+
+    // AND THE COUNTS ARE MEASURED VALUES, so they are in the data face --
+    // "3 placed access points" has a written half and a counted one, and a
+    // reader can tell which is which at a glance. This is the face the card
+    // was missing entirely.
+    const figures = await ui.page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid^="reopen-reset-note-"] .measure')].map((el) => ({
+        text: el.textContent,
+        family: getComputedStyle(el).fontFamily,
+        figures: getComputedStyle(el).fontVariantNumeric,
+      }))
+    )
+    expect(figures.length).toBeGreaterThan(0)
+    for (const figure of figures) {
+      expect(figure.family).toContain(DATA)
+      expect(figure.figures).toBe('tabular-nums')
+      expect(figure.text).toMatch(/^\d+$/)
+    }
+
+    await ui.close()
+  })
+
+  it('fills exactly one of the two answers with oxide, and it is the safe one', async () => {
+    const ui = await openDialogue()
+
+    const oxide = await token(ui.page, '--oxide')
+    const paper = await token(ui.page, '--paper')
+    const onOxide = await token(ui.page, '--on-oxide')
+
+    /** A computed rgb() string, from the hex a token carries. */
+    const rgb = (hex) => {
+      const n = parseInt(hex.replace('#', ''), 16)
+      return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`
+    }
+
+    const reopen = await styleOf(ui.page, 'reopen-confirm-yes-landform')
+    const keep = await styleOf(ui.page, 'reopen-confirm-no-landform')
+
+    // THE SAFE ANSWER CARRIES IT. "Reopen this step" is the destructive move
+    // and it is the UNWEIGHTED one: the accent means "this is the move this
+    // card is asking for", and a confirmation is not asking you to reopen --
+    // the press that opened it already asked that. Marking the destructive
+    // answer would make the accident this dialogue exists to prevent the
+    // fastest target on the card.
+    expect(keep.background).toBe(rgb(oxide))
+    expect(keep.color).toBe(rgb(onOxide))
+
+    // AND THE OTHER IS A SURFACE, NOT A SECOND ACCENT.
+    expect(reopen.background).toBe(rgb(paper))
+    expect(reopen.background).not.toBe(rgb(oxide))
+
+    // EXACTLY ONE, counted over every button on screen rather than over the
+    // two this test named -- the row above is gone while the dialogue is up,
+    // and if it came back this would be two.
+    const filled = await ui.page.evaluate((want) => {
+      const buttons = [...document.querySelectorAll('.chrome .chrome-banner__button')]
+      return {
+        total: buttons.length,
+        oxide: buttons.filter((b) => getComputedStyle(b).backgroundColor === want).length,
+      }
+    }, rgb(oxide))
+    expect(filled).toEqual({ total: 2, oxide: 1 })
+
+    await ui.close()
+  })
+
+  it('gives both answers a visible focus ring', async () => {
+    const ui = await openDialogue()
+
+    // KEYBOARD FIRST, THEN FOCUS. :focus-visible is a heuristic about how the
+    // focus arrived: a button focused after a mouse press does not match, and
+    // one focused while the last interaction was a key does. So a Tab is
+    // pressed to put the page in keyboard mode, and each button is then
+    // focused and asked whether it matches.
+    await ui.page.keyboard.press('Tab')
+
+    for (const testid of ['reopen-confirm-yes-landform', 'reopen-confirm-no-landform']) {
+      const ring = await ui.page.evaluate((id) => {
+        const el = document.querySelector(`[data-testid="${id}"]`)
+        el.focus()
+        const s = getComputedStyle(el)
+        return {
+          visible: el.matches(':focus-visible'),
+          width: s.outlineWidth,
+          style: s.outlineStyle,
+          color: s.outlineColor,
+        }
+      }, testid)
+
+      expect({ testid, ...ring }).toEqual({
+        testid,
+        visible: true,
+        width: '2px',
+        style: 'solid',
+        color: ring.color,
+      })
+      // A RING WITH NO WIDTH IS NO RING. The colour differs between the two --
+      // an oxide ring on an oxide fill is invisible, so the filled one
+      // restates it in ink -- and both are real outlines.
+      expect(ring.color).not.toBe('rgba(0, 0, 0, 0)')
+    }
+
+    await ui.close()
+  })
+
+  it('drops the affordance that opened it, and gives it back when answered', async () => {
+    const ui = await openDialogue()
+
+    // "Edit this step" rendered ABOVE the open dialogue and did nothing when
+    // pressed. It was wired the whole time -- requestReopen() setting a flag
+    // that was already true -- which is why the fix is that it is not there.
+    expect(await ui.box('[data-testid="edit-landform"]')).toBeNull()
+    expect(await ui.box('[data-testid="actions-landform"]')).toBeNull()
+
+    await ui.page.click('[data-testid="reopen-confirm-no-landform"]')
+    await ui.page.waitForSelector('[data-testid="edit-landform"]')
+    expect(await ui.box('[data-testid="reopen-confirm-landform"]')).toBeNull()
+
+    await ui.close()
+  })
+})
+
 /** Do two rendered rectangles share any area? */
 function overlaps(a, b) {
   if (!a || !b) return false

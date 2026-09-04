@@ -333,10 +333,13 @@ import {
   selectIsStepReachable,
   selectBoundaryRing,
   selectSessionId,
+  selectStepFeatures,
   selectStepInputs,
+  selectStepProvenance,
   selectStepsHoldingWork,
   selectStepOrder,
   selectStepStatus,
+  PROVENANCE_USER_ADDED,
 } from '../session/SessionStore'
 import { polygonAreaAcres, pointFromGeoJSON, pointToGeoJSON } from '../geo.js'
 import { commitInputsFor, commitValueOf, requiredInputsMissing } from './stepInputs.js'
@@ -402,6 +405,42 @@ export function measured(value, dp = MEASURE_DP) {
 export function measure(value, dp = MEASURE_DP) {
   return value == null ? '—' : Number(value).toFixed(dp)
 }
+
+/* ---------------------------------------------------------------------------
+   WHAT A RESET COSTS, and the two readings every step's answer is built from
+   ---------------------------------------------------------------------------
+   A step declares `resetNote(state)` so ANOTHER step's reopen confirmation can
+   say what losing this one actually means -- "3 placed access points and the
+   networks routed from them" rather than "roads resets". The shell asks every
+   step in the reset list for its own note and renders whatever comes back; it
+   holds no sentence about any step and must not learn one.
+
+   THESE TWO HELPERS ARE READINGS, NOT WORDS. Counting the features a step
+   committed is the same arithmetic for every step; what those features ARE --
+   zones, survey areas, a road -- is the step's own knowledge, and each note
+   below says it in its own vocabulary.
+
+   NEVER A COUNT THE DOCUMENT DOES NOT CARRY. A step holding work with nothing
+   committed yet (generated, reopened, mid-review) has a real loss and no
+   number to put on it, so its note describes the KIND of work instead. A
+   fabricated figure in a warning is worse than no figure: it is the one line
+   in this dialogue a person would check afterwards.
+   --------------------------------------------------------------------------- */
+
+/** How many features a step has committed. 0 when it has committed none. */
+function committedFeatureCount(state, stepId) {
+  return selectStepFeatures(state, stepId)?.features?.length ?? 0
+}
+
+/** How many of a step's committed features the user drew rather than picked. */
+function drawnFeatureCount(state, stepId) {
+  const provenance = selectStepProvenance(state, stepId)
+  if (provenance == null) return 0
+  return Object.values(provenance).filter((value) => value === PROVENANCE_USER_ADDED).length
+}
+
+/** 's', unless there is exactly one of them. */
+const plural = (count) => (count === 1 ? '' : 's')
 
 /** The boundary step's id. It is not a backend step id -- see BOUNDARY_STEP. */
 export const BOUNDARY_STEP_ID = 'boundary'
@@ -1190,6 +1229,13 @@ export const BOUNDARY_STEP = defineStep({
       ringOf(draft).length >= 3 ? null : 'Place at least three points to close the boundary.',
   },
   reopen: null,
+
+  /* NO `resetNote`, AND IT IS THE SAME FACT AS `reopen: null` READ FROM THE
+     OTHER END. A reset note is what a step says when SOMETHING ABOVE IT is
+     reopened; nothing is above the boundary, so it can never appear in a
+     reset list and a note here would be prose no dialogue can reach. Every
+     step that CAN appear in one declares its own -- see landform, water and
+     roads. */
   committedNote: BOUNDARY_COMMITTED_NOTE,
   status: (state) => (selectSessionId(state) ? COMMITTED : NOT_STARTED),
   // Nothing upstream. Not `selectIsStepReachable`, which answers off
@@ -1563,6 +1609,32 @@ export const LANDFORM_STEP = documentStep({
   reopen: { label: 'Edit this step', confirmTitle: 'Reopen landform?' },
   proposalCollection: 'suggested_zones',
   shape: LANDFORM_SHAPE,
+
+  /**
+   * WHAT A RESET OF THIS STEP COSTS, in landform's own terms.
+   *
+   * Landform is only ever reset by a reopen of the step above it, so this is
+   * written for a confirmation nothing in this build can currently raise --
+   * the boundary declares no reopen. It is declared anyway, because the
+   * alternative is the shell having a step in a reset list it can say nothing
+   * about, and because the day a step lands between the boundary and this one
+   * is not the day to notice.
+   *
+   * A DRAWN ZONE IS NAMED SEPARATELY WHEN THERE IS ONE. Every committed zone
+   * is work; a drawn one is the only work here that cannot be recovered by
+   * generating again and picking the same shapes, and a person deciding
+   * whether to reopen needs that difference more than they need the total.
+   * Off the document's own provenance map -- the same record the commit
+   * wrote -- rather than inferred from a feature id.
+   */
+  resetNote: (state) => {
+    const zones = committedFeatureCount(state, 'landform')
+    if (!zones) return 'the production ground decided for this parcel'
+    const drawn = drawnFeatureCount(state, 'landform')
+    const note = [measured(zones, 0), ` committed production zone${plural(zones)}`]
+    if (drawn) note.push(', ', measured(drawn, 0), ' of them drawn by hand')
+    return note
+  },
 
   /* --- Landform's chrome -------------------------------------------------
      The same four states boundary uses, saying landform's own sentences. The
@@ -2170,6 +2242,26 @@ export const WATER_STEP = documentStep({
   /* The name the reopen restore matches committed ids against -- the water
      entry's own `proposal_collection`. */
   proposalCollection: 'survey_zones',
+
+  /**
+   * WHAT A RESET OF THIS STEP COSTS, for the landform step's reopen dialogue.
+   *
+   * "SURVEY AREAS", WHICH IS THIS STEP'S OWN WORD FOR THEM -- its committed
+   * instruction says "These survey areas are committed", and a confirmation
+   * calling them something else would be the shell paraphrasing a step it
+   * does not understand.
+   *
+   * THE COUNT IS THE COMMITTED ONE, not the generated one. What a reset takes
+   * is the DECISION -- which ground out of the two surveys' reading this
+   * design is committing to pond -- and the proposals come back with the next
+   * generate. A step holding work with nothing committed has no honest number
+   * and gets the sentence below instead.
+   */
+  resetNote: (state) => {
+    const areas = committedFeatureCount(state, 'water')
+    if (!areas) return 'the survey areas picked out on this parcel'
+    return [measured(areas, 0), ` committed survey area${plural(areas)}`]
+  },
 
   /* MEMBERS ARE NOT PROPOSALS. See surveyZoneFeatures(). */
   proposalFeatures: surveyZoneFeatures,
@@ -2863,10 +2955,17 @@ export const ROADS_STEP = documentStep({
    */
   resetNote: (state) => {
     const count = (recordedAccessPoints(state, 'roads') ?? []).length
-    if (!count) return null
-    return `${count} placed access point${count === 1 ? '' : 's'} and the network${
-      count === 1 ? '' : 's'
-    } routed from ${count === 1 ? 'it' : 'them'}`
+    // NO POINTS AND STILL IN THE LIST is the deliberate empty commit -- "no
+    // road for this step" -- and that decision is the loss. It used to return
+    // null here, which put roads in the reset list with nothing after its
+    // name: the one row in the dialogue that said only that a step resets.
+    if (!count) return 'the decision to run no road on this property'
+    return [
+      measured(count, 0),
+      ` placed access point${plural(count)} and the network${plural(count)} routed from ${
+        count === 1 ? 'it' : 'them'
+      }`,
+    ]
   },
 
   /**

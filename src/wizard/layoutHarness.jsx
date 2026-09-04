@@ -37,6 +37,9 @@
  *   ?buttons=N     how many buttons the action card has (default 2)
  *   ?detail=N      give the step a detail of N rows over four groups
  *                  (default 0). NOTHING IS FOCUSED -- click a tab for that.
+ *   ?reopen=1      the SHIPPED steps over a hydrated document, with landform
+ *                  committed and three steps below it holding work -- the
+ *                  page the reopen confirmation is read on. See REOPEN below.
  */
 
 import React, { useEffect, useRef, useState } from 'react'
@@ -45,11 +48,12 @@ import { createRoot } from 'react-dom/client'
 import '../index.css'
 import '../App.css'
 
-import { SessionProvider } from '../session/SessionStore'
+import { SessionProvider, useSession } from '../session/SessionStore'
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
 import {
   BOUNDARY_STEP,
+  STEP_DEFINITIONS,
   documentStep,
   measure,
   registryProposalFeatures,
@@ -78,7 +82,114 @@ window.fetch = async (rawUrl) => {
     if (params.get('steps') === '0') return { ok: false, status: 500, json: async () => ({}) }
     return { ok: true, status: 200, json: async () => ({ step_order: [...STEP_ORDER] }) }
   }
+  // The one document this page ever hydrates. See REOPEN_DOCUMENT.
+  if (REOPEN && url.pathname === '/api/sessions/sess-1') {
+    return { ok: true, status: 200, json: async () => REOPEN_DOCUMENT }
+  }
   throw new Error(`layoutHarness makes no request to ${url.pathname}`)
+}
+
+/* ===========================================================================
+   ?reopen=1  --  THE REOPEN CONFIRMATION, ON A REAL DOCUMENT
+   ===========================================================================
+   WHY THIS CASE IS NOT LIKE THE OTHERS. Every case above drives ONE harness
+   step, because what is being measured is a box -- a width, a margin, a
+   corner -- and a fabricated step gets a test to that box without a fixture
+   payload in the way.
+
+   The confirmation is not a box. What has to be read off it is the FACE its
+   question is set in, WHICH of its two buttons carries the accent, and WHAT
+   each downstream step says it loses -- and the last of those comes from the
+   shipped definitions reading a real document (their own `resetNote`). A
+   harness step declaring notes of its own would be this page answering the
+   question the test is asking.
+
+   SO THIS MODE REGISTERS THE SHIPPED STEPS and hydrates a document through
+   the store's own `resume`, the same door a reload goes through. Landform is
+   committed with three zones; water, roads and trees below it hold work, so
+   the reset list has three rows and two of them carry a counted figure -- one
+   off committed features, one off recorded inputs.
+
+   NO SESSION IS STARTED AND NOTHING IS GENERATED. The document arrives whole,
+   which is what a resume is, and the page makes exactly two requests: the step
+   catalogue and this document.
+   =========================================================================== */
+
+const REOPEN = params.get('reopen') === '1'
+
+/** One committed step entry, in the shape the wire delivers. */
+function committedStep(ids, { provenance = {}, inputs = null } = {}) {
+  const entry = {
+    status: 'committed',
+    revision: 1,
+    features: {
+      type: 'FeatureCollection',
+      features: ids.map((id) => ({
+        type: 'Feature',
+        id,
+        properties: { name: id },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[[-74.01, 40.7], [-74.0, 40.7], [-74.0, 40.71], [-74.01, 40.7]]],
+        },
+      })),
+    },
+    provenance: Object.fromEntries(ids.map((id) => [id, provenance[id] ?? 'generated'])),
+  }
+  if (inputs) entry.inputs = inputs
+  return entry
+}
+
+/**
+ * THE DOCUMENT, ALPHABETICAL, because that is how Flask serialises it and the
+ * order the shell reads is `step_order`.
+ *
+ * ONE DRAWN ZONE among landform's three: a drawn shape is the one piece of
+ * work in this pipeline that generating again cannot bring back, and
+ * landform's own note says so separately. Nothing on this page reads it --
+ * landform is the step being REOPENED here, so its note is not in its own
+ * list -- but a document that carries only generated features would make the
+ * fixture quietly narrower than the thing it stands for.
+ */
+const REOPEN_DOCUMENT = {
+  schema_version: 1,
+  session_id: 'sess-1',
+  document_revision: 4,
+  created_at: '2026-01-01T00:00:00+00:00',
+  updated_at: '2026-01-01T00:00:00+00:00',
+  boundary: [[-74.01, 40.7], [-74.0, 40.7], [-74.0, 40.71], [-74.01, 40.71]],
+  step_order: [...STEP_ORDER],
+  steps: {
+    fencing: { status: 'not_started' },
+    landform: committedStep(['zone-1', 'zone-2', 'zone-3'], {
+      provenance: { 'zone-3': 'user_added' },
+    }),
+    roads: committedStep(['road-1'], {
+      inputs: { access_points: [[-74.0, 40.7], [-74.005, 40.705], [-74.008, 40.703]] },
+    }),
+    structures: { status: 'not_started' },
+    trees: committedStep(['belt-1']),
+    water: committedStep(['pond-1', 'pond-2']),
+  },
+}
+
+/**
+ * Hydrate the document, ONCE, before anything is measured.
+ *
+ * The ref is not belt and braces: `actions` is rebuilt on every store change,
+ * so an effect that depends on it and dispatches would resume, re-render and
+ * resume again -- and this page's whole job is to hold still while something
+ * measures it.
+ */
+function ResumeDocument() {
+  const { actions } = useSession()
+  const asked = useRef(false)
+  useEffect(() => {
+    if (asked.current) return
+    asked.current = true
+    actions.resume('sess-1')
+  }, [actions])
+  return null
 }
 
 /* ===========================================================================
@@ -658,7 +769,8 @@ function OpenStep({ stepId }) {
 function Harness() {
   return (
     <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
-      <WizardCursorProvider definitions={[BOUNDARY_STEP, HARNESS_STEP]}>
+      <WizardCursorProvider definitions={REOPEN ? STEP_DEFINITIONS : [BOUNDARY_STEP, HARNESS_STEP]}>
+        {REOPEN ? <ResumeDocument /> : null}
         <OpenStep stepId="landform" />
         {/* THE SHIPPED STAGE ELEMENT. `.map-stage` is what carries the chrome's
             own measurements (--rail-width, --bar-height) and the height the

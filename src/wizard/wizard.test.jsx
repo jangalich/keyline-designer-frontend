@@ -36,11 +36,14 @@ import {
   useSession,
 } from '../session/SessionStore'
 import {
+  ACCESS_POINTS_LIST,
   BOUNDARY_RING_INPUT,
   BOUNDARY_STEP,
   BOUNDARY_STEP_ID,
   LANDFORM_STEP,
+  ROADS_STEP,
   STEP_DEFINITIONS,
+  WATER_STEP as WATER_STEP_REAL,
   registryProposalFeatures,
   documentStep,
   wizardStepOrder,
@@ -653,12 +656,300 @@ describe('5. reopen confirmation', () => {
       .map((li) => li.getAttribute('data-testid').replace('reopen-reset-', ''))
     expect(named).toEqual(['water'])
 
+    // THE SENTENCE AND THE LIST NO LONGER SAY THE SAME THING TWICE. The
+    // sentence says what happens; the list says which work goes. Before this
+    // it read "This will discard the work in Water." above a bullet reading
+    // "Water", which is a dialogue repeating itself and still not answering
+    // the only question a person has, which is what OF THEIRS goes.
     const body = ui.text('reopen-resets-landform')
-    expect(body).toContain('Water')
+    expect(body).toContain('goes back to editing')
+    expect(body).not.toContain('Water')
     for (const untouched of ['roads', 'trees', 'structures', 'fencing']) {
       expect(named).not.toContain(untouched)
       expect(body.toLowerCase()).not.toContain(untouched)
     }
+
+    await ui.unmount()
+  })
+
+  it('says so plainly when no later step holds work, and renders no list at all', async () => {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/sess-1$/, {
+        body: serverDocument({ steps: { landform: committed(1, featureCollection('zone-1')) } }),
+      }),
+    ])
+
+    const ui = await renderWizard()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+    await ui.open('landform')
+    await ui.click('edit-landform')
+
+    // AN EMPTY LIST IS NOT AN EMPTY <ul>. The dialogue still has something to
+    // say -- this step goes back to editing -- and a bulleted nothing under it
+    // is the same defect as an empty card in the corner of the map.
+    expect(ui.text('reopen-resets-landform')).toContain('nothing else is discarded')
+    expect(ui.find('reopen-reset-list-landform')).toBeNull()
+
+    await ui.unmount()
+  })
+
+  /**
+   * THE LIST WITH EVERY DOWNSTREAM STEP CARRYING WORK.
+   *
+   * The case above is the screenshot's: one committed step below the one being
+   * reopened, and five that were never reached. It is the case that proves the
+   * filter EXCLUDES, and it cannot prove the filter INCLUDES -- a selector
+   * that named only the first downstream step would pass it. So the same claim
+   * is made from the other end, with everything this document's order carries
+   * below landform that a person can have reached: water, roads and trees, all
+   * committed, and the two after them still untouched.
+   */
+  it('names all three when water, roads and trees are committed, and nothing below', async () => {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/sess-1$/, {
+        body: serverDocument({
+          steps: {
+            landform: committed(1, featureCollection('zone-1', 'zone-2')),
+            water: committed(1, featureCollection('pond-1', 'pond-2')),
+            roads: {
+              ...committed(1, featureCollection('road-1')),
+              inputs: { [ACCESS_POINTS_LIST]: [[-74.0, 40.7], [-74.005, 40.705]] },
+            },
+            trees: committed(1, featureCollection('belt-1')),
+          },
+        }),
+      }),
+    ])
+
+    const ui = await renderWizard()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+
+    await ui.open('landform')
+    await ui.click('edit-landform')
+
+    const dialog = ui.find('reopen-confirm-landform')
+    const named = [...dialog.querySelectorAll('[data-testid^="reopen-reset-"]')]
+      .filter((li) => li.tagName === 'LI')
+      .map((li) => li.getAttribute('data-testid').replace('reopen-reset-', ''))
+    expect(named).toEqual(['water', 'roads', 'trees'])
+
+    // NOTHING FURTHER DOWN. structures and fencing are in the order, below
+    // trees, and hold nothing.
+    for (const untouched of ['structures', 'fencing']) {
+      expect(named).not.toContain(untouched)
+      expect(dialog.textContent.toLowerCase()).not.toContain(untouched)
+    }
+
+    await ui.unmount()
+  })
+
+  /**
+   * WHAT EACH STEP LOSES IS THE STEP'S OWN SENTENCE, NOT THE SHELL'S.
+   *
+   * ASSERTED BY IDENTITY, not by matching prose twice. Each rendered note is
+   * compared against what that step's OWN `resetNote` returns for the same
+   * document -- so a shell that grew a sentence about survey areas or access
+   * points fails here, and a step that rewrites its note carries this test
+   * with it rather than being caught by a string literal in a test file.
+   */
+  it("takes each named step's note from that step's own definition", async () => {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/sess-1$/, {
+        body: serverDocument({
+          steps: {
+            landform: {
+              ...committed(1, featureCollection('zone-1', 'zone-2')),
+              // ONE OF THE TWO WAS DRAWN. See the assertion on landform's own
+              // note at the end of this test.
+              provenance: { 'zone-1': 'generated', 'zone-2': 'user_added' },
+            },
+            water: committed(1, featureCollection('pond-1', 'pond-2')),
+            roads: {
+              ...committed(1, featureCollection('road-1')),
+              inputs: { [ACCESS_POINTS_LIST]: [[-74.0, 40.7], [-74.005, 40.705]] },
+            },
+            trees: committed(1, featureCollection('belt-1')),
+          },
+        }),
+      }),
+    ])
+
+    const ui = await renderWizard()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+    await ui.open('landform')
+    await ui.click('edit-landform')
+
+    /** One note's text as the definition writes it: a string, or its parts. */
+    const asText = (note) =>
+      typeof note === 'string' ? note : note.map((part) => part.measure ?? part).join('')
+
+    for (const definition of [WATER_STEP_REAL, ROADS_STEP]) {
+      const note = ui.find(`reopen-reset-note-${definition.id}`)
+      expect(note, `${definition.id} says what its reset costs`).not.toBeNull()
+      expect(note.textContent).toBe(` — ${asText(definition.resetNote(ui.state))}`)
+    }
+
+    // THE COUNTS ARE REAL AND THEY ARE IN THE DATA FACE. Two committed survey
+    // areas, two placed access points -- both off the document, neither
+    // invented, and each one inside a `.measure` span rather than dissolved
+    // into the prose around it.
+    expect(ui.find('reopen-reset-note-water').textContent).toContain('2 committed survey areas')
+    expect(ui.find('reopen-reset-note-roads').textContent).toContain('2 placed access points')
+    for (const stepId of ['water', 'roads']) {
+      const figure = ui.find(`reopen-reset-note-${stepId}`).querySelector('.measure')
+      expect(figure, `${stepId}'s count is set as a measurement`).not.toBeNull()
+      expect(figure.textContent).toBe('2')
+    }
+
+    // A STEP THIS BUILD HAS NO DEFINITION FOR IS NAMED AND NOTHING MORE. trees
+    // is in the order and holds work; inventing a loss for it here is exactly
+    // what the shell must not do.
+    expect(ui.find('reopen-reset-trees')).not.toBeNull()
+    expect(ui.find('reopen-reset-note-trees')).toBeNull()
+
+    // LANDFORM'S OWN NOTE IS EXERCISED HERE RATHER THAN RENDERED. Nothing in
+    // this build can reopen the step above it -- the boundary declares no
+    // reopen -- so it never appears in a reset list, and a note nothing calls
+    // is a note that rots. It says what the other two say, in its own terms,
+    // and it names the drawn zone separately because a drawn shape is the one
+    // piece of work here that generating again cannot bring back.
+    expect(asText(LANDFORM_STEP.resetNote(ui.state))).toBe(
+      '2 committed production zones, 1 of them drawn by hand'
+    )
+
+    // AND THE SHELL ITSELF CARRIES NO STEP'S VOCABULARY.
+    const shell = codeOf('shell', 'ActionBanner.jsx')
+    for (const word of ['survey area', 'access point', 'production zone', 'network']) {
+      expect(shell).not.toContain(word)
+    }
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   5b. THE CONFIRMATION COVERS THE BANNER
+   ===========================================================================
+   Two claims, and they are the two halves of one reported bug: "Edit this
+   step" rendered ABOVE the open dialogue and did nothing when pressed.
+
+   IT WAS NEVER UNWIRED. It is REOPEN_BUTTON, its run() is
+   machine.requestReopen(), and requestReopen sets `confirmingReopen` true --
+   which it already was, because that press is what opened the dialogue. The
+   handler ran and set the state it was already in. That is what makes the
+   fix "do not render it" rather than "connect it": a control whose whole
+   effect is already in effect is indistinguishable from a dead one.
+   =========================================================================== */
+
+describe('5b. the confirmation covers the banner', () => {
+  const DOCUMENT = {
+    steps: {
+      landform: committed(1, featureCollection('zone-1')),
+      water: committed(1, featureCollection('pond-1')),
+    },
+  }
+
+  const openLandform = async () => {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/sess-1$/, { body: serverDocument(DOCUMENT) }),
+    ])
+    const ui = await renderWizard()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+    await ui.open('landform')
+    return ui
+  }
+
+  it('does not open on arrival at a committed step -- the button opens it', async () => {
+    const ui = await openLandform()
+
+    // ARRIVING IS NOT ASKING. The cursor moved onto a committed step and the
+    // card offers the affordance; a confirmation nobody requested is its own
+    // defect, and the machine's `confirmingReopen` starts false for exactly
+    // this reason. The banner is keyed by step id in WizardShell, so the flag
+    // cannot survive a walk to another step and back either.
+    expect(ui.find('reopen-confirm-landform')).toBeNull()
+    expect(ui.find('edit-landform')).not.toBeNull()
+
+    await ui.open('water')
+    await ui.open('landform')
+    expect(ui.find('reopen-confirm-landform')).toBeNull()
+
+    // ONE PRESS, AND THE ONE PRESS IS WHAT OPENS IT.
+    await ui.click('edit-landform')
+    expect(ui.find('reopen-confirm-landform')).not.toBeNull()
+
+    await ui.unmount()
+  })
+
+  /**
+   * THE OTHER CONFIRMATION, WHICH HAD THE SAME DEFECT AND NO TEST AT ALL.
+   *
+   * There are two confirmation mechanisms in this banner and only one of them
+   * was reported: the reopen's, which the machine owns, and a button's own
+   * `confirm`, which the boundary's "start a different property" is the single
+   * user of. They render through the same card and they shipped with the same
+   * two faults -- the actions row left live above the dialogue, and both
+   * answers drawn as identical outlined buttons.
+   *
+   * NOTHING IN THIS REPO HAD EVER RENDERED IT. Searching the suite for its
+   * test ids returns nothing, which is why "the second time" was worth
+   * checking once rather than per report.
+   */
+  it('covers the banner for a button\'s own confirm too, and weights the safe answer', async () => {
+    installFetch([route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() })])
+    const ui = await renderWizard()
+    await ui.run((a) => a.startSession(RING))
+    await ui.open(BOUNDARY_STEP_ID)
+
+    // The committed boundary offers one honest action, and it asks first.
+    await ui.click(`restart-${BOUNDARY_STEP_ID}`)
+    expect(ui.find(`restart-confirm-${BOUNDARY_STEP_ID}`)).not.toBeNull()
+    expect(ui.find(`restart-${BOUNDARY_STEP_ID}`)).toBeNull()
+    expect(ui.find(`actions-${BOUNDARY_STEP_ID}`)).toBeNull()
+
+    // ONE OXIDE, ON THE ANSWER THAT KEEPS THE WORK. Ending the session is the
+    // destructive move here exactly as reopening is there, and it is the
+    // unweighted one for the same reason.
+    const yes = ui.find(`restart-confirm-yes-${BOUNDARY_STEP_ID}`)
+    const no = ui.find(`restart-confirm-no-${BOUNDARY_STEP_ID}`)
+    expect(yes.dataset.tone).toBe('secondary')
+    expect(no.dataset.tone).toBe('primary')
+    expect(no.classList.contains('chrome-banner__button--primary')).toBe(true)
+    expect(yes.classList.contains('chrome-banner__button--primary')).toBe(false)
+
+    // Cancelling gives the row back, and the session is untouched.
+    await ui.click(`restart-confirm-no-${BOUNDARY_STEP_ID}`)
+    expect(ui.find(`restart-${BOUNDARY_STEP_ID}`)).not.toBeNull()
+    expect(selectSessionId(ui.state)).toBe('sess-1')
+
+    await ui.unmount()
+  })
+
+  it('does not render "Edit this step" while the dialogue is up', async () => {
+    const ui = await openLandform()
+    await ui.click('edit-landform')
+
+    // THE BUG, STATED. The affordance that opens this dialogue is gone while
+    // it is open, and so is the row it sat in.
+    expect(ui.find('reopen-confirm-landform')).not.toBeNull()
+    expect(ui.find('edit-landform')).toBeNull()
+    expect(ui.find('actions-landform')).toBeNull()
+
+    // AND IT COMES BACK WHEN THE QUESTION IS ANSWERED. "Keep it as it is"
+    // cancels, the step is still committed, and the way back in is where it
+    // was.
+    await ui.click('reopen-confirm-no-landform')
+    expect(ui.find('reopen-confirm-landform')).toBeNull()
+    expect(ui.find('edit-landform')).not.toBeNull()
+    expect(selectStepStatus(ui.state, 'landform')).toBe(COMMITTED)
 
     await ui.unmount()
   })
