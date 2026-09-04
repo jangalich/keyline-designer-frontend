@@ -37,6 +37,7 @@ import {
   GENERATED,
   JOB_FORGOTTEN,
   JOB_OBSERVED,
+  JOB_STARTED,
   JOB_SUBMITTED,
   NOT_STARTED,
   RESUME_ABSENT,
@@ -423,6 +424,48 @@ describe('2. wholesale application of a commit response', () => {
     // landform survived as a committed step, so its draft is still the user's.
     expect(after.drafts.landform.selectedFeatureIds).toEqual(['zone-1'])
   })
+
+  /**
+   * DRAFT_SELECTION_SET TAKES A LIST OR A FUNCTION OF THE LIST IN HAND.
+   *
+   * WHY THE SECOND FORM EXISTS. The tab strip's eye has to compute a whole
+   * SET rather than flip one id (radio mode clears every other tab), and it
+   * was computing it from the draft its own render was built with. Two
+   * dispatches in one React batch then both start from the pre-batch list and
+   * the second silently undoes the first. Moving the READ into the reducer is
+   * what makes them compose -- which is what the old DRAFT_SELECTION_TOGGLED
+   * did by construction.
+   */
+  it('composes two selection writes made against the same rendered draft', () => {
+    let state = hydrateInto(
+      initialState,
+      serverDocument({ steps: { water: { status: GENERATED } } })
+    )
+    state = reducer(state, {
+      type: DRAFT_SELECTION_SET,
+      stepId: 'water',
+      featureIds: ['a', 'b', 'c'],
+    })
+
+    // TWO UPDATERS BUILT FROM THE SAME LIST -- which is what two onClick
+    // closures rendered together are -- each removing one id.
+    const rendered = state.drafts.water.selectedFeatureIds
+    const drop = (id) => (current) => current.filter((entry) => entry !== id)
+    expect(rendered).toEqual(['a', 'b', 'c'])
+
+    state = reducer(state, { type: DRAFT_SELECTION_SET, stepId: 'water', featureIds: drop('a') })
+    state = reducer(state, { type: DRAFT_SELECTION_SET, stepId: 'water', featureIds: drop('b') })
+
+    // BOTH TOOK. Handing the reducer the ANSWER instead would have left ['a',
+    // 'c'] -- the second write computed from a list without 'b' removed and
+    // with 'a' still in it.
+    expect(state.drafts.water.selectedFeatureIds).toEqual(['c'])
+
+    // AND THE LIST FORM IS UNCHANGED, for every caller that is stating an
+    // outright new selection rather than composing with one.
+    state = reducer(state, { type: DRAFT_SELECTION_SET, stepId: 'water', featureIds: ['b'] })
+    expect(state.drafts.water.selectedFeatureIds).toEqual(['b'])
+  })
 })
 
 /* ===========================================================================
@@ -647,7 +690,10 @@ describe('5. job lifecycle', () => {
     await ui.advance(1000)
     const ok = await ui.run(() => done)
 
-    expect(ok).toBe(true)
+    // RESOLVES WITH THE PAYLOAD IT LANDED, not a bare true: a caller that
+    // awaited this is still holding the render from before the request.
+    expect(ok).toBeTruthy()
+    expect(ok).toEqual(selectStepProposals(ui.state, 'landform'))
     expect(selectJobForStep(ui.state, 'landform')).toMatchObject({ status: 'done', error: null })
     expect(selectJobForStep(ui.state, 'landform').result).toEqual(generateResult())
     // The PAYLOAD half became the proposals; the document half was hydrated.
@@ -790,8 +836,9 @@ describe('6. job failure', () => {
     await ui.run((a) => a.startSession([[40.7, -74.01]]))
     const ok = await ui.run((a) => a.generate('landform'))
 
-    // An evicted job is not a failed one -- the work may well have landed.
-    expect(ok).toBe(true)
+    // An evicted job is not a failed one -- the work may well have landed,
+    // and what layers served is what this resolves with.
+    expect(ok).toEqual(LAYERS_PAYLOAD)
     expect(selectStepProposals(ui.state, 'landform')).toEqual(LAYERS_PAYLOAD)
     expect(selectFailedLayer(ui.state, 'landform')).toBeNull()
 
@@ -914,6 +961,8 @@ describe('9. no derived design content', () => {
       [DRAFT_SHAPE_REMOVED]: { type: DRAFT_SHAPE_REMOVED, stepId: 'water', featureId: 'drawn-1' },
       [DRAFT_INPUT_SET]: { type: DRAFT_INPUT_SET, stepId: 'roads', key: 'access_point', value: [40.7, -74.0] },
       [DRAFT_DISCARDED]: { type: DRAFT_DISCARDED, stepId: 'water' },
+      // The placeholder a generate writes before the server has issued an id.
+      [JOB_STARTED]: { type: JOB_STARTED, stepId: 'water' },
       [JOB_SUBMITTED]: { type: JOB_SUBMITTED, jobId: 'job-1', stepId: 'water' },
       [JOB_OBSERVED]: { type: JOB_OBSERVED, snapshot: { job_id: 'job-1', status: 'done', result: LAYERS_PAYLOAD } },
       [JOB_FORGOTTEN]: { type: JOB_FORGOTTEN, jobId: 'job-1' },

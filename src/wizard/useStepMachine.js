@@ -51,6 +51,7 @@ import {
   selectDraft,
   selectDraftIsTouched,
   selectFailedLayer,
+  selectNoCandidate,
   selectHasDraft,
   selectJobForStep,
   selectSessionError,
@@ -64,6 +65,7 @@ import {
   useSession,
 } from '../session/SessionStore'
 import { JOB_RUNNING } from '../session/jobs'
+import { requiredInputsMissing } from './stepInputs.js'
 
 /* The machine's states. Exported so panels and tests name them rather than
    comparing strings, and so a typo is a reference error. */
@@ -223,9 +225,26 @@ export function seedFor(state, definition, proposalFeatures) {
   }
 
   return {
-    selectedFeatureIds: proposalFeatures.map((feature) => feature.id),
+    selectedFeatureIds: seedSelection(definition, proposalFeatures),
     drawnFeatures: [],
   }
+}
+
+/**
+ * WHAT A FRESH DRAFT SELECTS. Every proposal, for a step whose eyes are
+ * checkboxes: the pipeline's suggestion is the starting point and the user
+ * prunes. ONE GROUP, for a step whose eyes are a radio (`selection.mode`):
+ * the alternatives are mutually exclusive by declaration, so a seed holding
+ * all of them would be a state the strip can never show and the commit
+ * contract refuses. The first group is the first candidate in payload order,
+ * which is the first one the user tried.
+ */
+function seedSelection(definition, proposalFeatures) {
+  const ids = proposalFeatures.map((feature) => feature.id)
+  if (definition.selection?.mode !== 'radio' || !proposalFeatures.length) return ids
+  const groupOf = typeof definition.groupOf === 'function' ? definition.groupOf : (f) => f.id
+  const first = groupOf(proposalFeatures[0])
+  return proposalFeatures.filter((feature) => groupOf(feature) === first).map((feature) => feature.id)
 }
 
 /**
@@ -374,6 +393,11 @@ export function useStepMachine(definition) {
   const context = useMemo(
     () => ({
       stepId,
+      // THE DEFINITION RIDES THE CONTEXT, so a commit assembled from the
+      // declared inputs (stepDefinitions' commitInputsFor) can read them
+      // without the definition's own closure -- the factory's default run()
+      // is written once for every document-backed step.
+      definition,
       state,
       draft,
       proposals,
@@ -383,8 +407,9 @@ export function useStepMachine(definition) {
       committableCount: selectedCount + drawnCount,
       baseRevision: selectBaseRevision(state, stepId),
     }),
-    [stepId, state, draft, proposals, proposalFeatures, selectedCount, drawnCount]
+    [stepId, definition, state, draft, proposals, proposalFeatures, selectedCount, drawnCount]
   )
+
 
   /* -----------------------------------------------------------------------
      Errors, per feature and otherwise
@@ -406,6 +431,10 @@ export function useStepMachine(definition) {
   const rejections = useMemo(() => selectStepRejections(state, stepId), [state, stepId])
   const rejectedFeatureIds = useMemo(() => Object.keys(rejections), [rejections])
   const failedLayer = selectFailedLayer(state, stepId)
+  // THE OTHER KIND OF FAILED GENERATE. Read beside failedLayer and never
+  // instead of it: the two are mutually exclusive on the wire, and the chrome
+  // renders whichever the payload actually carried. See selectNoCandidate.
+  const noCandidate = selectNoCandidate(state, stepId)
 
   /**
    * A COMMIT THAT DID NOT LAND, and the reason it did not, when there is one.
@@ -473,7 +502,25 @@ export function useStepMachine(definition) {
       ? definition.commit.label(context)
       : definition.commit.label
 
-  const commitBlockedReason = definition.commit.blockedReason?.(context) ?? null
+  /**
+   * A REQUIRED INPUT WITH NO VALUE REFUSES THE COMMIT, before any request.
+   *
+   * The declaration says which inputs a commit needs (`inputs[].required`)
+   * and where each one's commit value comes from (commitValueOf); an input
+   * that resolves to nothing is a body the server would 400, and one the
+   * client must not send. This is the same silent-empty-commit class that has
+   * produced three separate bugs -- buildCommitBody used to send `inputs` only
+   * when the draft's were non-empty, so a lost input left the key OFF the body
+   * -- closed by construction: the button is disabled, with the reason, and
+   * commitInputsFor throws if anything reaches it anyway. Read off the
+   * declaration; nothing here knows which step declares an input.
+   */
+  const missingInputs = requiredInputsMissing(definition, context)
+  // The missing input is named FIRST: it is the harder block (no selection
+  // could lift it), and the definition's own reason would otherwise hide it.
+  const commitBlockedReason = missingInputs.length
+    ? `This step needs its ${missingInputs.join(', ')} before it can commit; none is recorded.`
+    : definition.commit.blockedReason?.(context) ?? null
   /**
    * THE COMMIT IS DISARMED WHILE THE PAYLOAD IS ABSENT, and this line is the
    * guard rather than the definition's own predicate.
@@ -492,6 +539,7 @@ export function useStepMachine(definition) {
     machineState !== GENERATING &&
     machineState !== COMMITTING &&
     machineState !== LOADING &&
+    missingInputs.length === 0 &&
     definition.commit.canCommit(context)
 
   const canReopen = definition.reopen != null && status === COMMITTED
@@ -524,6 +572,9 @@ export function useStepMachine(definition) {
    */
   const generate = useCallback(async () => {
     if (definition.generate == null) return false
+    // Resolves with the payload the job produced (see SessionStore.generate):
+    // a button that has just awaited this closes over the machine it was
+    // rendered with, whose `proposals` is the payload from BEFORE the request.
     return actions.generate(stepId, definition.generate.params(draft))
   }, [actions, definition, stepId, draft])
 
@@ -584,6 +635,7 @@ export function useStepMachine(definition) {
     rejections,
     rejectedFeatureIds,
     failedLayer,
+    noCandidate,
     commitFailure,
     context,
     canGenerate,

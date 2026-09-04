@@ -61,6 +61,9 @@ const CHROMIUM = '/opt/pw-browsers/chromium'
 /** The stage these measurements are taken at. A desktop frame. */
 const VIEWPORT = { width: 1280, height: 800 }
 
+/** Every mark the harness swatches: the three zone treatments and the road line. */
+const SWATCH_TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road']
+
 /** App.css's --measure, in px. The prose cap the instruction card takes. */
 const READING_MEASURE = 680
 
@@ -1036,6 +1039,218 @@ describeIf('the attribution, at four viewport heights', () => {
   }, SLOW)
 })
 
+/* ===========================================================================
+   THE REOPEN CONFIRMATION, IN THE FACES AND THE COLOURS IT ACTUALLY RENDERS IN
+   ===========================================================================
+   WHY THESE ARE HERE AND NOT IN style.test.jsx. That file says plainly what it
+   cannot do: jsdom applies no stylesheet, so it reads the PARSED rules and
+   matches them against the class names components emit. It caught none of this
+   card's defects, and it could not have: the markup named `.chrome-banner__
+   confirm`, the rule existed, and every one of its assertions passed while the
+   dialogue rendered in one sans face with two identically weighted outlined
+   buttons. What was wrong was WHICH RULE WON -- a `.chrome-banner__confirm
+   button` selector that took the dialogue's controls out of the banner's tone
+   rules -- and cascade is exactly what a parsed stylesheet cannot answer.
+
+   So these read `getComputedStyle` on the rendered nodes, in Chromium, after
+   the fonts have loaded. A computed font-family is the face the reader gets;
+   a class name is a claim that someone wrote a rule.
+
+   THE PAGE IS ?reopen=1, which is the shipped steps over a hydrated document
+   -- see layoutHarness. The dialogue is opened the way a person opens it, by
+   pressing the affordance that opens it.
+   =========================================================================== */
+
+describeIf('the reopen confirmation, in a real engine', () => {
+  /** The three faces, as index.css declares them, first family first. */
+  const DISPLAY = 'Bitter'
+  const PROSE = 'Source Serif 4'
+  const DATA = 'IBM Plex Mono'
+
+  /** :root's own values for the two colours a button can be filled with. */
+  const token = (page, name) =>
+    page.evaluate(
+      (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(),
+      name
+    )
+
+  /**
+   * Open the page, press "Edit this step", and park the mouse somewhere else.
+   *
+   * THE POINTER HAS TO LEAVE. The affordance is in the bottom-right card and
+   * the dialogue replaces it in the same corner, so the button that lands
+   * under the cursor comes up HOVERED -- and every colour read off it would be
+   * the hover value. The first run of this read --oxide-deep and called it a
+   * missing accent.
+   */
+  const openDialogue = async () => {
+    const ui = await openHarness({ reopen: 1 })
+    await ui.page.waitForSelector('[data-testid="edit-landform"]')
+    await ui.page.click('[data-testid="edit-landform"]')
+    await ui.page.mouse.move(20, 20)
+    await ui.page.waitForSelector('[data-testid="reopen-confirm-landform"]')
+    return ui
+  }
+
+  /** Everything one node is actually drawn with. */
+  const styleOf = (page, testid) =>
+    page.evaluate((id) => {
+      const el = document.querySelector(`[data-testid="${id}"]`)
+      if (!el) return null
+      const s = getComputedStyle(el)
+      return {
+        family: s.fontFamily,
+        size: s.fontSize,
+        weight: s.fontWeight,
+        color: s.color,
+        background: s.backgroundColor,
+      }
+    }, testid)
+
+  it('sets the question in the display face and the prose in the prose face', async () => {
+    const ui = await openDialogue()
+
+    // THE QUESTION IS THE ONE LINE HERE THAT NAMES SOMETHING, and the display
+    // face is how this system says so. Asserted on the COMPUTED family, so a
+    // rule that lost the cascade fails here rather than reading correct in the
+    // stylesheet.
+    const question = await styleOf(ui.page, 'reopen-confirm-title-landform')
+    expect(question.family.startsWith(DISPLAY)).toBe(true)
+    expect(question.weight).toBe('600')
+
+    // THE SENTENCE UNDER IT IS PROSE, and so is every row of the list.
+    const cost = await styleOf(ui.page, 'reopen-resets-landform')
+    expect(cost.family).toContain(PROSE)
+
+    const rows = await ui.page.evaluate(() =>
+      [...document.querySelectorAll('.chrome-banner__reset')].map(
+        (li) => getComputedStyle(li).fontFamily
+      )
+    )
+    expect(rows.length).toBe(3)
+    for (const family of rows) expect(family).toContain(PROSE)
+
+    // AND THE COUNTS ARE MEASURED VALUES, so they are in the data face --
+    // "3 placed access points" has a written half and a counted one, and a
+    // reader can tell which is which at a glance. This is the face the card
+    // was missing entirely.
+    const figures = await ui.page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid^="reopen-reset-note-"] .measure')].map((el) => ({
+        text: el.textContent,
+        family: getComputedStyle(el).fontFamily,
+        figures: getComputedStyle(el).fontVariantNumeric,
+      }))
+    )
+    expect(figures.length).toBeGreaterThan(0)
+    for (const figure of figures) {
+      expect(figure.family).toContain(DATA)
+      expect(figure.figures).toBe('tabular-nums')
+      expect(figure.text).toMatch(/^\d+$/)
+    }
+
+    await ui.close()
+  })
+
+  it('fills exactly one of the two answers with oxide, and it is the safe one', async () => {
+    const ui = await openDialogue()
+
+    const oxide = await token(ui.page, '--oxide')
+    const paper = await token(ui.page, '--paper')
+    const onOxide = await token(ui.page, '--on-oxide')
+
+    /** A computed rgb() string, from the hex a token carries. */
+    const rgb = (hex) => {
+      const n = parseInt(hex.replace('#', ''), 16)
+      return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`
+    }
+
+    const reopen = await styleOf(ui.page, 'reopen-confirm-yes-landform')
+    const keep = await styleOf(ui.page, 'reopen-confirm-no-landform')
+
+    // THE SAFE ANSWER CARRIES IT. "Reopen this step" is the destructive move
+    // and it is the UNWEIGHTED one: the accent means "this is the move this
+    // card is asking for", and a confirmation is not asking you to reopen --
+    // the press that opened it already asked that. Marking the destructive
+    // answer would make the accident this dialogue exists to prevent the
+    // fastest target on the card.
+    expect(keep.background).toBe(rgb(oxide))
+    expect(keep.color).toBe(rgb(onOxide))
+
+    // AND THE OTHER IS A SURFACE, NOT A SECOND ACCENT.
+    expect(reopen.background).toBe(rgb(paper))
+    expect(reopen.background).not.toBe(rgb(oxide))
+
+    // EXACTLY ONE, counted over every button on screen rather than over the
+    // two this test named -- the row above is gone while the dialogue is up,
+    // and if it came back this would be two.
+    const filled = await ui.page.evaluate((want) => {
+      const buttons = [...document.querySelectorAll('.chrome .chrome-banner__button')]
+      return {
+        total: buttons.length,
+        oxide: buttons.filter((b) => getComputedStyle(b).backgroundColor === want).length,
+      }
+    }, rgb(oxide))
+    expect(filled).toEqual({ total: 2, oxide: 1 })
+
+    await ui.close()
+  })
+
+  it('gives both answers a visible focus ring', async () => {
+    const ui = await openDialogue()
+
+    // KEYBOARD FIRST, THEN FOCUS. :focus-visible is a heuristic about how the
+    // focus arrived: a button focused after a mouse press does not match, and
+    // one focused while the last interaction was a key does. So a Tab is
+    // pressed to put the page in keyboard mode, and each button is then
+    // focused and asked whether it matches.
+    await ui.page.keyboard.press('Tab')
+
+    for (const testid of ['reopen-confirm-yes-landform', 'reopen-confirm-no-landform']) {
+      const ring = await ui.page.evaluate((id) => {
+        const el = document.querySelector(`[data-testid="${id}"]`)
+        el.focus()
+        const s = getComputedStyle(el)
+        return {
+          visible: el.matches(':focus-visible'),
+          width: s.outlineWidth,
+          style: s.outlineStyle,
+          color: s.outlineColor,
+        }
+      }, testid)
+
+      expect({ testid, ...ring }).toEqual({
+        testid,
+        visible: true,
+        width: '2px',
+        style: 'solid',
+        color: ring.color,
+      })
+      // A RING WITH NO WIDTH IS NO RING. The colour differs between the two --
+      // an oxide ring on an oxide fill is invisible, so the filled one
+      // restates it in ink -- and both are real outlines.
+      expect(ring.color).not.toBe('rgba(0, 0, 0, 0)')
+    }
+
+    await ui.close()
+  })
+
+  it('drops the affordance that opened it, and gives it back when answered', async () => {
+    const ui = await openDialogue()
+
+    // "Edit this step" rendered ABOVE the open dialogue and did nothing when
+    // pressed. It was wired the whole time -- requestReopen() setting a flag
+    // that was already true -- which is why the fix is that it is not there.
+    expect(await ui.box('[data-testid="edit-landform"]')).toBeNull()
+    expect(await ui.box('[data-testid="actions-landform"]')).toBeNull()
+
+    await ui.page.click('[data-testid="reopen-confirm-no-landform"]')
+    await ui.page.waitForSelector('[data-testid="edit-landform"]')
+    expect(await ui.box('[data-testid="reopen-confirm-landform"]')).toBeNull()
+
+    await ui.close()
+  })
+})
+
 /** Do two rendered rectangles share any area? */
 function overlaps(a, b) {
   if (!a || !b) return false
@@ -1120,7 +1335,7 @@ describeIf('the zone patterns, rendered', () => {
   }, 60_000)
 
   it('tells the focused state from the active one at whole-parcel size', async () => {
-    for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
+    for (const treatment of SWATCH_TREATMENTS) {
       const active = await inkOf(page, treatment, 'active')
       const focused = await inkOf(page, treatment, 'focused')
       const committed = await inkOf(page, treatment, 'committed')
@@ -1144,7 +1359,7 @@ describeIf('the zone patterns, rendered', () => {
   }, SLOW)
 
   it('mutes a committed zone below an active one, without erasing it', async () => {
-    for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
+    for (const treatment of SWATCH_TREATMENTS) {
       const committed = await inkOf(page, treatment, 'committed')
       const active = await inkOf(page, treatment, 'active')
       expect(committed, `${treatment}: committed is quieter`).toBeLessThan(active)
@@ -1155,54 +1370,116 @@ describeIf('the zone patterns, rendered', () => {
     }
   }, SLOW)
 
-  it('draws water and production as different KINDS of mark, not one mark in two colours', async () => {
-    // The claim is that a reader can tell WHICH STEP a mark belongs to. The
-    // ink measure cannot see shape, so this asks the geometry directly -- and
-    // the answer is now stronger than "different elements": production is a
-    // paint server made of ruled paths and water is not a paint server at all.
+  it('draws three KINDS of mark, so the step AND the survey type are told by shape', async () => {
+    // The claim is that a reader can tell WHICH STEP a mark belongs to, and --
+    // for the one step whose two types overlap on purpose -- WHICH TYPE. The
+    // ink measure cannot see shape, so this asks the geometry directly.
     const marks = await page.evaluate(() => {
       const defOf = (t) => document.getElementById(`zone-pattern-${t}`)
-      const production = defOf('production')
+      const shapesOf = (t) =>
+        defOf(t) ? [...new Set([...defOf(t).children].map((n) => n.tagName.toLowerCase()))] : null
+      const fillOf = (t) =>
+        document.querySelector(`[data-testid="swatch-${t}-active"] rect`).getAttribute('fill')
       return {
-        productionShapes: [...production.children].map((n) => n.tagName.toLowerCase()).join(','),
-        waterDefs: ['survey-embankment', 'survey-excavated'].map((t) => defOf(t)),
-        waterFills: ['survey-embankment', 'survey-excavated'].map((t) =>
-          document.querySelector(`[data-testid="swatch-${t}-active"] rect`).getAttribute('fill')
-        ),
+        production: { shapes: shapesOf('production'), fill: fillOf('production') },
+        embankment: { shapes: shapesOf('survey-embankment'), fill: fillOf('survey-embankment') },
+        excavated: {
+          shapes: shapesOf('survey-excavated'),
+          fill: fillOf('survey-excavated'),
+          dots: defOf('survey-excavated').children.length,
+          radii: [
+            ...new Set([...defOf('survey-excavated').children].map((n) => n.getAttribute('r'))),
+          ],
+          strokes: [...defOf('survey-excavated').children].filter((n) =>
+            n.hasAttribute('stroke')
+          ).length,
+        },
       }
     })
-    expect(marks.productionShapes).toBe('path')
-    // NO <pattern> DEF FOR EITHER WATER TREATMENT. A tint has no paint server
-    // to point at, and an empty def nothing references would be the smell.
-    expect(marks.waterDefs).toEqual([null, null])
-    // A FLAT COLOUR EACH, and the two are different blues -- one mark, two
-    // values, which is what tells the survey TYPES apart within the step.
-    for (const fill of marks.waterFills) expect(fill).not.toMatch(/^url\(#/)
-    expect(marks.waterFills[0]).not.toBe(marks.waterFills[1])
+
+    // PRODUCTION: ruled paths in a paint server, and NO outline anywhere.
+    expect(marks.production.shapes).toEqual(['path'])
+
+    // EMBANKMENT: no paint server at all. A wash's fill is a colour, and an
+    // empty def nothing references would be the smell.
+    expect(marks.embankment.shapes).toBeNull()
+    expect(marks.embankment.fill).not.toMatch(/^url\(#/)
+
+    // EXCAVATED: a paint server too, and it is a FIELD OF DOTS rather than
+    // ruled lines -- so the two survey types differ in the KIND of mark, not
+    // just in the value of one mark. That is what makes their overlap read as
+    // two zones sharing ground instead of as a third, darker zone.
+    expect(marks.excavated.shapes).toEqual(['circle'])
+    expect(marks.excavated.fill).toMatch(/^url\(#/)
+    expect(marks.excavated.fill).not.toBe(marks.production.fill)
+
+    // A HALFTONE: MANY DOTS, EACH ONE ACTUALLY DRAWABLE, GROUND BETWEEN THEM.
+    //
+    // THIS USED TO ASK FOR "MANY, AND FINE" -- over 200 dots a tile, radius
+    // at most 0.75 -- and both halves belonged to a field that no longer
+    // exists. They described STATIC: a fine dense IRREGULAR field, where the
+    // failure being guarded against was the stipple before it, a handful of
+    // large dots each wearing its own halo casing. The field is a regular
+    // lattice now, and the casing is refused directly two assertions below,
+    // which is where that guard actually belongs.
+    //
+    // AND "FINE" HAD BECOME THE BUG. r=0.55 is a 1.1px dot: about one device
+    // pixel, which no renderer can draw as a disc, so it came out as an
+    // anti-aliased smudge and the field read as a flat tint -- the one thing
+    // a dot field must not read as, since a flat tint is what embankment IS.
+    // Coverage could not see it (the ink measures all looked healthy) because
+    // coverage is blind to whether the ink is in drawable pieces.
+    //
+    // SO WHAT IS ASKED FOR NOW IS THE HALFTONE'S OWN SHAPE. Enough dots
+    // across a zone that it reads as tone rather than as countable objects --
+    // a 90px zone at this spacing carries about 11 to a side, near 130 in
+    // view. Each dot at least 2px across, so it is drawn as a disc. And a
+    // diameter well under its spacing, so ground shows between the dots and
+    // the field stays a texture rather than closing into a fill.
+    const tileSide = 64
+    const spacing = tileSide / Math.sqrt(marks.excavated.dots)
+    const diameter = 2 * Number(marks.excavated.radii[0])
+    expect(marks.excavated.dots).toBeGreaterThanOrEqual(36)
+    expect(diameter, 'a dot has to be big enough to be drawn as one').toBeGreaterThanOrEqual(2)
+    expect(diameter / spacing, 'ground has to show between the dots').toBeLessThan(0.5)
+    // ONE RADIUS, so it is a lattice and not a scatter of sizes.
+    expect(marks.excavated.radii).toHaveLength(1)
+
+    // AND NO PER-DOT CASING. The casing rule is for a LINE that has to survive
+    // imagery alone; a ring at the dot's own frequency is a second texture, and
+    // it is what killed the previous stipple.
+    expect(marks.excavated.strokes).toBe(0)
   }, SLOW)
 
-  it('outlines every tint in its own colour, with nothing under the line', async () => {
+  it('outlines both survey marks in their own colour, with nothing under the line', async () => {
     const outlined = await page.evaluate(() => {
       const halo = getComputedStyle(document.documentElement).getPropertyValue('--halo').trim()
+      const excavated = getComputedStyle(document.documentElement)
+        .getPropertyValue('--survey-excavated')
+        .trim()
       return ['survey-embankment', 'survey-excavated'].map((t) => {
         const svg = document.querySelector(`[data-testid="swatch-${t}-active"]`)
         const strokes = [...svg.querySelectorAll('rect[stroke]')]
+        const fill = svg.querySelector('rect').getAttribute('fill')
         return {
           outlined: svg.dataset.outlined === 'true',
           count: strokes.length,
-          lineIsTheFill:
-            strokes[0]?.getAttribute('stroke') === svg.querySelector('rect').getAttribute('fill'),
+          // THE LINE IS THE MARK'S OWN COLOUR. For the wash that is literally
+          // its fill; for the dot field the fill is a paint server, so the
+          // comparison is against the token both the dots and the line read.
+          lineIsTheMark:
+            strokes[0]?.getAttribute('stroke') === (fill.startsWith('url(#') ? excavated : fill),
           anyHalo: strokes.some((rect) => rect.getAttribute('stroke') === halo),
         }
       })
     })
-    // ONE LINE, ONE COLOUR, AND IT IS THE WASH'S. A second stroked rect would
-    // be a casing, which this mark deliberately does not take -- see the
-    // --survey-* note in index.css for what that costs and why.
+    // ONE LINE, ONE COLOUR, AND IT IS THE MARK'S. A second stroked rect would
+    // be a casing, which neither mark takes -- see the --survey-* note in
+    // index.css for what that costs and why.
     for (const mark of outlined) {
       expect(mark.outlined).toBe(true)
       expect(mark.count).toBe(1)
-      expect(mark.lineIsTheFill).toBe(true)
+      expect(mark.lineIsTheMark).toBe(true)
       expect(mark.anyHalo).toBe(false)
     }
   }, SLOW)
@@ -1270,6 +1547,13 @@ describeIf('the zone patterns, rendered', () => {
    * pixel for pixel. What comes out is the mark's own contribution, which is
    * the thing legibility is a claim about.
    */
+  /** One ground cell, decoded, by its full test id. */
+  async function swatchOf(page, testid) {
+    return decodePng(
+      await (await page.$(`[data-testid="${testid}"]`)).screenshot({ type: 'png' })
+    )
+  }
+
   async function addedInkOver(page, ground, treatment, state) {
     const marked = decodePng(
       await (await page.$(`[data-testid="ground-${ground}-${treatment}-${state}"]`)).screenshot({
@@ -1303,7 +1587,7 @@ describeIf('the zone patterns, rendered', () => {
      * scale is.
      */
     for (const ground of ['canopy', 'soil']) {
-      for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
+      for (const treatment of SWATCH_TREATMENTS) {
         const committed = await addedInkOver(page, ground, treatment, 'committed')
         const active = await addedInkOver(page, ground, treatment, 'active')
         // eslint-disable-next-line no-console
@@ -1324,6 +1608,50 @@ describeIf('the zone patterns, rendered', () => {
     }
   }, SLOW)
 
+  /**
+   * THE ROAD IS A LINE, AND A LINE OVER IMAGERY IS ITS CASING.
+   *
+   * The no-stroke rule is for ZONES: a zone is an area, and an outline around
+   * an area is a second mark competing with the fill. A road has no area --
+   * the line IS the mark -- so the rule does not apply, and the opposite
+   * concern does: a 2px umber line is dark, canopy is dark, and without a
+   * light pass under it the committed road (0.4) would vanish exactly where
+   * the trees step needs it as context. LineLayer draws a 4px --halo casing
+   * under every branch for that reason. This measures the same line with and
+   * without the casing, over both grounds, so the claim is a number.
+   *
+   * TWO GROUNDS, TWO PASSES. Over canopy the umber line alone is all but
+   * gone (measured: 0.0008 added ink at the committed level, a fifth of the
+   * visibility floor) and the casing is the whole of what the eye finds --
+   * twenty times the ink. Over bare soil the halo is nearly the ground's own
+   * colour and adds nothing; there the dark line is what reads. Neither pass
+   * survives both grounds on its own, which is the reason a cased line has
+   * two, and why the assertion on the casing is made over canopy and not
+   * over soil.
+   */
+  it('keeps a road legible over canopy and soil, and the casing is what does it', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      for (const state of ['committed', 'active']) {
+        const cased = await addedInkOver(page, ground, 'road', state)
+        const uncased = await addedInkOver(page, ground, 'road', `${state}-uncased`)
+        // eslint-disable-next-line no-console
+        console.log(
+          `    ink  ${ground.padEnd(6)} road ${state.padEnd(9)} ` +
+            `cased ${cased.toFixed(4)}  uncased ${uncased.toFixed(4)}  ` +
+            `(cased/uncased ${(cased / uncased).toFixed(2)}x)`
+        )
+        expect(cased, `road ${state} must be legible over ${ground}`).toBeGreaterThan(0.004)
+        if (ground === 'canopy') {
+          expect(uncased, `the bare line is lost over ${ground}`).toBeLessThan(0.004)
+          expect(cased / uncased, `the casing is what carries the road over ${ground}`).toBeGreaterThan(5)
+        }
+      }
+      const committed = await addedInkOver(page, ground, 'road', 'committed')
+      const active = await addedInkOver(page, ground, 'road', 'active')
+      expect(committed, `road committed must stay quieter than active over ${ground}`).toBeLessThan(active)
+    }
+  }, SLOW)
+
   it('lets production-committed and water-committed share the map readably', async () => {
     // THE STATE FROM THE ROADS STEP ONWARD. Both present and both above the
     // visibility floor. The old form of this asserted that the committed
@@ -1338,6 +1666,237 @@ describeIf('the zone patterns, rendered', () => {
     expect(committedWater).toBeGreaterThan(0.004)
     // A committed water zone is context, not a decision being made.
     expect(committedWater).toBeLessThan(activeWater)
+  }, SLOW)
+
+  /**
+   * THE EXCAVATED DOT FIELD, MEASURED OVER BOTH GROUNDS.
+   *
+   * WHY THIS MARK GETS ITS OWN MEASUREMENT. #3d5a6c is the darker of the two
+   * survey blues and the dots sit DIRECTLY ON IMAGERY rather than on a wash --
+   * which over canopy is dark on dark, the same situation the road line hit
+   * before its casing carried it (the bare umber line measured 0.0008, a fifth
+   * of the floor). A dot field cannot take the road's answer: a per-dot halo is
+   * a ring at the dot's own frequency, a second texture rather than a support
+   * for the first, and it is what killed the previous stipple. So the only two
+   * levers are DENSITY and OPACITY, and this is the measurement that says
+   * whether they were enough.
+   *
+   * THE FIELD IS MEASURED WITHOUT ITS OUTLINE TOO, for the same reason the
+   * road is measured without its casing: a mark whose interior texture is
+   * carried entirely by its border is a mark that disappears in the middle of
+   * a large zone, and the outline would hide that in the combined figure.
+   */
+  it('keeps the excavated dot field legible over canopy and soil on density alone', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      for (const state of ['committed', 'active']) {
+        const whole = await addedInkOver(page, ground, 'survey-excavated', state)
+        const field = await addedInkOver(page, ground, 'survey-excavated', `${state}-unoutlined`)
+        // eslint-disable-next-line no-console
+        console.log(
+          `    ink  ${ground.padEnd(6)} survey-excavated ${state.padEnd(9)} ` +
+            `whole ${whole.toFixed(4)}  field-only ${field.toFixed(4)}  ` +
+            `(outline adds ${(whole - field).toFixed(4)})`
+        )
+        // ABOVE THE FLOOR ON BOTH GROUNDS, whole mark and field alone. The
+        // second is the load-bearing one: it is what says the DENSITY carries
+        // the mark, so the outline never had to take a halo casing.
+        expect(whole, `excavated ${state} must be legible over ${ground}`).toBeGreaterThan(0.004)
+        expect(
+          field,
+          `the excavated dot field must carry itself over ${ground} at ${state}`
+        ).toBeGreaterThan(0.004)
+      }
+      // AND STILL QUIETER WHEN COMMITTED, on this ground, like every other mark.
+      const committed = await addedInkOver(page, ground, 'survey-excavated', 'committed')
+      const active = await addedInkOver(page, ground, 'survey-excavated', 'active')
+      expect(committed).toBeLessThan(active)
+    }
+  }, SLOW)
+
+  /**
+   * THE OVERLAP, WHICH IS THE CASE THE PAIR OF MARKS EXISTS FOR.
+   *
+   * `cross_type_overlaps` is the payload's record of the two survey
+   * instruments independently identifying the same ground. While both types
+   * were washes, two translucent fills stacked multiplied into a third,
+   * darker fill and the overlap read as its own zone -- destroying exactly the
+   * reading the field is there to support.
+   *
+   * TWO MARKS, TWO SIGNATURES, MEASURED APART. A wash shifts the ground's mean
+   * tone and adds almost no local variation; a dot field barely moves the mean
+   * and adds a great deal of local variation. So the overlap is asked for both
+   * at once: is the wash's tone shift still there (compared with the dot field
+   * alone), and is the dot field's texture still there (compared with the wash
+   * alone). A single blended fill would fail the second -- that is what "one
+   * darker fill" means numerically.
+   */
+  /**
+   * BLOCK-MEAN LUMINANCE, coarse. The swatch is cut into `block`-px squares
+   * and each one's mean brightness returned -- a deliberate low-pass, because
+   * the thing being looked for is coarse by definition.
+   */
+  function blockMeans({ pixels, channels, width, height }, block) {
+    const out = []
+    for (let by = 0; by + block <= height; by += block) {
+      for (let bx = 0; bx + block <= width; bx += block) {
+        let sum = 0
+        for (let y = by; y < by + block; y += 1) {
+          for (let x = bx; x < bx + block; x += 1) {
+            const i = (y * width + x) * channels
+            sum += (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3
+          }
+        }
+        out.push(sum / (block * block) / 255)
+      }
+    }
+    return out
+  }
+
+  const stdDev = (values) => {
+    const mean = values.reduce((a, b) => a + b, 0) / values.length
+    return Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length)
+  }
+
+  /**
+   * MOIRE: DOES THE LATTICE BEAT AGAINST STRUCTURE IN THE GROUND?
+   *
+   * THE QUESTION A REGULAR FIELD RAISES AND A JITTERED ONE DOES NOT. Two
+   * periodic signals laid over each other interfere, and the interference is
+   * a third pattern far coarser than either -- bands or blotches at a scale
+   * the eye reads as real variation in the zone rather than as texture. The
+   * jittered field could not produce one because it had no period to beat
+   * with; the lattice can, so it is measured rather than argued.
+   *
+   * WHAT IS MEASURED. Moire is COARSE structure that neither the ground nor
+   * the mark contains on its own, so the measure is coarse structure ADDED:
+   * block-mean brightness over 10px blocks -- nearly four times the 2.67px
+   * cell and well over most of the ground periods swept -- and the spread of
+   * those block means, with the bare ground's own spread subtracted. A field
+   * that simply darkens the ground shifts every block equally and adds
+   * nothing to the spread. A field that beats against it makes some blocks
+   * much darker than others, and that is the number.
+   *
+   * ACROSS THE ZOOM RANGE, BY SWEEPING THE GROUND. The pattern is in screen
+   * units and does not scale with the map; the imagery does. See
+   * MOIRE_PERIODS in the harness.
+   */
+  it('shows no moire where the dot lattice meets structure in the ground', async () => {
+    const periods = await page.$$eval('[data-testid^="moire-bare-"]', (nodes) =>
+      nodes.map((node) => node.dataset.testid.replace('moire-bare-', ''))
+    )
+    expect(periods.length).toBeGreaterThan(8)
+
+    const rows = []
+    for (const period of periods) {
+      const bare = decodePng(
+        await (await page.$(`[data-testid="moire-bare-${period}"]`)).screenshot({ type: 'png' })
+      )
+      const field = decodePng(
+        await (await page.$(`[data-testid="moire-field-${period}"]`)).screenshot({ type: 'png' })
+      )
+      const added = stdDev(blockMeans(field, 10)) - stdDev(blockMeans(bare, 10))
+      rows.push({ period, added })
+      // eslint-disable-next-line no-console
+      console.log(
+        `    moire  ground period ${String(period).padStart(5)}px  ` +
+          `added coarse structure ${added >= 0 ? ' ' : ''}${added.toFixed(5)}`
+      )
+    }
+
+    /**
+     * THE BOUND, AND WHY IT IS THIS NUMBER. 0.004 is the visibility floor the
+     * marks are held to elsewhere -- the point at which added ink is
+     * something rather than nothing -- and coarse structure the field ADDS is
+     * ink in exactly that sense: if a beat is under the floor it is not a
+     * mark on the page. Held at every period, not on average, because a beat
+     * lives at one frequency and an average over thirteen would bury it.
+     */
+    for (const { period, added } of rows) {
+      expect(added, `the field must add no coarse structure over ${period}px ground`).toBeLessThan(
+        0.004
+      )
+    }
+
+    /**
+     * WHERE THE MARGIN IS THINNEST, SAID OUT LOUD. The 2px ground is the
+     * closest of the thirteen -- around 0.0038 against the 0.004 bound, where
+     * everything at 2.5px and coarser sits at 0.0031 or below. It is also the
+     * least real: a 2px period is one dark pixel and one light one, at the
+     * display's own Nyquist limit, and the ground is aliasing hard before the
+     * field is laid over it at all. No aerial frame carries structure that
+     * fine at the zooms this map runs at -- a NAIP pixel is about 0.6m and a
+     * tree crown is many pixels across -- so the band that matters is the
+     * coarse end, and the coarse end is clear. This is recorded rather than
+     * excluded: a bound that only holds where the question is easy is not a
+     * bound, and if a future change pushes this one over, the reading it
+     * pushed over should be the one already known to be tightest.
+     */
+    const tightest = rows.reduce((a, b) => (b.added > a.added ? b : a))
+    // eslint-disable-next-line no-console
+    console.log(
+      `    moire  tightest: ${tightest.added.toFixed(5)} at a ${tightest.period}px ground ` +
+        `(bound 0.004)`
+    )
+  }, SLOW)
+
+  it('keeps BOTH marks present where the two survey types coincide', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      const wash = await swatchOf(page, `ground-${ground}-survey-embankment-active`)
+      const dots = await swatchOf(page, `ground-${ground}-survey-excavated-active`)
+      const both = await swatchOf(page, `ground-${ground}-overlap-active`)
+
+      const tone = (png) => meanAbsDifference(png, bare)
+      // TEXTURE IS MEASURED IN THE INTERIOR, away from the outline. Every one
+      // of these marks draws a 2px edge, and an edge is two hard steps in
+      // every scanline -- which is local variation that says nothing about
+      // whether the FILL is a texture or a wash. Cropping it out is what makes
+      // the wash's reading the near-zero it ought to be.
+      const texture = (png) => textureSpread(crop(png, 8))
+      const edges = (png) => localVariation(crop(png, 8))
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `    overlap ${ground.padEnd(6)} tone  wash ${tone(wash).toFixed(4)} ` +
+          `dots ${tone(dots).toFixed(4)} both ${tone(both).toFixed(4)}   ` +
+          `texture wash ${texture(wash).toFixed(4)} dots ${texture(dots).toFixed(4)} ` +
+          `both ${texture(both).toFixed(4)}   ` +
+          `edges wash ${edges(wash).toFixed(4)} dots ${edges(dots).toFixed(4)} ` +
+          `both ${edges(both).toFixed(4)}`
+      )
+
+      // THE WASH IS STILL THERE. The overlap shifts the ground's tone by more
+      // than the dot field alone does -- the wash's own contribution survives
+      // having a texture laid over it.
+      expect(tone(both), `the embankment wash survives the overlap over ${ground}`).toBeGreaterThan(
+        tone(dots)
+      )
+
+      // THE CONTROL THAT MAKES THE NEXT ASSERTION MEAN SOMETHING. A wash
+      // covers every pixel equally, so its interior has essentially no local
+      // variation -- which is exactly what a SINGLE BLENDED FILL would read
+      // as, whatever its tone.
+      expect(texture(wash), `a wash has no texture of its own over ${ground}`).toBeLessThan(0.001)
+
+      // THE DOTS ARE STILL THERE, and this is the assertion a single blended
+      // fill fails. Held against the same 0.004 visibility floor the ink
+      // measures use, so "present" means the same thing here as it does there.
+      expect(
+        texture(both),
+        `the excavated dot field survives the overlap over ${ground}`
+      ).toBeGreaterThan(0.004)
+      // MOST OF IT, NOT ALL OF IT, AND THE SHORTFALL IS HONEST PHYSICS. The
+      // two survey values are one tonal pair, so the embankment wash moves the
+      // ground TOWARD the excavated dots' own colour and the dot-to-ground
+      // delta shrinks. Over canopy that costs about half the field's local
+      // contrast -- which is a cost, not a failure: the dots are still four
+      // times the wash's own reading, so the overlap still reads as a texture
+      // on a wash rather than as one darker fill.
+      expect(
+        texture(both) / texture(dots),
+        `the overlap keeps the dot field's texture over ${ground}`
+      ).toBeGreaterThan(0.4)
+    }
   }, SLOW)
 })
 
@@ -1432,6 +1991,84 @@ function meanAbsDifference(a, b) {
       Math.abs(a.pixels[i + 1] - b.pixels[i + 1]) +
       Math.abs(a.pixels[i + 2] - b.pixels[i + 2])
     count++
+  }
+  return sum / count / (3 * 255)
+}
+
+/** The image with `inset` pixels taken off every side. */
+function crop({ pixels, channels, width, height }, inset) {
+  const w = width - 2 * inset
+  const h = height - 2 * inset
+  const out = new Uint8Array(w * h * channels)
+  for (let y = 0; y < h; y += 1) {
+    const from = ((y + inset) * width + inset) * channels
+    out.set(pixels.subarray(from, from + w * channels), y * w * channels)
+  }
+  return { width: w, height: h, channels, pixels: out }
+}
+
+/**
+ * HOW MUCH THE IMAGE CHANGES FROM ONE PIXEL TO THE NEXT -- the signature of a
+ * TEXTURE, as opposed to the signature of a wash.
+ *
+ * The mean-difference measures above answer "how much ink" and cannot tell a
+ * flat fill from a field of dots that puts the same total ink on the page:
+ * both shift the average by the same amount. This is the other half. A wash
+ * covers every pixel equally, so its horizontal neighbour differences are
+ * near zero; a 1px dot field alternates ink and ground at nearly every step,
+ * so they are large. That difference is what makes "the overlap is not a
+ * single blended fill" a measurement rather than an opinion.
+ *
+ * HORIZONTAL NEIGHBOURS ONLY, which is enough: an isotropic field shows the
+ * same variation along either axis, and one pass is one pass.
+ */
+/**
+ * HOW FAR THE INTERIOR'S PIXELS SIT FROM THEIR OWN MEAN, 0..1.
+ *
+ * "IS THIS ONE FLAT FILL, OR INK AND GROUND", asked directly. A wash paints
+ * every pixel the same value, so its spread is zero whatever its tone; a dot
+ * field paints some pixels dot and the rest ground, so its spread is real
+ * whatever the dots' SIZE. That last clause is the whole reason this exists
+ * beside localVariation() below.
+ *
+ * WHY NOT THE NEIGHBOUR DIFFERENCE. localVariation() averages |p - p_next|
+ * along each row, which counts EDGES: its answer scales with the total
+ * perimeter of the ink, not with how much of the ground is inked. At one
+ * coverage, 64 dots of r=1.6 have about a third the perimeter of 576 of
+ * r=0.55, so it reports a third the texture for a field that covers the same
+ * ground in larger pieces -- and larger pieces are MORE plainly discrete, not
+ * less. It scored the sub-pixel field highest of all, which is the field that
+ * actually read as a flat tint, because a 1.1px dot is nearly all edge.
+ *
+ * Both are kept and both are printed: the edge measure still says something
+ * real about fineness, and this one is what the "reads as two marks" claim is
+ * about.
+ */
+function textureSpread({ pixels, channels, width, height }) {
+  const values = []
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * channels
+      values.push((pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3)
+    }
+  }
+  const mean = values.reduce((a, b) => a + b, 0) / values.length
+  return values.reduce((a, b) => a + Math.abs(b - mean), 0) / values.length / 255
+}
+
+function localVariation({ pixels, channels, width, height }) {
+  let sum = 0
+  let count = 0
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x + 1 < width; x += 1) {
+      const i = (y * width + x) * channels
+      const j = i + channels
+      sum +=
+        Math.abs(pixels[i] - pixels[j]) +
+        Math.abs(pixels[i + 1] - pixels[j + 1]) +
+        Math.abs(pixels[i + 2] - pixels[j + 2])
+      count += 1
+    }
   }
   return sum / count / (3 * 255)
 }

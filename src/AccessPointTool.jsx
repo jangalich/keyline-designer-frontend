@@ -8,8 +8,12 @@ import { snapToPolygonEdge } from './geo.js'
 // --halo border is the same casing the boundary line uses, for the same
 // reason: it has to stay legible over imagery that runs from dark canopy
 // to bright bare ground.
+//
+// PENDING, always: this tool only ever shows the point placed and not yet
+// generated from. The generated and committed points are the layer stack's
+// (layers.jsx PointLayer), which carry their own modifiers.
 const accessPointIcon = new L.DivIcon({
-  className: 'access-point-marker',
+  className: 'access-point-marker access-point-marker--pending',
   iconSize: [18, 18],
 })
 

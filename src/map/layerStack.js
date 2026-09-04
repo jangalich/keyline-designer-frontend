@@ -173,13 +173,38 @@ export function resolveLayer(state, definition, layer) {
     return geometry ? { ...base, geometry } : null
   }
 
-  // 'polygon': a FeatureCollection, or the drawn features of a draft.
+  if (layer.kind === 'point') {
+    // MARKERS, READ THROUGH THE LAYER'S OWN `points()`. The source's value --
+    // a payload key, a draft input, the committed collection -- is handed to
+    // the declaration's reader and [{id, position}] comes back; this file
+    // never learns that a network record carries an access point or that a
+    // draft input is one coordinate. See LAYER SCHEMA item 6.
+    const points = layer.points(sourceValue(state, stepId, layer)) ?? []
+    if (!points.length && !keepEmpty) return null
+    return {
+      ...base,
+      points,
+      // The parcel, for a placement tool that snaps to its edge.
+      parcel: boundaryToLatLngs(selectDocument(state)),
+      // What this layer says about visibility, and how features group.
+      show: layer.show,
+      groupOf: definition.groupOf,
+    }
+  }
+
+  // 'polygon' and 'line': a FeatureCollection, or the drawn features of a draft.
   const features = featuresFrom(state, stepId, layer)
   if (!features.length && !keepEmpty) return null
 
   return {
     ...base,
     features,
+    // THE VISIBILITY RULE AND THE GROUPING, both off the declaration. `show`
+    // is 'all' for every layer but the roads step's editable networks (see
+    // LAYER_SHOW); `groupOf` is the definition's reading of which candidate
+    // a feature belongs to, or null when each feature is its own.
+    show: layer.show,
+    groupOf: definition.groupOf,
     // THE PARCEL, ON EVERY POLYGON LAYER. The mask arm already carries it for
     // its own clip; a draw tool over an editable layer needs the same ring to
     // clamp a drawn shape to, and a renderer needs it for the off-parcel
@@ -226,6 +251,19 @@ function sourceFeatures(state, stepId, layer) {
   if (layer.source === 'draft') return selectDraft(state, stepId).drawnFeatures
   if (layer.source === 'document') return collectionFeatures(selectStepFeatures(state, stepId))
   return collectionFeatures(fromProposals(state, stepId, layer))
+}
+
+/**
+ * The raw value behind a layer, whatever its source: a payload key's value, a
+ * draft input, or the committed FeatureCollection. What a point layer's
+ * `points()` reads.
+ */
+function sourceValue(state, stepId, layer) {
+  if (layer.source === 'draft') {
+    return layer.key ? selectDraft(state, stepId).inputs?.[layer.key] : null
+  }
+  if (layer.source === 'document') return selectStepFeatures(state, stepId)
+  return fromProposals(state, stepId, layer)
 }
 
 /** The value a proposals-sourced layer declares, or null. */

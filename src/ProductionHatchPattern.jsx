@@ -8,32 +8,64 @@ import { readToken } from './geo.js'
  * WHAT EVERY ZONE TREATMENT LOOKS LIKE -- the one table, plus the <pattern>
  * defs the pattern-kind rows need, injected once.
  *
- * A STEP IS TOLD BY ITS MARK, AND A TYPE WITHIN A STEP BY ITS VALUE.
- * Production hatches; water is a SCREENED TINT with an outline. Water's two
- * survey types are one tint in two blues rather than two marks, so a reader
- * learns one new mark per step rather than one per layer.
+ * A STEP IS TOLD BY ITS MARK, AND A TYPE WITHIN A STEP BY ITS MARK TOO,
+ * for the one step whose two types overlap on purpose.
+ * Production hatches; water's embankment type is a SCREENED TINT with an
+ * outline and its excavated type is a STATIC DOT FIELD with an outline.
  *
- * TWO KINDS OF MARK, AND ONLY ONE OF THEM IS A PATTERN.
+ * THREE KINDS OF MARK, AND TWO OF THEM ARE PATTERNS.
  *
- *   hatch  a <pattern> of ruled strokes, pointed at by url(#id). Mostly
- *          unfilled, so the imagery reads through the gaps, and it carries no
- *          outline in any state -- a hard edge reads as a surveyed line, a
- *          boundary or a fence, something someone measured and agreed, and
- *          that is wrong for a recommendation whose edge is its least certain
- *          part. The zone's extent is where the hatch stops.
- *   tint   a flat wash of the treatment's own colour, screened back so the
- *          imagery reads through it, WITH an outline in that same colour.
- *          There is no paint server: the fill is the colour.
+ *   hatch    a <pattern> of ruled strokes, pointed at by url(#id). Mostly
+ *            unfilled, so the imagery reads through the gaps, and it carries
+ *            no outline in any state -- a hard edge reads as a surveyed line,
+ *            a boundary or a fence, something someone measured and agreed,
+ *            and that is wrong for a recommendation whose edge is its least
+ *            certain part. The zone's extent is where the hatch stops.
+ *   tint     a flat wash of the treatment's own colour, screened back so the
+ *            imagery reads through it, WITH an outline in that same colour.
+ *            There is no paint server: the fill is the colour.
+ *   stipple  a <pattern> of many ~1px dots on a regular lattice, in the
+ *            treatment's own colour, WITH an outline in that colour. A paint
+ *            server like the hatch, an outline like the tint.
  *
- * WHY WATER STOPPED BEING A PATTERN. A stipple says "sampling" where ruled
- * lines say "cultivation", which was the right distinction; what it could not
- * do was hold a survey area's SHAPE. A hulled compartment is read for whether
- * it is worth walking, and scattered dots leave the reader inferring where the
- * claim ends from where the dots thin out. A tint states the area and its
- * outline states the boundary, at a glance and at every zoom.
+ * WHY THE EXCAVATED TYPE IS A DOT FIELD AND THE EMBANKMENT TYPE IS NOT.
  *
- * SO A TINTED ZONE DOES CARRY AN OUTLINE, and the no-edge rule above now
- * scopes to the marks it was written for.
+ * Both types were tints, and TWO TRANSLUCENT FILLS OF THE SAME KIND STACK.
+ * Where the two coincide the two washes multiply into a third, darker fill,
+ * and an overlap reads as its own zone rather than as two zones sharing
+ * ground. That overlap is the payload's `cross_type_overlaps` -- the two
+ * survey instruments independently identifying the same ground, which the
+ * module treats as worth evaluating for either pond type -- so a render that
+ * turns it into a third category destroys the one reading it exists to
+ * support. This file's own note about suggested zones made the argument
+ * first: two translucent fills stacked double the opacity and read as MORE
+ * TINTED rather than as DIFFERENTLY MARKED.
+ *
+ * A TINT HAS ONE AXIS AND IT WAS ALREADY SPENT. All a wash can vary is its
+ * strength, and the two blues are at the mathematical ceiling for a tonal
+ * pair (2.702:1 -- see index.css, and the lighter blue is squeezed between
+ * the darker one and --halo). Excavated was the hard one to see and there
+ * was no room left to make it easier as a wash.
+ *
+ * SO THE MARK KINDS DIFFER RATHER THAN THE VALUES. A dot field sitting on a
+ * wash is legible as two marks: the wash still shifts the ground's tone and
+ * the dots still sit on top of it as discrete ink. Neither disappears, and
+ * nothing about the pair implies that the overlap is a third thing.
+ *
+ * NO NEW COLOUR TOKEN. One token per type, two strengths each -- the dots and
+ * the outline are both --survey-excavated on the mark scale, exactly as the
+ * wash and the outline are both --survey-embankment on their two scales.
+ *
+ * WHY THE PREVIOUS STIPPLE FAILED, AND WHAT IS DIFFERENT. It failed for two
+ * implementation reasons rather than for the idea: each dot carried its own
+ * --halo CASING, and the dots were far too large. The casing rule is right
+ * for a LINE, which has to survive imagery on its own; it is wrong for a fill
+ * texture, where the dot field carries itself and a ring around every dot is
+ * a second mark at the same frequency as the first. So there is NO PER-DOT
+ * CASING here, and the dots are 1.1px across rather than 2.6px.
+ *
+ * SO A TINTED OR STIPPLED ZONE DOES CARRY AN OUTLINE, and the no-edge rule
+ * above now scopes to the mark it was written for.
  *
  * AND THE OUTLINE IS NOT CASED, which IS a departure and is worth naming as
  * one. The halo-casing rule -- no single colour clears the range of tones in
@@ -57,8 +89,8 @@ import { readToken } from './geo.js'
  * string as the path's fill, so a treatment resolves to its mark with no
  * stylesheet rule per treatment and no colour literal anywhere but :root. A
  * TINT needs none of this -- its fill IS a colour, which is what a Leaflet
- * path wanted all along -- so the defs below carry only the pattern rows and
- * zoneMark() is what both kinds resolve through.
+ * path wanted all along -- so the defs below carry the two paint-server rows
+ * and zoneMark() is what all three kinds resolve through.
  *
  * WHERE IT LIVES. In its own hidden <svg> attached to the map container, NOT
  * inside a Leaflet pane's own <svg>. Two reasons, both learned the hard way:
@@ -112,24 +144,80 @@ const TREATMENT_MARKS = [
   // 1px stroke is an eighth of the area inked: enough to register as worked
   // ground, open enough that the eligible tint and the imagery read through.
   { treatment: 'production', kind: 'hatch', token: '--oxide', spacing: 8, weight: 1 },
-  // WATER: a screened tint with an outline, in the two survey values -- one
-  // mark, two blues, so the step is carried by the mark and the type by the
-  // value.
-  //
-  // WHAT THIS REPLACED, AND WHY THE MEASUREMENT NOTE WENT WITH IT. Water
-  // stippled: dots at 11px with a 1.3px radius, a spacing arrived at by
-  // rendering and MEASURING against the hatch's ink share after a first
-  // attempt put five times as much ink on the page. That tuning is gone
-  // because the thing it tuned is gone -- but the constraint it existed for
-  // is not, and it moved to --tint-* in index.css: neither step may shout
-  // over the other, and layout.test.jsx still screenshots both, prints the
-  // numbers and holds the ratio.
+  // WATER, EMBANKMENT: a screened tint with an outline.
   //
   // A TINT HAS NO SPACING AND NO RADIUS. Its whole description is its colour;
   // how heavy the wash is, and how present its outline, are STATE (the
   // --tint-* and --pattern-* levels), not properties of the mark.
   { treatment: 'survey-embankment', kind: 'tint', token: '--survey-embankment' },
-  { treatment: 'survey-excavated', kind: 'tint', token: '--survey-excavated' },
+  // WATER, EXCAVATED: a static dot field with an outline, in the one colour.
+  //
+  // A DIFFERENT KIND OF MARK RATHER THAN A SECOND WASH -- see the docblock's
+  // note on cross_type_overlaps for why the two types stopped being one mark
+  // in two values. The numbers below were arrived at by RENDERING AND
+  // MEASURING, over the two grounds an aerial frame actually carries, at the
+  // 90px square one survey zone occupies with the whole parcel in frame:
+  //
+  //                                  whole mark        dot field alone
+  //     over closed canopy           committed 0.0129  0.0080
+  //                                  active    0.0177  0.0110
+  //     over dry bare soil           committed 0.0298  0.0177
+  //                                  active    0.0408  0.0244
+  //
+  // against a visibility floor of 0.004. The right-hand column is the
+  // load-bearing one: the DOT FIELD ALONE, outline excluded, clears the floor
+  // over canopy by 2x at the quietest level -- so the density carries the mark
+  // and THE OUTLINE NEVER NEEDED A HALO CASING. (Compare the road, whose bare
+  // line measured 0.0008 over the same ground, a fifth of the floor, and which
+  // is carried entirely by its casing.) layout.test.jsx measures every figure
+  // above and holds them; these are its own printed numbers.
+  //
+  // A GRID AND A RADIUS, BECAUSE A TEXTURE HAS BOTH, and they are the two
+  // levers a dot field has -- density and opacity, since a per-dot casing is
+  // the thing that must not come back. `grid` is dots per tile side (a
+  // REGULAR lattice, one dot per cell at its centre -- see stippleTile) and
+  // `radius` is the dot.
+  //
+  // THE DOTS WERE TOO SMALL TO BE DOTS. 24 per 64px side put them 2.67px
+  // apart at 1.1px across -- around one device pixel, which is not a dot but
+  // an anti-aliased smudge: the renderer had no room to draw a disc, so the
+  // field read as a flat grey tint rather than as a texture, which is
+  // precisely the reading the dot field exists to avoid (a wash is what
+  // embankment is, and the two types must not be one mark at two strengths).
+  // The COVERAGE was right and the SCALE was wrong, and coverage is what a
+  // measurement of added ink sees -- which is why every number this field
+  // was tuned against looked healthy while it did not read as dots.
+  //
+  // 8 PER SIDE AT r=1.6: 8.00px apart, 3.2px across. A dot is now several
+  // pixels wide and is drawn as a disc, and the spacing carries the same
+  // ratio of ink to ground it had -- 12.6% covered, still within a point of
+  // the hatch's eighth, so the two are neighbours on one map and neither
+  // shouts. 64 divides by 8 exactly, so the lattice still tiles with no seam
+  // and no clamp (see stippleTile).
+  //
+  // NO `jitter` FIELD, and its absence is what lets the lattice tile. It
+  // displaced each dot within its cell, which cost the tile its clean repeat.
+  //
+  // AND NO CASING FIELD, ANYWHERE. The previous stipple ringed every dot on
+  // --halo and that is what killed it: a casing is for a LINE that has to
+  // survive imagery alone, and a ring at the dot's own frequency is a second
+  // texture rather than a support for the first. A 3.2px dot does not need
+  // one; it is legible because it is a dot.
+  {
+    treatment: 'survey-excavated',
+    kind: 'stipple',
+    token: '--survey-excavated',
+    tile: 64,
+    grid: 8,
+    radius: 1.6,
+  },
+  // ROADS: a cased LINE. The first mark here that is not ground. Its whole
+  // description is its colour -- the weights are layers.jsx's LINE_WEIGHT and
+  // CASING_WEIGHT, the same pair every other line on this map takes -- and
+  // its presence in each state is the pattern level, like a hatch's. A line
+  // has no fill, so a paint server would be a def with nothing to reference
+  // it; there is none.
+  { treatment: 'road', kind: 'line', token: '--road' },
 ]
 
 /**
@@ -155,7 +243,36 @@ export function zoneMark(treatment) {
     const colour = readToken(spec.token)
     return { kind: 'tint', fill: colour, stroke: colour }
   }
+  if (spec.kind === 'line') {
+    // A stroke and nothing to fill: the line IS the mark.
+    return { kind: 'line', fill: null, stroke: readToken(spec.token) }
+  }
+  if (spec.kind === 'stipple') {
+    // A PAINT SERVER LIKE THE HATCH, AN OUTLINE LIKE THE TINT, and one colour
+    // for both. The dots are inside the def (which reads the token when it is
+    // injected); the outline reads it here, which is the same read the tint
+    // rows make.
+    return {
+      kind: 'stipple',
+      fill: `url(#${patternIdFor(treatment)})`,
+      stroke: readToken(spec.token),
+    }
+  }
   return { kind: 'pattern', fill: `url(#${patternIdFor(treatment)})`, stroke: null }
+}
+
+/**
+ * Does this mark draw its own boundary?
+ *
+ * THE SPLIT IS "CAN THE EXTENT BE INFERRED FROM THE MARK", not "which step".
+ * A hatch is ruled lines with wide gaps and its extent is where the ruling
+ * stops -- an outline there would claim a precision the recommendation does
+ * not have. A wash has no gaps at all, and a fine dot field's edge is where
+ * the dot density falls off, which is exactly the guess the previous stipple
+ * left the reader making. Both of those get a drawn edge.
+ */
+export function marksItsOwnEdge(mark) {
+  return mark?.kind === 'tint' || mark?.kind === 'stipple'
 }
 
 
@@ -180,12 +297,90 @@ function hatchTile(spec, colour) {
 }
 
 /**
+ * A HALFTONE FIELD: many ~1px dots on a REGULAR LATTICE, one per cell,
+ * every one at its cell's centre.
+ *
+ * A LATTICE RATHER THAN A JITTERED GRID, and what that buys is the SEAM. The
+ * jittered field displaced each dot by up to 0.9 of a cell, which pushed the
+ * outermost dots past the tile edge -- and an SVG <pattern> CLIPS its content
+ * there, so those had to be clamped back to [r, tile - r]. Clamping is not
+ * neutral: it piles the outer ring's dots up against the edge at a spacing
+ * the interior does not have, and since every tile carries the identical
+ * clamped ring, the repeat draws a faint lattice of its own along the tile
+ * boundaries -- the seam the jitter existed to avoid, reintroduced by the
+ * fix for the jitter. A centred lattice has no such problem to solve: the
+ * first centre is half a cell in and the last half a cell from the far edge,
+ * both more than r clear of it, so nothing is clipped, nothing is
+ * clamped, and the tile abuts its neighbour at exactly the cell spacing the
+ * interior uses. It tiles perfectly because it is periodic to begin with. At
+ * grid 8 on a 64px tile the cell is 8.00px and the first centre sits 4.00px
+ * in, 2.4px clear of the edge at r=1.6.
+ *
+ * THE DENSITY IS HELD AND THE SCALE IS NOT. 8x8 at r=1.6 inks 12.6% of the
+ * ground the mark covers, where the jittered 24x24 at r=0.55 inked 13.4% --
+ * the same weight, near enough, laid down in 64 dots of 3.2px instead of 576
+ * of 1.1px. The old dots were about one device pixel across and the renderer
+ * drew them as smudges rather than discs, so the field read as a flat tint;
+ * coverage could not see that, which is why the numbers stayed healthy while
+ * the mark stopped being a dot field. The measurements in layout.test.jsx are
+ * re-taken rather than inherited: arrangement and scale both moved, and a
+ * regular field at one coverage does not read like an irregular one.
+ *
+ * WHY NOT feTurbulence. Unchanged and still the reason: it does not TILE (the
+ * noise is generated in the filter region's own coordinates, so a filtered
+ * zone's texture shifts as the zone is panned and re-laid-out), and it is a
+ * per-pixel filter evaluated over every zone's whole area on every repaint,
+ * across a map that pans and zooms. A <pattern> is one def the renderer
+ * rasterises once and repeats.
+ *
+ * DETERMINISTIC WITHOUT A SEED NOW. The jittered field needed a fixed-seed
+ * LCG so a pattern re-injected on a remount was the same field of dots and
+ * the zone did not shimmer as panes came and went. A lattice is the same
+ * field by construction, so the generator and its seed are gone rather than
+ * left unused.
+ *
+ * NO PER-DOT CASING, which is the whole reason the previous stipple is gone.
+ * See the docblock.
+ */
+function stippleTile(spec, colour) {
+  const cell = spec.tile / spec.grid
+  const dots = []
+  for (let row = 0; row < spec.grid; row += 1) {
+    for (let col = 0; col < spec.grid; col += 1) {
+      const dot = document.createElementNS(SVG_NS, 'circle')
+      dot.setAttribute('cx', ((col + 0.5) * cell).toFixed(2))
+      dot.setAttribute('cy', ((row + 0.5) * cell).toFixed(2))
+      dot.setAttribute('r', String(spec.radius))
+      dot.setAttribute('fill', colour)
+      dots.push(dot)
+    }
+  }
+  return dots
+}
+
+/**
+ * The paint-server rows and what one tile of each is made of. A row whose
+ * kind is not in here has no def -- a tint's fill is a colour and a line has
+ * no fill at all, so a <pattern> emitted for either would be an empty def
+ * nothing points at.
+ */
+const TILE_BUILDERS = { hatch: hatchTile, stipple: stippleTile }
+
+/** The tile's side, in the pattern's own user units. */
+function tileSizeOf(spec) {
+  return spec.kind === 'stipple' ? spec.tile : spec.spacing
+}
+
+/**
  * Inject every PATTERN-kind mark into `container`, and return the teardown.
  *
- * TINT ROWS PASS THROUGH UNTOUCHED, and that is not an omission: a tint has no
- * paint server to inject. Its fill is a colour, which is what a Leaflet path
- * takes directly, so there is nothing for a <defs> to hold. A def emitted for
- * it would be an empty <pattern> that nothing points at.
+ * TINT AND LINE ROWS PASS THROUGH UNTOUCHED, and that is not an omission:
+ * neither has a paint server to inject. A tint's fill is a colour, which is
+ * what a Leaflet path takes directly, and a line has no fill at all -- so
+ * there is nothing for a <defs> to hold, and a def emitted for either would
+ * be an empty <pattern> that nothing points at. TILE_BUILDERS is the list of
+ * kinds that DO have one, so a kind added later gets a def by having a tile
+ * rather than by being named here.
  *
  * SEPARATE FROM THE COMPONENT BECAUSE IT NEEDS NO MAP. What a mark looks like
  * is a fact about ink on a page; the only thing the map contributes is an
@@ -209,16 +404,18 @@ export function injectZonePatterns(container) {
   host.appendChild(defs)
 
   for (const spec of TREATMENT_MARKS) {
-    if (spec.kind !== 'hatch') continue
+    const buildTile = TILE_BUILDERS[spec.kind]
+    if (!buildTile) continue
+    const size = tileSizeOf(spec)
     const pattern = document.createElementNS(SVG_NS, 'pattern')
     pattern.setAttribute('id', patternIdFor(spec.treatment))
     pattern.setAttribute('patternUnits', 'userSpaceOnUse')
-    pattern.setAttribute('width', String(spec.spacing))
-    pattern.setAttribute('height', String(spec.spacing))
+    pattern.setAttribute('width', String(size))
+    pattern.setAttribute('height', String(size))
     // The colours on this surface are the only ones not set from a
     // stylesheet, so they are read from their tokens rather than written
     // as literals.
-    for (const mark of hatchTile(spec, readToken(spec.token))) pattern.appendChild(mark)
+    for (const mark of buildTile(spec, readToken(spec.token))) pattern.appendChild(mark)
     defs.appendChild(pattern)
   }
 

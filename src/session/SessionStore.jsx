@@ -49,6 +49,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import {
   commitStep as apiCommitStep,
   createSession as apiCreateSession,
+  discardCandidate as apiDiscardCandidate,
   getSession as apiGetSession,
   getStepLayers as apiGetStepLayers,
   reopenStep as apiReopenStep,
@@ -115,6 +116,7 @@ export const DRAFT_INPUT_SET = 'draft/inputSet'
 export const DRAFT_DISCARDED = 'draft/discarded'
 export const JOB_SUBMITTED = 'job/submitted'
 export const JOB_OBSERVED = 'job/observed'
+export const JOB_STARTED = 'job/started'
 export const JOB_FORGOTTEN = 'job/forgotten'
 
 /**
@@ -151,6 +153,7 @@ export const ALL_ACTIONS = Object.freeze([
   DRAFT_DISCARDED,
   JOB_SUBMITTED,
   JOB_OBSERVED,
+  JOB_STARTED,
   JOB_FORGOTTEN,
 ])
 
@@ -478,11 +481,42 @@ function reduce(state, action) {
         true
       )
 
-    case DRAFT_SELECTION_SET:
+    case DRAFT_SELECTION_SET: {
+      /**
+       * A LIST, OR A FUNCTION OF THE LIST IN HAND.
+       *
+       * THE ONE THE FUNCTION FORM EXISTS FOR. The tab strip's eye computes its
+       * next selection from `machine.draft.selectedFeatureIds` -- the draft the
+       * strip was RENDERED with -- and dispatches the result. That is a stale
+       * read the moment two presses land in one React batch: both closures
+       * hold the same pre-batch list, both compute from it, and the second
+       * write silently undoes the first. (Measured: from ['a','b','c'],
+       * pressing a's eye and then b's in one batch yields ['a','c'] -- a is
+       * back.) The eye used to dispatch DRAFT_SELECTION_TOGGLED, whose next
+       * state IS computed here against the draft in hand, and composed
+       * correctly by construction; it stopped when the eye grew a selection
+       * MODE and had to compute a whole set rather than flip one id.
+       *
+       * NOT USER-REACHABLE TODAY -- two clicks are two events and React 18
+       * does not batch discrete events together -- which is exactly why it
+       * would have sat. The fix is to keep the arithmetic where the caller
+       * put it and move only the READ back into the reducer, so a caller can
+       * no longer compute from a list the store has already replaced.
+       *
+       * THE ARRAY FORM IS UNTOUCHED, so every other caller is unchanged: an
+       * outright "the selection is now this" (a step's own commit path, the
+       * roads network the generate just made) is not composing with anything.
+       */
+      const draft = draftOf(state, action.stepId)
+      const next =
+        typeof action.featureIds === 'function'
+          ? action.featureIds(draft.selectedFeatureIds)
+          : action.featureIds
       return withDraft(state, action.stepId, {
-        ...draftOf(state, action.stepId),
-        selectedFeatureIds: [...action.featureIds],
+        ...draft,
+        selectedFeatureIds: [...next],
       })
+    }
 
     case DRAFT_SELECTION_TOGGLED: {
       const draft = draftOf(state, action.stepId)
@@ -523,11 +557,16 @@ function reduce(state, action) {
     case DRAFT_INPUT_SET: {
       // The step's own user inputs -- the access point is one of these, on the
       // ROADS step, and not a global field.
+      //
+      // `undefined` CLEARS THE KEY rather than storing an undefined under it.
+      // A roads generate that succeeded clears its pending access point (the
+      // server holds it now); an input left as `undefined` would still be a
+      // key the commit assembler and the layer stack have to step around.
       const draft = draftOf(state, action.stepId)
-      return withDraft(state, action.stepId, {
-        ...draft,
-        inputs: { ...draft.inputs, [action.key]: action.value },
-      })
+      const inputs = { ...draft.inputs }
+      if (action.value === undefined) delete inputs[action.key]
+      else inputs[action.key] = action.value
+      return withDraft(state, action.stepId, { ...draft, inputs })
     }
 
     case DRAFT_DISCARDED: {
@@ -536,13 +575,38 @@ function reduce(state, action) {
       return { ...state, drafts }
     }
 
-    case JOB_SUBMITTED:
+    case JOB_STARTED: {
+      /**
+       * A GENERATION HAS BEEN ASKED FOR, BEFORE THE SERVER HAS ANSWERED.
+       *
+       * THE REMAINING FLASH, AND WHY DROPPING THE STALE JOB DID NOT CLOSE IT.
+       * `generating` is read off this table, and until now the table did not
+       * learn about a generate until the POST came back with a job id. The
+       * round trip is short and it is not zero, and for its whole width the
+       * step still derived `reviewing` -- so the reviewing pair rendered for
+       * a split second on every press. Dropping the superseded job fixed the
+       * case where the buttons stayed for the WHOLE generate; this is the
+       * case where they stay for the first frames of it, and it is a
+       * different hole in the same wall.
+       *
+       * A REAL ENTRY, NOT A FLAG, so nothing has to learn a second way to
+       * ask. selectJobForStep already answers "what is this step's job", and
+       * an entry with no id yet is still the honest answer to it: a
+       * generation is in flight. JOB_SUBMITTED replaces this the moment the
+       * id arrives -- it drops every entry carrying the step's id, which is
+       * what this one carries -- so the placeholder never coexists with the
+       * real job and never outlives it.
+       *
+       * KEYED BY THE STEP so a second press cannot leave two behind, and
+       * `jobId: null` so any reader that reaches for one gets an absence
+       * rather than a plausible wrong id to poll.
+       */
       return {
         ...state,
         jobs: {
           ...state.jobs,
-          [action.jobId]: {
-            jobId: action.jobId,
+          [`pending:${action.stepId}`]: {
+            jobId: null,
             stepId: action.stepId,
             status: JOB_RUNNING,
             result: null,
@@ -550,6 +614,46 @@ function reduce(state, action) {
           },
         },
       }
+    }
+
+    case JOB_SUBMITTED: {
+      // ONE JOB PER STEP, AS AN INVARIANT OF THE TABLE RATHER THAN A HABIT OF
+      // ITS CALLERS. selectJobForStep() answers with the FIRST entry carrying
+      // the step's id, so a second entry for the same step does not race the
+      // first -- it loses to it, permanently, because Object.values keeps
+      // insertion order and the older one is always first.
+      //
+      // THE ENTRY THAT WAS BEING LEAKED IS A FINISHED ONE. generate() already
+      // drops a job it is SUPERSEDING, but it looks that job up in a ref it
+      // clears the moment the generation settles -- so an aborted generate was
+      // cleaned up and a COMPLETED one was not, and its `done` entry stayed in
+      // the table for the life of the session. The next generate for that step
+      // then added a `running` entry behind it, and every reader asking
+      // "is this step generating" got the old answer: false.
+      //
+      // WHICH IS WHY THE ROADS STEP SHOWED IT FIRST. The reading only matters
+      // where a step generates a SECOND time with its proposals still on
+      // screen -- deriveMachineState() checks `isGenerating` before
+      // `hasProposals`, so a false reading falls through to `reviewing` and the
+      // banner offers that state's buttons while the job runs. Landform and
+      // water offer their generate in `idle` alone, so their second generate
+      // is not reachable from a state that has proposals; roads offers it in
+      // `reviewing`, and is the first step whose regenerate lands in this hole.
+      // The fix is here and not in the roads definition, because the leak is
+      // the table's and every step is standing over it.
+      const jobs = {}
+      for (const [jobId, job] of Object.entries(state.jobs)) {
+        if (job.stepId !== action.stepId) jobs[jobId] = job
+      }
+      jobs[action.jobId] = {
+        jobId: action.jobId,
+        stepId: action.stepId,
+        status: JOB_RUNNING,
+        result: null,
+        error: null,
+      }
+      return { ...state, jobs }
+    }
 
     case JOB_OBSERVED: {
       const existing = state.jobs[action.snapshot.job_id]
@@ -790,7 +894,15 @@ export const selectRejectionFor = (state, stepId, featureId) =>
 
 export const selectJob = (state, jobId) => state.jobs[jobId] ?? null
 
-/** The one job this store is currently tracking for a step, if any. */
+/**
+ * The one job this store is currently tracking for a step, if any.
+ *
+ * THERE IS AT MOST ONE, and JOB_SUBMITTED is what makes that true: it drops
+ * any entry already carrying this step's id before adding the new one. This
+ * `find` is therefore reading a table with one candidate in it rather than
+ * picking a winner out of several -- which it could not do correctly anyway,
+ * since insertion order would hand it the OLDEST.
+ */
 export function selectJobForStep(state, stepId) {
   return Object.values(state.jobs).find((job) => job.stepId === stepId) ?? null
 }
@@ -809,6 +921,43 @@ export function selectFailedLayer(state, stepId) {
   const job = selectJobForStep(state, stepId)
   if (job?.status !== JOB_FAILED) return null
   return job.error?.failed_layer ?? null
+}
+
+/**
+ * A failed generate's `no_candidate {input, value}` plus the server's prose,
+ * or null: the generate RAN, over real data, and the input it ran on produced
+ * nothing to keep.
+ *
+ * THE SECOND KIND OF FAILED GENERATE, AND IT IS READ THE SAME WAY THE FIRST
+ * IS -- off a key the payload CARRIES. `failed_layer` means a source did not
+ * answer: the input is untouched, still holds its slot server-side, and a
+ * retry is worth offering. `no_candidate` means the input itself is the
+ * answer: step_orchestrator.py did not record it, its slot is free, and a
+ * retry from the same value returns the same nothing.
+ *
+ * NEITHER IS INFERRED FROM THE OTHER'S ABSENCE. The two keys are mutually
+ * exclusive and the backend sends exactly one, so a third failure kind added
+ * later reads as neither rather than being silently sorted into whichever
+ * branch was written as the default. A client that had branched on "no
+ * failed_layer" would tell a user their access point routes nothing on the
+ * day a new upstream error appeared.
+ *
+ * CARRIES THE SERVER'S OWN SENTENCE. What produced nothing is the step's
+ * fact -- an access point that routes no road -- and the step declares that
+ * prose beside the predicate that fires it (step_registry Accumulation.
+ * empty_error). A sentence composed here would be the shell knowing which
+ * step it is rendering.
+ */
+export function selectNoCandidate(state, stepId) {
+  const job = selectJobForStep(state, stepId)
+  if (job?.status !== JOB_FAILED) return null
+  const noCandidate = job.error?.no_candidate
+  if (!noCandidate) return null
+  return {
+    input: noCandidate.input ?? null,
+    value: noCandidate.value ?? null,
+    message: job.error?.error ?? null,
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -950,7 +1099,18 @@ function requireProposalFeatures(proposalFeatures, caller) {
  * (DRAFT_SHAPE_ADDED) and on every seed (DRAFT_SEEDED), so "in the draft" and
  * "in the commit" stop being the same statement for shapes the user authored.
  */
-export function buildCommitBody(state, stepId, proposalFeatures) {
+/**
+ * `inputs`, WHEN THE CALLER SUPPLIES THEM, ARE SENT EXACTLY AS GIVEN -- an
+ * empty list included. The gap this closes: this used to send `inputs` only
+ * when the draft's map was non-empty, so a lost input left the key OFF the
+ * body rather than erroring, and the server read an absent decision. A step
+ * that declares inputs now assembles them from its declarations
+ * (stepDefinitions' commitInputsFor, which refuses a missing required one
+ * before this is reached) and hands them in here; the draft's own map is the
+ * fallback for a caller that did not, which is what every step without
+ * declared inputs still is.
+ */
+export function buildCommitBody(state, stepId, proposalFeatures, { inputs } = {}) {
   requireProposalFeatures(proposalFeatures, 'buildCommitBody')
   const draft = selectDraft(state, stepId)
   const selectedIds = new Set(draft.selectedFeatureIds)
@@ -977,7 +1137,12 @@ export function buildCommitBody(state, stepId, proposalFeatures) {
     features: { type: 'FeatureCollection', features },
     provenance,
     baseRevision: selectBaseRevision(state, stepId),
-    inputs: Object.keys(draft.inputs).length ? draft.inputs : undefined,
+    inputs:
+      inputs !== undefined
+        ? inputs
+        : Object.keys(draft.inputs).length
+          ? draft.inputs
+          : undefined,
   }
 }
 
@@ -1190,7 +1355,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       try {
         const payload = await apiGetStepLayers(sessionId, stepId)
         dispatchIfMounted({ type: STEP_PROPOSALS_LOADED, stepId, payload })
-        return true
+        return payload
       } catch (error) {
         handleFailure(error, stepId)
         return false
@@ -1243,7 +1408,13 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
   )
 
   /**
-   * Generate a step. Resolves when the job reaches a terminal state.
+   * Generate a step. Resolves when the job reaches a terminal state: WITH THE
+   * PAYLOAD when the job produced one (truthy, and the same object the store
+   * just landed), false otherwise. The payload rather than `true` because a
+   * caller that awaited this is still holding the render from before the
+   * request -- a step whose generate accumulates (roads) wants to look at the
+   * candidate this call added, and the store's dispatch has not re-rendered
+   * anyone by the time the promise resolves.
    *
    * A SECOND GENERATE WHILE ONE IS RUNNING supersedes the first: the previous
    * poll is aborted and its job dropped from the store, so `selectJobForStep`
@@ -1267,6 +1438,10 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       generationsRef.current.set(stepId, entry)
 
       dispatchIfMounted({ type: STEP_ERROR_CLEARED, stepId })
+      // BEFORE THE FIRST AWAIT, which is the whole point of it: the step is
+      // generating from the moment it is asked to, not from the moment the
+      // server agrees. See the JOB_STARTED case.
+      dispatchIfMounted({ type: JOB_STARTED, stepId })
 
       try {
         const terminal = await runGeneration(sessionId, stepId, params, {
@@ -1280,7 +1455,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
 
         if (terminal.status === JOB_DONE) {
           onGenerated(stepId, terminal.result)
-          return true
+          return terminal.result.payload ?? true
         }
         if (terminal.status === JOB_EVICTED) {
           // The runner no longer holds the id -- it may well have finished and
@@ -1290,13 +1465,60 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
           return await loadLayers(stepId)
         }
         // JOB_FAILED: already in the store via JOB_OBSERVED, carrying the
-        // step's failed_layer. Not an exception -- see jobs.js.
+        // step's failed_layer -- or its no_candidate. Not an exception --
+        // see jobs.js.
+        //
+        // AN INPUT THE SERVER DID NOT KEEP IS DROPPED FROM THE DRAFT TOO,
+        // and this is the whole of the client's half of that contract. The
+        // generate ran and the input produced nothing, so the server did not
+        // record it and no slot was spent; the draft is the only place it
+        // still exists, as the pending value the map draws a marker for. Left
+        // there it would be a marker for a decision the session does not hold
+        // -- and the next generate would send it again unchanged.
+        //
+        // BY THE NAME THE PAYLOAD CARRIES, never a name known here. The
+        // server says WHICH input produced nothing (`no_candidate.input`),
+        // which is what keeps this store from having to know that roads
+        // collects an access point -- the same reason `failed_layer` carries
+        // its own type rather than being looked up per step.
+        //
+        // A `failed_layer` failure clears NOTHING, deliberately: nothing is
+        // wrong with the input, the server still holds its slot, and the
+        // retry the panel offers has to have something to retry with.
+        const noCandidate = terminal.error?.no_candidate
+        if (noCandidate?.input) {
+          dispatchIfMounted({
+            type: DRAFT_INPUT_SET,
+            stepId,
+            key: noCandidate.input,
+            value: undefined,
+          })
+        }
         return false
       } catch (error) {
         handleFailure(error, stepId)
         return false
       } finally {
-        if (generationsRef.current.get(stepId) === entry) generationsRef.current.delete(stepId)
+        // ONLY THE GENERATION THAT STILL OWNS THE STEP CLEANS UP AFTER IT.
+        //
+        // THE PLACEHOLDER MUST NOT OUTLIVE THE ATTEMPT: JOB_SUBMITTED
+        // replaced it on every path where an id was issued, and this clears
+        // the paths where none ever was -- the POST threw, the transport
+        // failed, the caller aborted -- because on those the step is not
+        // generating and must not look as though it is.
+        //
+        // BUT A SUPERSEDED GENERATE MUST NOT CLEAR ITS SUCCESSOR'S. The
+        // placeholder is keyed by STEP, so a second press overwrites the
+        // first one's; the first then aborts and its `finally` runs AFTER
+        // that overwrite. Clearing unconditionally there would delete the
+        // live generation's entry and put the flash straight back, for the
+        // window until the second POST answers. The ref already names the
+        // owner -- the second press replaced it -- so the same check that
+        // decides whether to forget the ref decides this.
+        if (generationsRef.current.get(stepId) === entry) {
+          generationsRef.current.delete(stepId)
+          dispatchIfMounted({ type: JOB_FORGOTTEN, jobId: `pending:${stepId}` })
+        }
       }
     },
     [state.sessionId, dispatchIfMounted, handleFailure, loadLayers, onGenerated]
@@ -1308,10 +1530,10 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
    * and highlights features on 'rejected'.
    */
   const commit = useCallback(
-    async (stepId) => {
+    async (stepId, { inputs } = {}) => {
       const sessionId = state.sessionId
       if (!sessionId) return 'error'
-      const body = buildCommitBody(state, stepId, proposalFeatures)
+      const body = buildCommitBody(state, stepId, proposalFeatures, { inputs })
       try {
         const document = await apiCommitStep(sessionId, stepId, body)
         // WHOLESALE, cascade and all -- then the draft goes, explicitly,
@@ -1344,6 +1566,30 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
     [state.sessionId, handleFailure, hydrateDocument, loadLayers]
   )
 
+  /**
+   * DISCARD ONE CANDIDATE SET of an accumulating step -- the roads step's
+   * networks. A SERVER VERB: the tried inputs are recorded on the document,
+   * so freeing a slot is a document write the server makes, hydrated here
+   * wholesale like every other; the remaining candidates then come back
+   * through layers, the same call a reopen makes. Nothing is dropped
+   * client-side first: a candidate the server still holds would come back on
+   * the next fetch, and a candidate it refused to drop is still there.
+   */
+  const discardCandidate = useCallback(
+    async (stepId, params) => {
+      const sessionId = state.sessionId
+      if (!sessionId) return false
+      try {
+        hydrateDocument(await apiDiscardCandidate(sessionId, stepId, params))
+        return await loadLayers(stepId)
+      } catch (error) {
+        handleFailure(error, stepId)
+        return false
+      }
+    },
+    [state.sessionId, handleFailure, hydrateDocument, loadLayers]
+  )
+
   const actions = useMemo(
     () => ({
       startSession,
@@ -1351,9 +1597,12 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       generate,
       commit,
       reopen,
+      discardCandidate,
       loadLayers,
       seedDraft: (stepId, selectedFeatureIds, drawnFeatures) =>
         dispatch({ type: DRAFT_SEEDED, stepId, selectedFeatureIds, drawnFeatures }),
+      // `featureIds` is the new list, or a function of the current one. See
+      // the reducer's DRAFT_SELECTION_SET for which to pass and why.
       setSelection: (stepId, featureIds) =>
         dispatch({ type: DRAFT_SELECTION_SET, stepId, featureIds }),
       toggleSelection: (stepId, featureId) =>
@@ -1369,7 +1618,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
         dispatch({ type: SESSION_CLEARED, resume: 'idle' })
       },
     }),
-    [startSession, resume, generate, commit, reopen, loadLayers]
+    [startSession, resume, generate, commit, reopen, discardCandidate, loadLayers]
   )
 
   const value = useMemo(() => ({ state, actions }), [state, actions])

@@ -40,11 +40,12 @@
  * band z can clear. MapLayerStack renders it at the top level for that reason.
  */
 
+import { Fragment } from 'react'
 import L from 'leaflet'
-import { GeoJSON, Pane, Polygon, Polyline, Tooltip } from 'react-leaflet'
+import { GeoJSON, Marker, Pane, Polygon, Polyline, Tooltip } from 'react-leaflet'
 
 import { offParcelScrimRings, readToken } from '../geo.js'
-import { zoneMark } from '../ProductionHatchPattern.jsx'
+import { marksItsOwnEdge, zoneMark } from '../ProductionHatchPattern.jsx'
 
 /**
  * Its own lazily-filled token cache, for the reason DrawTool's has one:
@@ -389,11 +390,69 @@ function ReferenceLayer() {
  * a separately addressable layer, which is what makes them selectable and what
  * lets a 422 colour exactly the offending one.
  */
+/**
+ * WHICH CANDIDATE A FEATURE BELONGS TO, and which candidate is focused.
+ *
+ * The definition's `groupOf` (a network id off a branch) when the layer
+ * carries one; the feature's own id otherwise, which is what every feature
+ * was before grouping existed. The focus slot holds whatever was clicked --
+ * a tab's id (a group) or a feature's id (a branch) -- so the focused GROUP
+ * is resolved from either: a feature in this layer with that id says which
+ * group it is in, and an id matching no feature is taken as a group id.
+ */
+function groupResolver(layer) {
+  const groupOf = layer.groupOf ?? null
+  const of = (feature) => (groupOf ? groupOf(feature) ?? feature.id : feature.id)
+  const focused = (focusedFeatureId, features) => {
+    if (focusedFeatureId == null) return null
+    const hit = features.find((feature) => feature.id === focusedFeatureId)
+    return hit ? of(hit) : focusedFeatureId
+  }
+  return { of, focused }
+}
+
+/**
+ * WHICH FEATURES A LAYER DRAWS, given the eye and the focus.
+ *
+ * THE EYE RULE. Eye-off is not drawn at all, and this filter is the whole of
+ * what replaced the dotted declined treatment. The eye means "in the commit".
+ * A feature that is not in the commit has nothing to say on a map of what
+ * this parcel is going to be, and drawing it in a special way was only ever a
+ * way of keeping it findable -- which is the tab strip's job now. ONLY IN THE
+ * EDITABLE BAND: the committed band is what the document says happened.
+ *
+ * THE VISIBILITY EXCEPTION. A layer declaring `show: 'focused'` draws ONLY
+ * the focused candidate -- the group the focus resolves to -- and nothing
+ * when nothing is focused, WHATEVER THE EYE SAYS. It is an exception to the
+ * pattern language rather than an extension of it: everywhere else the eye
+ * decides what is drawn and focus decides how present it is. Here the eye is
+ * the commit decision alone and focus is what you are comparing, because
+ * three routed networks over one parcel is unreadable line density, and a
+ * candidate you have taken out of the commit is exactly the one you may
+ * want to look at again. Declared by the roads step's editable network layer
+ * and recorded in index.css beside the levels it departs from.
+ */
+function visibleFeatures(layer, focusedFeatureId) {
+  const { of, focused } = groupResolver(layer)
+  if (layer.show === 'focused') {
+    const group = focused(focusedFeatureId, layer.features)
+    return group == null ? [] : layer.features.filter((feature) => of(feature) === group)
+  }
+  if (layer.band !== 'editable') return layer.features
+  const selected = new Set(layer.selectedFeatureIds ?? [])
+  return layer.features.filter((feature) => selected.has(feature.id))
+}
+
+/** Is this feature the focused one -- itself, or a member of the focused group. */
+function isFocusedFeature(layer, feature, focusedFeatureId) {
+  const { of, focused } = groupResolver(layer)
+  const group = focused(focusedFeatureId, layer.features)
+  return group != null && of(feature) === group
+}
+
 function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null }) {
   const { field, accent, ink, halo } = getStackColors()
-  const selected = new Set(layer.selectedFeatureIds ?? [])
   const rejections = layer.rejections ?? {}
-  const isEditable = layer.band === 'editable'
   const isDrawn = layer.source === 'draft'
   const isCommitted = layer.band === 'committed'
   // DECLARED, NOT DERIVED, and that is the whole of the field's reason: band
@@ -402,22 +461,8 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
   // apart with. See `treatment` in stepDefinitions.js's LAYER SCHEMA.
   const treatment = layer.treatment ?? null
 
-  /**
-   * EYE-OFF IS NOT DRAWN AT ALL, and this filter is the whole of what replaced
-   * the dotted declined treatment.
-   *
-   * The eye means "in the commit". A feature that is not in the commit has
-   * nothing to say on a map of what this parcel is going to be, and drawing it
-   * in a special way was only ever a way of keeping it findable -- which is
-   * the tab strip's job now, and a better one, because a tab is legible at any
-   * zoom and a dotted hairline over canopy is not.
-   *
-   * ONLY IN THE EDITABLE BAND. The committed band is what the document says
-   * happened; the draft's selection has no bearing on it.
-   */
-  const features = isEditable
-    ? layer.features.filter((feature) => selected.has(feature.id))
-    : layer.features
+  // The eye rule, and the visibility exception. See visibleFeatures.
+  const features = visibleFeatures(layer, focusedFeatureId)
 
   return (
     <>
@@ -451,7 +496,7 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
         // the others out. The store's selection covers drawn shapes as well as
         // proposals now, so this is one question with one answer rather than
         // "a proposal unless it was taken out, and a drawn shape always".
-        const isFocused = feature.id === focusedFeatureId
+        const isFocused = isFocusedFeature(layer, feature, focusedFeatureId)
         const rejection = rejections[feature.id] ?? null
         return (
           <GeoJSON
@@ -572,12 +617,22 @@ function patternLevelFor(state) {
 }
 
 /**
- * HOW HEAVY A MARK'S FILL IS IN THIS STATE -- the pattern scale for a hatch,
- * the tint scale for a wash.
+ * HOW HEAVY A MARK'S FILL IS IN THIS STATE -- the tint scale for a wash, the
+ * pattern scale for everything else.
  *
  * THE BRANCH IS ON THE MARK'S KIND, not on the treatment's name. A step added
  * later declares a kind in one table and inherits whichever scale that kind
  * uses, instead of this function growing a list of step names.
+ *
+ * A STIPPLE IS ON THE PATTERN SCALE, WITH THE HATCH, and that is the same
+ * argument index.css makes for splitting the two scales in the first place: a
+ * wash covers all of the ground it is over, so at the pattern scale's top
+ * level it stops being a screen and becomes paint. A dot field does not -- it
+ * inks an eighth of what it covers, the imagery reads through the gaps like the
+ * hatch's, and the whole point of the mark is that it is DISCRETE INK sitting
+ * on the ground rather than a veil over it. So a stippled zone's dots and its
+ * outline are on ONE scale, which is also what makes the three levels hold
+ * for it in the same proportions they hold for a hatch.
  */
 function fillLevelFor(mark, state) {
   return mark?.kind === 'tint' ? tintLevel(stateName(state)) : patternLevel(stateName(state))
@@ -625,18 +680,27 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
     }
   }
 
-  if (mark?.kind === 'tint') {
-    // A SCREENED TINT, OUTLINED IN ITS OWN COLOUR, AND NOTHING UNDER THE LINE.
-    // One colour paints the whole mark: the wash states the area, the line
-    // states where it ends. A tint has no gaps for an extent to be inferred
-    // from, so the edge is drawn rather than implied -- and drawing it in a
-    // second colour, or ringing it in --halo, would put a second value on a
-    // boundary the wash already names.
+  if (marksItsOwnEdge(mark)) {
+    // A MARK THAT DRAWS ITS OWN BOUNDARY, IN ITS OWN COLOUR, AND NOTHING
+    // UNDER THE LINE. One colour paints the whole mark: the fill states the
+    // area, the line states where it ends. Neither of the two kinds that
+    // reach here leaves an extent inferable -- a wash has no gaps at all, and
+    // a fine dot field's edge is where the density falls off -- so the edge is
+    // drawn rather than implied, and drawing it in a second colour, or ringing
+    // it in --halo, would put a second value on a boundary the fill names.
+    //
+    // ONE BRANCH FOR BOTH KINDS, and the two differences between them are
+    // both already resolved: `mark.fill` is a colour for a tint and a paint
+    // server for a stipple, and fillLevelFor() picks the scale each fill is
+    // legible on. A third mark that draws its own edge inherits this by
+    // saying so in marksItsOwnEdge(), not by adding an arm here.
     //
     // TWO SCALES, ONE STATE. The line is ink at full strength and takes the
-    // pattern levels; the wash is a screen and takes the tint levels (see
-    // fillLevelFor). So a committed zone keeps a legible boundary while its
-    // wash falls back to context, which is what a committed layer is.
+    // pattern levels; a wash is a screen and takes the tint levels, while a
+    // dot field is ink too and stays on the pattern levels (see
+    // fillLevelFor). So a committed zone keeps a legible boundary while an
+    // embankment zone's wash falls back to context, which is what a committed
+    // layer is.
     return {
       stroke: true,
       color: mark.stroke,
@@ -679,12 +743,182 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
   }
 }
 
+/**
+ * A FeatureCollection of LineStrings, each CASED.
+ *
+ * A ROAD IS A LINE, AND A LINE IS A STROKE, so the no-stroke rule for ZONES
+ * does not apply to it -- that rule is about a hard edge saying something
+ * false about a recommendation's extent, and a road's extent IS its line.
+ * What does apply is the halo-casing rule DrawTool established for every
+ * other line on this map: no single colour clears 3:1 against the range of
+ * tones in one aerial frame, so the line is cased on --halo rather than
+ * recoloured to beat the imagery. The casing pass paints first, so it sits
+ * under the line; the line's colour is the treatment's own (--road, through
+ * the mark table), and its presence is the pattern level for its state --
+ * committed quietest, focused fullest -- applied to BOTH passes, so a
+ * committed network dims as one mark rather than leaving a white ghost of
+ * itself at full strength.
+ *
+ * VISIBILITY IS visibleFeatures'. A layer declaring `show: 'focused'` draws
+ * only the focused candidate's branches; the committed layer draws every
+ * branch of the one committed network, dimmed, and stays -- it is a settled
+ * context layer for every later step.
+ *
+ * ONE Polyline PER FEATURE, keyed on what can change, for the reason
+ * FeatureLayer keys its GeoJSONs: react-leaflet diffs style but not data.
+ */
+function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null }) {
+  const { halo, ink } = getStackColors()
+  const rejections = layer.rejections ?? {}
+  const isCommitted = layer.band === 'committed'
+  const mark = layer.treatment ? zoneMark(layer.treatment) : null
+  const color = mark?.stroke ?? ink
+  const features = visibleFeatures(layer, focusedFeatureId)
+
+  return (
+    <>
+      {features.map((feature) => {
+        const isFocused = isFocusedFeature(layer, feature, focusedFeatureId)
+        const rejection = rejections[feature.id] ?? null
+        const level = rejection ? 1 : patternLevelFor({ isFocused, isCommitted })
+        const positions = lineLatLngs(feature.geometry)
+        const key = `${feature.id}:${isFocused}:${interactive}:${rejection ? 'bad' : 'ok'}`
+        const className = focusClass(
+          rejection ? 'road--rejected' : `road--${layer.treatment ?? 'untreated'}`,
+          isFocused
+        )
+        return (
+          <Fragment key={key}>
+            {/* THE CASING, FIRST AND UNDER. */}
+            {/* OPTIONS AS PROPS, NOT `pathOptions`: react-leaflet applies
+                pathOptions through Leaflet's setStyle, which never touches
+                the class -- a className given that way is silently dropped.
+                The key above remounts on every change that matters. */}
+            <Polyline
+              positions={positions}
+              interactive={false}
+              color={halo}
+              weight={CASING_WEIGHT}
+              opacity={level}
+              className={`${className} road--casing`}
+            />
+            <Polyline
+              positions={positions}
+              interactive={interactive}
+              color={rejection ? readToken('--alert') : color}
+              weight={LINE_WEIGHT}
+              opacity={level}
+              className={className}
+              eventHandlers={
+                interactive
+                  ? {
+                      // THE CLICK STOPS HERE, for FeatureLayer's reason: the
+                      // map's own click clears the focus, and a click on a
+                      // branch is a focus.
+                      click: (event) => {
+                        L.DomEvent.stopPropagation(event)
+                        onFeatureClick?.(layer, feature)
+                      },
+                    }
+                  : undefined
+              }
+            >
+              {rejection ? (
+                <Tooltip permanent direction="center" className="zone-rejection-tip">
+                  {rejection.reason}
+                </Tooltip>
+              ) : null}
+            </Polyline>
+          </Fragment>
+        )
+      })}
+    </>
+  )
+}
+
+/** A GeoJSON LineString's coordinates as Leaflet [lat, lng] positions. */
+function lineLatLngs(geometry) {
+  const coordinates = geometry?.type === 'LineString' ? geometry.coordinates : []
+  return coordinates.map(([lng, lat]) => [lat, lng])
+}
+
+const accessPointIcon = (extra) =>
+  new L.DivIcon({ className: `access-point-marker${extra ? ` ${extra}` : ''}`, iconSize: [18, 18] })
+
+/**
+ * MARKERS, one per point the layer's reader produced. PERSISTENT CLICK
+ * TARGETS: a point layer is drawn whatever is focused and whatever the eye
+ * says, because the points are what distinguish the alternatives -- and a
+ * click on one focuses the id it carries, which is the candidate it belongs
+ * to. So the marker is a second tab strip living on the map, and the
+ * selection sync has to work from it exactly as it does from a tab.
+ *
+ * INTERACTIVE WHEN THE STACK SAYS SO. Under an armed placement tool the
+ * markers stand down like every other feature (see SelectGesture), so a
+ * click meant to place a point beside one is not swallowed.
+ */
+function PointLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null }) {
+  const { of, focused } = groupResolver({ ...layer, features: [] })
+  const focusedGroup = focused(focusedFeatureId, [])
+  const isCommitted = layer.band === 'committed'
+  return (
+    <>
+      {(layer.points ?? []).map((point) => {
+        const isFocused = focusedGroup != null && of({ id: point.id }) === focusedGroup
+        const modifier = [
+          point.id === 'pending' ? 'access-point-marker--pending' : '',
+          isFocused ? 'access-point-marker--focused' : '',
+          isCommitted ? 'access-point-marker--committed' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+        return (
+          <Marker
+            // NOT keyed on focus: a remount moves the marker to the end of
+            // its pane, and the markers' DOM order is the candidates' order.
+            // react-leaflet swaps the icon in place.
+            key={`${point.id}:${interactive}`}
+            position={point.position}
+            icon={accessPointIcon(modifier)}
+            interactive={interactive}
+            title={point.label}
+            eventHandlers={
+              interactive
+                ? {
+                    click: (event) => {
+                      L.DomEvent.stopPropagation(event)
+                      onFeatureClick?.(layer, { id: point.id, point })
+                    },
+                  }
+                : undefined
+            }
+          />
+        )
+      })}
+    </>
+  )
+}
+
 const RENDERERS = {
   ring: RingLayer,
   scrim: ScrimLayer,
   highlight: HighlightLayer,
   polygon: FeatureLayer,
   reference: ReferenceLayer,
+  line: LineLayer,
+  point: PointLayer,
 }
 
-export { RingLayer, ScrimLayer, HighlightLayer, FeatureLayer, ReferenceLayer, styleFor }
+export {
+  LINE_WEIGHT,
+  CASING_WEIGHT,
+  RingLayer,
+  ScrimLayer,
+  HighlightLayer,
+  FeatureLayer,
+  ReferenceLayer,
+  LineLayer,
+  PointLayer,
+  styleFor,
+  visibleFeatures,
+}

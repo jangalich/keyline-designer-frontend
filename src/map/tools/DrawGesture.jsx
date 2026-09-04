@@ -29,6 +29,7 @@
 import { useEffect, useState } from 'react'
 
 import { PROVENANCE_USER_ADDED, useSession } from '../../session/SessionStore'
+import AccessPointTool from '../../AccessPointTool.jsx'
 import DrawTool from '../../DrawTool.jsx'
 import ZoneDrawTool from '../../ZoneDrawTool.jsx'
 import { ringToGeoJSON } from '../../geo.js'
@@ -38,6 +39,7 @@ import { StackLayer } from '../layers.jsx'
 
 export default function DrawGesture(props) {
   if (props.layer.kind === 'ring') return <RingDraw {...props} />
+  if (props.layer.kind === 'point') return <PointDraw {...props} />
   if (props.layer.source === 'draft') return <ShapeDraw {...props} />
   // Reachable only if a step declares `draw` over a layer nothing here can
   // author -- proposals, say. StepTools already warns about the layer having
@@ -77,6 +79,35 @@ function RingDraw({ layer, armed, stepId }) {
       // to be told, because everything downstream reads the slot.
       onCloseBoundary={disarm}
       editingDisabled={anyArmed && !armed}
+    />
+  )
+}
+
+/**
+ * ONE POINT ON THE PARCEL'S EDGE, into the step's declared draft input,
+ * through AccessPointTool -- the third arm the file's header always said a
+ * point would add, and the component that has been on disk unimported since
+ * the shell branch waiting for exactly this.
+ *
+ * THE POINT IS THE DRAFT'S. Each click while armed replaces it under the
+ * input the layer declares (`sourceKey`), snapped to the boundary edge by
+ * the tool's own gesture; nothing here holds a copy. The marker for the
+ * pending point is the tool's own, drawn armed or not, so the point stays
+ * on the map once the tool is down and the banner's generate can read it.
+ *
+ * NEVER AUTO-ARMED. `armed` comes from the register like every other
+ * gesture; this component arms nothing.
+ */
+function PointDraw({ layer, armed, stepId }) {
+  const { actions } = useSession()
+  const pending = (layer.points ?? []).find((point) => point.id === 'pending') ?? null
+
+  return (
+    <AccessPointTool
+      isSelecting={armed}
+      boundaryPoints={layer.parcel ?? []}
+      accessPoint={pending?.position ?? null}
+      onSelect={(point) => actions.setDraftInput(stepId, layer.sourceKey, point)}
     />
   )
 }

@@ -37,6 +37,9 @@
  *   ?buttons=N     how many buttons the action card has (default 2)
  *   ?detail=N      give the step a detail of N rows over four groups
  *                  (default 0). NOTHING IS FOCUSED -- click a tab for that.
+ *   ?reopen=1      the SHIPPED steps over a hydrated document, with landform
+ *                  committed and three steps below it holding work -- the
+ *                  page the reopen confirmation is read on. See REOPEN below.
  */
 
 import React, { useEffect, useRef, useState } from 'react'
@@ -45,17 +48,20 @@ import { createRoot } from 'react-dom/client'
 import '../index.css'
 import '../App.css'
 
-import { SessionProvider } from '../session/SessionStore'
+import { SessionProvider, useSession } from '../session/SessionStore'
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
 import {
   BOUNDARY_STEP,
+  STEP_DEFINITIONS,
   documentStep,
   measure,
   registryProposalFeatures,
   stepButton,
 } from './stepDefinitions'
-import { injectZonePatterns, zoneMark } from '../ProductionHatchPattern.jsx'
+import { injectZonePatterns, marksItsOwnEdge, zoneMark } from '../ProductionHatchPattern.jsx'
+import { CASING_WEIGHT, LINE_WEIGHT } from '../map/layers.jsx'
+import { readToken } from '../geo.js'
 
 const params = new URLSearchParams(window.location.search)
 const number = (key, fallback) => {
@@ -76,21 +82,139 @@ window.fetch = async (rawUrl) => {
     if (params.get('steps') === '0') return { ok: false, status: 500, json: async () => ({}) }
     return { ok: true, status: 200, json: async () => ({ step_order: [...STEP_ORDER] }) }
   }
+  // The one document this page ever hydrates. See REOPEN_DOCUMENT.
+  if (REOPEN && url.pathname === '/api/sessions/sess-1') {
+    return { ok: true, status: 200, json: async () => REOPEN_DOCUMENT }
+  }
   throw new Error(`layoutHarness makes no request to ${url.pathname}`)
+}
+
+/* ===========================================================================
+   ?reopen=1  --  THE REOPEN CONFIRMATION, ON A REAL DOCUMENT
+   ===========================================================================
+   WHY THIS CASE IS NOT LIKE THE OTHERS. Every case above drives ONE harness
+   step, because what is being measured is a box -- a width, a margin, a
+   corner -- and a fabricated step gets a test to that box without a fixture
+   payload in the way.
+
+   The confirmation is not a box. What has to be read off it is the FACE its
+   question is set in, WHICH of its two buttons carries the accent, and WHAT
+   each downstream step says it loses -- and the last of those comes from the
+   shipped definitions reading a real document (their own `resetNote`). A
+   harness step declaring notes of its own would be this page answering the
+   question the test is asking.
+
+   SO THIS MODE REGISTERS THE SHIPPED STEPS and hydrates a document through
+   the store's own `resume`, the same door a reload goes through. Landform is
+   committed with three zones; water, roads and trees below it hold work, so
+   the reset list has three rows and two of them carry a counted figure -- one
+   off committed features, one off recorded inputs.
+
+   NO SESSION IS STARTED AND NOTHING IS GENERATED. The document arrives whole,
+   which is what a resume is, and the page makes exactly two requests: the step
+   catalogue and this document.
+   =========================================================================== */
+
+const REOPEN = params.get('reopen') === '1'
+
+/** One committed step entry, in the shape the wire delivers. */
+function committedStep(ids, { provenance = {}, inputs = null } = {}) {
+  const entry = {
+    status: 'committed',
+    revision: 1,
+    features: {
+      type: 'FeatureCollection',
+      features: ids.map((id) => ({
+        type: 'Feature',
+        id,
+        properties: { name: id },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[[-74.01, 40.7], [-74.0, 40.7], [-74.0, 40.71], [-74.01, 40.7]]],
+        },
+      })),
+    },
+    provenance: Object.fromEntries(ids.map((id) => [id, provenance[id] ?? 'generated'])),
+  }
+  if (inputs) entry.inputs = inputs
+  return entry
+}
+
+/**
+ * THE DOCUMENT, ALPHABETICAL, because that is how Flask serialises it and the
+ * order the shell reads is `step_order`.
+ *
+ * ONE DRAWN ZONE among landform's three: a drawn shape is the one piece of
+ * work in this pipeline that generating again cannot bring back, and
+ * landform's own note says so separately. Nothing on this page reads it --
+ * landform is the step being REOPENED here, so its note is not in its own
+ * list -- but a document that carries only generated features would make the
+ * fixture quietly narrower than the thing it stands for.
+ */
+const REOPEN_DOCUMENT = {
+  schema_version: 1,
+  session_id: 'sess-1',
+  document_revision: 4,
+  created_at: '2026-01-01T00:00:00+00:00',
+  updated_at: '2026-01-01T00:00:00+00:00',
+  boundary: [[-74.01, 40.7], [-74.0, 40.7], [-74.0, 40.71], [-74.01, 40.71]],
+  step_order: [...STEP_ORDER],
+  steps: {
+    fencing: { status: 'not_started' },
+    landform: committedStep(['zone-1', 'zone-2', 'zone-3'], {
+      provenance: { 'zone-3': 'user_added' },
+    }),
+    roads: committedStep(['road-1'], {
+      inputs: { access_points: [[-74.0, 40.7], [-74.005, 40.705], [-74.008, 40.703]] },
+    }),
+    structures: { status: 'not_started' },
+    trees: committedStep(['belt-1']),
+    water: committedStep(['pond-1', 'pond-2']),
+  },
+}
+
+/**
+ * Hydrate the document, ONCE, before anything is measured.
+ *
+ * The ref is not belt and braces: `actions` is rebuilt on every store change,
+ * so an effect that depends on it and dispatches would resume, re-render and
+ * resume again -- and this page's whole job is to hold still while something
+ * measures it.
+ */
+function ResumeDocument() {
+  const { actions } = useSession()
+  const asked = useRef(false)
+  useEffect(() => {
+    if (asked.current) return
+    asked.current = true
+    actions.resume('sess-1')
+  }, [actions])
+  return null
 }
 
 /* ===========================================================================
    The step under the chrome
    =========================================================================== */
 
-/** A tab in the shape TabStrip reads: a name and two measured rows. */
+/**
+ * A tab in the shape TabStrip reads: a name and two measured rows.
+ *
+ * THE SECOND ROW CARRIES A SCALE IN ITS LABEL, because a shipped one does and
+ * that is the wider case. Water's tab reads its suitability against the
+ * ceiling the payload sent -- "0.56", "of 0.68 suitability" -- so the label
+ * column is three words rather than one, and the strip's geometry tests (does
+ * it end before the action card, does it size to its tabs, does it hold two
+ * columns on a narrow stage) have to be asked at the width the shell actually
+ * renders. A one-word label would make every one of them pass on a tab
+ * narrower than any real step's.
+ */
 function tab(index) {
   return {
     id: `zone-${index + 1}`,
     name: `Zone ${index + 1}`,
     rows: [
       { value: measure(2.5 + index), label: 'acres' },
-      { value: measure(81 - index), label: 'score' },
+      { value: measure((81 - index) / 100, 2), label: 'of 0.82 suitability' },
     ],
     eye: true,
     selected: true,
@@ -220,7 +344,106 @@ function detailGroups(rows) {
 const SHOW_ZONES = params.get('zones') === '1'
 const SWATCH_PX = 90
 
-const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated']
+const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road']
+
+/**
+ * THE ROAD, ONCE MORE WITHOUT ITS CASING. Roads are lines, and a line's
+ * legibility over imagery is the casing's doing (layers.jsx LineLayer): the
+ * two ground rows carry the cased road at each level like every other mark,
+ * and these two cells beside them carry the same line with the halo pass
+ * left out, so the measurement can say what the casing is worth rather than
+ * assume it.
+ */
+const UNCASED = [
+  { treatment: 'road', state: 'committed', uncased: true },
+  { treatment: 'road', state: 'active', uncased: true },
+]
+
+/**
+ * THE TWO SURVEY MARKS ON THE SAME GROUND, WHICH IS THE CASE THE PAIR EXISTS
+ * FOR.
+ *
+ * `cross_type_overlaps` is the payload's record of the two survey instruments
+ * independently identifying the same ground, and the module treats a
+ * high-overlap area as worth evaluating for either pond type. While both types
+ * were washes, the overlap was two translucent fills multiplying into a third,
+ * darker fill -- so the one place the reading mattered was the one place the
+ * render destroyed it.
+ *
+ * SO IT IS MEASURED RATHER THAN ARGUED. This cell stacks the embankment wash
+ * and the excavated dot field in the order the map stacks them (the panes are
+ * z-ordered embankment then excavated), on the same ground as the cells beside
+ * it, so layout.test.jsx can ask whether BOTH marks are still recoverable from
+ * the result: the wash by the tone it shifts the ground to, the dots by the
+ * high-frequency variation they add on top of it.
+ */
+const OVERLAP = [{ overlap: ['survey-embankment', 'survey-excavated'], state: 'active' }]
+
+/**
+ * THE DOT FIELD ON ITS OWN, WITHOUT ITS OUTLINE.
+ *
+ * The road's cased/uncased pair asks what a line's casing is worth. This asks
+ * the same question of the one mark that CANNOT take a casing: a per-dot halo
+ * is what killed the previous stipple (a ring at the dot's own frequency is a
+ * second texture, not a support for the first), so the only levers a dot field
+ * has are DENSITY and OPACITY. These two cells are the field alone, over both
+ * grounds, so "the density carries it over canopy" is a number rather than an
+ * inference from a measurement the outline is also inside.
+ */
+const UNOUTLINED = [
+  { treatment: 'survey-excavated', state: 'committed', unoutlined: true },
+  { treatment: 'survey-excavated', state: 'active', unoutlined: true },
+]
+
+/**
+ * THE MOIRE ROW: the dot field over ground that HAS STRUCTURE, at a range of
+ * structure frequencies.
+ *
+ * WHY THE TWO GROUNDS ABOVE CANNOT ASK THIS. They are flat colours on
+ * purpose -- the measure they serve is the ink a mark ADDS over its own
+ * ground, and that subtraction needs a ground with no texture of its own to
+ * be confused with the mark's. A flat ground also cannot BEAT against
+ * anything, so it is exactly the wrong ground for the one question a regular
+ * lattice raises and a jittered field did not: two periodic signals laid over
+ * each other interfere, and the interference is a third, much coarser pattern
+ * that neither one contains.
+ *
+ * WHAT VARIES IS THE GROUND, NOT THE MARK, AND THAT IS THE ZOOM RANGE. The
+ * pattern is a <pattern> in screen units, so the lattice is the same 2.67px
+ * cell at every zoom -- panning and zooming the map does not stretch it. What
+ * changes with zoom is the IMAGERY: a tree crown that is 3px across at parcel
+ * zoom is 30px across four levels in. So sweeping the ground's period from
+ * under the cell spacing to well over it IS sweeping the zoom range, and it
+ * is the honest way round -- driving a real map would make the answer depend
+ * on a tile fetch.
+ *
+ * A GRID, NOT STRIPES. Imagery structure is two-dimensional and a lattice can
+ * beat on either axis; a striped ground would only ever test one of them, and
+ * would pass a field that banged badly against the other. These periods
+ * bracket the 2.67px cell spacing from half of it to nine times it, in steps
+ * fine enough that a beat cannot hide between two of them.
+ */
+const MOIRE_PERIODS = [1.5, 2, 2.5, 2.67, 3, 3.5, 4, 5, 6, 8, 11, 16, 24]
+
+/** A textured ground: canopy, with a finer/darker grid at `period` px over it. */
+function moireGround(period) {
+  return {
+    backgroundColor: '#2e3a24',
+    backgroundImage:
+      'repeating-linear-gradient(0deg, rgba(0,0,0,0.35) 0 1px, rgba(0,0,0,0) 1px ' +
+      `${period}px), ` +
+      'repeating-linear-gradient(90deg, rgba(0,0,0,0.35) 0 1px, rgba(0,0,0,0) 1px ' +
+      `${period}px)`,
+  }
+}
+
+/** The test-id suffix one ground cell answers to. */
+function cellId(cell) {
+  if (!cell) return 'bare'
+  if (cell.overlap) return `overlap-${cell.state}`
+  const suffix = cell.uncased ? '-uncased' : cell.unoutlined ? '-unoutlined' : ''
+  return `${cell.treatment}-${cell.state}${suffix}`
+}
 
 /**
  * THE SAME MARKS, OVER GROUND THEY ACTUALLY HAVE TO SIT ON.
@@ -251,8 +474,14 @@ const GROUNDS = [
   { id: 'soil', color: '#cbb896' },
 ]
 
-/** Clear of the mid-grey grid above, which is three rows of SWATCH_PX. */
-const GROUND_TOP = SWATCH_PX * 3 + 20
+/** Clear of the mid-grey grid above, which is one row of SWATCH_PX per treatment. */
+const GROUND_TOP = SWATCH_PX * TREATMENTS.length + 20
+
+/** A ground's cells wrap at this many columns, to stay inside a 1280px frame. */
+const GROUND_COLUMNS = 14
+
+/** Clear of both ground rows above. Their height is computed the same way. */
+const MOIRE_TOP = GROUND_TOP + SWATCH_PX * 12
 
 /**
  * WHAT THE SWATCH FOR ONE TREATMENT IS MADE OF -- read from the same table the
@@ -291,7 +520,7 @@ function ZoneSwatches() {
       const treatment = svg.dataset.treatment
       const mark = zoneMark(treatment)
       if (!mark) continue
-      if (mark.kind === 'pattern') {
+      if (mark.kind === 'pattern' || mark.kind === 'stipple') {
         const source = document.getElementById(`zone-pattern-${treatment}`)
         if (!source) continue
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
@@ -300,13 +529,43 @@ function ZoneSwatches() {
         defs.appendChild(clone)
         svg.insertBefore(defs, svg.firstChild)
         svg.querySelector('rect').setAttribute('fill', `url(#local-${svg.dataset.testid})`)
+        // A STIPPLE FALLS THROUGH TO THE OUTLINE PASS BELOW; a hatch does
+        // not. Both are paint servers and only one of them draws its own
+        // edge, which is marksItsOwnEdge()'s distinction and not this file's.
+        if (!marksItsOwnEdge(mark)) continue
+      }
+      // ...unless this is the cell that asks what the field carries alone.
+      if (svg.dataset.unoutlined === 'true') continue
+      if (mark.kind === 'line') {
+        // A ROAD: a cased line corner to corner, the halo pass under the
+        // coloured line, both at the state's level -- which is what LineLayer
+        // draws. `data-uncased` leaves the halo pass out, for the one
+        // measurement that asks what the casing is worth.
+        svg.querySelector('rect').setAttribute('fill', 'none')
+        const level = patternLevel(svg.dataset.state)
+        const passes = svg.dataset.uncased === 'true' ? [] : [[readToken('--halo'), CASING_WEIGHT]]
+        passes.push([mark.stroke, LINE_WEIGHT])
+        for (const [stroke, weight] of passes) {
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+          line.setAttribute('x1', '0')
+          line.setAttribute('y1', String(SWATCH_PX))
+          line.setAttribute('x2', String(SWATCH_PX))
+          line.setAttribute('y2', '0')
+          line.setAttribute('stroke', stroke)
+          line.setAttribute('stroke-width', String(weight))
+          line.setAttribute('stroke-opacity', level)
+          line.setAttribute('stroke-linecap', 'round')
+          svg.appendChild(line)
+        }
+        svg.dataset.cased = svg.dataset.uncased === 'true' ? 'false' : 'true'
         continue
       }
-      // A TINT: the wash, then its outline over it -- one colour, one line,
-      // nothing under it. Insetting by half the stroke keeps the whole
-      // outline inside the swatch, so the screenshot measures all of it
-      // instead of half of it.
-      svg.querySelector('rect').setAttribute('fill', mark.fill)
+      // A MARK THAT DRAWS ITS OWN EDGE: the fill (a wash for a tint, a dot
+      // field for a stipple -- already set above for the latter), then its
+      // outline over it. One colour, one line, nothing under it. Insetting by
+      // half the stroke keeps the whole outline inside the swatch, so the
+      // screenshot measures all of it instead of half of it.
+      if (mark.kind === 'tint') svg.querySelector('rect').setAttribute('fill', mark.fill)
       const inset = OUTLINE_WEIGHT / 2
       const outline = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
       outline.setAttribute('x', String(inset))
@@ -361,39 +620,89 @@ function ZoneSwatches() {
           <rect width={SWATCH_PX} height={SWATCH_PX} fillOpacity={fillLevel(treatment, state)} />
         </svg>
       ))}
-      {GROUNDS.map((ground, row) =>
-        [null, ...cells].map((cell, column) => (
+      {/* THE MOIRE SWEEP. Each period gets the field alone (no outline, so
+          what is measured is the lattice and nothing else) and the same
+          ground bare beside it, for the difference the test takes. */}
+      {MOIRE_PERIODS.map((period, index) =>
+        ['bare', 'field'].map((which) => (
           <div
-            key={`${ground.id}-${cell ? `${cell.treatment}-${cell.state}` : 'bare'}`}
-            data-testid={
-              cell
-                ? `ground-${ground.id}-${cell.treatment}-${cell.state}`
-                : `ground-${ground.id}-bare`
-            }
+            key={`moire-${period}-${which}`}
+            data-testid={`moire-${which}-${period}`}
             style={{
               position: 'absolute',
-              left: column * SWATCH_PX,
-              top: GROUND_TOP + row * SWATCH_PX,
+              left: (index % GROUND_COLUMNS) * SWATCH_PX,
+              top:
+                MOIRE_TOP +
+                (Math.floor(index / GROUND_COLUMNS) * 2 + (which === 'field' ? 1 : 0)) * SWATCH_PX,
               width: SWATCH_PX,
               height: SWATCH_PX,
-              background: ground.color,
+              ...moireGround(period),
             }}
           >
-            {cell ? (
+            {which === 'field' ? (
               <svg
-                data-testid={`ground-mark-${ground.id}-${cell.treatment}-${cell.state}`}
-                data-treatment={cell.treatment}
-                data-state={cell.state}
+                data-testid={`moire-mark-${period}`}
+                data-treatment="survey-excavated"
+                data-state="active"
+                data-unoutlined="true"
                 width={SWATCH_PX}
                 height={SWATCH_PX}
               >
                 <rect
                   width={SWATCH_PX}
                   height={SWATCH_PX}
-                  fillOpacity={fillLevel(cell.treatment, cell.state)}
+                  fillOpacity={fillLevel('survey-excavated', 'active')}
                 />
               </svg>
             ) : null}
+          </div>
+        ))
+      )}
+      {GROUNDS.map((ground, row) =>
+        [null, ...cells, ...UNCASED, ...UNOUTLINED, ...OVERLAP].map((cell, index) => (
+          <div
+            key={`${ground.id}-${cellId(cell)}`}
+            data-testid={`ground-${ground.id}-${cellId(cell)}`}
+            style={{
+              position: 'absolute',
+              left: (index % GROUND_COLUMNS) * SWATCH_PX,
+              top:
+                GROUND_TOP +
+                (row *
+                  Math.ceil(
+                    (cells.length + UNCASED.length + UNOUTLINED.length + OVERLAP.length + 1) /
+                      GROUND_COLUMNS
+                  ) +
+                  Math.floor(index / GROUND_COLUMNS)) *
+                  SWATCH_PX,
+              width: SWATCH_PX,
+              height: SWATCH_PX,
+              background: ground.color,
+            }}
+          >
+            {/* THE OVERLAP CELL IS TWO MARKS IN ONE CELL, stacked in the
+                order the map's panes stack them. Each is an ordinary
+                data-treatment svg, so the cloning pass above dresses both
+                without knowing this cell exists. */}
+            {(cell?.overlap ?? (cell ? [cell.treatment] : [])).map((treatment, depth) => (
+              <svg
+                key={treatment}
+                data-testid={`ground-mark-${ground.id}-${cellId(cell)}${cell?.overlap ? `-${treatment}` : ''}`}
+                data-treatment={treatment}
+                data-state={cell.state}
+                data-uncased={cell.uncased ? 'true' : undefined}
+                data-unoutlined={cell.unoutlined ? 'true' : undefined}
+                width={SWATCH_PX}
+                height={SWATCH_PX}
+                style={cell?.overlap ? { position: 'absolute', left: 0, top: 0, zIndex: depth } : undefined}
+              >
+                <rect
+                  width={SWATCH_PX}
+                  height={SWATCH_PX}
+                  fillOpacity={fillLevel(treatment, cell.state)}
+                />
+              </svg>
+            ))}
           </div>
         ))
       )}
@@ -460,7 +769,8 @@ function OpenStep({ stepId }) {
 function Harness() {
   return (
     <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
-      <WizardCursorProvider definitions={[BOUNDARY_STEP, HARNESS_STEP]}>
+      <WizardCursorProvider definitions={REOPEN ? STEP_DEFINITIONS : [BOUNDARY_STEP, HARNESS_STEP]}>
+        {REOPEN ? <ResumeDocument /> : null}
         <OpenStep stepId="landform" />
         {/* THE SHIPPED STAGE ELEMENT. `.map-stage` is what carries the chrome's
             own measurements (--rail-width, --bar-height) and the height the
