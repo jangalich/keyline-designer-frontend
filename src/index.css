@@ -175,6 +175,17 @@
   --survey-excavated: #3d5a6c;
   --survey-embankment: #6da4c6;
 
+  /* THE ROAD LINE. Umber: warm, dark, and nothing else on this map is a warm
+     dark -- --field is the green of the boundary, --oxide the accent and the
+     production hatch, the two blues are water, --ochre is the access-point
+     marker it runs from. A road is a LINE, so the no-stroke rule for ZONES
+     does not apply, and the halo-casing rule for lines does: the line sits on
+     a --halo casing (layers.jsx's CASING_WEIGHT under LINE_WEIGHT), which is
+     what carries it over imagery -- 7.8:1 against the casing, so the casing
+     is always the edge the eye finds, whatever the ground under it. Measured
+     over canopy and bare soil in layout.test.jsx like the other marks. */
+  --road: #5a3d22;
+
   /* HOW PRESENT A ZONE'S MARK IS, IN THREE LEVELS -- the whole of what
      distinguishes a zone's states.
 
@@ -205,6 +216,20 @@
      dimming the rest would also dim the committed layers of earlier steps,
      which are not part of this step's selection and have no business
      responding to it.
+
+     ONE DOCUMENTED EXCEPTION: THE ROADS STEP'S CANDIDATE NETWORKS. Every
+     rule above says focus changes a mark's OPACITY and every eye-on feature
+     stays drawn. The roads step's editable network layer declares
+     `show: 'focused'` (stepDefinitions.js, LAYER SCHEMA item 7), and under
+     it ONLY THE FOCUSED CANDIDATE IS DRAWN -- at --pattern-focused -- and
+     nothing at all when nothing is focused. Three routed networks over one
+     parcel is unreadable line density, so unfocused candidates are absent
+     rather than quieter; the access-point markers stay, because they are
+     what distinguishes the alternatives. It is an EXCEPTION, not an
+     extension: it is declared per layer, no other layer declares it, and a
+     step that does not declare it inherits the pattern language above. The
+     COMMITTED network is not under it -- it is drawn whole at
+     --pattern-committed like every settled layer, and stays.
 
      THE GAP IS WIDE ON PURPOSE. A pattern is mostly unfilled, so a small
      opacity step is invisible at the zoom where the whole parcel is in frame

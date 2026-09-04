@@ -961,7 +961,11 @@ describe('the pattern is the mark', () => {
     // carry a stroke" has no path to ask it of. That is the eye's own
     // treatment and it predates the pattern scheme.
     const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
-    expect(layers).toMatch(/isEditable\s*\n?\s*\?\s*layer\.features\.filter/)
+    // The filter is visibleFeatures' now -- one function for the polygon and
+    // the line renderer -- and the eye rule inside it is unchanged: in the
+    // editable band, only a selected feature is drawn.
+    expect(layers).toMatch(/const features = visibleFeatures\(layer, focusedFeatureId\)/)
+    expect(layers).toMatch(/layer\.features\.filter\(\(feature\) => selected\.has\(feature\.id\)\)/)
   })
 
   it('DOES still outline a drawn zone, which is the distinction rather than an exception', () => {
@@ -1205,7 +1209,9 @@ describe('the collapsed strip keeps the focused tab', () => {
     const landformTabs = tabsOf(5)
     expect(collapsedTabs(landformTabs, 't4').map((t) => t.id)).toContain('t4')
     const strip = readFileSync(path.join(SRC, 'wizard', 'shell', 'TabStrip.jsx'), 'utf8')
-    expect(strip).toContain('collapsedTabs(tabs, focusedFeatureId)')
+    // The focus is resolved to a TAB first (a tab may stand for several
+    // features), and the collapsed strip keeps that tab.
+    expect(strip).toContain('collapsedTabs(tabs, focusedTabId)')
     // ...and the strip still names no step, which is how one component serves
     // both.
     const code = strip.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')

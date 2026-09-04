@@ -1902,10 +1902,46 @@
 }
 
 /* Access point marker — ochre, distinct from the field-green boundary
-   vertices, standing out as a different kind of point. */
+   vertices, standing out as a different kind of point.
+
+   A PERSISTENT CLICK TARGET on the roads step: one per candidate network,
+   drawn whatever is focused and whatever the eye says, because the points
+   are what distinguish the alternatives. Clicking one focuses its network --
+   a second tab strip living on the map -- so it is styled as a control that
+   answers a click, not as a vertex. */
 .access-point-marker {
   background: var(--ochre);
   border: 2px solid var(--halo);
   border-radius: 50%;
   box-shadow: var(--shadow-marker);
+  cursor: pointer;
+}
+
+/* The focused network's point, marked the way its tab is: a heavier edge in
+   --ink. The same mark for reading, in the third place it appears. */
+.access-point-marker--focused {
+  box-shadow: 0 0 0 2px var(--ink), var(--shadow-marker);
+}
+
+/* A point placed and not yet routed from: the same marker, hollow, so it
+   reads as "here, pending" rather than as a candidate. */
+.access-point-marker--pending {
+  background: var(--paper);
+  border-color: var(--ochre);
+  border-style: dashed;
+}
+
+/* The committed network's point: settled with its network, and no longer a
+   control. Quieter, and no pointer. */
+.access-point-marker--committed {
+  opacity: var(--pattern-committed);
+  cursor: default;
+}
+
+/* A road branch's own class on the path, for the DOM inspector and the tests
+   -- the styling is a pathOption in layers.jsx like every other line's, and
+   the casing under it is the halo rule every line here takes. */
+.road--road,
+.road--casing {
+  pointer-events: visibleStroke;
 }

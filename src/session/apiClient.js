@@ -323,6 +323,28 @@ export function reopenStep(sessionId, stepId, { signal } = {}) {
 }
 
 /**
+ * Discard ONE candidate set of an accumulating step, freeing its slot.
+ *
+ * THE ONE CALL ADDED SINCE THE EIGHT. The roads step keeps up to three
+ * candidate networks side by side, one per access point, and freeing a slot
+ * is a decision the document records -- the tried access points live on the
+ * step entry server-side -- so it is a server verb rather than a client-side
+ * deletion the server never hears about. `params` names the candidate the way
+ * the generate that made it did: the same user input, in the same shape.
+ * Resolves to the NEW Design Document; the remaining candidates come back
+ * through getStepLayers(), the same call a reopen makes.
+ *
+ * A step that does not accumulate answers 400; a candidate the step does not
+ * hold answers 404. Neither is a job -- the verb is synchronous.
+ */
+export function discardCandidate(sessionId, stepId, params, { signal } = {}) {
+  return request(
+    `/api/sessions/${encodeURIComponent(sessionId)}/steps/${encodeURIComponent(stepId)}/discard`,
+    { method: 'POST', body: { params }, signal }
+  )
+}
+
+/**
  * A generated step's payload — the same object the generate job returned.
  *
  * THIS IS WHY A RELOAD DOES NOT REGENERATE. A step with no current proposals

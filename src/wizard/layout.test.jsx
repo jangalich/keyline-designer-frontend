@@ -61,6 +61,9 @@ const CHROMIUM = '/opt/pw-browsers/chromium'
 /** The stage these measurements are taken at. A desktop frame. */
 const VIEWPORT = { width: 1280, height: 800 }
 
+/** Every mark the harness swatches: the three zone treatments and the road line. */
+const SWATCH_TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road']
+
 /** App.css's --measure, in px. The prose cap the instruction card takes. */
 const READING_MEASURE = 680
 
@@ -1120,7 +1123,7 @@ describeIf('the zone patterns, rendered', () => {
   }, 60_000)
 
   it('tells the focused state from the active one at whole-parcel size', async () => {
-    for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
+    for (const treatment of SWATCH_TREATMENTS) {
       const active = await inkOf(page, treatment, 'active')
       const focused = await inkOf(page, treatment, 'focused')
       const committed = await inkOf(page, treatment, 'committed')
@@ -1144,7 +1147,7 @@ describeIf('the zone patterns, rendered', () => {
   }, SLOW)
 
   it('mutes a committed zone below an active one, without erasing it', async () => {
-    for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
+    for (const treatment of SWATCH_TREATMENTS) {
       const committed = await inkOf(page, treatment, 'committed')
       const active = await inkOf(page, treatment, 'active')
       expect(committed, `${treatment}: committed is quieter`).toBeLessThan(active)
@@ -1303,7 +1306,7 @@ describeIf('the zone patterns, rendered', () => {
      * scale is.
      */
     for (const ground of ['canopy', 'soil']) {
-      for (const treatment of ['production', 'survey-embankment', 'survey-excavated']) {
+      for (const treatment of SWATCH_TREATMENTS) {
         const committed = await addedInkOver(page, ground, treatment, 'committed')
         const active = await addedInkOver(page, ground, treatment, 'active')
         // eslint-disable-next-line no-console
@@ -1321,6 +1324,50 @@ describeIf('the zone patterns, rendered', () => {
           `${treatment} committed must stay quieter than active over ${ground}`
         ).toBeLessThan(active)
       }
+    }
+  }, SLOW)
+
+  /**
+   * THE ROAD IS A LINE, AND A LINE OVER IMAGERY IS ITS CASING.
+   *
+   * The no-stroke rule is for ZONES: a zone is an area, and an outline around
+   * an area is a second mark competing with the fill. A road has no area --
+   * the line IS the mark -- so the rule does not apply, and the opposite
+   * concern does: a 2px umber line is dark, canopy is dark, and without a
+   * light pass under it the committed road (0.4) would vanish exactly where
+   * the trees step needs it as context. LineLayer draws a 4px --halo casing
+   * under every branch for that reason. This measures the same line with and
+   * without the casing, over both grounds, so the claim is a number.
+   *
+   * TWO GROUNDS, TWO PASSES. Over canopy the umber line alone is all but
+   * gone (measured: 0.0008 added ink at the committed level, a fifth of the
+   * visibility floor) and the casing is the whole of what the eye finds --
+   * twenty times the ink. Over bare soil the halo is nearly the ground's own
+   * colour and adds nothing; there the dark line is what reads. Neither pass
+   * survives both grounds on its own, which is the reason a cased line has
+   * two, and why the assertion on the casing is made over canopy and not
+   * over soil.
+   */
+  it('keeps a road legible over canopy and soil, and the casing is what does it', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      for (const state of ['committed', 'active']) {
+        const cased = await addedInkOver(page, ground, 'road', state)
+        const uncased = await addedInkOver(page, ground, 'road', `${state}-uncased`)
+        // eslint-disable-next-line no-console
+        console.log(
+          `    ink  ${ground.padEnd(6)} road ${state.padEnd(9)} ` +
+            `cased ${cased.toFixed(4)}  uncased ${uncased.toFixed(4)}  ` +
+            `(cased/uncased ${(cased / uncased).toFixed(2)}x)`
+        )
+        expect(cased, `road ${state} must be legible over ${ground}`).toBeGreaterThan(0.004)
+        if (ground === 'canopy') {
+          expect(uncased, `the bare line is lost over ${ground}`).toBeLessThan(0.004)
+          expect(cased / uncased, `the casing is what carries the road over ${ground}`).toBeGreaterThan(5)
+        }
+      }
+      const committed = await addedInkOver(page, ground, 'road', 'committed')
+      const active = await addedInkOver(page, ground, 'road', 'active')
+      expect(committed, `road committed must stay quieter than active over ${ground}`).toBeLessThan(active)
     }
   }, SLOW)
 
