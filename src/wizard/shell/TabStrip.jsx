@@ -264,10 +264,17 @@ export default function TabStrip({ machine, onRemove }) {
                   data-selection={mode}
                   role={mode === 'radio' ? 'radio' : undefined}
                   aria-checked={mode === 'radio' ? tab.selected !== false : undefined}
+                  /* THE ARITHMETIC IS HANDED TO THE STORE, NOT THE ANSWER.
+                     `machine.draft` is the draft this render was built from,
+                     and computing the next selection out here means computing
+                     it from a list the store may already have replaced -- two
+                     presses in one batch and the second write undoes the
+                     first. The updater form runs against the draft in hand,
+                     which is what DRAFT_SELECTION_TOGGLED did before the eye
+                     grew a mode. See SessionStore's DRAFT_SELECTION_SET. */
                   onClick={() =>
-                    actions.setSelection(
-                      stepId,
-                      selectionAfterEye(machine.draft.selectedFeatureIds, tab, mode)
+                    actions.setSelection(stepId, (current) =>
+                      selectionAfterEye(current, tab, mode)
                     )
                   }
                 >

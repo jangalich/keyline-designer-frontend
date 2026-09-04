@@ -55,7 +55,7 @@ import {
   registryProposalFeatures,
   stepButton,
 } from './stepDefinitions'
-import { injectZonePatterns, zoneMark } from '../ProductionHatchPattern.jsx'
+import { injectZonePatterns, marksItsOwnEdge, zoneMark } from '../ProductionHatchPattern.jsx'
 import { CASING_WEIGHT, LINE_WEIGHT } from '../map/layers.jsx'
 import { readToken } from '../geo.js'
 
@@ -85,14 +85,25 @@ window.fetch = async (rawUrl) => {
    The step under the chrome
    =========================================================================== */
 
-/** A tab in the shape TabStrip reads: a name and two measured rows. */
+/**
+ * A tab in the shape TabStrip reads: a name and two measured rows.
+ *
+ * THE SECOND ROW CARRIES A SCALE IN ITS LABEL, because a shipped one does and
+ * that is the wider case. Water's tab reads its suitability against the
+ * ceiling the payload sent -- "0.56", "of 0.68 suitability" -- so the label
+ * column is three words rather than one, and the strip's geometry tests (does
+ * it end before the action card, does it size to its tabs, does it hold two
+ * columns on a narrow stage) have to be asked at the width the shell actually
+ * renders. A one-word label would make every one of them pass on a tab
+ * narrower than any real step's.
+ */
 function tab(index) {
   return {
     id: `zone-${index + 1}`,
     name: `Zone ${index + 1}`,
     rows: [
       { value: measure(2.5 + index), label: 'acres' },
-      { value: measure(81 - index), label: 'score' },
+      { value: measure((81 - index) / 100, 2), label: 'of 0.82 suitability' },
     ],
     eye: true,
     selected: true,
@@ -238,6 +249,50 @@ const UNCASED = [
 ]
 
 /**
+ * THE TWO SURVEY MARKS ON THE SAME GROUND, WHICH IS THE CASE THE PAIR EXISTS
+ * FOR.
+ *
+ * `cross_type_overlaps` is the payload's record of the two survey instruments
+ * independently identifying the same ground, and the module treats a
+ * high-overlap area as worth evaluating for either pond type. While both types
+ * were washes, the overlap was two translucent fills multiplying into a third,
+ * darker fill -- so the one place the reading mattered was the one place the
+ * render destroyed it.
+ *
+ * SO IT IS MEASURED RATHER THAN ARGUED. This cell stacks the embankment wash
+ * and the excavated dot field in the order the map stacks them (the panes are
+ * z-ordered embankment then excavated), on the same ground as the cells beside
+ * it, so layout.test.jsx can ask whether BOTH marks are still recoverable from
+ * the result: the wash by the tone it shifts the ground to, the dots by the
+ * high-frequency variation they add on top of it.
+ */
+const OVERLAP = [{ overlap: ['survey-embankment', 'survey-excavated'], state: 'active' }]
+
+/**
+ * THE DOT FIELD ON ITS OWN, WITHOUT ITS OUTLINE.
+ *
+ * The road's cased/uncased pair asks what a line's casing is worth. This asks
+ * the same question of the one mark that CANNOT take a casing: a per-dot halo
+ * is what killed the previous stipple (a ring at the dot's own frequency is a
+ * second texture, not a support for the first), so the only levers a dot field
+ * has are DENSITY and OPACITY. These two cells are the field alone, over both
+ * grounds, so "the density carries it over canopy" is a number rather than an
+ * inference from a measurement the outline is also inside.
+ */
+const UNOUTLINED = [
+  { treatment: 'survey-excavated', state: 'committed', unoutlined: true },
+  { treatment: 'survey-excavated', state: 'active', unoutlined: true },
+]
+
+/** The test-id suffix one ground cell answers to. */
+function cellId(cell) {
+  if (!cell) return 'bare'
+  if (cell.overlap) return `overlap-${cell.state}`
+  const suffix = cell.uncased ? '-uncased' : cell.unoutlined ? '-unoutlined' : ''
+  return `${cell.treatment}-${cell.state}${suffix}`
+}
+
+/**
  * THE SAME MARKS, OVER GROUND THEY ACTUALLY HAVE TO SIT ON.
  *
  * The grid above sits on flat mid-grey, which is the right backdrop for the
@@ -309,7 +364,7 @@ function ZoneSwatches() {
       const treatment = svg.dataset.treatment
       const mark = zoneMark(treatment)
       if (!mark) continue
-      if (mark.kind === 'pattern') {
+      if (mark.kind === 'pattern' || mark.kind === 'stipple') {
         const source = document.getElementById(`zone-pattern-${treatment}`)
         if (!source) continue
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
@@ -318,8 +373,13 @@ function ZoneSwatches() {
         defs.appendChild(clone)
         svg.insertBefore(defs, svg.firstChild)
         svg.querySelector('rect').setAttribute('fill', `url(#local-${svg.dataset.testid})`)
-        continue
+        // A STIPPLE FALLS THROUGH TO THE OUTLINE PASS BELOW; a hatch does
+        // not. Both are paint servers and only one of them draws its own
+        // edge, which is marksItsOwnEdge()'s distinction and not this file's.
+        if (!marksItsOwnEdge(mark)) continue
       }
+      // ...unless this is the cell that asks what the field carries alone.
+      if (svg.dataset.unoutlined === 'true') continue
       if (mark.kind === 'line') {
         // A ROAD: a cased line corner to corner, the halo pass under the
         // coloured line, both at the state's level -- which is what LineLayer
@@ -344,11 +404,12 @@ function ZoneSwatches() {
         svg.dataset.cased = svg.dataset.uncased === 'true' ? 'false' : 'true'
         continue
       }
-      // A TINT: the wash, then its outline over it -- one colour, one line,
-      // nothing under it. Insetting by half the stroke keeps the whole
-      // outline inside the swatch, so the screenshot measures all of it
-      // instead of half of it.
-      svg.querySelector('rect').setAttribute('fill', mark.fill)
+      // A MARK THAT DRAWS ITS OWN EDGE: the fill (a wash for a tint, a dot
+      // field for a stipple -- already set above for the latter), then its
+      // outline over it. One colour, one line, nothing under it. Insetting by
+      // half the stroke keeps the whole outline inside the swatch, so the
+      // screenshot measures all of it instead of half of it.
+      if (mark.kind === 'tint') svg.querySelector('rect').setAttribute('fill', mark.fill)
       const inset = OUTLINE_WEIGHT / 2
       const outline = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
       outline.setAttribute('x', String(inset))
@@ -404,20 +465,20 @@ function ZoneSwatches() {
         </svg>
       ))}
       {GROUNDS.map((ground, row) =>
-        [null, ...cells, ...UNCASED].map((cell, index) => (
+        [null, ...cells, ...UNCASED, ...UNOUTLINED, ...OVERLAP].map((cell, index) => (
           <div
-            key={`${ground.id}-${cell ? `${cell.treatment}-${cell.state}${cell.uncased ? '-uncased' : ''}` : 'bare'}`}
-            data-testid={
-              cell
-                ? `ground-${ground.id}-${cell.treatment}-${cell.state}${cell.uncased ? '-uncased' : ''}`
-                : `ground-${ground.id}-bare`
-            }
+            key={`${ground.id}-${cellId(cell)}`}
+            data-testid={`ground-${ground.id}-${cellId(cell)}`}
             style={{
               position: 'absolute',
               left: (index % GROUND_COLUMNS) * SWATCH_PX,
               top:
                 GROUND_TOP +
-                (row * Math.ceil((cells.length + UNCASED.length + 1) / GROUND_COLUMNS) +
+                (row *
+                  Math.ceil(
+                    (cells.length + UNCASED.length + UNOUTLINED.length + OVERLAP.length + 1) /
+                      GROUND_COLUMNS
+                  ) +
                   Math.floor(index / GROUND_COLUMNS)) *
                   SWATCH_PX,
               width: SWATCH_PX,
@@ -425,22 +486,29 @@ function ZoneSwatches() {
               background: ground.color,
             }}
           >
-            {cell ? (
+            {/* THE OVERLAP CELL IS TWO MARKS IN ONE CELL, stacked in the
+                order the map's panes stack them. Each is an ordinary
+                data-treatment svg, so the cloning pass above dresses both
+                without knowing this cell exists. */}
+            {(cell?.overlap ?? (cell ? [cell.treatment] : [])).map((treatment, depth) => (
               <svg
-                data-testid={`ground-mark-${ground.id}-${cell.treatment}-${cell.state}${cell.uncased ? '-uncased' : ''}`}
-                data-treatment={cell.treatment}
+                key={treatment}
+                data-testid={`ground-mark-${ground.id}-${cellId(cell)}${cell?.overlap ? `-${treatment}` : ''}`}
+                data-treatment={treatment}
                 data-state={cell.state}
                 data-uncased={cell.uncased ? 'true' : undefined}
+                data-unoutlined={cell.unoutlined ? 'true' : undefined}
                 width={SWATCH_PX}
                 height={SWATCH_PX}
+                style={cell?.overlap ? { position: 'absolute', left: 0, top: 0, zIndex: depth } : undefined}
               >
                 <rect
                   width={SWATCH_PX}
                   height={SWATCH_PX}
-                  fillOpacity={fillLevel(cell.treatment, cell.state)}
+                  fillOpacity={fillLevel(treatment, cell.state)}
                 />
               </svg>
-            ) : null}
+            ))}
           </div>
         ))
       )}

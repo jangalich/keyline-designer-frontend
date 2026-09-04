@@ -127,19 +127,43 @@
      hue reads as two members of one category, which is what they are; two
      different hues would read as two different KINDS of statement.
 
-     ONE MARK IN TWO VALUES, NOT TWO MARKS. The STEP is carried by the mark
-     (water is a screened tint with an outline; production is a hatch); the
-     TYPE within the step is carried by the value. So these two differ only
-     in lightness -- same hue (203.0 and 202.9 degrees), same saturation
-     (0.44 and 0.45) -- and a reader who has learned "a blue wash means
-     water" learns "lighter means embankment" without learning a second mark.
+     ONE HUE FOR THE STEP; TWO MARK KINDS FOR THE TWO TYPES. These two started
+     as one mark (a screened tint) in two values, on the argument that a reader
+     should learn one new mark per step. That argument lost to the one case the
+     pair exists for: the two survey surfaces OVERLAP on purpose --
+     `cross_type_overlaps` is the payload's record of the two instruments
+     identifying the same ground -- and two translucent fills stacked multiply
+     into a third, darker fill, so the overlap read as its own zone rather than
+     as two zones sharing ground. A tint has ONE axis (its strength), and the
+     ceiling derived below had already spent it.
 
-     EACH BLUE PAINTS THE WHOLE OF ITS ZONE: the screened tint inside and the
-     outline around it are ONE colour, at two different opacities (see the
-     --tint-* levels below). There is nothing else in the mark -- no casing
-     under the line, no second value anywhere -- so an outline in another
-     colour would be a second thing to learn about a boundary the tint
+     So the EMBANKMENT type keeps the screened tint and the EXCAVATED type is
+     now a STATIC DOT FIELD -- a fine, dense, irregular field of ~1px dots in
+     --survey-excavated, at the --pattern-* levels, with an outline in that
+     same colour. See ProductionHatchPattern.jsx for the mark and its measured
+     ink, and layout.test.jsx for the measurement.
+
+     THE TWO ARE STILL ONE HUE, and the pair below is unchanged: same hue
+     (203.0 and 202.9 degrees), same saturation (0.44 and 0.45), so the step is
+     still read as one family. What the values no longer have to do alone is
+     tell the two types apart where they coincide -- the mark kinds do that,
+     and a dot field on a wash reads as two marks rather than as one darker
+     fill.
+
+     EACH BLUE PAINTS THE WHOLE OF ITS ZONE: the fill inside -- a wash for one
+     type, a dot field for the other -- and the outline around it are ONE
+     colour. There is nothing else in either mark -- no casing under the line,
+     NO CASING UNDER A DOT, no second value anywhere -- so an outline in
+     another colour would be a second thing to learn about a boundary the fill
      already states.
+
+     THE PER-DOT CASING IS THE THING THAT MUST NOT COME BACK. An earlier
+     stipple ringed every dot on --halo and that is what killed it: the casing
+     rule is for a LINE, which has to survive imagery on its own, and a ring at
+     the dot's own frequency is a second texture rather than a support for the
+     first. A dot field carries itself on DENSITY, and the measurement says it
+     does -- the field alone, outline excluded, clears the visibility floor
+     over closed canopy by 2x at its quietest level.
 
      THE MARK IS UNCASED, AND THAT IS A REAL COST, TAKEN DELIBERATELY.
      Everywhere else on this map a line is cased on --halo, because no single
@@ -171,7 +195,14 @@
      the two must be TELLABLE APART, and that is the 2.702:1 between them.
      water.test.jsx still asserts the pair, ceiling included, so retuning one
      end cannot quietly collapse the pair or drop the value the other end was
-     placed against. */
+     placed against.
+
+     AND 2.702:1 IS WHY THE MARKS DIVERGED. It is a CEILING, not a budget: the
+     lighter blue sits between the darker one and --halo, and the best any
+     colour between two others can do against both is the geometric mean. So
+     when the overlap needed the two types told apart more strongly, there was
+     no tonal room left to buy it with -- the only axis left was the KIND of
+     mark, which is the axis the excavated dot field moves along. */
   --survey-excavated: #3d5a6c;
   --survey-embankment: #6da4c6;
 

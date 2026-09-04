@@ -45,7 +45,7 @@ import L from 'leaflet'
 import { GeoJSON, Marker, Pane, Polygon, Polyline, Tooltip } from 'react-leaflet'
 
 import { offParcelScrimRings, readToken } from '../geo.js'
-import { zoneMark } from '../ProductionHatchPattern.jsx'
+import { marksItsOwnEdge, zoneMark } from '../ProductionHatchPattern.jsx'
 
 /**
  * Its own lazily-filled token cache, for the reason DrawTool's has one:
@@ -617,12 +617,22 @@ function patternLevelFor(state) {
 }
 
 /**
- * HOW HEAVY A MARK'S FILL IS IN THIS STATE -- the pattern scale for a hatch,
- * the tint scale for a wash.
+ * HOW HEAVY A MARK'S FILL IS IN THIS STATE -- the tint scale for a wash, the
+ * pattern scale for everything else.
  *
  * THE BRANCH IS ON THE MARK'S KIND, not on the treatment's name. A step added
  * later declares a kind in one table and inherits whichever scale that kind
  * uses, instead of this function growing a list of step names.
+ *
+ * A STIPPLE IS ON THE PATTERN SCALE, WITH THE HATCH, and that is the same
+ * argument index.css makes for splitting the two scales in the first place: a
+ * wash covers all of the ground it is over, so at the pattern scale's top
+ * level it stops being a screen and becomes paint. A dot field does not -- it
+ * inks an eighth of what it covers, the imagery reads through the gaps like the
+ * hatch's, and the whole point of the mark is that it is DISCRETE INK sitting
+ * on the ground rather than a veil over it. So a stippled zone's dots and its
+ * outline are on ONE scale, which is also what makes the three levels hold
+ * for it in the same proportions they hold for a hatch.
  */
 function fillLevelFor(mark, state) {
   return mark?.kind === 'tint' ? tintLevel(stateName(state)) : patternLevel(stateName(state))
@@ -670,18 +680,27 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
     }
   }
 
-  if (mark?.kind === 'tint') {
-    // A SCREENED TINT, OUTLINED IN ITS OWN COLOUR, AND NOTHING UNDER THE LINE.
-    // One colour paints the whole mark: the wash states the area, the line
-    // states where it ends. A tint has no gaps for an extent to be inferred
-    // from, so the edge is drawn rather than implied -- and drawing it in a
-    // second colour, or ringing it in --halo, would put a second value on a
-    // boundary the wash already names.
+  if (marksItsOwnEdge(mark)) {
+    // A MARK THAT DRAWS ITS OWN BOUNDARY, IN ITS OWN COLOUR, AND NOTHING
+    // UNDER THE LINE. One colour paints the whole mark: the fill states the
+    // area, the line states where it ends. Neither of the two kinds that
+    // reach here leaves an extent inferable -- a wash has no gaps at all, and
+    // a fine dot field's edge is where the density falls off -- so the edge is
+    // drawn rather than implied, and drawing it in a second colour, or ringing
+    // it in --halo, would put a second value on a boundary the fill names.
+    //
+    // ONE BRANCH FOR BOTH KINDS, and the two differences between them are
+    // both already resolved: `mark.fill` is a colour for a tint and a paint
+    // server for a stipple, and fillLevelFor() picks the scale each fill is
+    // legible on. A third mark that draws its own edge inherits this by
+    // saying so in marksItsOwnEdge(), not by adding an arm here.
     //
     // TWO SCALES, ONE STATE. The line is ink at full strength and takes the
-    // pattern levels; the wash is a screen and takes the tint levels (see
-    // fillLevelFor). So a committed zone keeps a legible boundary while its
-    // wash falls back to context, which is what a committed layer is.
+    // pattern levels; a wash is a screen and takes the tint levels, while a
+    // dot field is ink too and stays on the pattern levels (see
+    // fillLevelFor). So a committed zone keeps a legible boundary while an
+    // embankment zone's wash falls back to context, which is what a committed
+    // layer is.
     return {
       stroke: true,
       color: mark.stroke,

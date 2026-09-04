@@ -479,11 +479,42 @@ function reduce(state, action) {
         true
       )
 
-    case DRAFT_SELECTION_SET:
+    case DRAFT_SELECTION_SET: {
+      /**
+       * A LIST, OR A FUNCTION OF THE LIST IN HAND.
+       *
+       * THE ONE THE FUNCTION FORM EXISTS FOR. The tab strip's eye computes its
+       * next selection from `machine.draft.selectedFeatureIds` -- the draft the
+       * strip was RENDERED with -- and dispatches the result. That is a stale
+       * read the moment two presses land in one React batch: both closures
+       * hold the same pre-batch list, both compute from it, and the second
+       * write silently undoes the first. (Measured: from ['a','b','c'],
+       * pressing a's eye and then b's in one batch yields ['a','c'] -- a is
+       * back.) The eye used to dispatch DRAFT_SELECTION_TOGGLED, whose next
+       * state IS computed here against the draft in hand, and composed
+       * correctly by construction; it stopped when the eye grew a selection
+       * MODE and had to compute a whole set rather than flip one id.
+       *
+       * NOT USER-REACHABLE TODAY -- two clicks are two events and React 18
+       * does not batch discrete events together -- which is exactly why it
+       * would have sat. The fix is to keep the arithmetic where the caller
+       * put it and move only the READ back into the reducer, so a caller can
+       * no longer compute from a list the store has already replaced.
+       *
+       * THE ARRAY FORM IS UNTOUCHED, so every other caller is unchanged: an
+       * outright "the selection is now this" (a step's own commit path, the
+       * roads network the generate just made) is not composing with anything.
+       */
+      const draft = draftOf(state, action.stepId)
+      const next =
+        typeof action.featureIds === 'function'
+          ? action.featureIds(draft.selectedFeatureIds)
+          : action.featureIds
       return withDraft(state, action.stepId, {
-        ...draftOf(state, action.stepId),
-        selectedFeatureIds: [...action.featureIds],
+        ...draft,
+        selectedFeatureIds: [...next],
       })
+    }
 
     case DRAFT_SELECTION_TOGGLED: {
       const draft = draftOf(state, action.stepId)
@@ -1407,6 +1438,8 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       loadLayers,
       seedDraft: (stepId, selectedFeatureIds, drawnFeatures) =>
         dispatch({ type: DRAFT_SEEDED, stepId, selectedFeatureIds, drawnFeatures }),
+      // `featureIds` is the new list, or a function of the current one. See
+      // the reducer's DRAFT_SELECTION_SET for which to pass and why.
       setSelection: (stepId, featureIds) =>
         dispatch({ type: DRAFT_SELECTION_SET, stepId, featureIds }),
       toggleSelection: (stepId, featureId) =>
