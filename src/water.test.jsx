@@ -108,6 +108,17 @@ beforeAll(() => {
   for (const [, name, value] of tokens.matchAll(/(--(?:pattern|tint)-[a-z-]+):\s*([\d.]+)\s*;/g)) {
     document.documentElement.style.setProperty(name, value)
   }
+  // AND THE ALIASES. A token in :root may be another token rather than a
+  // literal -- `--road: var(--ink)` is one, deliberately, so the road line is
+  // a REFERENCE to the ink and not a fourth brown to keep in step by hand.
+  // jsdom does not resolve var() in a computed custom property, so the two
+  // passes above would leave an aliased token unset here and every reader of
+  // it reading ''. Resolved in source order against what is already set,
+  // which is enough because :root defines a token before it aliases it.
+  for (const [, name, target] of tokens.matchAll(/(--[a-z0-9-]+):\s*var\((--[a-z0-9-]+)\)\s*;/g)) {
+    const resolved = document.documentElement.style.getPropertyValue(target)
+    if (resolved) document.documentElement.style.setProperty(name, resolved)
+  }
 })
 
 let live = false

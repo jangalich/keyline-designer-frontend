@@ -573,20 +573,44 @@ function reduce(state, action) {
       return { ...state, drafts }
     }
 
-    case JOB_SUBMITTED:
-      return {
-        ...state,
-        jobs: {
-          ...state.jobs,
-          [action.jobId]: {
-            jobId: action.jobId,
-            stepId: action.stepId,
-            status: JOB_RUNNING,
-            result: null,
-            error: null,
-          },
-        },
+    case JOB_SUBMITTED: {
+      // ONE JOB PER STEP, AS AN INVARIANT OF THE TABLE RATHER THAN A HABIT OF
+      // ITS CALLERS. selectJobForStep() answers with the FIRST entry carrying
+      // the step's id, so a second entry for the same step does not race the
+      // first -- it loses to it, permanently, because Object.values keeps
+      // insertion order and the older one is always first.
+      //
+      // THE ENTRY THAT WAS BEING LEAKED IS A FINISHED ONE. generate() already
+      // drops a job it is SUPERSEDING, but it looks that job up in a ref it
+      // clears the moment the generation settles -- so an aborted generate was
+      // cleaned up and a COMPLETED one was not, and its `done` entry stayed in
+      // the table for the life of the session. The next generate for that step
+      // then added a `running` entry behind it, and every reader asking
+      // "is this step generating" got the old answer: false.
+      //
+      // WHICH IS WHY THE ROADS STEP SHOWED IT FIRST. The reading only matters
+      // where a step generates a SECOND time with its proposals still on
+      // screen -- deriveMachineState() checks `isGenerating` before
+      // `hasProposals`, so a false reading falls through to `reviewing` and the
+      // banner offers that state's buttons while the job runs. Landform and
+      // water offer their generate in `idle` alone, so their second generate
+      // is not reachable from a state that has proposals; roads offers it in
+      // `reviewing`, and is the first step whose regenerate lands in this hole.
+      // The fix is here and not in the roads definition, because the leak is
+      // the table's and every step is standing over it.
+      const jobs = {}
+      for (const [jobId, job] of Object.entries(state.jobs)) {
+        if (job.stepId !== action.stepId) jobs[jobId] = job
       }
+      jobs[action.jobId] = {
+        jobId: action.jobId,
+        stepId: action.stepId,
+        status: JOB_RUNNING,
+        result: null,
+        error: null,
+      }
+      return { ...state, jobs }
+    }
 
     case JOB_OBSERVED: {
       const existing = state.jobs[action.snapshot.job_id]
@@ -827,7 +851,15 @@ export const selectRejectionFor = (state, stepId, featureId) =>
 
 export const selectJob = (state, jobId) => state.jobs[jobId] ?? null
 
-/** The one job this store is currently tracking for a step, if any. */
+/**
+ * The one job this store is currently tracking for a step, if any.
+ *
+ * THERE IS AT MOST ONE, and JOB_SUBMITTED is what makes that true: it drops
+ * any entry already carrying this step's id before adding the new one. This
+ * `find` is therefore reading a table with one candidate in it rather than
+ * picking a winner out of several -- which it could not do correctly anyway,
+ * since insertion order would hand it the OLDEST.
+ */
 export function selectJobForStep(state, stepId) {
   return Object.values(state.jobs).find((job) => job.stepId === stepId) ?? null
 }
@@ -846,6 +878,43 @@ export function selectFailedLayer(state, stepId) {
   const job = selectJobForStep(state, stepId)
   if (job?.status !== JOB_FAILED) return null
   return job.error?.failed_layer ?? null
+}
+
+/**
+ * A failed generate's `no_candidate {input, value}` plus the server's prose,
+ * or null: the generate RAN, over real data, and the input it ran on produced
+ * nothing to keep.
+ *
+ * THE SECOND KIND OF FAILED GENERATE, AND IT IS READ THE SAME WAY THE FIRST
+ * IS -- off a key the payload CARRIES. `failed_layer` means a source did not
+ * answer: the input is untouched, still holds its slot server-side, and a
+ * retry is worth offering. `no_candidate` means the input itself is the
+ * answer: step_orchestrator.py did not record it, its slot is free, and a
+ * retry from the same value returns the same nothing.
+ *
+ * NEITHER IS INFERRED FROM THE OTHER'S ABSENCE. The two keys are mutually
+ * exclusive and the backend sends exactly one, so a third failure kind added
+ * later reads as neither rather than being silently sorted into whichever
+ * branch was written as the default. A client that had branched on "no
+ * failed_layer" would tell a user their access point routes nothing on the
+ * day a new upstream error appeared.
+ *
+ * CARRIES THE SERVER'S OWN SENTENCE. What produced nothing is the step's
+ * fact -- an access point that routes no road -- and the step declares that
+ * prose beside the predicate that fires it (step_registry Accumulation.
+ * empty_error). A sentence composed here would be the shell knowing which
+ * step it is rendering.
+ */
+export function selectNoCandidate(state, stepId) {
+  const job = selectJobForStep(state, stepId)
+  if (job?.status !== JOB_FAILED) return null
+  const noCandidate = job.error?.no_candidate
+  if (!noCandidate) return null
+  return {
+    input: noCandidate.input ?? null,
+    value: noCandidate.value ?? null,
+    message: job.error?.error ?? null,
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -1349,7 +1418,35 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
           return await loadLayers(stepId)
         }
         // JOB_FAILED: already in the store via JOB_OBSERVED, carrying the
-        // step's failed_layer. Not an exception -- see jobs.js.
+        // step's failed_layer -- or its no_candidate. Not an exception --
+        // see jobs.js.
+        //
+        // AN INPUT THE SERVER DID NOT KEEP IS DROPPED FROM THE DRAFT TOO,
+        // and this is the whole of the client's half of that contract. The
+        // generate ran and the input produced nothing, so the server did not
+        // record it and no slot was spent; the draft is the only place it
+        // still exists, as the pending value the map draws a marker for. Left
+        // there it would be a marker for a decision the session does not hold
+        // -- and the next generate would send it again unchanged.
+        //
+        // BY THE NAME THE PAYLOAD CARRIES, never a name known here. The
+        // server says WHICH input produced nothing (`no_candidate.input`),
+        // which is what keeps this store from having to know that roads
+        // collects an access point -- the same reason `failed_layer` carries
+        // its own type rather than being looked up per step.
+        //
+        // A `failed_layer` failure clears NOTHING, deliberately: nothing is
+        // wrong with the input, the server still holds its slot, and the
+        // retry the panel offers has to have something to retry with.
+        const noCandidate = terminal.error?.no_candidate
+        if (noCandidate?.input) {
+          dispatchIfMounted({
+            type: DRAFT_INPUT_SET,
+            stepId,
+            key: noCandidate.input,
+            value: undefined,
+          })
+        }
         return false
       } catch (error) {
         handleFailure(error, stepId)

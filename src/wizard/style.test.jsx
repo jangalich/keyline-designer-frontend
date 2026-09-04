@@ -38,6 +38,7 @@ import {
   COMMIT_BUTTON,
   GENERATE_BUTTON,
   LANDFORM_STEP,
+  ROADS_STEP,
   STEP_DEFINITIONS,
   registryProposalFeatures,
 } from './stepDefinitions'
@@ -498,7 +499,12 @@ describe('4. one accent per state', () => {
     // reference. A state whose list contains either MUST render exactly one
     // oxide, and it must be that button -- so a step that demoted its own
     // commit fails here naming the state.
-    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP]) {
+    // ROADS IS IN THE LOOP NOW, and its absence is how the rule drifted: its
+    // `reviewing` offered "Add access point" in the accent BESIDE the commit,
+    // which is two forward moves in one state and exactly what the upper
+    // bound below refuses. Nothing caught it, because this loop named two
+    // steps and a third had been written since.
+    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP, ROADS_STEP]) {
       for (const state of MACHINE_STATES) {
         const buttons = definition.buttons[state] ?? []
         const primary = buttons.filter((b) => b.tone === 'primary')

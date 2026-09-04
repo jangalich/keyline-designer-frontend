@@ -206,16 +206,34 @@
   --survey-excavated: #3d5a6c;
   --survey-embankment: #6da4c6;
 
-  /* THE ROAD LINE. Umber: warm, dark, and nothing else on this map is a warm
-     dark -- --field is the green of the boundary, --oxide the accent and the
-     production hatch, the two blues are water, --ochre is the access-point
-     marker it runs from. A road is a LINE, so the no-stroke rule for ZONES
-     does not apply, and the halo-casing rule for lines does: the line sits on
-     a --halo casing (layers.jsx's CASING_WEIGHT under LINE_WEIGHT), which is
-     what carries it over imagery -- 7.8:1 against the casing, so the casing
-     is always the edge the eye finds, whatever the ground under it. Measured
-     over canopy and bare soil in layout.test.jsx like the other marks. */
-  --road: #5a3d22;
+  /* THE ROAD LINE. --ink, the text colour, and a REFERENCE rather than a
+     fourth brown: this is the one place a mark takes the ink of the type.
+
+     IT WAS UMBER (#5a3d22), AND UMBER WAS TOO CLOSE TO THE ACCENT. The
+     reasoning for it was that nothing else here is a warm dark -- but --oxide
+     (#9c4a2f) is the accent AND the production hatch, that hatch is under the
+     road from the roads step onward, and at a 2px line over imagery two warm
+     browns are one warm brown. The road read as production's own colour,
+     which made the accent look like it meant "road" and the road look like a
+     primary action.
+
+     --ink IS NOT A WARM DARK AND THAT IS THE POINT. It is the neutral this
+     interface already writes in, so the road stops competing on hue and is
+     told apart by being a LINE -- the only line on the map that is not a
+     boundary -- rather than by being the fourth brown in a palette with
+     three. Nothing else changes: --oxide keeps the accent to itself, --field
+     the boundary, the two blues water, and --ochre the access-point marker
+     the road runs from.
+
+     THE CASING IS UNTOUCHED AND STILL DOES THE WORK. A road is a LINE, so the
+     no-stroke rule for ZONES does not apply and the halo-casing rule for
+     lines does: the line sits on a --halo casing (layers.jsx's CASING_WEIGHT
+     under LINE_WEIGHT). Ink against --halo is 12.6:1 where umber was 7.8:1,
+     so the casing is a stronger edge than before, not a weaker one -- and it
+     is still the casing, not the line, that carries the road over canopy.
+     Re-measured over canopy and bare soil in layout.test.jsx like every other
+     mark, both states, whole-mark and bare. */
+  --road: var(--ink);
 
   /* HOW PRESENT A ZONE'S MARK IS, IN THREE LEVELS -- the whole of what
      distinguishes a zone's states.

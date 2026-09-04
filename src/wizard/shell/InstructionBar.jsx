@@ -153,6 +153,33 @@ export default function InstructionBar({ machine, chromeState, definitions, undo
     })
   }
 
+  /**
+   * A GENERATE THAT RAN AND PRODUCED NOTHING, which is not the notice above.
+   *
+   * `failed_layer` is "a source did not answer" -- retryable, and the input
+   * the user placed is untouched and still worth keeping. `no_candidate` is
+   * "this input is the answer": the routing pass ran over real data and found
+   * nothing to build, the server did not record the input, and its slot is
+   * free again. The two are told apart by the key the payload CARRIES, never
+   * by the absence of the other, so a failure kind neither of them describes
+   * renders as neither rather than as whichever branch was the default.
+   *
+   * IN THE SERVER'S OWN WORDS. What produced nothing is the step's own fact
+   * and the step declares the sentence for it; composing one here would be
+   * this file knowing which step it is rendering, which is the one thing it
+   * may not do. The fallback names no step either.
+   */
+  if (machine.noCandidate) {
+    notices.push({
+      key: 'no-candidate',
+      tone: 'error',
+      testId: `no-candidate-${stepId}`,
+      text:
+        machine.noCandidate.message ??
+        'That input produced nothing to keep. Try a different one.',
+    })
+  }
+
   for (const featureId of machine.rejectedFeatureIds) {
     notices.push({
       key: `rejection-${featureId}`,

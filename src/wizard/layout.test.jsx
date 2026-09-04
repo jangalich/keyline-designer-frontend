@@ -1492,6 +1492,94 @@ describeIf('the zone patterns, rendered', () => {
    * alone). A single blended fill would fail the second -- that is what "one
    * darker fill" means numerically.
    */
+  /**
+   * BLOCK-MEAN LUMINANCE, coarse. The swatch is cut into `block`-px squares
+   * and each one's mean brightness returned -- a deliberate low-pass, because
+   * the thing being looked for is coarse by definition.
+   */
+  function blockMeans({ pixels, channels, width, height }, block) {
+    const out = []
+    for (let by = 0; by + block <= height; by += block) {
+      for (let bx = 0; bx + block <= width; bx += block) {
+        let sum = 0
+        for (let y = by; y < by + block; y += 1) {
+          for (let x = bx; x < bx + block; x += 1) {
+            const i = (y * width + x) * channels
+            sum += (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3
+          }
+        }
+        out.push(sum / (block * block) / 255)
+      }
+    }
+    return out
+  }
+
+  const stdDev = (values) => {
+    const mean = values.reduce((a, b) => a + b, 0) / values.length
+    return Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length)
+  }
+
+  /**
+   * MOIRE: DOES THE LATTICE BEAT AGAINST STRUCTURE IN THE GROUND?
+   *
+   * THE QUESTION A REGULAR FIELD RAISES AND A JITTERED ONE DOES NOT. Two
+   * periodic signals laid over each other interfere, and the interference is
+   * a third pattern far coarser than either -- bands or blotches at a scale
+   * the eye reads as real variation in the zone rather than as texture. The
+   * jittered field could not produce one because it had no period to beat
+   * with; the lattice can, so it is measured rather than argued.
+   *
+   * WHAT IS MEASURED. Moire is COARSE structure that neither the ground nor
+   * the mark contains on its own, so the measure is coarse structure ADDED:
+   * block-mean brightness over 10px blocks -- nearly four times the 2.67px
+   * cell and well over most of the ground periods swept -- and the spread of
+   * those block means, with the bare ground's own spread subtracted. A field
+   * that simply darkens the ground shifts every block equally and adds
+   * nothing to the spread. A field that beats against it makes some blocks
+   * much darker than others, and that is the number.
+   *
+   * ACROSS THE ZOOM RANGE, BY SWEEPING THE GROUND. The pattern is in screen
+   * units and does not scale with the map; the imagery does. See
+   * MOIRE_PERIODS in the harness.
+   */
+  it('shows no moire where the dot lattice meets structure in the ground', async () => {
+    const periods = await page.$$eval('[data-testid^="moire-bare-"]', (nodes) =>
+      nodes.map((node) => node.dataset.testid.replace('moire-bare-', ''))
+    )
+    expect(periods.length).toBeGreaterThan(8)
+
+    const rows = []
+    for (const period of periods) {
+      const bare = decodePng(
+        await (await page.$(`[data-testid="moire-bare-${period}"]`)).screenshot({ type: 'png' })
+      )
+      const field = decodePng(
+        await (await page.$(`[data-testid="moire-field-${period}"]`)).screenshot({ type: 'png' })
+      )
+      const added = stdDev(blockMeans(field, 10)) - stdDev(blockMeans(bare, 10))
+      rows.push({ period, added })
+      // eslint-disable-next-line no-console
+      console.log(
+        `    moire  ground period ${String(period).padStart(5)}px  ` +
+          `added coarse structure ${added >= 0 ? ' ' : ''}${added.toFixed(5)}`
+      )
+    }
+
+    /**
+     * THE BOUND, AND WHY IT IS THIS NUMBER. 0.004 is the visibility floor the
+     * marks are held to elsewhere -- the point at which added ink is
+     * something rather than nothing -- and coarse structure the field ADDS is
+     * ink in exactly that sense: if a beat is under the floor it is not a
+     * mark on the page. Held at every period, not on average, because a beat
+     * lives at one frequency and an average over thirteen would bury it.
+     */
+    for (const { period, added } of rows) {
+      expect(added, `the field must add no coarse structure over ${period}px ground`).toBeLessThan(
+        0.004
+      )
+    }
+  }, SLOW)
+
   it('keeps BOTH marks present where the two survey types coincide', async () => {
     for (const ground of ['canopy', 'soil']) {
       const bare = await swatchOf(page, `ground-${ground}-bare`)
