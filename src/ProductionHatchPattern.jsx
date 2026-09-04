@@ -24,7 +24,7 @@ import { readToken } from './geo.js'
  *   tint     a flat wash of the treatment's own colour, screened back so the
  *            imagery reads through it, WITH an outline in that same colour.
  *            There is no paint server: the fill is the colour.
- *   stipple  a <pattern> of many ~1px dots at irregular positions, in the
+ *   stipple  a <pattern> of many ~1px dots on a regular lattice, in the
  *            treatment's own colour, WITH an outline in that colour. A paint
  *            server like the hatch, an outline like the tint.
  *
@@ -175,23 +175,41 @@ const TREATMENT_MARKS = [
   // A GRID AND A RADIUS, BECAUSE A TEXTURE HAS BOTH, and they are the two
   // levers a dot field has -- density and opacity, since a per-dot casing is
   // the thing that must not come back. `grid` is dots per tile side (a
-  // JITTERED grid, so the field is even at a distance and irregular up close
-  // -- see stippleTile) and `radius` is the dot. 24 dots per 64px side at
-  // r=0.55 inks 13.4% of the ground the mark covers, within a point of the
-  // hatch's eighth: the two are neighbours on one map and neither may shout.
+  // REGULAR lattice, one dot per cell at its centre -- see stippleTile) and
+  // `radius` is the dot.
+  //
+  // THE DOTS WERE TOO SMALL TO BE DOTS. 24 per 64px side put them 2.67px
+  // apart at 1.1px across -- around one device pixel, which is not a dot but
+  // an anti-aliased smudge: the renderer had no room to draw a disc, so the
+  // field read as a flat grey tint rather than as a texture, which is
+  // precisely the reading the dot field exists to avoid (a wash is what
+  // embankment is, and the two types must not be one mark at two strengths).
+  // The COVERAGE was right and the SCALE was wrong, and coverage is what a
+  // measurement of added ink sees -- which is why every number this field
+  // was tuned against looked healthy while it did not read as dots.
+  //
+  // 8 PER SIDE AT r=1.6: 8.00px apart, 3.2px across. A dot is now several
+  // pixels wide and is drawn as a disc, and the spacing carries the same
+  // ratio of ink to ground it had -- 12.6% covered, still within a point of
+  // the hatch's eighth, so the two are neighbours on one map and neither
+  // shouts. 64 divides by 8 exactly, so the lattice still tiles with no seam
+  // and no clamp (see stippleTile).
+  //
+  // NO `jitter` FIELD, and its absence is what lets the lattice tile. It
+  // displaced each dot within its cell, which cost the tile its clean repeat.
   //
   // AND NO CASING FIELD, ANYWHERE. The previous stipple ringed every dot on
   // --halo and that is what killed it: a casing is for a LINE that has to
   // survive imagery alone, and a ring at the dot's own frequency is a second
-  // texture rather than a support for the first.
+  // texture rather than a support for the first. A 3.2px dot does not need
+  // one; it is legible because it is a dot.
   {
     treatment: 'survey-excavated',
     kind: 'stipple',
     token: '--survey-excavated',
     tile: 64,
-    grid: 24,
-    radius: 0.55,
-    jitter: 0.9,
+    grid: 8,
+    radius: 1.6,
   },
   // ROADS: a cased LINE. The first mark here that is not ground. Its whole
   // description is its colour -- the weights are layers.jsx's LINE_WEIGHT and
@@ -279,72 +297,60 @@ function hatchTile(spec, colour) {
 }
 
 /**
- * A DETERMINISTIC 0..1 STREAM, so the tile is the same tile every render.
+ * A HALFTONE FIELD: many ~1px dots on a REGULAR LATTICE, one per cell,
+ * every one at its cell's centre.
  *
- * NOT Math.random(). A pattern re-injected on a remount would be a different
- * field of dots each time -- the zone would appear to shimmer as panes come
- * and go, and the measurement in layout.test.jsx would be measuring a
- * different picture from the one on the map. The generator is trivial (an
- * LCG) because nothing here needs statistical quality: what is wanted is
- * positions with no visible order, and a fixed seed gives the same ones
- * every time.
- */
-function jitterStream(seed) {
-  let state = seed >>> 0
-  return () => {
-    state = (Math.imul(state, 1664525) + 1013904223) >>> 0
-    return state / 4294967296
-  }
-}
-
-const STIPPLE_SEED = 0x5eed
-
-/**
- * A TILE OF STATIC: many ~1px dots, at irregular positions.
+ * A LATTICE RATHER THAN A JITTERED GRID, and what that buys is the SEAM. The
+ * jittered field displaced each dot by up to 0.9 of a cell, which pushed the
+ * outermost dots past the tile edge -- and an SVG <pattern> CLIPS its content
+ * there, so those had to be clamped back to [r, tile - r]. Clamping is not
+ * neutral: it piles the outer ring's dots up against the edge at a spacing
+ * the interior does not have, and since every tile carries the identical
+ * clamped ring, the repeat draws a faint lattice of its own along the tile
+ * boundaries -- the seam the jitter existed to avoid, reintroduced by the
+ * fix for the jitter. A centred lattice has no such problem to solve: the
+ * first centre is half a cell in and the last half a cell from the far edge,
+ * both more than r clear of it, so nothing is clipped, nothing is
+ * clamped, and the tile abuts its neighbour at exactly the cell spacing the
+ * interior uses. It tiles perfectly because it is periodic to begin with. At
+ * grid 8 on a 64px tile the cell is 8.00px and the first centre sits 4.00px
+ * in, 2.4px clear of the edge at r=1.6.
  *
- * A JITTERED GRID RATHER THAN N RANDOM POINTS, and the difference is what
- * makes it read as static instead of as spatter. Uniform random positions
- * clump and leave voids at exactly the scale the eye picks up, so a field of
- * them looks like a texture with structure in it. One dot per grid cell,
- * displaced within its cell, is even at a distance and has no order visible
- * up close -- which is what "static" is.
+ * THE DENSITY IS HELD AND THE SCALE IS NOT. 8x8 at r=1.6 inks 12.6% of the
+ * ground the mark covers, where the jittered 24x24 at r=0.55 inked 13.4% --
+ * the same weight, near enough, laid down in 64 dots of 3.2px instead of 576
+ * of 1.1px. The old dots were about one device pixel across and the renderer
+ * drew them as smudges rather than discs, so the field read as a flat tint;
+ * coverage could not see that, which is why the numbers stayed healthy while
+ * the mark stopped being a dot field. The measurements in layout.test.jsx are
+ * re-taken rather than inherited: arrangement and scale both moved, and a
+ * regular field at one coverage does not read like an irregular one.
  *
- * THE TILE IS BIG (64px) SO THE REPEAT IS NOT THE PATTERN. A survey zone is
- * about 90px across with the whole parcel in frame, so the field repeats
- * once or twice inside a zone rather than a dozen times; at 576 dots a tile
- * there is nothing in one repeat for the eye to learn and match against the
- * next.
- *
- * WHY NOT feTurbulence. It is the other way to make static, and it is worse
- * here on both counts that matter: it does not TILE cleanly (the noise is
- * generated in the filter region's own coordinates, so a filtered zone's
- * texture shifts as the zone is panned and re-laid-out), and it is a
+ * WHY NOT feTurbulence. Unchanged and still the reason: it does not TILE (the
+ * noise is generated in the filter region's own coordinates, so a filtered
+ * zone's texture shifts as the zone is panned and re-laid-out), and it is a
  * per-pixel filter evaluated over every zone's whole area on every repaint,
  * across a map that pans and zooms. A <pattern> is one def the renderer
  * rasterises once and repeats.
  *
- * DOTS ARE KEPT WHOLE INSIDE THE TILE. An SVG <pattern> CLIPS its content at
- * the tile edge, so a dot straddling the boundary would render as a half dot
- * -- and every tile would carry the same half dots in the same places, which
- * is a grid of seams, which is the one thing this must not have. Clamping the
- * centre to [r, tile - r] costs a fraction of a pixel on the outermost cells
- * and nothing that is visible.
+ * DETERMINISTIC WITHOUT A SEED NOW. The jittered field needed a fixed-seed
+ * LCG so a pattern re-injected on a remount was the same field of dots and
+ * the zone did not shimmer as panes came and went. A lattice is the same
+ * field by construction, so the generator and its seed are gone rather than
+ * left unused.
  *
  * NO PER-DOT CASING, which is the whole reason the previous stipple is gone.
  * See the docblock.
  */
 function stippleTile(spec, colour) {
-  const next = jitterStream(STIPPLE_SEED)
   const cell = spec.tile / spec.grid
-  const r = spec.radius
-  const inside = (value) => Math.min(Math.max(value, r), spec.tile - r)
   const dots = []
   for (let row = 0; row < spec.grid; row += 1) {
     for (let col = 0; col < spec.grid; col += 1) {
       const dot = document.createElementNS(SVG_NS, 'circle')
-      dot.setAttribute('cx', inside((col + 0.5 + (next() - 0.5) * spec.jitter) * cell).toFixed(2))
-      dot.setAttribute('cy', inside((row + 0.5 + (next() - 0.5) * spec.jitter) * cell).toFixed(2))
-      dot.setAttribute('r', String(r))
+      dot.setAttribute('cx', ((col + 0.5) * cell).toFixed(2))
+      dot.setAttribute('cy', ((row + 0.5) * cell).toFixed(2))
+      dot.setAttribute('r', String(spec.radius))
       dot.setAttribute('fill', colour)
       dots.push(dot)
     }

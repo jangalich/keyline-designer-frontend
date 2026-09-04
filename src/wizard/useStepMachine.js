@@ -51,6 +51,7 @@ import {
   selectDraft,
   selectDraftIsTouched,
   selectFailedLayer,
+  selectNoCandidate,
   selectHasDraft,
   selectJobForStep,
   selectSessionError,
@@ -430,6 +431,10 @@ export function useStepMachine(definition) {
   const rejections = useMemo(() => selectStepRejections(state, stepId), [state, stepId])
   const rejectedFeatureIds = useMemo(() => Object.keys(rejections), [rejections])
   const failedLayer = selectFailedLayer(state, stepId)
+  // THE OTHER KIND OF FAILED GENERATE. Read beside failedLayer and never
+  // instead of it: the two are mutually exclusive on the wire, and the chrome
+  // renders whichever the payload actually carried. See selectNoCandidate.
+  const noCandidate = selectNoCandidate(state, stepId)
 
   /**
    * A COMMIT THAT DID NOT LAND, and the reason it did not, when there is one.
@@ -630,6 +635,7 @@ export function useStepMachine(definition) {
     rejections,
     rejectedFeatureIds,
     failedLayer,
+    noCandidate,
     commitFailure,
     context,
     canGenerate,

@@ -80,10 +80,20 @@ const STAGES = [
   ['a squeezed stage', SQUEEZED],
 ]
 
-/** roads.test.jsx's own access point: on the reference parcel, and it routes. */
+/**
+ * roads.test.jsx's own access points: on the reference parcel, and they route.
+ *
+ * KEPT IN STEP WITH THAT FILE, and C moved when it did. It was
+ * [40.6434565, -79.9825183] and against this same backend it now routes
+ * NOTHING -- PRODUCTION_SERVICE_RADIUS_METERS is 25 m rather than 100, so the
+ * cheapest extension from there costs more per acre than the router will pay.
+ * The generate fails with `no_candidate` and produces no network, and the
+ * three-tab strip this file measures never reaches three. Re-surveyed with
+ * ONE water zone committed, which is what the flow below commits.
+ */
 const ACCESS_A = [40.6434533, -79.9836992]
 const ACCESS_B = [40.6458784, -79.9829624]
-const ACCESS_C = [40.6434565, -79.9825183]
+const ACCESS_C = [40.6450957852739, -79.9813830891847]
 
 /** A real generate against a real DEM, twice over, is not a 5s test. */
 const SLOW = 900_000

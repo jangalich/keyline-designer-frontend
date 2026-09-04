@@ -24,8 +24,13 @@
  * the router needs and every edge routes nothing -- so the end-to-end flow
  * commits water with one zone, which is also the multi-select decision the
  * water step exists to record. Each of the four routes a DIFFERENT network:
- * A on the west edge (a trunk and a spur), B on the north edge (five
- * branches), C on the south-west edge (a trunk alone), D for the cap.
+ * A on the west edge (four branches), B on the north edge (four), D beside
+ * it (six, and the one the cap test fills its freed slot with), and C on the
+ * north-east edge a trunk alone.
+ *
+ * RE-SURVEYED FOR THIS BRANCH'S ROUTING CONSTANTS, and one of the four had
+ * to move -- see the note on ACCESS_C. A survey is only true of the numbers
+ * it was taken under.
  *
  * Sections (the branch's numbered tests in brackets):
  *   1  [1]  END TO END: place -> generate -> tab; add a second; both tabs,
@@ -63,6 +68,8 @@ import {
   buildCommitBody,
   selectDraft,
   selectStepFeatures,
+  selectFailedLayer,
+  selectNoCandidate,
   selectStepInputs,
   selectStepStatus,
   useSession,
@@ -88,7 +95,7 @@ import {
   roadNetworkName,
   roadNetworks,
 } from './wizard/stepDefinitions'
-import { REVIEWING } from './wizard/useStepMachine.js'
+import { GENERATING, MACHINE_STATES, REVIEWING } from './wizard/useStepMachine.js'
 import { selectionAfterEye, tabIsFocused } from './wizard/shell/TabStrip.jsx'
 import { resetStepCatalog } from './wizard/stepCatalog.jsx'
 import WizardShell from './wizard/WizardShell.jsx'
@@ -105,10 +112,21 @@ const toLatLng = (ring) => ring.map(([lng, lat]) => [lat, lng])
 const BOUNDARY = toLatLng(rings.boundary)
 
 /* THE FOUR SURVEYED ACCESS POINTS, [lat, lng] as a map click delivers them,
-   each exactly on the parcel's edge. See the header. */
+   each exactly on the parcel's edge. See the header.
+
+   C MOVED, AND THE OLD ONE IS WHY THIS SURVEY HAD TO BE RE-RUN. It was
+   [40.6434565, -79.9825183], and against this same server it now routes
+   NOTHING: PRODUCTION_SERVICE_RADIUS_METERS is 25 m rather than 100, so a
+   road cell serves a sixteenth of the ground it used to, and the cheapest
+   extension from that point already costs more per acre than the router will
+   pay. The generate fails with `no_candidate` instead of returning a
+   network -- correctly -- and a test that waits for a tab from it waits
+   forever. So the ring was swept again with ONE water zone committed, the
+   configuration these sections actually drive, and C is now a point that
+   routes a trunk alone. A, B and D were re-measured and still route. */
 const ACCESS_A = [40.6434533, -79.9836992]
 const ACCESS_B = [40.6458784, -79.9829624]
-const ACCESS_C = [40.6434565, -79.9825183]
+const ACCESS_C = [40.6450957852739, -79.9813830891847]
 const ACCESS_D = [40.6458453, -79.98361]
 
 /* ---------------------------------------------------------------------------
@@ -122,6 +140,17 @@ beforeAll(() => {
   }
   for (const [, name, value] of tokens.matchAll(/(--(?:pattern|tint)-[a-z-]+):\s*([\d.]+)\s*;/g)) {
     document.documentElement.style.setProperty(name, value)
+  }
+  // AND THE ALIASES. A token in :root may be another token rather than a
+  // literal -- `--road: var(--ink)` is one, deliberately, so the road line is
+  // a REFERENCE to the ink and not a fourth brown to keep in step by hand.
+  // jsdom does not resolve var() in a computed custom property, so the two
+  // passes above would leave an aliased token unset here and every reader of
+  // it reading ''. Resolved in source order against what is already set,
+  // which is enough because :root defines a token before it aliases it.
+  for (const [, name, target] of tokens.matchAll(/(--[a-z0-9-]+):\s*var\((--[a-z0-9-]+)\)\s*;/g)) {
+    const resolved = document.documentElement.style.getPropertyValue(target)
+    if (resolved) document.documentElement.style.setProperty(name, resolved)
   }
 })
 
@@ -196,6 +225,19 @@ async function renderApp({ center = BOUNDARY[0], definitions } = {}) {
     },
     get cursor() {
       return cursor
+    },
+    /**
+     * The store's actions, UNWRAPPED.
+     *
+     * `run` below wraps a call in React.act and AWAITS it, which is right for
+     * an action that settles on its own. It deadlocks on one that is
+     * deliberately held open -- a generate whose job stays `running` until the
+     * test releases it -- because the assertions that have to happen DURING it
+     * would be a second, overlapping act(). Those tests start the call here
+     * and drive the clock with waitFor, which does its ticking inside act.
+     */
+    get actions() {
+      return session.actions
     },
     get map() {
       return map
@@ -664,7 +706,12 @@ function installFetch(routes) {
     const responses = Array.isArray(route.responses) ? route.responses : [route.responses]
     const index = Math.min(cursors.get(route) ?? 0, responses.length - 1)
     cursors.set(route, index + 1)
-    const { status = 200, body } = typeof responses[index] === 'function' ? responses[index](calls[calls.length - 1]) : responses[index]
+    // AWAITED, so a route may HOLD ITS ANSWER. A function response that
+    // returns a promise lets a test keep a request in flight and look at the
+    // UI while it is -- which is the only way to see a state that lasts
+    // exactly as long as a round trip.
+    const answer = typeof responses[index] === 'function' ? await responses[index](calls[calls.length - 1]) : responses[index]
+    const { status = 200, body } = answer
     return { ok: status >= 200 && status < 300, status, json: async () => body }
   })
   return calls
@@ -1131,5 +1178,377 @@ describe('14. what the definition declares, and what the shell does not know', (
     expect(plain.selection).toEqual({ mode: 'multiple' })
     expect(plain.accumulate).toBeNull()
     expect(plain.groupOf).toBeNull()
+  })
+})
+
+/* ===========================================================================
+   15. THE GENERATING STATE, AND THE TWO KINDS OF FAILED GENERATE
+   ===========================================================================
+   Three things that only became reachable when a step could generate a SECOND
+   time with its proposals still on screen -- which roads is the first to do.
+   =========================================================================== */
+
+/**
+ * TWO GENERATES, THE SECOND HELD OPEN, THEN ANSWERED.
+ *
+ * THE FIRST ONE IS NOT SCENERY, and leaving it out is what made an earlier
+ * version of this fixture unable to fail. The defect these tests are written
+ * against lives in the store's JOB TABLE: a finished job for a step was left
+ * in it, and the next generate's entry went in BEHIND that one, where
+ * selectJobForStep -- which answers with the first entry carrying the step's
+ * id -- could never see it. A test that resumes straight into a generated
+ * step has no first job in the table at all, so the second is the only entry,
+ * `find` gets it right by accident, and the bug hides. So generate ONCE for
+ * real, let it finish, and only then hold the second open.
+ *
+ * THE HOLD IS THE POINT of that second one: the banner has to be looked at
+ * WHILE the job runs, and a route that answers `done` on the first poll never
+ * lets the render happen. `job-2` stays `running` until `release()`.
+ */
+function twoGenerates({ recorded = [AP_A, AP_B], answer }) {
+  let released = false
+  const document_ = serverDocument({
+    roads: { status: GENERATED, inputs: { [ACCESS_POINTS_LIST]: recorded } },
+  })
+  const terminal = typeof answer === 'function' ? answer(document_) : answer
+  const routes = [
+    route('GET', /^\/api\/sessions\/sess-roads$/, { body: document_ }),
+    route('GET', /\/steps\/roads\/layers$/, { body: roadsPayload() }),
+    // job-1 on the first POST, job-2 on every one after it.
+    route('POST', /\/steps\/roads\/generate$/, [
+      { status: 202, body: { job_id: 'job-1', status: 'running' } },
+      { status: 202, body: { job_id: 'job-2', status: 'running' } },
+    ]),
+    route('GET', /^\/api\/jobs\/job-1$/, {
+      body: {
+        job_id: 'job-1',
+        status: 'done',
+        result: { payload: roadsPayload(), document: document_ },
+      },
+    }),
+    route('GET', /^\/api\/jobs\/job-2$/, [
+      () =>
+        released
+          ? { body: { job_id: 'job-2', ...terminal } }
+          : { body: { job_id: 'job-2', status: 'running' } },
+    ]),
+  ]
+  return { routes, release: () => { released = true } }
+}
+
+/** Resume onto a generated roads step and run the FIRST generate to completion. */
+async function afterOneGenerate(routes) {
+  installFetch(routes)
+  const ui = await renderApp({ center: [40.72, -74.0] })
+  await ui.run((a) => a.resume('sess-roads'))
+  await ui.waitFor('the roads payload', () => ui.roads != null, 5000)
+  await ui.run((a) => a.generate('roads', accessPointParams([40.7185, -74.014])))
+  await ui.waitFor('the first generate to settle', () => ui.find('access-roads') !== null, 5000)
+  return ui
+}
+
+/** Each of these drives a real generate through a poll cycle. */
+const SECTION_15_TIMEOUT_MS = 30000
+
+describe('15. the generating state, and the two kinds of failed generate', () => {
+  /**
+   * [test 1] A JOB IS RUNNING, SO THE BANNER OFFERS NOTHING AND SAYS SO.
+   *
+   * THE BUG THIS PINS. The roads definition has always declared
+   * `[GENERATING]: []`, and deriveMachineState has always checked
+   * `isGenerating` before `hasProposals` -- and the reviewing pair rendered
+   * through the whole generate anyway. The reading was wrong further down:
+   * the store's job table kept the FINISHED job for a step and added the new
+   * one behind it, and selectJobForStep answers with the first entry it
+   * finds, which is the old one. So `isGenerating` was false, the machine
+   * fell through to `reviewing`, and the banner offered that state's buttons.
+   *
+   * ASSERTED ON RENDERED CONTENT, not on the machine's state field: a state
+   * that reads `generating` while the wrong buttons are on screen is the
+   * failure this is written against.
+   */
+  it('renders a progress indicator during a second generate, never the reviewing pair', async () => {
+    const { routes, release } = twoGenerates({
+      // THE DOCUMENT THE GENERATE MOVED TO -- the same one, still generated.
+      // A `not_started` roads entry here would land the step somewhere else
+      // entirely and the buttons coming back would say nothing.
+      answer: (document_) => ({
+        status: 'done',
+        result: { payload: roadsPayload(), document: document_ },
+      }),
+    })
+    const ui = await afterOneGenerate(routes)
+
+    // REVIEWING FIRST, so what changes is visible as a change. This is the
+    // pair the bug left on screen.
+    expect(ui.find('access-roads')).not.toBeNull()
+    expect(ui.find('commit-roads')).not.toBeNull()
+
+    // A SECOND GENERATE, held open.
+    const running = ui.actions.generate('roads', accessPointParams([40.715, -74.01]))
+    await ui.waitFor('the generate to be in flight', () => ui.find('access-roads') === null, 5000)
+
+    // NEITHER REVIEWING BUTTON IS ON SCREEN...
+    expect(ui.find('access-roads')).toBeNull()
+    expect(ui.find('commit-roads')).toBeNull()
+    // ...AND THE CARD IS STILL THERE, SAYING WHAT IS HAPPENING. "No buttons"
+    // is not "nothing to say": the banner reports the machine state, and an
+    // empty card in the corner reads as a rendering fault.
+    const banner = ui.find('banner-roads')
+    expect(banner).not.toBeNull()
+    const working = ui.find('working-roads')
+    expect(working).not.toBeNull()
+    expect(working.textContent).toMatch(/Generating/i)
+    expect(working.getAttribute('role')).toBe('status')
+    // THE CARD KEEPS ITS SHAPE AND LOSES ITS CONTENTS -- boundary's
+    // `committing` exactly. The actions row is still in the DOM and holds no
+    // control, which is what "the buttons do not stay" means here: an empty
+    // card in the corner would read as a rendering fault, so the region
+    // reports instead of vanishing.
+    expect(ui.find('actions-roads').children).toHaveLength(0)
+
+    release()
+    await ui.run(() => running)
+    await ui.waitFor('the buttons back', () => ui.find('access-roads') !== null, 5000)
+    expect(ui.find('commit-roads')).not.toBeNull()
+    await ui.unmount()
+  }, SECTION_15_TIMEOUT_MS)
+
+  /**
+   * [test 1, the split second] THE BUTTONS GO ON THE PRESS, NOT ON THE REPLY.
+   *
+   * THE SECOND HALF OF THE SAME BUG, and the half that survived the first
+   * fix. Dropping the superseded job stopped the reviewing pair staying for
+   * the WHOLE generate; it left them showing for the first frames of one,
+   * because `generating` is read off the store's job table and the table did
+   * not hear about a generate until the POST came back with an id. That round
+   * trip is short and it is not zero -- reported as "still showing up for a
+   * split second".
+   *
+   * SO THE POST IS HELD OPEN HERE, not the job. `release()` lets the submit
+   * answer; every assertion before it happens while the request is still in
+   * flight and no job id exists anywhere. A store that waits for the id
+   * cannot pass this.
+   */
+  it('drops the reviewing pair on the press, before the submit is answered', async () => {
+    let letSubmitAnswer = null
+    const held = new Promise((resolve) => {
+      letSubmitAnswer = resolve
+    })
+    const document_ = serverDocument({
+      roads: { status: GENERATED, inputs: { [ACCESS_POINTS_LIST]: [AP_A, AP_B] } },
+    })
+    installFetch([
+      route('GET', /^\/api\/sessions\/sess-roads$/, { body: document_ }),
+      route('GET', /\/steps\/roads\/layers$/, { body: roadsPayload() }),
+      route('POST', /\/steps\/roads\/generate$/, async () => {
+        await held
+        return { status: 202, body: { job_id: 'job-9', status: 'running' } }
+      }),
+      route('GET', /^\/api\/jobs\/job-9$/, {
+        body: { job_id: 'job-9', status: 'done', result: { payload: roadsPayload(), document: document_ } },
+      }),
+    ])
+    const ui = await renderApp({ center: [40.72, -74.0] })
+    await ui.run((a) => a.resume('sess-roads'))
+    await ui.waitFor('the roads payload', () => ui.roads != null, 5000)
+    expect(ui.find('access-roads')).not.toBeNull()
+    expect(ui.find('commit-roads')).not.toBeNull()
+
+    const running = ui.actions.generate('roads', accessPointParams([40.715, -74.01]))
+    // ONE FLUSH, NO POLLING. The submit has not answered and cannot while
+    // this runs, so if the pair is still here after React has rendered the
+    // dispatch, it is here for a user to see.
+    await ui.run(() => Promise.resolve())
+    expect(ui.find('access-roads'), 'the pair must go on the press').toBeNull()
+    expect(ui.find('commit-roads')).toBeNull()
+    expect(ui.find('working-roads').textContent).toMatch(/Generating/i)
+
+    letSubmitAnswer()
+    await ui.run(() => running)
+    await ui.waitFor('the buttons back', () => ui.find('access-roads') !== null, 5000)
+    await ui.unmount()
+  }, SECTION_15_TIMEOUT_MS)
+
+  /**
+   * [test 2] A ROUTER FAILURE LEAVES NO TAB, NO MARKER AND NO SPENT SLOT.
+   *
+   * The backend did not record the access point -- it routed nothing, and a
+   * retry from the same point routes nothing again -- so there is no network
+   * to make a tab from and no recorded input to make a marker from. What the
+   * CLIENT has to let go of is the PENDING value in its own draft, which is
+   * the marker the user has been looking at since they placed it.
+   */
+  it('clears the tab and the pending access point when the router finds nothing, and frees the slot', async () => {
+    const NO_ROUTE = {
+      error: 'No road network could be routed from that access point.',
+      no_candidate: { input: ACCESS_POINT_INPUT, value: [-74.01, 40.715] },
+    }
+    const { routes, release } = twoGenerates({ answer: { status: 'failed', error: NO_ROUTE } })
+    const ui = await afterOneGenerate(routes)
+
+    const tabsBefore = ui.all('[data-tab-id]').length
+    const markersBefore = ui.markers().length
+    const slotsBefore = ui.roads.summary.slots_remaining
+
+    // PLACE IT: the pending marker appears, which is the thing that has to go.
+    await ui.run((a) => a.setDraftInput('roads', ACCESS_POINT_INPUT, [40.715, -74.01]))
+    expect(selectDraft(ui.state, 'roads').inputs[ACCESS_POINT_INPUT]).toBeDefined()
+    expect(ui.markers().length).toBe(markersBefore + 1)
+
+    const running = ui.actions.generate('roads', accessPointParams([40.715, -74.01]))
+    release()
+    await ui.run(() => running)
+    await ui.waitFor('the failure to land', () => selectNoCandidate(ui.state, 'roads') !== null, 5000)
+
+    // THE KIND IS READ OFF A KEY THE PAYLOAD CARRIES, and the other kind's
+    // key is absent -- neither is inferred from the other missing.
+    expect(selectNoCandidate(ui.state, 'roads')).toEqual({
+      input: ACCESS_POINT_INPUT,
+      value: [-74.01, 40.715],
+      message: NO_ROUTE.error,
+    })
+    expect(selectFailedLayer(ui.state, 'roads')).toBeNull()
+
+    // NO TAB, AND THE PENDING MARKER IS GONE WITH THE INPUT THAT DREW IT.
+    expect(ui.all('[data-tab-id]')).toHaveLength(tabsBefore)
+    expect(selectDraft(ui.state, 'roads').inputs[ACCESS_POINT_INPUT]).toBeUndefined()
+    expect(ui.markers().length).toBe(markersBefore)
+
+    // THE ERROR IS SHOWN, in the server's own sentence.
+    const notice = ui.find('no-candidate-roads')
+    expect(notice).not.toBeNull()
+    expect(notice.textContent).toContain('No road network could be routed')
+    // ONE FAILURE, ONE SENTENCE. Not the other kind's notice, and not the
+    // raw step-error line either -- a failed job writes its error on the JOB
+    // and not on the step, so there is nothing for that line to print.
+    expect(ui.find('failed-layer-roads')).toBeNull()
+    expect(ui.find('error-roads')).toBeNull()
+
+    // THE SLOT IS FREE: nothing was recorded, so nothing was spent, and the
+    // client reads that off the payload rather than tracking it separately.
+    expect(ui.roads.summary.slots_remaining).toBe(slotsBefore)
+    expect(recordedAccessPoints(ui.state, 'roads')).toHaveLength(tabsBefore)
+    expect(ui.find('access-roads').disabled).toBe(false)
+    await ui.unmount()
+  }, SECTION_15_TIMEOUT_MS)
+
+  /**
+   * [test 3] AN UPSTREAM FAILURE KEEPS BOTH, AND OFFERS THE RETRY.
+   *
+   * THE CONTROL THAT MAKES THE NARROWING REAL. Nothing is wrong with the
+   * access point when a data source does not answer: the server still holds
+   * its slot, the same point is what a retry has to be made from, and
+   * throwing it away would make the user place it again to ask the same
+   * question. Unchanged behaviour, asserted so it stays that way.
+   */
+  it('keeps the pending access point and offers a retry when a data source fails', async () => {
+    const FAILED_LAYER = {
+      error: 'The tree canopy height could not be retrieved.',
+      failed_layer: { type: 'canopy', label: 'tree canopy height' },
+    }
+    const { routes, release } = twoGenerates({ answer: { status: 'failed', error: FAILED_LAYER } })
+    const ui = await afterOneGenerate(routes)
+
+    const markersBefore = ui.markers().length
+    await ui.run((a) => a.setDraftInput('roads', ACCESS_POINT_INPUT, [40.715, -74.01]))
+    expect(ui.markers().length).toBe(markersBefore + 1)
+
+    const running = ui.actions.generate('roads', accessPointParams([40.715, -74.01]))
+    release()
+    await ui.run(() => running)
+    await ui.waitFor('the failure to land', () => selectFailedLayer(ui.state, 'roads') !== null, 5000)
+
+    // THE OTHER KIND, AND IT CARRIES ITS OWN KEY TOO.
+    expect(selectFailedLayer(ui.state, 'roads')).toEqual(FAILED_LAYER.failed_layer)
+    expect(selectNoCandidate(ui.state, 'roads')).toBeNull()
+
+    // BOTH KEPT: the input is still in the draft and its marker is still on
+    // the map, so the retry has something to retry with.
+    expect(selectDraft(ui.state, 'roads').inputs[ACCESS_POINT_INPUT]).toEqual([40.715, -74.01])
+    expect(ui.markers().length).toBe(markersBefore + 1)
+
+    // THE NOTICE NAMES THE SOURCE, and the no-candidate notice is not on
+    // screen -- one failure, one sentence.
+    expect(ui.find('failed-layer-roads')).not.toBeNull()
+    expect(ui.find('failed-layer-roads').textContent).toContain('tree canopy height')
+    expect(ui.find('no-candidate-roads')).toBeNull()
+
+    // AND THE RETRY IS OFFERED: the step is back in a state that can generate
+    // from the point still in hand.
+    expect(ui.find('generate-roads') ?? ui.find('access-roads')).not.toBeNull()
+    await ui.unmount()
+  }, SECTION_15_TIMEOUT_MS)
+
+  /**
+   * [test 5] ONE OXIDE PER STATE, STILL -- AND NOTHING TOOK THE ROAD COLOUR.
+   *
+   * THE FAILURE THIS IS WRITTEN AGAINST. --road is now --ink. If any CONTROL
+   * had been painted from the road's token -- a button for the roads step
+   * borrowing the colour of the thing it makes -- it would have been umber
+   * before and would now render in the text colour, which is the "generic UI
+   * kit" look the style branch diagnosed. So both halves are asserted: no
+   * control references the road token at all, and the accent is still spent
+   * exactly once per state.
+   */
+  it('keeps one oxide per state and lets no control take the road colour', () => {
+    // NO CONTROL PAINTS ITSELF FROM THE ROAD'S TOKEN. The road token belongs
+    // to a MARK ON THE MAP; the chrome's colours are the chrome's.
+    const CHROME = [
+      'App.css',
+      'index.css',
+      'wizard/shell/ActionBanner.jsx',
+      'wizard/shell/InstructionBar.jsx',
+      'wizard/shell/TabStrip.jsx',
+      'wizard/shell/DetailPanel.jsx',
+      'wizard/shell/StepRail.jsx',
+    ]
+    for (const file of CHROME) {
+      const code = readFileSync(path.join(SRC, file), 'utf8')
+      for (const [, rule] of code.matchAll(/([^}]*var\(--road\)[^}]*)/g)) {
+        // index.css DECLARES the token; nothing may CONSUME it as a control's
+        // own paint. The declaration is the one line that assigns it.
+        expect(rule.trim().startsWith('--road:'), `${file} paints a control from --road`).toBe(true)
+      }
+    }
+
+    // AND THE ROAD IS THE INK, by reference rather than by a second literal.
+    const tokens = readFileSync(path.join(SRC, 'index.css'), 'utf8')
+    expect(tokens).toMatch(/--road:\s*var\(--ink\)\s*;/)
+    expect(zoneMark('road').stroke).toBe(
+      getComputedStyle(document.documentElement).getPropertyValue('--ink').trim()
+    )
+
+    // ONE PRIMARY PER STATE, FOR EVERY STATE THE ROADS STEP DECLARES. The
+    // table is the spec, the same way style.test.jsx's is: an unlisted state
+    // fails, because adding one without deciding what it offers is how the
+    // accent goes missing.
+    const EXPECTED = {
+      // Placing the access point IS the forward move from an empty step.
+      idle: 1,
+      // A point is down and not yet generated from: generate is the move,
+      // cancel is the escape beside it.
+      editing: 1,
+      // A job is running. Nothing to press, and nothing to urge.
+      generating: 0,
+      // The payload is not here; a commit over it is a decision the user
+      // cannot see being recorded.
+      loading: 0,
+      // Commit. "Add access point" beside it is not a forward move.
+      reviewing: 1,
+      // A request in flight offers nothing.
+      committing: 0,
+      // Reopen is a move backwards into finished work.
+      committed: 0,
+    }
+    expect(Object.keys(EXPECTED).sort()).toEqual([...MACHINE_STATES].sort())
+    for (const state of MACHINE_STATES) {
+      const primary = (ROADS_STEP.buttons[state] ?? []).filter((b) => b.tone === 'primary')
+      expect({ state, oxide: primary.length }).toEqual({ state, oxide: EXPECTED[state] })
+    }
+    // AND THE ACCENT IS ACTUALLY IN USE: a step whose every state came out
+    // zero would satisfy the rule above and be the regression exactly.
+    expect(Object.values(EXPECTED).some((n) => n === 1)).toBe(true)
+    expect(ROADS_STEP.buttons[GENERATING]).toEqual([])
   })
 })

@@ -284,6 +284,48 @@ const UNOUTLINED = [
   { treatment: 'survey-excavated', state: 'active', unoutlined: true },
 ]
 
+/**
+ * THE MOIRE ROW: the dot field over ground that HAS STRUCTURE, at a range of
+ * structure frequencies.
+ *
+ * WHY THE TWO GROUNDS ABOVE CANNOT ASK THIS. They are flat colours on
+ * purpose -- the measure they serve is the ink a mark ADDS over its own
+ * ground, and that subtraction needs a ground with no texture of its own to
+ * be confused with the mark's. A flat ground also cannot BEAT against
+ * anything, so it is exactly the wrong ground for the one question a regular
+ * lattice raises and a jittered field did not: two periodic signals laid over
+ * each other interfere, and the interference is a third, much coarser pattern
+ * that neither one contains.
+ *
+ * WHAT VARIES IS THE GROUND, NOT THE MARK, AND THAT IS THE ZOOM RANGE. The
+ * pattern is a <pattern> in screen units, so the lattice is the same 2.67px
+ * cell at every zoom -- panning and zooming the map does not stretch it. What
+ * changes with zoom is the IMAGERY: a tree crown that is 3px across at parcel
+ * zoom is 30px across four levels in. So sweeping the ground's period from
+ * under the cell spacing to well over it IS sweeping the zoom range, and it
+ * is the honest way round -- driving a real map would make the answer depend
+ * on a tile fetch.
+ *
+ * A GRID, NOT STRIPES. Imagery structure is two-dimensional and a lattice can
+ * beat on either axis; a striped ground would only ever test one of them, and
+ * would pass a field that banged badly against the other. These periods
+ * bracket the 2.67px cell spacing from half of it to nine times it, in steps
+ * fine enough that a beat cannot hide between two of them.
+ */
+const MOIRE_PERIODS = [1.5, 2, 2.5, 2.67, 3, 3.5, 4, 5, 6, 8, 11, 16, 24]
+
+/** A textured ground: canopy, with a finer/darker grid at `period` px over it. */
+function moireGround(period) {
+  return {
+    backgroundColor: '#2e3a24',
+    backgroundImage:
+      'repeating-linear-gradient(0deg, rgba(0,0,0,0.35) 0 1px, rgba(0,0,0,0) 1px ' +
+      `${period}px), ` +
+      'repeating-linear-gradient(90deg, rgba(0,0,0,0.35) 0 1px, rgba(0,0,0,0) 1px ' +
+      `${period}px)`,
+  }
+}
+
 /** The test-id suffix one ground cell answers to. */
 function cellId(cell) {
   if (!cell) return 'bare'
@@ -326,6 +368,9 @@ const GROUND_TOP = SWATCH_PX * TREATMENTS.length + 20
 
 /** A ground's cells wrap at this many columns, to stay inside a 1280px frame. */
 const GROUND_COLUMNS = 14
+
+/** Clear of both ground rows above. Their height is computed the same way. */
+const MOIRE_TOP = GROUND_TOP + SWATCH_PX * 12
 
 /**
  * WHAT THE SWATCH FOR ONE TREATMENT IS MADE OF -- read from the same table the
@@ -464,6 +509,44 @@ function ZoneSwatches() {
           <rect width={SWATCH_PX} height={SWATCH_PX} fillOpacity={fillLevel(treatment, state)} />
         </svg>
       ))}
+      {/* THE MOIRE SWEEP. Each period gets the field alone (no outline, so
+          what is measured is the lattice and nothing else) and the same
+          ground bare beside it, for the difference the test takes. */}
+      {MOIRE_PERIODS.map((period, index) =>
+        ['bare', 'field'].map((which) => (
+          <div
+            key={`moire-${period}-${which}`}
+            data-testid={`moire-${which}-${period}`}
+            style={{
+              position: 'absolute',
+              left: (index % GROUND_COLUMNS) * SWATCH_PX,
+              top:
+                MOIRE_TOP +
+                (Math.floor(index / GROUND_COLUMNS) * 2 + (which === 'field' ? 1 : 0)) * SWATCH_PX,
+              width: SWATCH_PX,
+              height: SWATCH_PX,
+              ...moireGround(period),
+            }}
+          >
+            {which === 'field' ? (
+              <svg
+                data-testid={`moire-mark-${period}`}
+                data-treatment="survey-excavated"
+                data-state="active"
+                data-unoutlined="true"
+                width={SWATCH_PX}
+                height={SWATCH_PX}
+              >
+                <rect
+                  width={SWATCH_PX}
+                  height={SWATCH_PX}
+                  fillOpacity={fillLevel('survey-excavated', 'active')}
+                />
+              </svg>
+            ) : null}
+          </div>
+        ))
+      )}
       {GROUNDS.map((ground, row) =>
         [null, ...cells, ...UNCASED, ...UNOUTLINED, ...OVERLAP].map((cell, index) => (
           <div

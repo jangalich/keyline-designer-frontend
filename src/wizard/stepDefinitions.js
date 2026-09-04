@@ -2615,9 +2615,8 @@ export function addAccessPointBlocked(context) {
  * user asks to place a point. A tool that armed itself on step entry would
  * turn every stray map click into a decision about where the driveway is.
  */
-const ROADS_ACCESS = stepButton({
+const ROADS_ACCESS_SPEC = {
   key: 'access',
-  tone: 'primary',
   label: ({ machine }) =>
     accessPointParams(machine.draft) ? 'Generate from this point' : 'Add access point',
   enabled: ({ machine }) => {
@@ -2630,7 +2629,27 @@ const ROADS_ACCESS = stepButton({
     if (!accessPointParams(machine.draft)) return arm('draw')
     return generateRoadNetwork({ machine, disarm, focusFeature })
   },
-})
+}
+
+/**
+ * THE SAME BUTTON, TWICE, AND THE ONLY DIFFERENCE IS THE ACCENT.
+ *
+ * ONE ACCENT PER STATE, and the accent is the state's FORWARD MOVE. From an
+ * empty step, placing the access point is the forward move -- there is
+ * nothing else to move toward -- so it carries the oxide. From `reviewing`
+ * there is already a network and the forward move is the COMMIT; adding
+ * another access point is a lateral one, a second thing to compare, and a
+ * step that painted it in the accent beside the commit would be offering two
+ * forward moves and letting the user pick which one the design meant.
+ *
+ * THE PRECEDENT IS LANDFORM'S, EXACTLY. Its `reviewing` is [LANDFORM_DRAW,
+ * COMMIT_BUTTON] -- "Draw a zone" beside the commit -- and LANDFORM_DRAW
+ * takes stepButton's default `secondary`. This is the same pairing and now
+ * takes the same answer; it did not, and roads was simply never in the loop
+ * that checks the rule (style.test.jsx section 4, which now includes it).
+ */
+const ROADS_ACCESS = stepButton({ ...ROADS_ACCESS_SPEC, tone: 'primary' })
+const ROADS_ACCESS_BESIDE_COMMIT = stepButton({ ...ROADS_ACCESS_SPEC, tone: 'secondary' })
 
 /**
  * Route a network from the pending access point.
@@ -2885,7 +2904,7 @@ export const ROADS_STEP = documentStep({
     [IDLE]: [ROADS_ACCESS],
     [EDITING]: [ROADS_CANCEL, ROADS_GENERATE],
     [GENERATING]: [],
-    [REVIEWING]: [ROADS_ACCESS, COMMIT_BUTTON],
+    [REVIEWING]: [ROADS_ACCESS_BESIDE_COMMIT, COMMIT_BUTTON],
     [COMMITTING]: [],
     [STEP_COMMITTED]: [REOPEN_BUTTON],
   },
@@ -2909,16 +2928,23 @@ export const ROADS_STEP = documentStep({
       })
     }
 
+    // A CANDIDATE THAT ROUTED NOTHING. Rare now and no longer what a FAILED
+    // generate looks like: the server does not record an access point its
+    // router refused, so a fresh one never becomes a candidate at all -- that
+    // failure is reported as `no_candidate` and the bar prints it. What can
+    // still reach here is a candidate recorded when it DID route and rebuilt
+    // later, on a cold cache, into nothing.
+    //
+    // AND THE 'corridor_too_short' BRANCH IS GONE WITH THE FLOOR THAT RAISED
+    // IT. road_corridors.MIN_CORRIDOR_LENGTH_METERS is deleted, so no run
+    // produces that stop_reason and a sentence for it would be a special case
+    // for a value that cannot arrive.
     networks.forEach((network, index) => {
       if (network.network_found) return
       lines.push({
         key: `no-network-${network.network_id}`,
         tone: 'caution',
-        text: `Access point ${index + 1} routed no network: ${
-          network.stop_reason === 'corridor_too_short'
-            ? 'the ground it can serve is already within reach of the road.'
-            : `the router stopped (${network.stop_reason}).`
-        }`,
+        text: `Access point ${index + 1} routed no network: the router stopped (${network.stop_reason}).`,
       })
     })
 

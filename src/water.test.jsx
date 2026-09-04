@@ -108,6 +108,17 @@ beforeAll(() => {
   for (const [, name, value] of tokens.matchAll(/(--(?:pattern|tint)-[a-z-]+):\s*([\d.]+)\s*;/g)) {
     document.documentElement.style.setProperty(name, value)
   }
+  // AND THE ALIASES. A token in :root may be another token rather than a
+  // literal -- `--road: var(--ink)` is one, deliberately, so the road line is
+  // a REFERENCE to the ink and not a fourth brown to keep in step by hand.
+  // jsdom does not resolve var() in a computed custom property, so the two
+  // passes above would leave an aliased token unset here and every reader of
+  // it reading ''. Resolved in source order against what is already set,
+  // which is enough because :root defines a token before it aliases it.
+  for (const [, name, target] of tokens.matchAll(/(--[a-z0-9-]+):\s*var\((--[a-z0-9-]+)\)\s*;/g)) {
+    const resolved = document.documentElement.style.getPropertyValue(target)
+    if (resolved) document.documentElement.style.setProperty(name, resolved)
+  }
 })
 
 let live = false
@@ -566,7 +577,15 @@ describe('3. two treatments, both cased', () => {
     const def = host.querySelector(`#${patternIdFor('survey-excavated')}`)
     expect(def).not.toBeNull()
     const drawn = [...def.children]
-    expect(drawn.length).toBeGreaterThan(200)
+    // A FIELD, NOT A FEW MARKS. The old bound here was "more than 200 dots,
+    // radius at most 0.75", which described the fine irregular field this
+    // one replaced -- and the radius half had become the bug it was meant to
+    // prevent: 0.55 is a 1.1px dot, about one device pixel, which renders as
+    // a smudge rather than a disc and made the field read as a flat tint.
+    // See ProductionHatchPattern's own note and layout.test.jsx, which
+    // measures the consequence. What matters HERE is unchanged and is
+    // asserted below: no ring around any dot.
+    expect(drawn.length).toBeGreaterThanOrEqual(36)
     for (const dot of drawn) {
       expect(dot.tagName.toLowerCase()).toBe('circle')
       // ONE FILL, NO STROKE OF ANY COLOUR. Not "no --halo stroke": any ring
@@ -575,7 +594,10 @@ describe('3. two treatments, both cased', () => {
       expect(dot.getAttribute('fill')).toBe(
         document.documentElement.style.getPropertyValue('--survey-excavated').trim()
       )
-      expect(Number(dot.getAttribute('r'))).toBeLessThanOrEqual(0.75)
+      // Big enough to be drawn as a dot, small enough that ground shows
+      // between them -- the halftone's two bounds, in the tile's own units.
+      expect(Number(dot.getAttribute('r'))).toBeGreaterThanOrEqual(1)
+      expect(Number(dot.getAttribute('r'))).toBeLessThanOrEqual(2.5)
     }
     teardown()
     host.remove()
