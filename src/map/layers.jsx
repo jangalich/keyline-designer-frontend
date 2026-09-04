@@ -377,10 +377,10 @@ function ReferenceLayer() {
  *                       That argument was right while the map was the only
  *                       place a suggestion appeared: something had to say the
  *                       zone was still available to take back. The tab strip
- *                       says it now -- the feature keeps its tab, with the eye
- *                       closed -- so the map does not have to, and a shape
- *                       nobody is committing is simply not drawn. See the
- *                       filter in FeatureLayer.
+ *                       says it now -- the feature keeps its tab, with its
+ *                       box unchecked -- so the map does not have to, and a
+ *                       shape nobody is committing is simply not drawn. See
+ *                       the filter in FeatureLayer.
  *
  *   source 'draft'      a shape the user drew. Hatch, plus a cased outline,
  *                       because its edge is a decision rather than a
@@ -412,25 +412,31 @@ function groupResolver(layer) {
 }
 
 /**
- * WHICH FEATURES A LAYER DRAWS, given the eye and the focus.
+ * WHICH FEATURES A LAYER DRAWS, given the checkboxes and the focus.
  *
- * THE EYE RULE. Eye-off is not drawn at all, and this filter is the whole of
- * what replaced the dotted declined treatment. The eye means "in the commit".
- * A feature that is not in the commit has nothing to say on a map of what
- * this parcel is going to be, and drawing it in a special way was only ever a
- * way of keeping it findable -- which is the tab strip's job now. ONLY IN THE
- * EDITABLE BAND: the committed band is what the document says happened.
+ * THE CHECKBOX RULE. Unchecked is not drawn at all, and this filter is the
+ * whole of what replaced the dotted declined treatment. Checked means "in the
+ * commit". A feature that is not in the commit has nothing to say on a map of
+ * what this parcel is going to be, and drawing it in a special way was only
+ * ever a way of keeping it findable -- which is the tab strip's job now. ONLY
+ * IN THE EDITABLE BAND: the committed band is what the document says
+ * happened.
  *
  * THE VISIBILITY EXCEPTION. A layer declaring `show: 'focused'` draws ONLY
  * the focused candidate -- the group the focus resolves to -- and nothing
- * when nothing is focused, WHATEVER THE EYE SAYS. It is an exception to the
- * pattern language rather than an extension of it: everywhere else the eye
- * decides what is drawn and focus decides how present it is. Here the eye is
- * the commit decision alone and focus is what you are comparing, because
- * three routed networks over one parcel is unreadable line density, and a
- * candidate you have taken out of the commit is exactly the one you may
- * want to look at again. Declared by the roads step's editable network layer
- * and recorded in index.css beside the levels it departs from.
+ * when nothing is focused, WHATEVER THE BOXES SAY. It is an exception to the
+ * pattern language rather than an extension of it: everywhere else the
+ * checkbox decides what is drawn and focus decides how present it is. Here
+ * focus alone decides, because three routed networks over one parcel is
+ * unreadable line density.
+ *
+ * THE STEP THAT GETS IT DOES NOT CONTRADICT ITSELF BY GETTING IT. Roads binds
+ * its checkboxes to its focus (`selection.follows`), so through the strip the
+ * focused candidate IS the checked one and this rule draws what the checkbox
+ * rule would have drawn. The rule is still the exception, and it is RESOLVED
+ * from that one step-level declaration rather than written on a layer -- see
+ * stepDefinitions.js, LAYER SCHEMA items 7 and 12, and index.css beside the
+ * levels it departs from.
  */
 function visibleFeatures(layer, focusedFeatureId) {
   const { of, focused } = groupResolver(layer)
@@ -461,7 +467,7 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
   // apart with. See `treatment` in stepDefinitions.js's LAYER SCHEMA.
   const treatment = layer.treatment ?? null
 
-  // The eye rule, and the visibility exception. See visibleFeatures.
+  // The checkbox rule, and the visibility exception. See visibleFeatures.
   const features = visibleFeatures(layer, focusedFeatureId)
 
   return (
@@ -601,10 +607,10 @@ function focusClass(base, isFocused) {
  *   active     an uncommitted zone that is in the commit. The base state.
  *
  * A ZONE THAT IS NOT IN THE COMMIT HAS NO LEVEL, because it is not drawn at
- * all -- FeatureLayer filters it out before this is reached. That is the eye's
- * own treatment and it predates this scheme: a feature nobody is committing
- * has nothing to say on a map of what this parcel is going to be, and its tab
- * is where it stays findable.
+ * all -- FeatureLayer filters it out before this is reached. That is the
+ * checkbox's own treatment and it predates this scheme: a feature nobody is
+ * committing has nothing to say on a map of what this parcel is going to be,
+ * and its tab is where it stays findable.
  */
 function stateName({ isFocused, isCommitted }) {
   if (isFocused) return 'focused'
@@ -847,8 +853,8 @@ const accessPointIcon = (extra) =>
 
 /**
  * MARKERS, one per point the layer's reader produced. PERSISTENT CLICK
- * TARGETS: a point layer is drawn whatever is focused and whatever the eye
- * says, because the points are what distinguish the alternatives -- and a
+ * TARGETS: a point layer is drawn whatever is focused and whatever the boxes
+ * say, because the points are what distinguish the alternatives -- and a
  * click on one focuses the id it carries, which is the candidate it belongs
  * to. So the marker is a second tab strip living on the map, and the
  * selection sync has to work from it exactly as it does from a tab.

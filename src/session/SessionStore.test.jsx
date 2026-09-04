@@ -428,7 +428,7 @@ describe('2. wholesale application of a commit response', () => {
   /**
    * DRAFT_SELECTION_SET TAKES A LIST OR A FUNCTION OF THE LIST IN HAND.
    *
-   * WHY THE SECOND FORM EXISTS. The tab strip's eye has to compute a whole
+   * WHY THE SECOND FORM EXISTS. The tab strip's box has to compute a whole
    * SET rather than flip one id (radio mode clears every other tab), and it
    * was computing it from the draft its own render was built with. Two
    * dispatches in one React batch then both start from the pre-batch list and
@@ -520,7 +520,7 @@ describe('3. 409 reconciliation', () => {
     // and the re-prompt has something to offer them.
     // THE DRAWN SHAPE IS IN THE SELECTION TOO. `selectedFeatureIds` is the set
     // a commit body is assembled from, and it covers every feature in the
-    // draft rather than only the proposals -- so the tab strip's eye can take
+    // draft rather than only the proposals -- so the tab strip's box can take
     // a drawn zone out of the commit without destroying it. A drawn shape
     // joins the set the moment it is added: someone who has just drawn
     // something has said they want it.

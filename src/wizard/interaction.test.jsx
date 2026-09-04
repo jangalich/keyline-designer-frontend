@@ -9,7 +9,7 @@
  *   1.  SELECTION SYNC BOTH DIRECTIONS, asserted on the map's own DOM and on
  *       the strip's, because "the tab and the shape are one state" is a claim
  *       about two renderers agreeing rather than about one variable.
- *   6.  EYE-OFF LEAVES THE FEATURE OUT OF THE COMMIT BODY -- asserted on the
+ *   6.  UNCHECKED LEAVES THE FEATURE OUT OF THE COMMIT BODY -- asserted on the
  *       request that goes over the wire, not on a class name.
  *   7.  THE DECLINED TREATMENT IS GONE AS CONSTANTS, not merely unused: a
  *       dead constant is a treatment waiting to be switched back on.
@@ -584,10 +584,10 @@ describe('4. caution markers', () => {
 })
 
 /* ===========================================================================
-   6. THE EYE
+   6. THE CHECKBOX
    =========================================================================== */
 
-describe('5. the eye', () => {
+describe('5. the checkbox', () => {
   it('takes a feature off the map AND out of the commit body, and puts it back', async () => {
     const calls = installFetch(standardRoutes())
     const ui = await renderSurface()
@@ -595,16 +595,16 @@ describe('5. the eye', () => {
 
     const onMap = (id) => ui.pathFor(id) != null || layerFor(ui, id) != null
 
-    // EYE-ON is where a fresh payload starts: the payload IS the
+    // CHECKED is where a fresh payload starts: the payload IS the
     // recommendation, so everything is in.
-    expect(ui.find('tab-zone-2').dataset.eye).toBe('on')
+    expect(ui.find('tab-zone-2').dataset.checked).toBe('true')
     expect(onMap('zone-2')).toBe(true)
 
-    // EYE-OFF hides it from the map ENTIRELY -- not a quieter treatment, not
-    // drawn at all -- and the tab stays, which is what carries the "still
+    // UNCHECKED hides it from the map ENTIRELY -- not a quieter treatment,
+    // not drawn at all -- and the tab stays, which is what carries the "still
     // available" signal the map used to carry.
-    await ui.click('tab-eye-zone-2')
-    expect(ui.find('tab-zone-2').dataset.eye).toBe('off')
+    await ui.click('tab-check-zone-2')
+    expect(ui.find('tab-zone-2').dataset.checked).toBe('false')
     expect(ui.find('tab-zone-2')).not.toBeNull()
     expect(onMap('zone-2')).toBe(false)
     expect(onMap('zone-1')).toBe(true)
@@ -624,19 +624,19 @@ describe('5. the eye', () => {
     await ui.run((a) => a.addDrawnFeature('landform', drawnZone()))
 
     // A drawn zone is in the commit the moment it exists: someone who has just
-    // drawn a shape has said they want it, and the eye is there to take it
-    // back out rather than to be found and switched on.
-    expect(ui.find('tab-drawn-1').dataset.eye).toBe('on')
+    // drawn a shape has said they want it, and the checkbox is there to take
+    // it back out rather than to be found and ticked on.
+    expect(ui.find('tab-drawn-1').dataset.checked).toBe('true')
 
-    await ui.click('tab-eye-drawn-1')
-    expect(ui.find('tab-drawn-1').dataset.eye).toBe('off')
+    await ui.click('tab-check-drawn-1')
+    expect(ui.find('tab-drawn-1').dataset.checked).toBe('false')
     expect(selectDraft(ui.state, 'landform').drawnFeatures.map((f) => f.id)).toEqual(['drawn-1'])
 
     await ui.click('commit-landform')
     const commit = calls.find((c) => /\/steps\/landform\/commit$/.test(c.path))
     expect(commit.body.features.features.map((f) => f.id)).toEqual(['zone-1', 'zone-2'])
-    // THE SHAPE SURVIVES. Eye-off is not a delete: the tab stays and the draft
-    // still holds the feature, so it can be put back.
+    // THE SHAPE SURVIVES. Unchecked is not a delete: the tab stays and the
+    // draft still holds the feature, so it can be put back.
     expect(commit.body.provenance['drawn-1']).toBeUndefined()
 
     await ui.unmount()
@@ -711,15 +711,15 @@ describe('7. the × on a drawn tab', () => {
 
     // THE ASYMMETRY IS HONEST AND MEANT TO BE VISIBLE. A suggestion cannot be
     // destroyed -- the server will regenerate it on the next generate -- so
-    // its only removal is the eye. A drawn zone is the user's, and is the one
-    // thing in this app they can destroy.
+    // its only removal is un-checking it. A drawn zone is the user's, and is
+    // the one thing in this app they can destroy.
     expect(ui.find('tab-remove-drawn-1')).not.toBeNull()
     expect(ui.find('tab-remove-zone-1')).toBeNull()
     expect(ui.find('tab-remove-zone-2')).toBeNull()
 
-    // Both kinds still carry an eye.
-    expect(ui.find('tab-eye-drawn-1')).not.toBeNull()
-    expect(ui.find('tab-eye-zone-1')).not.toBeNull()
+    // Both kinds still carry a checkbox.
+    expect(ui.find('tab-check-drawn-1')).not.toBeNull()
+    expect(ui.find('tab-check-zone-1')).not.toBeNull()
 
     await ui.unmount()
   })
@@ -874,9 +874,11 @@ describe('8. the map controls', () => {
 describe('9. the shell still names no step', () => {
   it('holds no step id, after all of the above', () => {
     // F5's sweep, re-run over the components this branch changed most. The
-    // focus, the eye and the × are all generic: a slot holding {stepId,
+    // focus, the checkbox and the × are all generic: a slot holding {stepId,
     // featureId} it was handed, a store action keyed by feature id, and a
-    // `removable` flag the definition declares.
+    // `removable` flag the definition declares. The strip's one step-shaped
+    // behaviour -- a tab body that ticks its own box -- is read off
+    // `selection.follows`, not off which step it is rendering.
     const generic = [
       'WizardShell.jsx',
       'WizardCursor.jsx',
@@ -901,7 +903,7 @@ describe('9. the shell still names no step', () => {
       draft: { selectedFeatureIds: ['zone-1'], drawnFeatures: [drawnZone()] },
     })
     expect(tabs.filter((t) => t.removable).map((t) => t.id)).toEqual(['drawn-1'])
-    expect(tabs.every((t) => t.eye)).toBe(true)
+    expect(tabs.every((t) => t.checkbox)).toBe(true)
   })
 })
 

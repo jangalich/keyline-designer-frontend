@@ -655,9 +655,9 @@ describe('8. reopen', () => {
 
     // THE SELECTION COVERS BOTH KINDS. `selectedFeatureIds` is what a commit
     // body is assembled from and it names every feature in the draft, not just
-    // the proposals -- that is what lets the tab strip's eye take a drawn zone
+    // the proposals -- that is what lets the tab strip's box take a drawn zone
     // out of the commit without destroying it. So a reopen restores the
-    // proposals the user kept AND puts the drawn zone back eye-on; a drawn
+    // proposals the user kept AND puts the drawn zone back checked; a drawn
     // shape missing from the set would come back invisible and uncommittable.
     expect(new Set(draft.selectedFeatureIds)).toEqual(
       new Set([...proposalIds.filter((id) => id !== dropped), restoredDrawnId])

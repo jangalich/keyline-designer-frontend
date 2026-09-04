@@ -1232,11 +1232,12 @@
    combination. */
 .chrome-tab {
   position: relative;
-  /* ITS OWN STACKING CONTEXT, so the z-index the eye and the × take below is
-     a statement about THIS TAB and not about the chrome. Without it, `z-index:
-     1` on a control would be measured against every other positioned thing in
-     the overlay -- the detail panel, the banners -- and a tab's eye would be
-     entitled to sit over a region it has nothing to do with. See the eye. */
+  /* ITS OWN STACKING CONTEXT, so the z-index the checkbox and the × take
+     below is a statement about THIS TAB and not about the chrome. Without it,
+     `z-index: 1` on a control would be measured against every other
+     positioned thing in the overlay -- the detail panel, the banners -- and a
+     tab's checkbox would be entitled to sit over a region it has nothing to
+     do with. See .chrome-tab__check. */
   isolation: isolate;
   display: flex;
   align-items: flex-start;
@@ -1251,9 +1252,9 @@
   line-height: 1.3;
 }
 
-/* THE FIGURES ARE THE GRID; the tab is the row holding them and the eye. The
-   two-column grid moved in one level when the tab grew affordances, and the
-   value column's sizing came with it unchanged -- see the note above. */
+/* THE FIGURES ARE THE GRID; the tab is the row holding them and the checkbox.
+   The two-column grid moved in one level when the tab grew affordances, and
+   the value column's sizing came with it unchanged -- see the note above. */
 .chrome-tab__body {
   flex: 1;
   min-width: 0;
@@ -1265,15 +1266,15 @@
      the inner grid has a 6ch floor on its value column and the name spans both
      tracks, so below a certain width the body is 34px wide holding 87px of
      figures, and the difference used to be PRINTED OUTSIDE THE BUTTON --
-     across its own eye and into the next tab.
+     across its own checkbox and into the next tab.
 
      Measured, at a 900px stage: `.chrome-tab__name` ran 53px past the body's
-     right edge, straight over an eye 22px wide. It was invisible while the eye
-     painted over it, and it took the eye's clicks the moment the off state
-     promoted the body above it (see .chrome-tab--off). So the overflow is
-     clipped rather than left to land wherever it falls -- a squeezed tab is a
-     truncated tab now, which is a legible failure, and the name reads it as an
-     ellipsis (see .chrome-tab__name). */
+     right edge, straight over a control 22px wide. It was invisible while the
+     control painted over it, and it took the control's clicks the moment the
+     off state promoted the body above it (see .chrome-tab--unchecked). So the
+     overflow is clipped rather than left to land wherever it falls -- a
+     squeezed tab is a truncated tab now, which is a legible failure, and the
+     name reads it as an ellipsis (see .chrome-tab__name). */
   overflow: hidden;
   display: grid;
   grid-template-columns: minmax(6ch, max-content) auto;
@@ -1297,51 +1298,114 @@
   box-shadow: inset 0 0 0 1px var(--ink);
 }
 
-.chrome-tab__eye {
+/* THE CHECKBOX: CHECKED IS IN THE COMMIT AND DRAWN, UNCHECKED IS NEITHER.
+
+   It was an EYE, and the eye was the problem: it named a view concern while
+   carrying a decision, so on roads it read as redundant with focus and
+   everywhere else it overloaded the tab. The behaviour is unchanged; this is
+   what the control looks like now.
+
+   A NATIVE input[type=checkbox] WITH ITS PAINT TAKEN OFF, not a button
+   wearing the role -- the state, the space bar and the announcement come with
+   the element. `appearance: none` is what lets the box take this system's
+   hairline and --ink rather than the platform's blue.
+
+   NO OXIDE. --oxide is the accent and the accent is for primary actions; a
+   checkbox on a tab is a decision the user makes many times over, not the one
+   the card is asking for. The BOX says checked with a heavier edge in --ink,
+   the same way the focused tab says focused in --ink.
+
+   THE TICK IS --field, AND IT IS THE ONE PLACE IN THE CHROME THAT GREEN
+   APPEARS. The rule green obeys here is "never a control's SURFACE or its
+   EDGE", and its reason is legibility: this chrome floats on aerial
+   photography of farmland, which is green across the whole frame, so a
+   control drawn in --field half-disappears against canopy. A mark INSIDE an
+   opaque --paper box with an --ink edge never meets the imagery, so the
+   reason does not reach it -- and what the tick then buys is that the one
+   green thing in the chrome means the same as the green things on the map:
+   this is on the ground. style.test.jsx holds both halves of that: the tick
+   is the only --field in the chrome, and the box around it is --paper on
+   --ink.
+
+   ABOVE THE TAB'S OWN FIGURES, IN EVERY STATE THE TAB HAS.
+
+   THE BUG THIS KEEPS FIXED, because a z-index nobody can point at is a
+   z-index somebody deletes. Painting order used to put this control above the
+   body's contents by DOM ORDER alone -- both are non-positioned in-flow
+   boxes, and the later one wins. `.chrome-tab--unchecked .chrome-tab__body`
+   sets `opacity: 0.55`, and an opacity below 1 makes a STACKING CONTEXT,
+   which paints in a later step of the order than any in-flow sibling. So
+   turning the control off moved the body ABOVE it, the body's overflowing
+   name landed on top, and the control stopped being the element at its own
+   centre: no hover, no click, no way to switch the zone back on. Reported as
+   "a water zone whose eye is closed cannot be opened", and water only because
+   it renders four columns to landform's three and so runs out of width 160px
+   sooner. THE CHECKBOX INHERITS THAT RISK EXACTLY -- same box, same corner,
+   same off-state opacity -- so it inherits the fix.
+
+   Clipping the body (above) is what stops the overlap. THIS is what stops the
+   class of bug: the control sits ON the figures, so it is positioned and
+   lifted, and no treatment the tab's own contents grow -- an opacity, a
+   transform, a filter, a mark that overflows again -- can take its clicks
+   back. Scoped to the tab by `isolation` up there. */
+.chrome-tab__check {
   flex: none;
-  /* ABOVE THE TAB'S OWN FIGURES, IN EVERY STATE THE TAB HAS.
-
-     THE BUG THIS FIXES, because a z-index nobody can point at is a z-index
-     somebody deletes. Painting order put the eye above the body's contents by
-     DOM ORDER alone -- both are non-positioned in-flow boxes, and the later
-     one wins. `.chrome-tab--off .chrome-tab__body` sets `opacity: 0.55`, and
-     an opacity below 1 makes a STACKING CONTEXT, which paints in a later step
-     of the order than any in-flow sibling. So closing an eye moved the body
-     ABOVE it, the body's overflowing name landed on top of the eye, and the
-     eye stopped being the element at its own centre: no hover, no click, no
-     way to open the zone again. Reported as "a water zone whose eye is closed
-     cannot be opened", and water only because it renders four columns to
-     landform's three and so runs out of width 160px sooner.
-
-     Clipping the body (above) is what stops the overlap. THIS is what stops
-     the class of bug: the eye is a control ON the figures, so it is positioned
-     and lifted, and no treatment the tab's own contents grow -- an opacity, a
-     transform, a filter, a mark that overflows again -- can take its clicks
-     back. Scoped to the tab by `isolation` up there. */
   position: relative;
   z-index: 1;
-  display: flex;
-  align-items: center;
-  padding: var(--space-1);
-  margin: calc(var(--space-1) * -1);
-  border: none;
-  background: transparent;
-  color: var(--ink-muted);
+  appearance: none;
+  -webkit-appearance: none;
+  /* THE ×'s SIZE, because they are the two controls on a tab and a target
+     that differs by two pixels reads as a mistake rather than as a hierarchy.
+     The nudge down is optical: it sets the box on the name's baseline row
+     rather than on the top of its line box. */
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0.0625rem 0 0;
+  border: var(--hairline);
+  border-radius: var(--radius);
+  background: var(--paper);
   cursor: pointer;
 }
 
-.chrome-tab__eye:hover {
-  color: var(--ink);
+.chrome-tab__check:hover {
+  border-color: var(--ink);
 }
 
-/* Eye-off is the quiet state, and the whole tab goes quiet with it -- the
+/* CHECKED IS A HEAVIER EDGE, which is the same mark the focused tab makes --
+   a border in --ink, and no fill. The state's COLOUR is the tick's, below. */
+.chrome-tab__check:checked {
+  border-color: var(--ink);
+}
+
+/* THE TICK, DRAWN RATHER THAN TYPED. Two borders of an empty box, rotated:
+   one mark at the weight the rest of this chrome is set in, rather than a
+   glyph whose shape and weight belong to whichever face happens to have it.
+   Not hit-testable in its own right -- a pseudo-element takes no clicks -- so
+   the input stays the element at its own centre.
+
+   --field, NOT currentColor: see the note above. It is stated as a token
+   rather than inherited so that no hover or focus rule can quietly repaint
+   the one green mark in the chrome. */
+.chrome-tab__check:checked::after {
+  content: '';
+  position: absolute;
+  left: 0.3125rem;
+  top: 0.0625rem;
+  width: 0.25rem;
+  height: 0.5625rem;
+  border: solid var(--field);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* Unchecked is the quiet state, and the whole tab goes quiet with it -- the
    figures included, because they describe something the commit will not
    carry. */
-.chrome-tab--off {
+.chrome-tab--unchecked {
   border-style: dashed;
 }
 
-.chrome-tab--off .chrome-tab__body {
+.chrome-tab--unchecked .chrome-tab__body {
   opacity: 0.55;
 }
 
@@ -1349,9 +1413,10 @@
    × out of the tab's own grid, where it would read as a third figure. */
 .chrome-tab__remove {
   position: absolute;
-  /* THE SAME LIFT THE EYE TAKES, for the same reason and not because it was
-     measured failing: it is positioned already, so it survives the off state
-     on DOM order alone today. That is the accident the eye was relying on. */
+  /* THE SAME LIFT THE CHECKBOX TAKES, for the same reason and not because it
+     was measured failing: it is positioned already, so it survives the off
+     state on DOM order alone today. That is the accident the eye was relying
+     on when it lost its clicks. */
   z-index: 1;
   top: calc(var(--space-2) * -1);
   right: calc(var(--space-2) * -1);
@@ -1376,9 +1441,10 @@
   color: var(--alert);
 }
 
-/* Inset, because the strip clips at its own edge and the × sits on it. */
+/* Inset, because the strip clips at its own edge and the × sits on it. The
+   ring itself is index.css's and is not removed here -- only pulled in. */
 .chrome-tab__remove:focus-visible,
-.chrome-tab__eye:focus-visible {
+.chrome-tab__check:focus-visible {
   outline-offset: 1px;
 }
 
@@ -1417,8 +1483,8 @@
 }
 
 /* A drawn zone's tab. The dashed edge is the same statement its dashed casing
-   used to make on the map before the eye took that job over: authored here,
-   not proposed by the pipeline. */
+   used to make on the map before the checkbox took that job over: authored
+   here, not proposed by the pipeline. */
 .chrome-tab--drawn .chrome-tab__name {
   color: var(--oxide);
 }
@@ -2030,7 +2096,7 @@
    vertices, standing out as a different kind of point.
 
    A PERSISTENT CLICK TARGET on the roads step: one per candidate network,
-   drawn whatever is focused and whatever the eye says, because the points
+   drawn whatever is focused and whatever the boxes say, because the points
    are what distinguish the alternatives. Clicking one focuses its network --
    a second tab strip living on the map -- so it is styled as a control that
    answers a click, not as a vertex. */

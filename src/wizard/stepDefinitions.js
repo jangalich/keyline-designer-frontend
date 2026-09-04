@@ -124,10 +124,10 @@
  *                      written. See measured().
  *
  *   tabs(context)      One tab per feature this step is carrying, as
- *                      [{id, name, rows: [{value, label}], eye?, removable?,
- *                      drawn?}]. `rows` is the acreage chip's treatment
- *                      generalised: a right-aligned monospace value and a
- *                      left-aligned label, one per row.
+ *                      [{id, name, rows: [{value, label}], checkbox?,
+ *                      removable?, drawn?}]. `rows` is the acreage chip's
+ *                      treatment generalised: a right-aligned monospace value
+ *                      and a left-aligned label, one per row.
  *
  *                      IT IS THE STEP'S BECAUSE THE FIGURES ARE. A boundary
  *                      counts points and encloses acres; a landform zone has
@@ -135,11 +135,18 @@
  *                      either, so a generic strip would have had to learn
  *                      which step it was drawing.
  *
- *                      `eye`         The feature is in the commit and may be
- *                                    taken out. Omitted for a tab whose
- *                                    feature is not a commit decision at all
- *                                    -- the boundary's ring is the step, not a
- *                                    candidate within it.
+ *                      `checkbox`    The tab carries a CHECKBOX: checked is in
+ *                                    the commit and drawn, unchecked is out of
+ *                                    the commit and hidden. Omitted for a tab
+ *                                    whose feature is not a commit decision at
+ *                                    all -- the boundary's ring is the step,
+ *                                    not a candidate within it.
+ *
+ *                                    IT WAS `eye` AND THE RENAME IS THE
+ *                                    CHANGE. The control said SHOW/HIDE and
+ *                                    had always decided INCLUDE/EXCLUDE; the
+ *                                    behaviour is unchanged in both
+ *                                    directions and the name now matches it.
  *
  *                      `removable`   The feature can be DESTROYED, and the tab
  *                                    carries an ×. Declared, never inferred
@@ -147,9 +154,9 @@
  *                                    on its own what may be destroyed. Only a
  *                                    shape the USER authored is removable -- a
  *                                    suggestion cannot be destroyed because
- *                                    the server will regenerate it, so its
- *                                    only removal is the eye, and the
- *                                    asymmetry is honest and meant to be
+ *                                    the server will regenerate it, so
+ *                                    un-checking it is its only removal, and
+ *                                    the asymmetry is honest and meant to be
  *                                    visible at a glance.
  *
  *   detail(context,    What the DETAIL PANEL shows for one feature, or null
@@ -265,8 +272,9 @@
  * SIX FIELDS THE ROADS STEP ADDED, and every one is the schema admitting it
  * assumed landform and water's shape. The third definition is the first that
  * ACCUMULATES candidates across generates, the first that COLLECTS AN INPUT,
- * and the first whose eye is a RADIO; each of those was a place the schema
- * had no word, and the word was added rather than the shell learning a step.
+ * and the first whose checkbox is a RADIO; each of those was a place the
+ * schema had no word, and the word was added rather than the shell learning a
+ * step. A SEVENTH came with the checkbox -- item 12.
  *
  *   6. `kind: 'line'` and `kind: 'point'`. Every layer so far was ground. A
  *      road is a LineString per branch and an access point is one coordinate;
@@ -276,30 +284,39 @@
  *      is a reader over one Feature -- the stack never learns what a network
  *      record or an access-point input looks like.
  *
- *   7. `show: 'focused'` on a layer. THE VISIBILITY EXCEPTION, declared where
- *      the layer is. Everywhere else focus changes a mark's OPACITY and every
- *      eye-on feature stays drawn; three routed networks over one parcel is
- *      unreadable line density, so a layer that declares this draws ONLY the
- *      focused candidate and nothing when nothing is focused. index.css's
+ *   7. `show: 'focused'` on a layer. THE VISIBILITY EXCEPTION. Everywhere
+ *      else focus changes a mark's OPACITY and every checked feature stays
+ *      drawn; three routed networks over one parcel is unreadable line
+ *      density, so a layer carrying this rule draws ONLY the focused
+ *      candidate and nothing when nothing is focused. index.css's
  *      pattern-levels block records the exception beside the levels it
  *      departs from, so the remaining three steps do not inherit it by
- *      accident: a layer that does not declare it gets the pattern language.
+ *      accident: a layer that does not get it gets the pattern language.
+ *
+ *      IT IS NO LONGER DECLARED ON THE LAYER, AND THAT IS ITEM 12'S DOING.
+ *      It was, and it agreed with the step's checkbox by hand. The rule is
+ *      unchanged; where it comes from is not.
  *
  *   8. `groupOf(feature)` on the definition. A tab is a UNIT OF THE COMMIT
  *      DECISION, and for two steps the unit was one feature. A road network
  *      commits as one feature PER BRANCH -- the backend's own wire shape,
  *      trunk and spurs each carrying their grade and length -- so the unit is
  *      the GROUP of features sharing `properties.network_id`. Tabs carry
- *      `featureIds`, the eye toggles all of them, focusing a branch focuses
- *      its network, and the stack draws by group. The backend says the same
- *      thing as `feature_group` in its commit contract.
+ *      `featureIds`, the checkbox toggles all of them, focusing a branch
+ *      focuses its network, and the stack draws by group. The backend says
+ *      the same thing as `feature_group` in its commit contract.
  *
- *   9. `selection: {mode: 'radio'}`. Commit-one-or-none. Turning on a tab
- *      turns every other off. Landform and water are checkboxes, which was
- *      the only mode there was -- so it was not a field. The backend
- *      declares `max_features: 1` counted by network; this is the client
- *      reading that constraint off its own definition rather than the strip
- *      hardcoding which step is a radio.
+ *   9. `selection: {mode: 'radio'}`. Commit-one-or-none. Ticking a tab
+ *      un-ticks every other. Landform and water are `multiple`, which was the
+ *      only mode there was -- so it was not a field. The backend declares
+ *      `max_features: 1` counted by network; this is the client reading that
+ *      constraint off its own definition rather than the strip hardcoding
+ *      which step is a radio.
+ *
+ *      THE MODE IS NOT THE CONTROL. Every one of these steps renders a
+ *      CHECKBOX; the mode says what happens to the OTHER boxes when one is
+ *      ticked. A radio input could not express roads' legal empty commit,
+ *      which is reached by un-ticking the last network.
  *
  *  10. `accumulate`. One generate per step was the whole model: proposals
  *      REPLACE. Roads generates ONE network per access point and keeps them
@@ -318,6 +335,32 @@
  *      for another step's reopen confirmation. `focusSeed` says what to look
  *      at when the draft is first seeded. Each is a step's own knowledge the
  *      shell used to have no way to ask for.
+ *
+ *  12. `selection: {follows: 'focus'}`. THE FIELD THAT COLLAPSED TWO FACTS
+ *      INTO ONE, and the reason item 7 no longer says anything about a layer.
+ *
+ *      Roads' tab body checks its box: clicking a tab is choosing the network
+ *      that commits, and clicking a checked one un-checks it -- which is how
+ *      a user reaches the empty commit `min_features: 0` allows. So roads has
+ *      NO "focused but unchecked" state: what you are looking at is what
+ *      commits. The layer's `show: 'focused'` and the tab's checkbox were two
+ *      fields saying that one thing, agreeing by hand.
+ *
+ *      TWO FIELDS THAT HAPPEN TO AGREE IS A DIVERGENCE WAITING FOR ITS FIRST
+ *      EDIT. So the fact is declared ONCE, on the step, and the layer rule is
+ *      DERIVED from it: an editable line or polygon layer of a focus-bound
+ *      step resolves to `show: 'focused'`, every other layer to `show: 'all'`,
+ *      and a layer declaring `show` for itself is REFUSED by defineLayer().
+ *      There is nothing left to keep in step by hand.
+ *
+ *      IT IMPLIES `mode: 'radio'`, AND defineStep() SAYS SO. One focus slot
+ *      holds one thing; a `multiple` step binding its checkboxes to it could
+ *      never hold two checked tabs, which is what `multiple` means.
+ *
+ *      LANDFORM AND WATER DECLARE NO `follows`, and that is the whole of what
+ *      keeps them as they were: focus and the commit decision are independent
+ *      there, and clicking a tab body focuses without changing what a commit
+ *      would send.
  *
  * WHAT IS NOT IN HERE. No step registers trees, structures or fencing: those
  * are later branches, and a definition written now against a payload nobody
@@ -501,19 +544,64 @@ export const LAYER_KINDS = Object.freeze([
 ])
 
 /**
- * What a layer says about WHICH of its features are drawn, beyond the eye.
+ * WHICH of a layer's features are drawn, beyond the checkbox.
  *
- *   'all'      the pattern language: every eye-on feature is drawn, and focus
- *              changes the focused one's opacity.
+ *   'all'      the pattern language: every checked feature is drawn, and
+ *              focus changes the focused one's opacity.
  *   'focused'  THE EXCEPTION. Only the focused candidate is drawn, at the
  *              focused level; nothing is drawn when nothing is focused.
- *              Declared by the roads step's editable network layer and by
- *              nothing else -- see LAYER SCHEMA item 7 and index.css.
+ *
+ * IT IS RESOLVED, NOT DECLARED. A layer does not choose this for itself --
+ * see showFor() and LAYER SCHEMA items 7 and 12. Today exactly one layer
+ * resolves to 'focused': the roads step's editable networks.
  */
 export const LAYER_SHOW = Object.freeze(['all', 'focused'])
 
-/** How a step's eye behaves. 'multiple' is a checkbox; 'radio' commits one or none. */
+/**
+ * What ticking one tab's checkbox does to the OTHER tabs' -- never what the
+ * control is, which is a checkbox in both modes.
+ *
+ *   'multiple'  every box is its own.
+ *   'radio'     one or none: ticking a tab un-ticks every other, and
+ *               un-ticking the last one is a legal empty commit.
+ */
 export const SELECTION_MODES = Object.freeze(['multiple', 'radio'])
+
+/**
+ * WHAT A STEP'S SELECTION FOLLOWS, when it is not its own fact.
+ *
+ *   null      focus and the commit decision are independent. Clicking a tab
+ *             body focuses; the checkbox decides the commit. Landform, water.
+ *   'focus'   THEY ARE ONE FACT. What is focused is what is checked: the tab
+ *             body ticks the box, the box moves the focus, and the step has
+ *             no "focused but unchecked" state. Implies `mode: 'radio'` --
+ *             one focus slot holds one thing -- and it is what resolves the
+ *             step's editable geometry to `show: 'focused'`. See LAYER SCHEMA
+ *             item 12.
+ */
+export const SELECTION_FOLLOWS = Object.freeze([null, 'focus'])
+
+/**
+ * The kinds whose drawn set `show` actually decides -- the two that resolve to
+ * a feature list a renderer filters. A `point` layer draws every marker it is
+ * given whatever is focused (the access points are what tell the candidates
+ * apart), and `ring`, `scrim`, `highlight` and `reference` have no candidates
+ * to choose between at all.
+ */
+const SHOW_APPLIES_TO = Object.freeze(['polygon', 'line'])
+
+/**
+ * THE VISIBILITY RULE FOR ONE LAYER, DERIVED FROM THE STEP.
+ *
+ * The step says whether its focus IS its commit decision; this reads that one
+ * declaration and hands each layer the rule that follows from it. Nothing is
+ * kept in agreement by hand, which is the whole reason it lives here rather
+ * than on the layers -- see LAYER SCHEMA item 12.
+ */
+function showFor(layer, follows) {
+  const candidates = layer.band === 'editable' && SHOW_APPLIES_TO.includes(layer.kind)
+  return follows === 'focus' && candidates ? 'focused' : 'all'
+}
 
 /** The three places a step's geometry can come from. */
 export const LAYER_SOURCES = Object.freeze(['proposals', 'draft', 'document'])
@@ -526,18 +614,8 @@ export const LAYER_SOURCES = Object.freeze(['proposals', 'draft', 'document'])
  * alone. A missing or unknown `band`/`kind`/`source` is the declaration
  * failing, and it says so here rather than being guessed at down there.
  */
-function defineLayer(stepId, layer) {
-  const {
-    id,
-    band,
-    kind,
-    source,
-    key = null,
-    filter = null,
-    treatment = null,
-    show = 'all',
-    points = null,
-  } = layer
+function defineLayer(stepId, layer, follows) {
+  const { id, band, kind, source, key = null, filter = null, treatment = null, points = null } = layer
 
   if (!id) throw new Error(`Step '${stepId}' declares a layer with no id.`)
   for (const [field, value, allowed] of [
@@ -554,6 +632,20 @@ function defineLayer(stepId, layer) {
     }
   }
 
+  // `show` IS RESOLVED, NEVER DECLARED. It used to be a per-layer field that
+  // roads set to 'focused' and every other layer left at 'all' -- a second
+  // statement of the step's own `selection.follows`, kept true by hand. This
+  // refusal is what makes the derivation the only way to get one. See
+  // LAYER SCHEMA item 12.
+  if ('show' in layer) {
+    throw new Error(
+      `Step '${stepId}' layer '${id}' declares \`show\`. Visibility that tracks focus ` +
+        `is a STEP-level fact -- declare \`selection: { follows: 'focus' }\` on the step ` +
+        `and the layers that need it resolve to '${LAYER_SHOW[1]}'.`
+    )
+  }
+  const show = showFor({ band, kind }, follows)
+
   if (filter !== null && typeof filter !== 'function') {
     throw new Error(
       `Step '${stepId}' layer '${id}' declares a non-function \`filter\`. ` +
@@ -566,13 +658,6 @@ function defineLayer(stepId, layer) {
       `Step '${stepId}' layer '${id}' declares treatment='${treatment}'. ` +
         'A treatment names a token (--<treatment>) and a class (zone--<treatment>), ' +
         'so it has to be lower-case, digits and dashes.'
-    )
-  }
-
-  if (!LAYER_SHOW.includes(show)) {
-    throw new Error(
-      `Step '${stepId}' layer '${id}' declares show='${show}'. ` +
-        `It has to be one of: ${LAYER_SHOW.join(', ')}.`
     )
   }
 
@@ -945,6 +1030,24 @@ export function defineStep(definition) {
         `It has to be one of: ${SELECTION_MODES.join(', ')}.`
     )
   }
+  const follows = selection?.follows ?? null
+  if (!SELECTION_FOLLOWS.includes(follows)) {
+    throw new Error(
+      `Step '${id}' declares selection.follows='${follows}'. ` +
+        `It has to be one of: ${SELECTION_FOLLOWS.map(String).join(', ')}.`
+    )
+  }
+  // ONE FOCUS SLOT HOLDS ONE THING. A step whose checkboxes follow the focus
+  // could never hold two checked tabs, which is exactly what 'multiple' means
+  // -- so the pair is refused here rather than producing a strip that quietly
+  // behaves like a radio while its definition says otherwise.
+  if (follows === 'focus' && selection.mode !== 'radio') {
+    throw new Error(
+      `Step '${id}' binds its selection to the focus but declares mode ` +
+        `'${selection.mode}'. Focus is one feature, so \`follows: 'focus'\` is ` +
+        `only coherent with 'radio'.`
+    )
+  }
   if (groupOf !== null && typeof groupOf !== 'function') {
     throw new Error(`Step '${id}' declares a non-function \`groupOf\`.`)
   }
@@ -977,7 +1080,7 @@ export function defineStep(definition) {
     id,
     title,
     blurb,
-    layers: Object.freeze(layers.map((layer) => defineLayer(id, layer))),
+    layers: Object.freeze(layers.map((layer) => defineLayer(id, layer, follows))),
     tools: Object.freeze([...tools]),
     inputs: Object.freeze(inputs.map((input) => Object.freeze({ ...input }))),
     generate: generate && Object.freeze({ ...generate }),
@@ -1022,7 +1125,7 @@ export function defineStep(definition) {
     detail,
     Panel,
     groupOf,
-    selection: Object.freeze({ ...selection }),
+    selection: Object.freeze({ mode: selection.mode, follows }),
     accumulate: accumulate && Object.freeze({ ...accumulate }),
     removeTab,
     resetNote,
@@ -1283,7 +1386,7 @@ export const BOUNDARY_STEP = defineStep({
     if (ring.length >= 3) {
       rows.push({ value: polygonAreaAcres(ring).toFixed(MEASURE_DP), label: 'acres' })
     }
-    // NO EYE AND NO ×. The ring is not a candidate within the step, it IS the
+    // NO CHECKBOX AND NO ×. The ring is not a candidate within the step, it IS the
     // step -- there is nothing to include it in, and clearing it is what the
     // banner's "Clear and redraw" is for.
     return [{ id: BOUNDARY_RING_INPUT, name: 'Boundary', rows }]
@@ -1727,22 +1830,21 @@ export const LANDFORM_STEP = documentStep({
    * score and prints an em dash rather than a zero: it was never scored, and a
    * 0.0 there would read as "scored, and badly".
    *
-   * `selected` is carried so the strip can show what a commit would take. It
-   * is a READING, not an affordance -- the tabs do not toggle in this branch;
-   * the map's select gesture is still the one way to change a selection.
+   * `selected` is carried so the strip can show what a commit would take, and
+   * it is what the tab's CHECKBOX reads.
    */
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
 
-    // THE SUGGESTIONS. Every one carries an eye and none carries an ×: a
+    // THE SUGGESTIONS. Every one carries a checkbox and none carries an ×: a
     // suggestion cannot be destroyed, because the server made it and will make
-    // it again on the next generate. Closing its eye is the only removal there
+    // it again on the next generate. Un-checking it is the only removal there
     // is, and offering an × that quietly did the same thing would be a lie
     // about what the button does.
     const tabs = (proposals?.zones ?? []).map((zone) => ({
       id: zone.feature_id,
       name: `Zone ${zone.rank}`,
-      eye: true,
+      checkbox: true,
       selected: selected.has(zone.feature_id),
       rows: [
         { value: measure(zone.area_acres), label: 'acres' },
@@ -1750,16 +1852,16 @@ export const LANDFORM_STEP = documentStep({
       ],
     }))
 
-    // THE DRAWN ZONES. An eye AND an ×, and the two mean different things:
-    // the eye takes the zone out of the commit and leaves it to be put back,
-    // the × destroys it. Nothing else in this app can be destroyed by the
-    // user, which is why only these carry one.
+    // THE DRAWN ZONES. A checkbox AND an ×, and the two mean different
+    // things: un-checking takes the zone out of the commit and leaves it to be
+    // put back, the × destroys it. Nothing else in this app can be destroyed
+    // by the user, which is why only these carry one.
     draft.drawnFeatures.forEach((feature, index) => {
       tabs.push({
         id: feature.id,
         name: `Drawn ${index + 1}`,
         drawn: true,
-        eye: true,
+        checkbox: true,
         removable: true,
         selected: selected.has(feature.id),
         rows: [
@@ -2210,7 +2312,7 @@ export const WATER_STEP = documentStep({
    *
    * WHICH IS WHY NO WATER TAB CARRIES AN ×. The × destroys, and nothing here
    * is the user's to destroy: the server made these and will make them again
-   * on the next generate. The eye is the only removal there is.
+   * on the next generate. Un-checking the box is the only removal there is.
    */
   tools: ['select'],
 
@@ -2274,7 +2376,7 @@ export const WATER_STEP = documentStep({
   instructions: {
     [IDLE]: 'Ground worth surveying for a pond, from two independent readings.',
     [GENERATING]: 'Reading the parcel — wetness, depressions, catchment, slope, and soil…',
-    [REVIEWING]: 'Click an area to read it. The eye on its tab decides whether it is committed.',
+    [REVIEWING]: 'Click an area to read it. The checkbox on its tab decides whether it is committed.',
     [EDITING]: 'Click an area to read it.',
     [COMMITTING]: 'Saving these survey areas…',
     [STEP_COMMITTED]:
@@ -2399,7 +2501,7 @@ export const WATER_STEP = documentStep({
     const selected = new Set(draft.selectedFeatureIds)
     const scales = proposals?.scales
 
-    // EVERY TAB CARRIES AN EYE AND NO TAB CARRIES AN ×. Nothing here is
+    // EVERY TAB CARRIES A CHECKBOX AND NO TAB CARRIES AN ×. Nothing here is
     // user-authored, so nothing here can be destroyed -- see `tools` above.
     // `removable` is simply not declared, which is how the strip is told.
     return surveyZoneFeatures(proposals).map((feature) => {
@@ -2407,7 +2509,7 @@ export const WATER_STEP = documentStep({
       return {
         id: feature.id,
         name: surveyZoneName(feature.properties),
-        eye: true,
+        checkbox: true,
         selected: selected.has(feature.id),
         rows: [
           { value: measure(feature.properties?.zone_acres), label: 'acres' },
@@ -2782,7 +2884,7 @@ async function generateRoadNetwork({ machine, disarm, focusFeature }) {
   // THE FIRST NETWORK IS THE ONE THAT COMMITS UNTIL THE USER SAYS OTHERWISE.
   // A draft that has selected nothing (the point was placed before any
   // proposals existed, so the store's seed never ran) takes this one; a later
-  // generate is a comparison and does not steal the eye from the network the
+  // generate is a comparison and does not take the tick off the network the
   // user has already chosen.
   if (!machine.draft?.selectedFeatureIds?.length && target.feature_ids?.length) {
     machine.actions.setSelection(machine.stepId, [...target.feature_ids])
@@ -2843,7 +2945,15 @@ export const ROADS_STEP = documentStep({
     { id: 'roads-offparcel', band: 'context', kind: 'scrim', source: 'document' },
     /* THE NETWORKS. One collection carries every candidate's branches
        (`road_corridors`), each branch stamped with its network; the stack
-       draws by group, and ONLY THE FOCUSED GROUP -- see `show`. */
+       draws by group, and ONLY THE FOCUSED GROUP.
+
+       THAT RULE IS NOT WRITTEN HERE, AND THAT IS THE POINT. It used to be --
+       `show: 'focused'` on this object -- and it said the same thing as the
+       step's checkbox two declarations further down, kept true by hand. This
+       is the one editable line layer of a step declaring
+       `selection: { follows: 'focus' }`, so defineLayer RESOLVES it to
+       `show: 'focused'` and there is nothing here to fall out of step with.
+       See LAYER SCHEMA items 7 and 12. */
     {
       id: 'roads-networks',
       band: 'editable',
@@ -2851,13 +2961,14 @@ export const ROADS_STEP = documentStep({
       source: 'proposals',
       key: 'road_corridors',
       treatment: 'road',
-      show: 'focused',
     },
     /* THE ACCESS POINTS, ONE MARKER PER CANDIDATE, ALWAYS DRAWN. They are
        what distinguishes the alternatives, so they stay whatever is focused
-       and whatever the eye says. Keyed by the network, so a click on one is
-       a click on its network -- the third way into the selection sync
-       beside the tab and the line. Above the lines in the band. */
+       and whatever the checkboxes say -- which is also why `show` never
+       reaches a point layer (see SHOW_APPLIES_TO). Keyed by the network, so a
+       click on one is a click on its network -- the third way into the FOCUS
+       sync beside the tab and the line; it reads a candidate rather than
+       choosing it. Above the lines in the band. */
     {
       id: 'roads-access-points',
       band: 'editable',
@@ -2932,8 +3043,35 @@ export const ROADS_STEP = documentStep({
     max: MAX_ROAD_NETWORKS,
   },
 
-  /** THE RADIO. One network or none -- the backend's max_features: 1 by network. */
-  selection: { mode: 'radio' },
+  /**
+   * ONE NETWORK OR NONE, AND THE TAB IS THAT DECISION.
+   *
+   * `mode: 'radio'` is the backend's max_features: 1 counted by network --
+   * ticking one tab un-ticks the others, and un-ticking the last one is the
+   * legal empty commit `min_features: 0` allows. There is no separate "commit
+   * no road" affordance because there does not need to be one: the toggle is
+   * the gesture.
+   *
+   * `follows: 'focus'` IS THE COLLAPSE, DECLARED RATHER THAN IMPLIED. Roads'
+   * tab body checks its box, so through the strip what you are looking at is
+   * what commits: there is no "focused but unchecked" tab to have. That one
+   * fact is ALSO what makes the editable network layer draw only the focused
+   * candidate -- `show: 'focused'` is RESOLVED from this line, not declared
+   * up there beside the geometry where it would have to be kept in agreement
+   * by hand. Two fields that happen to agree is a divergence waiting for its
+   * first edit; this is one field. See LAYER SCHEMA item 12.
+   *
+   * WHAT IT DOES NOT REACH, because neither is the strip: the map's own click
+   * (an access-point marker, a branch, the bare map) still FOCUSES and
+   * changes no selection, and a later generate focuses the network it just
+   * routed without taking the tick off the one already chosen. Both are
+   * readings rather than choices, and both are exactly as they were.
+   *
+   * The one tab the collapse leaves out is the one with no checkbox -- an
+   * access point that routed nothing (see `tabs`). Its body focuses, because
+   * there is no network for the focus to commit.
+   */
+  selection: { mode: 'radio', follows: 'focus' },
   groupOf: roadNetworkOf,
 
   commit: {
@@ -2995,7 +3133,7 @@ export const ROADS_STEP = documentStep({
     [EDITING]: 'Click the property boundary where it meets the road.',
     [GENERATING]: 'Routing a network from the access point — grade, wet ground, canopy, and the water zone…',
     [REVIEWING]:
-      'Click a network or its access point to read it. The eye on its tab decides which one is committed — one, or none.',
+      'Click a network or its access point to read it. Clicking its tab is what commits it — one network, or none.',
     [COMMITTING]: 'Saving this network…',
     [STEP_COMMITTED]: 'This network is committed. Trees, structures and fencing are measured against it.',
   },
@@ -3066,14 +3204,14 @@ export const ROADS_STEP = documentStep({
    * ONE TAB PER NETWORK, NEVER PER BRANCH. A network's branches are a tree;
    * a spur without its trunk is incoherent and the backend rejects exactly
    * that. So the tab is the unit of the commit decision and carries every
-   * branch id (`featureIds`), the eye toggles all of them, and the strip
+   * branch id (`featureIds`), the checkbox toggles all of them, and the strip
    * marks it focused when any of them is.
    *
    * THREE ROWS: identity, total length, served acres -- the shape landform
    * and water set. Whole feet, because the tab has no room for a decimal
    * that build_narrative_data() ships and nobody reads on a tab.
    *
-   * A CANDIDATE THAT ROUTED NOTHING KEEPS ITS TAB, without an eye: the
+   * A CANDIDATE THAT ROUTED NOTHING KEEPS ITS TAB, without a checkbox: the
    * access point was tried and the slot is held, so it can be discarded,
    * and there is no network to put in the commit.
    */
@@ -3092,7 +3230,7 @@ export const ROADS_STEP = documentStep({
         ],
       }
       if (featureIds.length) {
-        tab.eye = true
+        tab.checkbox = true
         tab.selected = featureIds.every((id) => selected.has(id))
       }
       return tab

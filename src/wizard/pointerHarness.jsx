@@ -9,7 +9,9 @@
  *
  * THE BUG THIS PAGE WAS BUILT FOR. "A water zone whose eye is closed cannot be
  * opened again", reported with a decisive symptom: the closed eye showed NO
- * HOVER STATE. Every eye test in this repo reaches the handler -- through the
+ * HOVER STATE. That control is a CHECKBOX now, in the same corner of the same
+ * tab, and it inherits the defect and these assertions with it. Every test of
+ * it in this repo reaches the handler -- through the
  * reducer, through the strip's own arithmetic, through a dispatched click, or
  * through a jsdom render that asserts on state -- and NONE of them resolves a
  * screen position to an element. A handler bound to something nothing can
@@ -25,8 +27,8 @@
  * WHAT IS DRIVEN AND WHAT IS CLICKED, because the split is the point. Getting
  * to a step is SETUP -- a boundary ring, a generate, a commit -- and setup goes
  * through the store's own actions and the shell's own buttons, whichever is
- * shorter. The GESTURE UNDER TEST is never driven: the eye and the × are
- * pressed by moving the mouse to a coordinate and clicking, so that the
+ * shorter. The GESTURE UNDER TEST is never driven: the checkbox and the ×
+ * are pressed by moving the mouse to a coordinate and clicking, so that the
  * browser's own hit-testing decides what receives the press, exactly as it
  * does for the user.
  *

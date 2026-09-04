@@ -18,13 +18,20 @@
  *
  * THE FOCUS IS NOT THE SELECTION, AND CONFLATING THE TWO WOULD BE THE WORST
  * MISTAKE AVAILABLE HERE. The store's `selectedFeatureIds` is the set of
- * features a COMMIT WILL CARRY -- what the tab strip's eye toggles, held in
- * the draft, sent on the wire, and surviving a reload. This is a POINTER AT
- * ONE OF THEM for the purpose of looking at it: it commits nothing, changes
- * nothing about what a commit would send, and is thrown away when the cursor
- * moves. A feature can be focused and eye-off at once, and that is a real and
- * useful state -- it is how you read the measurements of something you have
- * just taken out.
+ * features a COMMIT WILL CARRY -- what the tab strip's checkboxes toggle,
+ * held in the draft, sent on the wire, and surviving a reload. This is a
+ * POINTER AT ONE OF THEM for the purpose of looking at it: it commits
+ * nothing, changes nothing about what a commit would send, and is thrown away
+ * when the cursor moves. A feature can be focused and unchecked at once, and
+ * that is a real and useful state -- it is how you read the measurements of
+ * something you have just taken out.
+ *
+ * ONE STEP CHOOSES OTHERWISE, AND IT SAYS SO IN ITS OWN DEFINITION. Roads
+ * declares `selection: { follows: 'focus' }`, which makes its tab body check
+ * its box: through the strip, what is focused there is what commits. That is
+ * a STEP's statement about its own tabs, not a change to what this slot is --
+ * this file still holds a pointer and still commits nothing, and the map's
+ * own clicks focus without choosing on every step alike.
  *
  * WHY THEY LIVE TOGETHER. The arming is only meaningful against a step's
  * `tools[]`, and it must not survive the step it was armed for -- an armed

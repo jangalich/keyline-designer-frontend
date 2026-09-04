@@ -2,10 +2,10 @@
  * roads.test.jsx
  *
  * THE ROADS STEP: the third definition, and the first that ACCUMULATES
- * candidates across generates, COLLECTS AN INPUT, and treats the eye as a
- * RADIO. Every one of those was a place the step schema had no word, and the
- * word was added to the schema (stepDefinitions.js, LAYER SCHEMA items 6-11)
- * rather than the shell learning which step it was rendering.
+ * candidates across generates, COLLECTS AN INPUT, and treats its CHECKBOXES
+ * as a RADIO. Every one of those was a place the step schema had no word, and
+ * the word was added to the schema (stepDefinitions.js, LAYER SCHEMA items
+ * 6-12) rather than the shell learning which step it was rendering.
  *
  * HOW TO RUN THE END-TO-END SECTIONS:
  *
@@ -38,9 +38,11 @@
  *   2  [2]  NOT ARMED ON ENTRY; "Add access point" arms it.
  *   3  [3]  THE CAP: a fourth add is refused, and the UI says why.
  *   4  [4]  DISCARD calls the server verb and frees a slot.
- *   5  [5]  RADIO EYE: turning on network 2 turns off network 1.
+ *   5  [5]  THE RADIO CHECKBOX: ticking network 2 un-ticks network 1, and the
+ *           TAB BODY ticks it too -- focus and the commit decision are one
+ *           fact here, declared once as `selection.follows`.
  *   6  [6]  ONLY THE FOCUSED NETWORK IS DRAWN; the others are absent.
- *   7  [7]  MARKERS PERSIST whatever the focus or the eye.
+ *   7  [7]  MARKERS PERSIST whatever the focus or the checkboxes.
  *   8  [8]  A MARKER CLICK focuses its network, as its tab does.
  *   9  [9]  BARE-MAP CLICK: markers and tabs stay, no network is drawn.
  *  10 [10]  THE COMMITTED NETWORK renders dimmed and persists.
@@ -96,7 +98,7 @@ import {
   roadNetworks,
 } from './wizard/stepDefinitions'
 import { GENERATING, MACHINE_STATES, REVIEWING } from './wizard/useStepMachine.js'
-import { selectionAfterEye, tabIsFocused } from './wizard/shell/TabStrip.jsx'
+import { selectionAfterCheck, tabIsFocused } from './wizard/shell/TabStrip.jsx'
 import { resetStepCatalog } from './wizard/stepCatalog.jsx'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
@@ -415,26 +417,37 @@ describe('1. end to end against the real backend', () => {
       expect(ui.markers().length).toBe(2)
       expect(recordedAccessPoints(ui.state, 'roads')).toHaveLength(2)
 
-      // FOCUS EACH: the tab, then the marker, then the line -- one state.
+      // WHERE THE GENERATE LEFT IT: the SECOND network is focused (it is the
+      // one just routed) and the FIRST is still the checked one -- a later
+      // generate is a comparison and does not take the tick off the network
+      // already chosen. It is the one state on this step where the focus and
+      // the checkbox disagree, and it is reached from outside the strip.
+      expect(ui.cursor.focusedFeatureId).toBe(second.network_id)
+      expect(ui.find(`tab-${first.network_id}`).getAttribute('data-checked')).toBe('true')
+
+      // CLICKING THE CHECKED TAB CONVERGES RATHER THAN PUNISHING: it becomes
+      // the tab you are looking at AND stays the one that commits. Reading
+      // the network you have committed must not take it out of the commit.
       await ui.click(`tab-focus-${first.network_id}`)
       expect(ui.cursor.focusedFeatureId).toBe(first.network_id)
       expect(ui.find(`tab-${first.network_id}`).getAttribute('data-focused')).toBe('true')
+      expect(ui.find(`tab-${first.network_id}`).getAttribute('data-checked')).toBe('true')
       expect(ui.text('detail-name-roads')).toBe('Access point 1')
+
+      // AND CLICKING THE OTHER TAB IS THE CHOICE: focus and tick move together.
       await ui.click(`tab-focus-${second.network_id}`)
       expect(ui.find(`tab-${second.network_id}`).getAttribute('data-focused')).toBe('true')
       expect(ui.find(`tab-${first.network_id}`).getAttribute('data-focused')).toBe('false')
       expect(ui.text('detail-name-roads')).toBe('Access point 2')
+      expect(ui.find(`tab-${second.network_id}`).getAttribute('data-checked')).toBe('true')
+      expect(ui.find(`tab-${first.network_id}`).getAttribute('data-checked')).toBe('false')
 
-      // THE RADIO: the first was seeded on; turning the second on turns it off.
-      expect(ui.find(`tab-${first.network_id}`).getAttribute('data-eye')).toBe('on')
-      expect(ui.find(`tab-${second.network_id}`).getAttribute('data-eye')).toBe('off')
-      await ui.click(`tab-eye-${second.network_id}`)
-      expect(ui.find(`tab-${second.network_id}`).getAttribute('data-eye')).toBe('on')
-      expect(ui.find(`tab-${first.network_id}`).getAttribute('data-eye')).toBe('off')
-      // ...and back, so the first is what commits.
-      await ui.click(`tab-eye-${first.network_id}`)
-      expect(ui.find(`tab-${first.network_id}`).getAttribute('data-eye')).toBe('on')
-      expect(ui.find(`tab-${second.network_id}`).getAttribute('data-eye')).toBe('off')
+      // ...and back through the BOX, so the first is what commits. The box
+      // moves the focus with it, for the same reason the body moves the tick.
+      await ui.click(`tab-check-${first.network_id}`)
+      expect(ui.find(`tab-${first.network_id}`).getAttribute('data-checked')).toBe('true')
+      expect(ui.find(`tab-${second.network_id}`).getAttribute('data-checked')).toBe('false')
+      expect(ui.cursor.focusedFeatureId).toBe(first.network_id)
 
       // THE BODY: the first network's branches, and EVERY access point tried.
       const body = buildCommitBody(ui.state, 'roads', registryProposalFeatures, {
@@ -720,13 +733,14 @@ function installFetch(routes) {
 const route = (method, pattern, responses) => ({ method, pattern, responses })
 
 /** A generated roads step over the fixture payload, resumed into, on the roads cursor. */
-async function generatedRoads({ recorded = [AP_A, AP_B] } = {}) {
+async function generatedRoads({ recorded = [AP_A, AP_B], extraRoutes = [] } = {}) {
   const document = serverDocument({
     roads: { status: GENERATED, inputs: { [ACCESS_POINTS_LIST]: recorded } },
   })
   const calls = installFetch([
     route('GET', /^\/api\/sessions\/sess-roads$/, { body: document }),
     route('GET', /\/steps\/roads\/layers$/, { body: roadsPayload() }),
+    ...extraRoutes,
   ])
   const ui = await renderApp({ center: [40.72, -74.0] })
   await ui.run((a) => a.resume('sess-roads'))
@@ -737,44 +751,214 @@ async function generatedRoads({ recorded = [AP_A, AP_B] } = {}) {
 }
 
 /* ===========================================================================
-   5. THE RADIO EYE
+   5. THE RADIO CHECKBOX, AND THE TAB BODY THAT TICKS IT
    =========================================================================== */
 
-describe('5. the eye is a radio', () => {
-  it('declares it on the definition, and the strip reads it rather than knowing the step', () => {
-    expect(ROADS_STEP.selection).toEqual({ mode: 'radio' })
-    expect(STEP_DEFINITIONS.find((d) => d.id === 'landform').selection).toEqual({ mode: 'multiple' })
-    expect(STEP_DEFINITIONS.find((d) => d.id === 'water').selection).toEqual({ mode: 'multiple' })
+describe('5. the checkbox is a radio, and the tab body ticks it', () => {
+  it('declares both facts on the definition, and the strip reads them rather than knowing the step', () => {
+    // TWO FIELDS, AND ONLY ONE OF THEM IS ABOUT THE OTHER BOXES. `mode` says
+    // what ticking one does to the rest; `follows` says that on this step the
+    // focus and the commit decision are ONE FACT.
+    expect(ROADS_STEP.selection).toEqual({ mode: 'radio', follows: 'focus' })
+    expect(STEP_DEFINITIONS.find((d) => d.id === 'landform').selection).toEqual({
+      mode: 'multiple',
+      follows: null,
+    })
+    expect(STEP_DEFINITIONS.find((d) => d.id === 'water').selection).toEqual({
+      mode: 'multiple',
+      follows: null,
+    })
 
-    // The arithmetic, on a tab standing for two branches.
+    // AND THE PAIR IS REFUSED WHERE IT WOULD BE INCOHERENT. One focus slot
+    // holds one feature, so checkboxes that follow it cannot be 'multiple'.
+    expect(() =>
+      defineStep({
+        id: 'trees',
+        status: () => NOT_STARTED,
+        commit: { run: () => true },
+        selection: { mode: 'multiple', follows: 'focus' },
+      })
+    ).toThrow(/follows: 'focus'.*only coherent with 'radio'/s)
+
+    // The arithmetic is UNCHANGED, on a tab standing for two branches: this
+    // change is the control's shape and label, not its effect.
     const tabA = { id: NET_A, featureIds: ['a-1', 'a-2'], selected: true }
     const tabB = { id: NET_B, featureIds: ['b-1', 'b-2'], selected: false }
-    expect(selectionAfterEye(['a-1', 'a-2'], tabB, 'radio')).toEqual(['b-1', 'b-2'])
-    expect(selectionAfterEye(['a-1', 'a-2'], tabA, 'radio')).toEqual([])
-    expect(selectionAfterEye(['a-1', 'a-2'], tabB, 'multiple').sort()).toEqual(['a-1', 'a-2', 'b-1', 'b-2'])
+    expect(selectionAfterCheck(['a-1', 'a-2'], tabB, 'radio')).toEqual(['b-1', 'b-2'])
+    expect(selectionAfterCheck(['a-1', 'a-2'], tabA, 'radio')).toEqual([])
+    expect(selectionAfterCheck(['a-1', 'a-2'], tabB, 'multiple').sort()).toEqual(['a-1', 'a-2', 'b-1', 'b-2'])
   })
 
-  it('turns network 1 off when network 2 is turned on, and never holds both', async () => {
+  it('un-ticks network 1 when network 2 is ticked, and never holds both', async () => {
     const { ui } = await generatedRoads()
     // Seeded on the FIRST candidate only -- a radio seed, not every proposal.
     expect(selectDraft(ui.state, 'roads').selectedFeatureIds.sort()).toEqual(
       ui.networks[0].feature_ids.sort()
     )
-    expect(ui.find(`tab-${NET_A}`).getAttribute('data-eye')).toBe('on')
-    expect(ui.find(`tab-${NET_B}`).getAttribute('data-eye')).toBe('off')
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('false')
     expect(ui.find('tabs-roads').getAttribute('data-selection')).toBe('radio')
-    expect(ui.find(`tab-eye-${NET_A}`).getAttribute('role')).toBe('radio')
 
-    await ui.click(`tab-eye-${NET_B}`)
-    expect(ui.find(`tab-${NET_B}`).getAttribute('data-eye')).toBe('on')
-    expect(ui.find(`tab-${NET_A}`).getAttribute('data-eye')).toBe('off')
+    // A CHECKBOX IN BOTH MODES, never a radio input. `mode` is what happens
+    // to the OTHER boxes; a radio could not express the legal empty commit
+    // below, which is reached by un-ticking the last network.
+    const box = ui.find(`tab-check-${NET_A}`)
+    expect(box.tagName).toBe('INPUT')
+    expect(box.type).toBe('checkbox')
+    expect(box.getAttribute('role')).toBeNull()
+    expect(box.checked).toBe(true)
+    expect(ui.find(`tab-check-${NET_B}`).checked).toBe(false)
+
+    await ui.click(`tab-check-${NET_B}`)
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('false')
     expect(selectDraft(ui.state, 'roads').selectedFeatureIds.sort()).toEqual(
       ui.networks[1].feature_ids.sort()
     )
+    // ...and the box moved the FOCUS with it, because on this step they are
+    // one fact. Ticking B while A was focused would otherwise draw A's
+    // network under B's tick.
+    expect(ui.cursor.focusedFeatureId).toBe(NET_B)
+
     // Off is NONE -- a legal commit, and the button says so.
-    await ui.click(`tab-eye-${NET_B}`)
+    await ui.click(`tab-check-${NET_B}`)
     expect(selectDraft(ui.state, 'roads').selectedFeatureIds).toEqual([])
+    expect(ui.cursor.focusedFeatureId).toBeNull()
     expect(ui.text('commit-roads')).toBe('Commit no road for this step')
+    await ui.unmount()
+  })
+
+  /* TEST 5: THE TAB BODY TICKS ITS OWN BOX AND UN-TICKS THE OTHERS. */
+  it('checks the tab clicked and un-checks the others', async () => {
+    const { ui } = await generatedRoads()
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('false')
+
+    await ui.click(`tab-focus-${NET_B}`)
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('false')
+    expect(ui.find(`tab-check-${NET_B}`).checked).toBe(true)
+    expect(ui.find(`tab-check-${NET_A}`).checked).toBe(false)
+    expect(selectDraft(ui.state, 'roads').selectedFeatureIds.sort()).toEqual(
+      ui.networks[1].feature_ids.sort()
+    )
+    // The tab it ticked is the tab it focused: one fact, not two that agree.
+    expect(ui.cursor.focusedFeatureId).toBe(NET_B)
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-focused')).toBe('true')
+    await ui.unmount()
+  })
+
+  /* TESTS 6, 7 AND 8: CLICKING A CHECKED TAB UN-CHECKS IT, NO NETWORK IS
+     DRAWN, THE ACCESS POINTS AND TABS REMAIN, AND THE EMPTY COMMIT GOES. */
+  it('un-checks a checked tab, draws no network, keeps the markers, and commits empty', async () => {
+    // THE EMPTY COMMIT IS ANSWERED WITH AN EMPTY COMMITTED STEP, which is
+    // what `min_features: 0` produces on the wire: a step with a revision and
+    // a FeatureCollection holding nothing.
+    const { ui, calls } = await generatedRoads({
+      extraRoutes: [
+        route('POST', /\/steps\/roads\/commit$/, {
+          body: serverDocument({
+            revision: 2,
+            roads: committedStep(1, [], { inputs: { [ACCESS_POINTS_LIST]: [AP_A, AP_B] } }),
+          }),
+        }),
+      ],
+    })
+    const pane = 'leaflet-roads--roads-networks-pane'
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.drawnBranches(pane).length).toBeGreaterThan(0)
+
+    await ui.click(`tab-focus-${NET_A}`)
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('false')
+    expect(ui.find(`tab-check-${NET_A}`).checked).toBe(false)
+    expect(selectDraft(ui.state, 'roads').selectedFeatureIds).toEqual([])
+
+    // ABSENCE, NOT TRANSPARENCY. Nothing in the editable pane at all -- not a
+    // dimmed branch, not a casing, not a path with stroke-opacity 0.
+    expect(ui.drawnBranches(pane)).toHaveLength(0)
+    expect(ui.all(`.${pane} path`)).toHaveLength(0)
+
+    // WHAT REMAINS is exactly what a bare-map click leaves: every access
+    // point and every tab, so the alternatives are still there to choose.
+    expect(ui.markers()).toHaveLength(2)
+    expect(ui.all('[data-tab-id]')).toHaveLength(2)
+    expect(ui.find(`tab-${NET_A}`)).not.toBeNull()
+    expect(ui.find(`tab-${NET_B}`)).not.toBeNull()
+
+    // AND THE EMPTY COMMIT IS LEGAL FROM HERE. `min_features: 0`, and this
+    // toggle is the only affordance that reaches it.
+    expect(ui.text('commit-roads')).toBe('Commit no road for this step')
+    expect(ui.find('commit-roads').disabled).toBe(false)
+    await ui.click('commit-roads')
+    await ui.waitFor('roads to commit', () => selectStepStatus(ui.state, 'roads') === COMMITTED, 5000)
+    const commit = calls.find((c) => /\/steps\/roads\/commit$/.test(c.path))
+    expect(commit.body.features.features).toEqual([])
+    await ui.unmount()
+  })
+
+  /* THE ONE STATE WHERE FOCUS AND THE TICK DISAGREE, ASKED WITHOUT A SERVER.
+
+     It is reached only from outside the strip -- a map marker, or the
+     generate that focuses the network it just routed. Clicking the checked
+     tab there CONVERGES on it (focus moves, the tick stays) rather than
+     taking the committed network out of the commit for the crime of being
+     read; clicking the focused-but-unchecked one ticks it. The live section
+     above asks the same of the real generate. */
+  it('converges when a focus from the map disagrees with the tick', async () => {
+    const { ui } = await generatedRoads()
+    // A MARKER CLICK IS A READING: it focuses B and chooses nothing.
+    await ui.clickMarker(1)
+    expect(ui.cursor.focusedFeatureId).toBe(NET_B)
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('false')
+
+    // CLICKING THE CHECKED TAB brings the focus to it and leaves it checked.
+    await ui.click(`tab-focus-${NET_A}`)
+    expect(ui.cursor.focusedFeatureId).toBe(NET_A)
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('true')
+
+    // AND CLICKING THE FOCUSED-BUT-UNCHECKED ONE TICKS IT, rather than
+    // merely letting go of a focus the user did not put there.
+    await ui.clickMarker(1)
+    expect(ui.cursor.focusedFeatureId).toBe(NET_B)
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('false')
+    await ui.click(`tab-focus-${NET_B}`)
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('false')
+    expect(ui.cursor.focusedFeatureId).toBe(NET_B)
+    await ui.unmount()
+  })
+
+  /* TEST 3: A ROUND TRIP THROUGH THE CHECKBOX COMMITS BYTE FOR BYTE.
+
+     "It came back" is weaker than it sounds if the body it comes back into is
+     a different body -- a different order, a duplicate id, a feature rebuilt
+     from a tab rather than carried off the payload. buildCommitBody is what
+     actually goes over the wire, so it is what is compared, against a run
+     that pressed nothing. water.test.jsx makes the same claim for a
+     multi-select step; this is the radio one, where un-ticking empties the
+     set rather than removing one id from it. */
+  it('commits identically after checked -> unchecked -> checked', async () => {
+    const { ui } = await generatedRoads()
+    const body = () =>
+      buildCommitBody(ui.state, 'roads', registryProposalFeatures, {
+        inputs: commitInputsFor(ROADS_STEP, {
+          state: ui.state,
+          stepId: 'roads',
+          draft: selectDraft(ui.state, 'roads'),
+          definition: ROADS_STEP,
+        }),
+      })
+
+    const untouched = JSON.stringify(body())
+    expect(JSON.parse(untouched).features.features.length).toBeGreaterThan(0)
+
+    await ui.click(`tab-check-${NET_A}`)
+    expect(selectDraft(ui.state, 'roads').selectedFeatureIds).toEqual([])
+    expect(JSON.parse(JSON.stringify(body())).features.features).toEqual([])
+
+    await ui.click(`tab-check-${NET_A}`)
+    expect(JSON.stringify(body())).toBe(untouched)
     await ui.unmount()
   })
 })
@@ -784,18 +968,60 @@ describe('5. the eye is a radio', () => {
    =========================================================================== */
 
 describe('6. only the focused network is drawn', () => {
-  it('declares the exception on one layer, and the renderer applies it', () => {
+  it('RESOLVES the exception from one step-level fact, and the renderer applies it', () => {
     const networks = ROADS_STEP.layers.find((l) => l.id === 'roads-networks')
     expect(networks.show).toBe('focused')
     expect(LAYER_SHOW).toEqual(['all', 'focused'])
-    // Nothing else declares it -- not roads' committed layer, not any other step.
+    // Exactly one layer in the build gets it -- not roads' committed layer,
+    // not its point layers, not any other step's.
     for (const definition of STEP_DEFINITIONS) {
       for (const layer of definition.layers) {
         if (layer !== networks) expect(layer.show).toBe('all')
       }
     }
+
+    // AND NO LAYER DECLARED IT. This is the change: the rule used to be a
+    // per-layer field roads set by hand beside a checkbox that meant the same
+    // thing, and two fields that happen to agree diverge on the first edit to
+    // either. It is derived from `selection.follows` now, and a layer that
+    // tries to have an opinion of its own is REFUSED.
+    const layersSource = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
+    expect(layersSource).not.toMatch(/^\s*show: 'focused',$/m)
+    expect(() =>
+      defineStep({
+        id: 'trees',
+        status: () => NOT_STARTED,
+        commit: { run: () => true },
+        layers: [{ id: 't', band: 'editable', kind: 'polygon', source: 'proposals', show: 'focused' }],
+      })
+    ).toThrow(/declares `show`/)
+
+    // THE DERIVATION, BOTH WAYS. A focus-bound step's editable line/polygon
+    // layers resolve to 'focused'; its point layers and its committed band do
+    // not, and a step that binds nothing gets 'all' throughout.
+    const bound = (selection) =>
+      defineStep({
+        id: 'trees',
+        status: () => NOT_STARTED,
+        commit: { run: () => true },
+        selection,
+        layers: [
+          { id: 'edit-line', band: 'editable', kind: 'line', source: 'proposals' },
+          { id: 'edit-poly', band: 'editable', kind: 'polygon', source: 'proposals' },
+          { id: 'edit-point', band: 'editable', kind: 'point', source: 'proposals', points: () => [] },
+          { id: 'settled', band: 'committed', kind: 'line', source: 'document' },
+        ],
+      }).layers.map((layer) => [layer.id, layer.show])
+    expect(bound({ mode: 'radio', follows: 'focus' })).toEqual([
+      ['edit-line', 'focused'],
+      ['edit-poly', 'focused'],
+      ['edit-point', 'all'],
+      ['settled', 'all'],
+    ])
+    expect(bound({ mode: 'radio' }).every(([, show]) => show === 'all')).toBe(true)
+
     // Pure: the focused group, whole; nothing when nothing is focused; and
-    // the eye plays no part.
+    // the checkboxes play no part in this filter.
     const payload = roadsPayload()
     const layer = {
       band: 'editable',
@@ -822,14 +1048,20 @@ describe('6. only the focused network is drawn', () => {
   it('draws the focused network and nothing else, absent rather than dimmed', async () => {
     const { ui } = await generatedRoads()
     const pane = 'leaflet-roads--roads-networks-pane'
-    // Seeded and focused on the first network.
+    // Seeded and focused on the first network, which is also the checked one:
+    // on this step those are one fact.
     expect(ui.cursor.focusedFeatureId).toBe(NET_A)
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('true')
     expect(ui.drawnBranches(pane)).toHaveLength(2)
     expect(ui.drawnBranches(pane).map((el) => el.getAttribute('stroke-opacity'))).toEqual(['1', '1'])
-    // Focus the second: its two branches, and NOT the first's -- eye-off or not.
+
+    // Click the second tab: its two branches, and NOT the first's. The tick
+    // moved with the focus, so the drawn network and the committed one are
+    // the same network -- which is what the collapse buys.
     await ui.click(`tab-focus-${NET_B}`)
     expect(ui.drawnBranches(pane)).toHaveLength(2)
-    expect(ui.find(`tab-${NET_A}`).getAttribute('data-eye')).toBe('on')
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('false')
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('true')
     const paths = ui.all(`.${pane} path`)
     expect(paths.length).toBe(4) // two branches, each cased
     await ui.unmount()
@@ -837,14 +1069,15 @@ describe('6. only the focused network is drawn', () => {
 })
 
 describe('7. the access-point markers persist', () => {
-  it('stay through every focus and eye state', async () => {
+  it('stay through every focus and checkbox state', async () => {
     const { ui } = await generatedRoads()
     expect(ui.markers()).toHaveLength(2)
-    await ui.click(`tab-focus-${NET_B}`)
+    await ui.click(`tab-focus-${NET_B}`) // radio: A off, B on, focus B
     expect(ui.markers()).toHaveLength(2)
-    await ui.click(`tab-eye-${NET_B}`) // radio: A off, B on
+    await ui.click(`tab-check-${NET_B}`) // none
     expect(ui.markers()).toHaveLength(2)
-    await ui.click(`tab-eye-${NET_B}`) // none
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('false')
+    await ui.click(`tab-check-${NET_A}`) // A alone
     expect(ui.markers()).toHaveLength(2)
     await ui.clickMap([40.72, -74.0])
     expect(ui.cursor.focusedFeatureId).toBeNull()
@@ -853,8 +1086,13 @@ describe('7. the access-point markers persist', () => {
   })
 })
 
+/* A MARKER CLICK IS STILL A READING, and that is deliberate. Roads' TAB body
+   ticks its box now (see section 5), because a tab IS the commit decision
+   drawn as a control; a shape on the map is the thing itself, and clicking a
+   thing to look at it must not quietly change what a commit would send. So
+   what a marker and a tab share is the FOCUS, which is what this asserts. */
 describe('8. a marker click focuses its network', () => {
-  it('is the same act as clicking the tab, and the line', async () => {
+  it('focuses it the way its tab does, and the line does, without choosing it', async () => {
     const { ui } = await generatedRoads()
     await ui.clickMap([40.72, -74.0])
     expect(ui.cursor.focusedFeatureId).toBeNull()
@@ -1011,8 +1249,8 @@ describe('12. reopen restores every candidate', () => {
     const b = await placeAndGenerate(ui, ACCESS_B)
     const c = await placeAndGenerate(ui, ACCESS_C)
     // Commit the SECOND, so the restored selection is not merely "the first".
-    await ui.click(`tab-eye-${b.network_id}`)
-    expect(ui.find(`tab-${b.network_id}`).getAttribute('data-eye')).toBe('on')
+    await ui.click(`tab-check-${b.network_id}`)
+    expect(ui.find(`tab-${b.network_id}`).getAttribute('data-checked')).toBe('true')
     await ui.click('commit-roads')
     await ui.waitFor('roads to commit', () => selectStepStatus(ui.state, 'roads') === COMMITTED)
     expect(ui.cursor.cursorStepId).toBe('trees')
@@ -1029,9 +1267,9 @@ describe('12. reopen restores every candidate', () => {
     expect(ui.markers()).toHaveLength(3)
     // THE PRIOR SELECTION AND FOCUS: the committed network, and only it.
     expect(selectDraft(ui.state, 'roads').selectedFeatureIds.sort()).toEqual([...b.feature_ids].sort())
-    expect(ui.find(`tab-${b.network_id}`).getAttribute('data-eye')).toBe('on')
-    expect(ui.find(`tab-${a.network_id}`).getAttribute('data-eye')).toBe('off')
-    expect(ui.find(`tab-${c.network_id}`).getAttribute('data-eye')).toBe('off')
+    expect(ui.find(`tab-${b.network_id}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.find(`tab-${a.network_id}`).getAttribute('data-checked')).toBe('false')
+    expect(ui.find(`tab-${c.network_id}`).getAttribute('data-checked')).toBe('false')
     await ui.waitFor('the seed focus', () => ui.cursor.focusedFeatureId === b.network_id, 5000)
     expect(ui.find(`tab-${b.network_id}`).getAttribute('data-focused')).toBe('true')
     expect(recordedAccessPoints(ui.state, 'roads')).toEqual([a.access_point, b.access_point, c.access_point])
@@ -1081,7 +1319,7 @@ describe('13. a null grade is an em dash, never 0.0', () => {
     const none = { ...payload, networks: [{ network_id: 'cccccccccc', access_point: [-73.98, 40.72], feature_ids: [], ...narrative(false) }] }
     const tabs = ROADS_STEP.tabs({ proposals: none, draft })
     expect(tabs).toHaveLength(1)
-    expect(tabs[0].eye).toBeUndefined()
+    expect(tabs[0].checkbox).toBeUndefined()
     expect(tabs[0].removable).toBe(true)
     const networkDetail = ROADS_STEP.detail({ proposals: none, draft }, 'cccccccccc')
     expect(networkDetail.groups[0].fields.find((f) => f.label === 'max grade %').value).toBe('—')
@@ -1175,7 +1413,7 @@ describe('14. what the definition declares, and what the shell does not know', (
     // A test-local definition can be built without the roads fields, which is
     // what "the schema grew" means for the three steps still to come.
     const plain = defineStep({ id: 'trees', status: () => NOT_STARTED, commit: { run: () => 'committed' } })
-    expect(plain.selection).toEqual({ mode: 'multiple' })
+    expect(plain.selection).toEqual({ mode: 'multiple', follows: null })
     expect(plain.accumulate).toBeNull()
     expect(plain.groupOf).toBeNull()
   })

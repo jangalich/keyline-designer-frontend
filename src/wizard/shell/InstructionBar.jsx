@@ -223,7 +223,7 @@ export default function InstructionBar({ machine, chromeState, definitions, undo
    * yes, which trains people to click through the one that will matter. So the
    * × acts, and the way back sits here for a few seconds.
    *
-   * IT IS LAST, so it is the notice nearest the eye after the action that
+   * IT IS LAST, so it is the notice nearest the reader after the action that
    * produced it, and it carries an ACTION rather than being one -- the bar
    * still says what happened first.
    */

@@ -231,9 +231,9 @@ export function seedFor(state, definition, proposalFeatures) {
 }
 
 /**
- * WHAT A FRESH DRAFT SELECTS. Every proposal, for a step whose eyes are
+ * WHAT A FRESH DRAFT SELECTS. Every proposal, for a step whose boxes are
  * checkboxes: the pipeline's suggestion is the starting point and the user
- * prunes. ONE GROUP, for a step whose eyes are a radio (`selection.mode`):
+ * prunes. ONE GROUP, for a step whose boxes are a radio (`selection.mode`):
  * the alternatives are mutually exclusive by declaration, so a seed holding
  * all of them would be a state the strip can never show and the commit
  * contract refuses. The first group is the first candidate in payload order,
