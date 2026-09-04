@@ -488,13 +488,39 @@ describe('4. one accent per state', () => {
     expect(secondary.background).toBe('var(--paper)')
     expect(secondary.color).toBe('var(--ink)')
 
-    // GREEN IS NEVER A CONTROL. Chrome floats on aerial photography of
-    // farmland, which is green across the whole frame; --field is map geometry
-    // and the legend, and a control drawn in it half-disappears against canopy.
+    // GREEN IS NEVER A CONTROL'S SURFACE OR ITS EDGE. Chrome floats on aerial
+    // photography of farmland, which is green across the whole frame; --field
+    // is map geometry and the legend, and a control drawn in it
+    // half-disappears against canopy.
     const chrome = decl(COMPONENTS).slice(decl(COMPONENTS).indexOf('.chrome {'))
     const chromeBlock = chrome.slice(0, chrome.indexOf('.map-tools'))
-    expect(chromeBlock).not.toContain('--field')
     expect(chromeBlock).not.toContain('--eligible')
+
+    /**
+     * ONE EXCEPTION, AND IT IS NAMED RATHER THAN ALLOWED.
+     *
+     * The tab checkbox's TICK is --field: the one green mark in the chrome,
+     * and the one thing there that means what the map's green means -- this
+     * is on the ground. The rule above is a LEGIBILITY rule, and its reason
+     * does not reach a mark inside an opaque box: the tick never meets the
+     * imagery, because the box is --paper with an --ink edge.
+     *
+     * SO THE ASSERTION IS NARROWED, NOT DROPPED. Exactly one rule in the
+     * chrome may name --field, it is the tick's, and the box it sits in is
+     * still asserted opaque. A green BUTTON, a green tab, a green border on
+     * anything -- all still fail here.
+     */
+    const greens = [...chromeBlock.matchAll(/([^{}]+)\{([^}]*--field[^}]*)\}/g)].map(
+      ([, selector, body]) => [selector.trim(), body.trim()]
+    )
+    expect(greens.map(([selector]) => selector)).toEqual(['.chrome-tab__check:checked::after'])
+    expect(greens[0][1]).toContain('border: solid var(--field)')
+
+    // AND THE BOX AROUND IT IS OPAQUE, which is the whole of why the tick is
+    // allowed to be green. --paper on --ink, never the imagery.
+    const box = propsOf(ruleFor(COMPONENTS, '.chrome-tab__check'))
+    expect(box.background).toBe('var(--paper)')
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-tab__check:checked'))['border-color']).toBe('var(--ink)')
   })
 
   /**

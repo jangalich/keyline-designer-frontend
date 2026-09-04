@@ -98,7 +98,7 @@ import {
   roadNetworks,
 } from './wizard/stepDefinitions'
 import { GENERATING, MACHINE_STATES, REVIEWING } from './wizard/useStepMachine.js'
-import { selectionAfterEye, tabIsFocused } from './wizard/shell/TabStrip.jsx'
+import { selectionAfterCheck, tabIsFocused } from './wizard/shell/TabStrip.jsx'
 import { resetStepCatalog } from './wizard/stepCatalog.jsx'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
@@ -784,9 +784,9 @@ describe('5. the checkbox is a radio, and the tab body ticks it', () => {
     // change is the control's shape and label, not its effect.
     const tabA = { id: NET_A, featureIds: ['a-1', 'a-2'], selected: true }
     const tabB = { id: NET_B, featureIds: ['b-1', 'b-2'], selected: false }
-    expect(selectionAfterEye(['a-1', 'a-2'], tabB, 'radio')).toEqual(['b-1', 'b-2'])
-    expect(selectionAfterEye(['a-1', 'a-2'], tabA, 'radio')).toEqual([])
-    expect(selectionAfterEye(['a-1', 'a-2'], tabB, 'multiple').sort()).toEqual(['a-1', 'a-2', 'b-1', 'b-2'])
+    expect(selectionAfterCheck(['a-1', 'a-2'], tabB, 'radio')).toEqual(['b-1', 'b-2'])
+    expect(selectionAfterCheck(['a-1', 'a-2'], tabA, 'radio')).toEqual([])
+    expect(selectionAfterCheck(['a-1', 'a-2'], tabB, 'multiple').sort()).toEqual(['a-1', 'a-2', 'b-1', 'b-2'])
   })
 
   it('un-ticks network 1 when network 2 is ticked, and never holds both', async () => {

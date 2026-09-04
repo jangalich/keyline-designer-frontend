@@ -56,7 +56,7 @@ import {
 import TabStrip, {
   COLLAPSED_TAB_CAP,
   collapsedTabs,
-  selectionAfterEye,
+  selectionAfterCheck,
 } from './wizard/shell/TabStrip.jsx'
 import { LANDFORM_STEP } from './wizard/stepDefinitions'
 import WizardShell from './wizard/WizardShell.jsx'
@@ -2552,7 +2552,7 @@ describe('the checkbox, both ways', () => {
       /**
        * THE STORE'S OWN REDUCER, THROUGH THE STRIP'S OWN ARITHMETIC.
        *
-       * selectionAfterEye() is what the checkbox computes and setSelection
+       * selectionAfterCheck() is what the checkbox computes and setSelection
        * is what it dispatches, so pressing the box twice IS these two calls
        * twice. Driven directly rather than through a rendered strip because
        * the claim is about the pair of transitions and not about the DOM --
@@ -2585,7 +2585,7 @@ describe('the checkbox, both ways', () => {
         definition.tabs({ proposals: payload, draft: { selectedFeatureIds, drawnFeatures: [] } })
       const press = (selectedFeatureIds) => {
         const tab = tabsAt(selectedFeatureIds).find((t) => t.id === victim)
-        return selectionAfterEye(selectedFeatureIds, tab, definition.selection.mode)
+        return selectionAfterCheck(selectedFeatureIds, tab, definition.selection.mode)
       }
 
       // OFF. The zone leaves the set and nothing else moves.
@@ -2609,7 +2609,7 @@ describe('the checkbox, both ways', () => {
    * It used to dispatch DRAFT_SELECTION_TOGGLED -- one feature id, with
    * the next state computed in the REDUCER against the draft in hand. Roads
    * gave it a selection MODE (radio has to clear every other tab), so it
-   * became `setSelection(selectionAfterEye(machine.draft.selectedFeatureIds,
+   * became `setSelection(selectionAfterCheck(machine.draft.selectedFeatureIds,
    * ...))`: a whole set, computed OUT HERE, from the draft this render was
    * built with. That is a stale read the moment two presses land in one batch.
    *
@@ -2622,8 +2622,8 @@ describe('the checkbox, both ways', () => {
     // THE ARITHMETIC ALONE, showing what the stale read costs: both closures
     // hold the render's list, so the second write undoes the first.
     const rendered = ['a', 'b', 'c']
-    const pressA = selectionAfterEye(rendered, { id: 'a', selected: true }, 'multiple')
-    const pressB = selectionAfterEye(rendered, { id: 'b', selected: true }, 'multiple')
+    const pressA = selectionAfterCheck(rendered, { id: 'a', selected: true }, 'multiple')
+    const pressB = selectionAfterCheck(rendered, { id: 'b', selected: true }, 'multiple')
     expect(pressA).toEqual(['b', 'c'])
     expect(pressB).toEqual(['a', 'c']) // 'a' is back: the first press is lost
 
@@ -2632,7 +2632,7 @@ describe('the checkbox, both ways', () => {
     const strip = readFileSync(path.join(SRC, 'wizard', 'shell', 'TabStrip.jsx'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
-    expect(strip).toMatch(/setSelection\(stepId, \(current\) =>\s*selectionAfterEye\(current, tab, mode\)/)
+    expect(strip).toMatch(/setSelection\(stepId, \(current\) =>\s*selectionAfterCheck\(current, tab, mode\)/)
     expect(strip).not.toContain('machine.draft.selectedFeatureIds')
   })
 
@@ -2833,12 +2833,12 @@ describe('the checkbox, on every step that renders one', () => {
 
       // UN-CHECK. The features leave the set, and the strip says so -- which
       // is what the user has to click again.
-      const off = selectionAfterEye(start, tabsAt(start).find((t) => t.id === victim.id), definition.selection.mode)
+      const off = selectionAfterCheck(start, tabsAt(start).find((t) => t.id === victim.id), definition.selection.mode)
       for (const id of ids) expect(off).not.toContain(id)
       expect(tabsAt(off).find((t) => t.id === victim.id).selected).toBe(false)
 
       // CHECK. They come back, and the set is the one it started as.
-      const back = selectionAfterEye(off, tabsAt(off).find((t) => t.id === victim.id), definition.selection.mode)
+      const back = selectionAfterCheck(off, tabsAt(off).find((t) => t.id === victim.id), definition.selection.mode)
       expect([...back].sort()).toEqual([...start].sort())
       expect(tabsAt(back).find((t) => t.id === victim.id).selected).toBe(true)
     })

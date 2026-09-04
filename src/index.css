@@ -83,7 +83,14 @@
   --oxide-deep: #7d3a25;   /* oxide hover/active */
   --on-oxide: #fdfcf9;     /* text on oxide fill */
   --ochre: #c99a2e;        /* secondary emphasis, access point marker */
-  --field: #4a5f3a;        /* map geometry and legend only, never a control */
+  /* MAP GEOMETRY AND THE LEGEND -- never a control's surface or its edge.
+     The rule is legibility, not taste: this chrome floats on aerial
+     photography of farmland, so a control drawn in --field half-disappears
+     against canopy. ONE MARK IN THE CHROME IS DRAWN IN IT, and it is inside
+     an opaque box rather than on the imagery: the tab checkbox's TICK, which
+     is green for the same reason the map's geometry is. See
+     .chrome-tab__check in App.css and section 4 of style.test.jsx. */
+  --field: #4a5f3a;
   --alert: #7a2418;        /* error text only */
   --disabled: #c4bfb2;     /* disabled control surface */
 
@@ -222,8 +229,9 @@
      told apart by being a LINE -- the only line on the map that is not a
      boundary -- rather than by being the fourth brown in a palette with
      three. Nothing else changes: --oxide keeps the accent to itself, --field
-     the boundary, the two blues water, and --ochre the access-point marker
-     the road runs from.
+     the boundary (and, since the eye became a checkbox, the tick inside it),
+     the two blues water, and --ochre the access-point marker the road runs
+     from.
 
      THE CASING IS UNTOUCHED AND STILL DOES THE WORK. A road is a LINE, so the
      no-stroke rule for ZONES does not apply and the halo-casing rule for

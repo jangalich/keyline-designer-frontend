@@ -30,7 +30,7 @@
  * at its own centre CHECKED and UNCHECKED, at both stages.
  *
  *   - water.test.jsx drives the store's reducer through the strip's own
- *     arithmetic (selectionAfterEye + setSelection), for every step that
+ *     arithmetic (selectionAfterCheck + setSelection), for every step that
  *     renders a box;
  *   - interaction.test.jsx and water.test.jsx's live cases call `.click()` on
  *     a node they queried by test id, which dispatches straight at it;

@@ -1308,14 +1308,24 @@
    A NATIVE input[type=checkbox] WITH ITS PAINT TAKEN OFF, not a button
    wearing the role -- the state, the space bar and the announcement come with
    the element. `appearance: none` is what lets the box take this system's
-   hairline and --ink rather than the platform's blue, and the tick is drawn
-   from currentColor so it inherits the tab's own state colour and defines no
-   colour of its own.
+   hairline and --ink rather than the platform's blue.
 
    NO OXIDE. --oxide is the accent and the accent is for primary actions; a
    checkbox on a tab is a decision the user makes many times over, not the one
-   the card is asking for. It says checked in --ink, the same way the focused
-   tab says focused in --ink.
+   the card is asking for. The BOX says checked with a heavier edge in --ink,
+   the same way the focused tab says focused in --ink.
+
+   THE TICK IS --field, AND IT IS THE ONE PLACE IN THE CHROME THAT GREEN
+   APPEARS. The rule green obeys here is "never a control's SURFACE or its
+   EDGE", and its reason is legibility: this chrome floats on aerial
+   photography of farmland, which is green across the whole frame, so a
+   control drawn in --field half-disappears against canopy. A mark INSIDE an
+   opaque --paper box with an --ink edge never meets the imagery, so the
+   reason does not reach it -- and what the tick then buys is that the one
+   green thing in the chrome means the same as the green things on the map:
+   this is on the ground. style.test.jsx holds both halves of that: the tick
+   is the only --field in the chrome, and the box around it is --paper on
+   --ink.
 
    ABOVE THE TAB'S OWN FIGURES, IN EVERY STATE THE TAB HAS.
 
@@ -1354,27 +1364,28 @@
   border: var(--hairline);
   border-radius: var(--radius);
   background: var(--paper);
-  color: var(--ink-muted);
   cursor: pointer;
 }
 
 .chrome-tab__check:hover {
   border-color: var(--ink);
-  color: var(--ink);
 }
 
-/* CHECKED IS A HEAVIER EDGE AND A TICK, which is the same pair the focused tab
-   uses -- a border in --ink, no fill and no colour of its own. */
+/* CHECKED IS A HEAVIER EDGE, which is the same mark the focused tab makes --
+   a border in --ink, and no fill. The state's COLOUR is the tick's, below. */
 .chrome-tab__check:checked {
   border-color: var(--ink);
-  color: var(--ink);
 }
 
 /* THE TICK, DRAWN RATHER THAN TYPED. Two borders of an empty box, rotated:
-   one mark in currentColor at the weight the rest of this chrome is set in,
-   rather than a glyph whose shape and weight belong to whichever face happens
-   to have it. Not hit-testable in its own right -- a pseudo-element takes no
-   clicks -- so the input stays the element at its own centre. */
+   one mark at the weight the rest of this chrome is set in, rather than a
+   glyph whose shape and weight belong to whichever face happens to have it.
+   Not hit-testable in its own right -- a pseudo-element takes no clicks -- so
+   the input stays the element at its own centre.
+
+   --field, NOT currentColor: see the note above. It is stated as a token
+   rather than inherited so that no hover or focus rule can quietly repaint
+   the one green mark in the chrome. */
 .chrome-tab__check:checked::after {
   content: '';
   position: absolute;
@@ -1382,7 +1393,7 @@
   top: 0.0625rem;
   width: 0.25rem;
   height: 0.5625rem;
-  border: solid currentColor;
+  border: solid var(--field);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }

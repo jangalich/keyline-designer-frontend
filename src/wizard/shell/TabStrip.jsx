@@ -173,10 +173,11 @@ function featureIdsOf(tab) {
 /**
  * THE SELECTION AFTER ONE BOX IS TICKED, in the step's declared mode.
  *
- * THE NAME IS THE ONE IT WAS BORN WITH and it is deliberately not renamed with
- * the control. The eye became a checkbox in shape and in label; this is the
- * EFFECT, and the effect is unchanged in both directions -- so a rename here
- * would be the one edit in this change that could not be read as a no-op.
+ * IT WAS selectionAfterEye(), AND THE BODY BELOW IS UNCHANGED. The eye became
+ * a checkbox in shape and in label, and this is the EFFECT -- which the
+ * change did not touch, in either direction, for any mode. The rename is the
+ * label finishing its job: a helper named after a control nothing renders any
+ * more is the next reader's wrong turn.
  *
  *   multiple  every box is its own: the tab's features join the set or leave
  *             it, and nothing else moves.
@@ -186,7 +187,7 @@ function featureIdsOf(tab) {
  *             off which step this is; the backend says the same thing as
  *             `max_features: 1` counted by network.
  */
-export function selectionAfterEye(current, tab, mode) {
+export function selectionAfterCheck(current, tab, mode) {
   const ids = featureIdsOf(tab)
   const isOn = tab.selected !== false
   if (isOn) return current.filter((id) => !ids.includes(id))
@@ -232,7 +233,7 @@ export default function TabStrip({ machine, onRemove }) {
    * DRAFT_SELECTION_TOGGLED did before the control grew a mode. See
    * SessionStore's DRAFT_SELECTION_SET.
    */
-  const flip = (tab) => actions.setSelection(stepId, (current) => selectionAfterEye(current, tab, mode))
+  const flip = (tab) => actions.setSelection(stepId, (current) => selectionAfterCheck(current, tab, mode))
 
   /** THE BOX. On a focus-bound step the focus follows what the box becomes. */
   const check = (tab) => {
