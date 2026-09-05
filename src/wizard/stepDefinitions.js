@@ -362,10 +362,28 @@
  *      there, and clicking a tab body focuses without changing what a commit
  *      would send.
  *
- * WHAT IS NOT IN HERE. No step registers trees, structures or fencing: those
- * are later branches, and a definition written now against a payload nobody
- * has seen would be a guess dressed as a contract. The order they run in is
- * not here either -- it comes off the document's `step_order` (see
+ * ONE FIELD THE TREES STEP ADDED, and it is the smallest of the lot -- which
+ * is the finding: trees is landform's shape (select-only candidates PLUS
+ * drawing) over roads' sourcing (every upstream decision is a committed
+ * edge), and the schema already had words for both halves.
+ *
+ *  13. `step` on a `reference` layer sourced from the `document`. A drawn
+ *      tree zone is warned about what the user has COMMITTED -- the
+ *      production areas and the water zone -- and those are other steps'
+ *      collections in the Design Document. `reference` already said "data
+ *      the tools eat and nothing paints" and `document` already said "the
+ *      committed collection"; what the schema could not say was WHOSE. A
+ *      reference layer naming `step: 'landform'` resolves to landform's
+ *      committed features, reaches the step's `shape` under its own layer id
+ *      like landform's exclusion gates do, and the stack still learns nothing
+ *      about either step. It is the backend registry's own
+ *      `Consumed(from_step=...)`, on this side. Refused on any layer that is
+ *      not a document-sourced reference -- see defineLayer.
+ *
+ * WHAT IS NOT IN HERE. No step registers structures or fencing: those are
+ * later branches, and a definition written now against a payload nobody has
+ * seen would be a guess dressed as a contract. The order they run in is not
+ * here either -- it comes off the document's `step_order` (see
  * wizardStepOrder), because the backend owns it.
  */
 
@@ -386,7 +404,7 @@ import {
 } from '../session/SessionStore'
 import { polygonAreaAcres, pointFromGeoJSON, pointToGeoJSON } from '../geo.js'
 import { commitInputsFor, commitValueOf, requiredInputsMissing } from './stepInputs.js'
-import { cautionsFor, clampToBoundary } from '../zoneGeometry.js'
+import { cautionsFor, clampToBoundary, exclusionGrounds, groundFromFeatures } from '../zoneGeometry.js'
 import {
   COMMITTING,
   EDITING,
@@ -615,7 +633,17 @@ export const LAYER_SOURCES = Object.freeze(['proposals', 'draft', 'document'])
  * failing, and it says so here rather than being guessed at down there.
  */
 function defineLayer(stepId, layer, follows) {
-  const { id, band, kind, source, key = null, filter = null, treatment = null, points = null } = layer
+  const {
+    id,
+    band,
+    kind,
+    source,
+    key = null,
+    filter = null,
+    treatment = null,
+    points = null,
+    step = null,
+  } = layer
 
   if (!id) throw new Error(`Step '${stepId}' declares a layer with no id.`)
   for (const [field, value, allowed] of [
@@ -674,7 +702,23 @@ function defineLayer(stepId, layer, follows) {
     )
   }
 
-  return Object.freeze({ id, band, kind, source, key, filter, treatment, show, points })
+  // `step` IS A REFERENCE'S FIELD, AND ONLY A DOCUMENT-SOURCED ONE'S. It
+  // names whose committed collection this layer carries -- the trees step's
+  // grounds are landform's and water's commits. A drawn layer cannot name
+  // another step: the stack would be painting one step's geometry under
+  // another step's treatment, which is exactly the cross-step reading the
+  // bands exist to keep straight. See LAYER SCHEMA item 13.
+  if (step !== null && (kind !== 'reference' || source !== 'document')) {
+    throw new Error(
+      `Step '${stepId}' layer '${id}' names step '${step}', but only a reference layer ` +
+        `sourced from the document may read another step's commit.`
+    )
+  }
+  if (step !== null && (typeof step !== 'string' || !step)) {
+    throw new Error(`Step '${stepId}' layer '${id}' declares a \`step\` that is not a step id.`)
+  }
+
+  return Object.freeze({ id, band, kind, source, key, filter, treatment, show, points, step })
 }
 
 /* ---------------------------------------------------------------------------
@@ -1471,7 +1515,7 @@ export const LANDFORM_SHAPE = Object.freeze({
   live: ({ points, parcel, references }) => {
     if (points.length < 3) return []
     const { multi } = clampToBoundary(points, parcel)
-    return cautionsFor(multi, references[LANDFORM_EXCLUSIONS_LAYER] ?? [])
+    return cautionsFor(multi, exclusionGrounds(references[LANDFORM_EXCLUSIONS_LAYER]))
   },
 
   close: ({ points, parcel, references }) => {
@@ -1486,7 +1530,7 @@ export const LANDFORM_SHAPE = Object.freeze({
       }
     }
 
-    const cautions = cautionsFor(multi, references[LANDFORM_EXCLUSIONS_LAYER] ?? [])
+    const cautions = cautionsFor(multi, exclusionGrounds(references[LANDFORM_EXCLUSIONS_LAYER]))
     return {
       feature: {
         type: 'Feature',
@@ -3319,11 +3363,503 @@ export const ROADS_STEP = documentStep({
 })
 
 /* ===========================================================================
+   THE TREES STEP
+   ===========================================================================
+   The fourth definition. LANDFORM-SHAPED -- select-only candidates PLUS
+   zones the user draws -- and sourced like roads: every upstream decision
+   reaches it as a committed edge.
+
+   READ THIS BEFORE TOUCHING A LABEL. Tree zones are a MARGINAL-LAND CROP.
+   The backend's scoring rewards what production rejects: slope_factor is
+   INVERTED from production's, hydric overlap carries the heaviest weight,
+   soil marginality is REWARDED, a stream nearby is a positive. A HIGH SCORE
+   IS GOOD, and it means steep, wet, poor-soil ground near water. So every
+   factor row in the panel is a MERIT -- "wet ground" is why a zone scores
+   well, not a warning about it -- and a label that would read as a defect
+   elsewhere in this app needs different words here.
+
+   That one fact is also why everything about this step that looks backwards
+   from landform's is deliberate: no eligible highlight (tree ground is not
+   gated), no slope or hydric caution (a drawn zone on hydric soil is the
+   step working), and the cautions measured against what the user has
+   COMMITTED rather than against the exclusion gates.
+   --------------------------------------------------------------------------- */
+
+/**
+ * The layer name the backend's trees commit contract requires, verbatim:
+ * wire_translation.LAYER_TREE_ZONE. step_registry's TREES entry declares
+ * `layers=("tree_zone_candidate",)` and refuses a feature carrying any other.
+ */
+export const TREE_ZONE_LAYER = 'tree_zone_candidate'
+
+/**
+ * THE TWO REFERENCE LAYERS THE CAUTIONS READ, by id. Each is another step's
+ * committed collection (LAYER SCHEMA item 13), carried to the draw tool
+ * under these ids the way landform's exclusion gates are carried under
+ * LANDFORM_EXCLUSIONS_LAYER.
+ */
+export const TREES_GROUND_PRODUCTION = 'trees-ground-production'
+export const TREES_GROUND_WATER = 'trees-ground-water'
+
+/**
+ * WHAT A DRAWN TREE ZONE IS MEASURED AGAINST.
+ *
+ * NOT THE EXCLUSION GATES. The backend's TREES commit contract declares four
+ * crossing grounds and says so at length (step_registry.CrossingGround):
+ * the committed production areas, the committed water zone, the committed
+ * road corridor, and existing canopy. NOT hydric and NOT slope -- steep, wet
+ * ground is THE POINT of this step, and a caution there would contradict it.
+ *
+ * TWO OF THE FOUR ARE HERE, AND THE OTHER TWO ARE REPORTED, NOT FAKED.
+ *
+ * The production and water grounds are the committed collections in the
+ * Design Document, which this client holds: each resolves through a
+ * reference layer below (groundFromFeatures unions the features), under the
+ * label the server records on the same crossing.
+ *
+ * The road corridor and the canopy are NOT ON THE WIRE. The server measures
+ * the road crossing against the network's cell footprint dilated by
+ * TREE_ZONE_ROAD_BUFFER_CELLS -- the committed road features are LineStrings
+ * with no width, and a client buffer would be a footprint of this app's own
+ * invention. The canopy is the session's exclusion gate, which the trees
+ * payload does not carry (it is exactly `tree_zones`, `zones`, `summary`,
+ * `search_space`; test_trees_step.py asserts that list). Neither is
+ * declared here as a ground that resolves to nothing: a ground that never
+ * fires is the silent "never checked" path this step must not have. When
+ * the payload carries them, each is one entry in this list.
+ *
+ * `type` and `label` are the SERVER'S, verbatim from the registry entry, so
+ * the caution a user sees while drawing and the crossing the document records
+ * on commit name the same ground in the same words.
+ */
+export const TREE_CROSSING_GROUNDS = Object.freeze([
+  Object.freeze({ type: 'production', label: 'committed production area', reference: TREES_GROUND_PRODUCTION }),
+  Object.freeze({ type: 'water', label: 'committed water zone', reference: TREES_GROUND_WATER }),
+])
+
+/** The declared grounds, resolved off the reference layers the stack carried. */
+export function treeCrossingGrounds(references) {
+  return TREE_CROSSING_GROUNDS.map((ground) =>
+    groundFromFeatures(ground, references?.[ground.reference] ?? null)
+  )
+}
+
+/**
+ * HOW TREES READS A SHAPE THE USER DREW. LANDFORM_SHAPE's two halves --
+ * clamp to the parcel, caution against the grounds -- over trees' grounds
+ * and trees' layer name. The boundary is still the only hard gate: a zone
+ * drawn over a committed production area is warned about, not refused, and
+ * the server records the crossing and commits it (commit_validation.
+ * annotate_crossings).
+ *
+ * THE FOUR PROPERTIES ARE THE SCHEMA'S. feature_schema.py refuses a feature
+ * missing `layer`, `confidence` or a non-empty `confidence_notes`; the TREES
+ * contract refuses a `layer` that is not tree_zone_candidate. And NOTHING A
+ * PIPELINE WOULD HAVE COMPUTED: no score, no factor, no rank. The backend's
+ * own drawn-zone fixture carries exactly this shape, and its rehydrator
+ * asserts every scoring field is ABSENT on a drawn zone rather than zeroed.
+ */
+export const TREES_SHAPE = Object.freeze({
+  live: ({ points, parcel, references }) => {
+    if (points.length < 3) return []
+    const { multi } = clampToBoundary(points, parcel)
+    return cautionsFor(multi, treeCrossingGrounds(references))
+  },
+
+  close: ({ points, parcel, references }) => {
+    if (points.length < 3) return null
+    const { multi, acres, removedAcres } = clampToBoundary(points, parcel)
+    if (!multi.length) {
+      return {
+        feature: null,
+        notice: 'That zone fell entirely outside the property boundary and was not added.',
+      }
+    }
+
+    const cautions = cautionsFor(multi, treeCrossingGrounds(references))
+    return {
+      feature: {
+        type: 'Feature',
+        // Local to the draft; the commit path allocates the internal id
+        // (the TREES entry's `internal_id_parameter`, parsed by
+        // internal_tree_zone_id, which keeps the generated ids and numbers a
+        // drawn one above them).
+        id: `drawn-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+        geometry: { type: 'MultiPolygon', coordinates: multi },
+        properties: {
+          layer: TREE_ZONE_LAYER,
+          label: 'Drawn tree zone',
+          confidence: 'low',
+          confidence_notes: 'Drawn by hand on the map; no survey backs it.',
+          acres,
+          cautions,
+        },
+      },
+      notice:
+        removedAcres > 0
+          ? [measured(removedAcres), ' acres outside the property boundary were trimmed off.']
+          : null,
+    }
+  },
+})
+
+/**
+ * THE FOUR FACTORS, AS MERITS.
+ *
+ * `key` is the payload's own name for the factor -- the key under
+ * `selection.factor_weights_pct` and under each zone row's `factors` -- and
+ * `gate` is the flag under `summary.gates` (and on every feature) that says
+ * whether the factor was MEASURED. `label` is this side's, and it is the
+ * whole editorial decision of this panel: each names what the ground HAS
+ * that earned it credit. "Wet ground" and "steep ground" would be defects on
+ * landform's panel; here they are the two heaviest merits, and the wording
+ * has to read that way beside the score they explain.
+ *
+ * SLOPE HAS NO GATE, and that is the payload's fact rather than an
+ * omission: the slope factor is read off the DEM every generate has, and
+ * the backend ships availability flags only for the three network-fetched
+ * factors. A slope row is always a measurement.
+ *
+ * NO WEIGHT IS WRITTEN DOWN HERE. The share each factor carries comes off
+ * `selection.factor_weights_pct` on every render; the order the rows are
+ * shown in is that share, descending, read off the same block.
+ */
+export const TREE_FACTORS = Object.freeze([
+  Object.freeze({ key: 'hydric_overlap', gate: 'hydric_data_available', label: 'wet ground' }),
+  Object.freeze({ key: 'slope', gate: null, label: 'steep ground' }),
+  Object.freeze({ key: 'soil_marginality', gate: 'soil_marginality_data_available', label: 'poor farmland' }),
+  Object.freeze({ key: 'stream_proximity', gate: 'stream_data_available', label: 'near a stream' }),
+])
+
+/** A weight is a whole share of the score; the payload rounds it to one place. */
+const WEIGHT_DP = 0
+const COUNT_DP_TREES = 0
+
+/** The factors in the order of the share each carries, heaviest first. Off the payload. */
+export function treeFactorsByWeight(weights) {
+  return [...TREE_FACTORS].sort(
+    (a, b) => (weights?.[b.key] ?? 0) - (weights?.[a.key] ?? 0)
+  )
+}
+
+/**
+ * ONE FACTOR ROW FOR ONE ZONE -- and the sentinel path, which IS here.
+ *
+ * soil_marginality_factor defaults to the backend's _NEUTRAL_FACTOR_VALUE
+ * (0.5) when the prime-farmland data was unavailable, and the other two
+ * network-fetched factors do the same. A neutral 0.5 is INDISTINGUISHABLE
+ * from a measured 0.5 unless the gate is read -- which is exactly why the
+ * gates are on the wire. So a factor whose gate is false renders an EM DASH,
+ * never its neutral default and never the 50 the row would otherwise print.
+ * Water's overlap sentinels, the same discipline.
+ *
+ * The weight rides the label because the panel's field is a value and a
+ * label and nothing else, and the row's FIGURE is the credit: "78.0 |
+ * wet ground · N% of the score". Read off the payload, never written here.
+ */
+export function treeFactorField(factor, zone, gates, weights) {
+  const measuredHere = factor.gate == null || gates?.[factor.gate] !== false
+  const weight = weights?.[factor.key]
+  const share = weight == null ? '' : ` · ${measure(weight, WEIGHT_DP)}% of the score`
+  return {
+    label: `${factor.label}${share}`,
+    value: measuredHere ? measure(zone?.factors?.[factor.key]) : measure(null),
+    measured: true,
+  }
+}
+
+/**
+ * WHICH FACTORS WERE NOT MEASURED, in consequence terms, keyed on the stable
+ * flag -- production's UNAVAILABLE_CONSEQUENCE, over a flag surface that is
+ * three booleans under `summary.gates`. Each names the factor's share of the
+ * score off the payload, because "the row reads as unmeasured" matters in
+ * proportion to how much of every score that row would have carried.
+ */
+const TREES_UNCHECKED_CONSEQUENCE = {
+  hydric_data_available: (share) => [
+    'Soil survey data was unavailable, so no zone was credited for wet ground — ',
+    share,
+    '% of every score — and that row reads as unmeasured.',
+  ],
+  soil_marginality_data_available: (share) => [
+    'Farmland classification data was unavailable, so no zone was credited for poor farmland — ',
+    share,
+    '% of every score — and that row reads as unmeasured.',
+  ],
+  stream_data_available: (share) => [
+    'Stream data was unavailable, so no zone was credited for being near a stream — ',
+    share,
+    '% of every score — and that row reads as unmeasured.',
+  ],
+}
+
+/** The gate a flag guards, by flag. */
+const FACTOR_BY_GATE = Object.fromEntries(
+  TREE_FACTORS.filter((factor) => factor.gate).map((factor) => [factor.gate, factor])
+)
+
+/** Start drawing a zone of your own. */
+const TREES_DRAW = armButton({ key: 'draw', tool: 'draw', label: 'Draw a zone' })
+
+/** ONE BUTTON, NOT A PAIR -- landform's reason: a ring is closed on the map. */
+const TREES_CANCEL = disarmButton({ key: 'cancel', label: 'Cancel' })
+
+/** The tabular row for a candidate, by the wire id every reader keys on. */
+function treeZoneRow(proposals, featureId) {
+  return (proposals?.zones ?? []).find((row) => row.feature_id === featureId) ?? null
+}
+
+export const TREES_STEP = documentStep({
+  id: 'trees',
+  title: 'Trees',
+  blurb: 'Tree crops on the ground production does not want: steep, wet, poor, and near water.',
+  layers: [
+    /* NO SCRIM, NO HIGHLIGHT, NO DIM OVERLAY. Landform tints the ground that
+       cleared its gates because production ground is GATED; tree ground is
+       not. What counts as marginal ground worth planting is the user's call,
+       and a highlight would be this app answering it for them. The search
+       space the payload ships is a diagnostic of what the generate scored,
+       not a drawing guide and not an eligibility hint -- so it is not
+       declared, and it renders nothing. */
+
+    /* THE TWO GROUNDS THE CAUTIONS READ: other steps' commits, as reference
+       layers (LAYER SCHEMA item 13). Consumed by the draw tool; painted by
+       nothing here -- the committed bands already draw both, at their own
+       steps' marks, under whatever step the cursor is on. */
+    { id: TREES_GROUND_PRODUCTION, band: 'context', kind: 'reference', source: 'document', step: 'landform' },
+    { id: TREES_GROUND_WATER, band: 'context', kind: 'reference', source: 'document', step: 'water' },
+
+    /* THE THREE ZONE LAYERS, ALL CARRYING THE TREE MARK -- landform's
+       arrangement exactly: candidates, drawn, committed. */
+    { id: 'trees-candidates', band: 'editable', kind: 'polygon', source: 'proposals', key: 'tree_zones', treatment: 'tree' },
+    { id: 'trees-drawn', band: 'editable', kind: 'polygon', source: 'draft', treatment: 'tree' },
+    { id: 'trees-committed', band: 'committed', kind: 'polygon', source: 'document', treatment: 'tree' },
+  ],
+  tools: ['select', 'draw', 'delete'],
+  // None. The TREES entry declares no user_inputs.
+  inputs: [],
+  generate: { label: 'Generate tree zones' },
+  commit: {
+    // AN EMPTY COMMIT IS A DECISION -- "no tree crop on this parcel" -- and
+    // the contract's min_features=0 carries it. Never blocked, never silent.
+    label: ({ committableCount }) =>
+      committableCount === 0 ? 'Commit no tree zones' : 'Commit tree zones',
+    canCommit: () => true,
+    blockedReason: () => null,
+  },
+  reopen: { label: 'Edit this step', confirmTitle: 'Reopen trees?' },
+  proposalCollection: 'tree_zones',
+  shape: TREES_SHAPE,
+
+  /** What a reset of this step costs, for roads' reopen dialogue. */
+  resetNote: (state) => {
+    const zones = committedFeatureCount(state, 'trees')
+    if (!zones) return 'the decision to plant no tree crop on this parcel'
+    const drawn = drawnFeatureCount(state, 'trees')
+    const note = [measured(zones, COUNT_DP_TREES), ` committed tree zone${plural(zones)}`]
+    if (drawn) note.push(', ', measured(drawn, COUNT_DP_TREES), ' of them drawn by hand')
+    return note
+  },
+
+  instructions: {
+    [IDLE]: 'Tree crops on the ground production does not want: steep, wet, poor, and near water.',
+    [GENERATING]: 'Scoring the ground left after production, water and roads — wetness, slope, soil, and streams…',
+    [REVIEWING]: 'Click zones to select. Draw to add your own.',
+    [EDITING]: 'Click to place each corner. Click the first corner to close.',
+    [COMMITTING]: 'Saving these tree zones…',
+    [STEP_COMMITTED]: 'These tree zones are committed. Structures and fencing are measured against them.',
+  },
+  buttons: {
+    [IDLE]: [GENERATE_BUTTON],
+    [GENERATING]: [],
+    [REVIEWING]: [TREES_DRAW, COMMIT_BUTTON],
+    [EDITING]: [TREES_CANCEL],
+    [COMMITTING]: [],
+    [STEP_COMMITTED]: [REOPEN_BUTTON],
+  },
+
+  /**
+   * WHAT ONLY THIS STEP KNOWS IS WORTH SAYING: which factors were not
+   * measured, what ground the generate actually scored, and a generate that
+   * found nothing.
+   */
+  notices: ({ proposals }) => {
+    if (!proposals) return []
+    const summary = proposals.summary ?? {}
+    const weights = summary.selection?.factor_weights_pct ?? {}
+    const lines = []
+
+    // THE THREE GATES, keyed on the flag. A false flag means every zone's row
+    // for that factor is an em dash, and the score was composed without it.
+    for (const flag of Object.keys(TREES_UNCHECKED_CONSEQUENCE)) {
+      if (summary.gates?.[flag] !== false) continue
+      const factor = FACTOR_BY_GATE[flag]
+      lines.push({
+        key: `unchecked-${flag}`,
+        tone: 'caution',
+        text: TREES_UNCHECKED_CONSEQUENCE[flag](measured(weights[factor.key], WEIGHT_DP)),
+      })
+    }
+
+    // WHAT WAS SCORED. The search space is the parcel less what the three
+    // steps before this one claimed; the figures are the payload's own, and
+    // they are what makes "no candidates" or "three candidates" legible --
+    // the same number of zones means something different on two acres left
+    // than on twenty.
+    const space = summary.search_space ?? {}
+    if (space.search_space_acres != null && space.parcel_acres != null) {
+      lines.push({
+        key: 'search-space',
+        tone: 'advisory',
+        text: [
+          'After production, water and roads, ',
+          measured(space.search_space_acres),
+          ' of the parcel’s ',
+          measured(space.parcel_acres),
+          ' acres were left to score.',
+        ],
+      })
+    }
+
+    // NOTHING CLEARED THE FLOOR. The floor is the payload's, so it is named.
+    if (summary.candidate_count === 0) {
+      const floor = summary.selection?.min_suitability_score
+      lines.push({
+        key: 'no-candidates',
+        tone: 'caution',
+        text:
+          floor == null
+            ? ['No leftover ground scored high enough to suggest as a tree crop. Draw a zone, or commit none.']
+            : [
+                'No leftover ground scored ',
+                measured(floor),
+                ' or better, the floor a tree zone has to clear. Draw a zone, or commit none.',
+              ],
+      })
+    }
+
+    return lines
+  },
+
+  /**
+   * ONE TAB PER ZONE -- the candidates in rank order, then whatever the user
+   * drew. Acres and score, both measured; the score is already 0-100 on the
+   * backend's SUITABILITY_SCORE_SCALE, so it is printed as sent. A drawn zone
+   * has no score and prints an em dash: it was never scored, and a 0.0 there
+   * would read as "scored, and badly" -- which is the reading the backend
+   * deliberately refuses to produce for one.
+   */
+  tabs: ({ proposals, draft }) => {
+    const selected = new Set(draft.selectedFeatureIds)
+
+    const tabs = (proposals?.zones ?? []).map((zone) => ({
+      id: zone.feature_id,
+      name: `Zone ${zone.rank}`,
+      checkbox: true,
+      selected: selected.has(zone.feature_id),
+      rows: [
+        { value: measure(zone.area_acres), label: 'acres' },
+        { value: measure(zone.score), label: 'score' },
+      ],
+    }))
+
+    draft.drawnFeatures.forEach((feature, index) => {
+      tabs.push({
+        id: feature.id,
+        name: `Drawn ${index + 1}`,
+        drawn: true,
+        checkbox: true,
+        removable: true,
+        selected: selected.has(feature.id),
+        rows: [
+          { value: measure(feature.properties?.acres), label: 'acres' },
+          { value: measure(null), label: 'score' },
+        ],
+      })
+    })
+
+    return tabs
+  },
+
+  /**
+   * WHAT THE DETAIL PANEL SAYS ABOUT ONE ZONE.
+   *
+   * A CANDIDATE: the figures the tab had no room for, then WHAT EARNED THE
+   * SCORE -- one row per factor, the credit it earned in the figure column
+   * and its share of the score on the label, both off the payload. The
+   * floor the zone cleared is the payload's `min_suitability_score`. Nothing
+   * numeric on this panel is written in this file.
+   *
+   * A DRAWN ZONE CARRIES NO FACTORS AT ALL, and the panel shows the ABSENCE.
+   * The backend does not score a drawn zone -- a zone scoring below the
+   * floor would read as scored badly rather than unscored -- so there is no
+   * factor group here, not a group of zeros and not a group of dashes (a
+   * dash is what an UNMEASURED factor prints on a scored zone, and a drawn
+   * zone is a different fact). One categorical row says so in words.
+   */
+  detail: ({ proposals, draft }, featureId) => {
+    const drawn = draft.drawnFeatures.find((feature) => feature.id === featureId)
+    if (drawn) {
+      return {
+        name: 'Drawn tree zone',
+        fields: [
+          { label: 'acres', value: measure(drawn.properties?.acres), measured: true },
+          { label: 'score', value: measure(null), measured: true },
+          { label: 'scoring', value: 'not scored: drawn by hand, no factor measured' },
+          { label: 'confidence', value: drawn.properties?.confidence ?? '—' },
+        ],
+        cautions: drawn.properties?.cautions ?? [],
+      }
+    }
+
+    const zone = treeZoneRow(proposals, featureId)
+    if (!zone) return null
+    const summary = proposals?.summary ?? {}
+    const weights = summary.selection?.factor_weights_pct ?? {}
+    const gates = summary.gates ?? {}
+
+    return {
+      name: `Zone ${zone.rank}`,
+      groups: [
+        {
+          id: 'zone',
+          label: null,
+          fields: [
+            { label: 'acres', value: measure(zone.area_acres), measured: true },
+            { label: 'score', value: measure(zone.score), measured: true },
+            { label: 'score floor', value: measure(summary.selection?.min_suitability_score), measured: true },
+            { label: 'avg slope %', value: measure(zone.avg_slope_pct), measured: true },
+            { label: 'position', value: zone.position_in_parcel ?? '—' },
+          ],
+        },
+        {
+          id: 'merits',
+          label: 'What earned the score',
+          fields: treeFactorsByWeight(weights).map((factor) =>
+            treeFactorField(factor, zone, gates, weights)
+          ),
+        },
+      ],
+      // A candidate is carved out of the search space, which is the parcel
+      // LESS the committed claims -- so it cannot cross either ground.
+      cautions: [],
+    }
+  },
+})
+
+
+/* ===========================================================================
    The registry, and the order steps run in
    =========================================================================== */
 
 /** Every definition this build registers, keyed by id. */
-export const STEP_DEFINITIONS = Object.freeze([BOUNDARY_STEP, LANDFORM_STEP, WATER_STEP, ROADS_STEP])
+export const STEP_DEFINITIONS = Object.freeze([
+  BOUNDARY_STEP,
+  LANDFORM_STEP,
+  WATER_STEP,
+  ROADS_STEP,
+  TREES_STEP,
+])
 
 /**
  * WHICH COLLECTION A COMMIT'S FEATURES COME OUT OF, for the store.

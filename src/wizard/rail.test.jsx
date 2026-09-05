@@ -236,7 +236,9 @@ describe('1. the rail at the boundary step', () => {
     expect(ui.statusWord('water')).toBe('not yet')
     // ROADS MOVED TOO, with its own branch: it has a definition now.
     expect(ui.statusWord('roads')).toBe('not yet')
-    for (const unbuilt of ['trees', 'structures', 'fencing']) {
+    // AND TREES, with its own.
+    expect(ui.statusWord('trees')).toBe('not yet')
+    for (const unbuilt of ['structures', 'fencing']) {
       expect(ui.statusWord(unbuilt), `${unbuilt} has no definition yet`).toBe('not built yet')
     }
 

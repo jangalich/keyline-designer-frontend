@@ -152,7 +152,16 @@ export function resolveLayer(state, definition, layer) {
     // NOT DRAWN, AND THAT IS THE DECLARATION SPEAKING. The value is carried
     // through verbatim under `data` -- whatever shape the payload gives it --
     // for the tools that consume it. See LAYER_KINDS' note on `reference`.
-    const data = fromProposals(state, stepId, layer)
+    //
+    // FROM THE PROPOSALS, OR FROM ANOTHER STEP'S COMMIT. Landform's reference
+    // is a payload key of its own; the trees step's are the committed
+    // collections of the steps before it, and `step` names which (LAYER
+    // SCHEMA item 13). The stack reads the declaration and learns nothing
+    // about either step.
+    const data =
+      layer.source === 'document'
+        ? selectStepFeatures(state, layer.step ?? stepId)
+        : fromProposals(state, stepId, layer)
     return data ? { ...base, data } : null
   }
 

@@ -61,8 +61,8 @@ const CHROMIUM = '/opt/pw-browsers/chromium'
 /** The stage these measurements are taken at. A desktop frame. */
 const VIEWPORT = { width: 1280, height: 800 }
 
-/** Every mark the harness swatches: the three zone treatments and the road line. */
-const SWATCH_TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road']
+/** Every mark the harness swatches: the four zone treatments and the road line. */
+const SWATCH_TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road', 'tree']
 
 /** App.css's --measure, in px. The prose cap the instruction card takes. */
 const READING_MEASURE = 680

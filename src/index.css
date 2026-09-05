@@ -243,6 +243,19 @@
      mark, both states, whole-mark and bare. */
   --road: var(--ink);
 
+  /* THE TREE MARK'S COLOUR. A green, because a tree crop is the one thing on
+     this map that IS green -- and a green that is not --field's. --field
+     (#4a5f3a, an olive) is the boundary ring and the tick inside a checkbox:
+     a LINE and a glyph, both cased or on paper. This is a DOT FIELD laid on
+     imagery, so it is told from --field by kind of mark first and by value
+     second: cooler (hue 140 against --field's 95) and darker, so the lattice
+     holds over pale soil where an olive dot would sink, and its outline --
+     the same value, like every uncased mark -- reads as an edge rather than
+     as a second boundary. Not --oxide (the accent and the hatch), not the
+     two blues (water), not --ochre (the access point). Measured over canopy
+     and bare soil in layout.test.jsx with every other mark. */
+  --tree: #2f6b45;
+
   /* HOW PRESENT A ZONE'S MARK IS, IN THREE LEVELS -- the whole of what
      distinguishes a zone's states.
 

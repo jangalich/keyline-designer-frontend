@@ -307,13 +307,26 @@ async function generate(stepId) {
   // BOTH CONDITIONS, because they are two different facts: the payload has
   // landed, and the draft the strip renders from has been seeded off it. A
   // strip asked for its tabs between the two is a strip with none.
+  //
+  // OR A FAILED JOB, so a backend that cannot run this step fails the case
+  // in seconds with the server's own reason rather than waiting out SLOW.
   await page.waitForFunction(
     (id) =>
-      window.__probe.selectStepStatus(window.__probe.state, id) === 'generated' &&
-      window.__probe.state.drafts[id] !== undefined,
+      (window.__probe.selectStepStatus(window.__probe.state, id) === 'generated' &&
+        window.__probe.state.drafts[id] !== undefined) ||
+      Object.values(window.__probe.state.jobs).some(
+        (job) => job.stepId === id && job.status === 'failed'
+      ),
     stepId,
     { timeout: SLOW }
   )
+  const failed = await evaluate(
+    (id) =>
+      Object.values(window.__probe.state.jobs).find((job) => job.stepId === id && job.status === 'failed')
+        ?.error ?? null,
+    stepId
+  )
+  expect(failed, `${stepId} generated rather than failed`).toBeNull()
 }
 
 async function commit(stepId) {
@@ -412,7 +425,8 @@ describeIf('the checkbox takes a real click in both directions', () => {
         (definition) => definition.selection?.mode === 'multiple' && definition.proposalCollection
       ).map((definition) => definition.id)
     )
-    expect(registered).toEqual(['landform', 'water'])
+    // TREES JOINED BY EXISTING, and has its own section below.
+    expect(registered).toEqual(['landform', 'water', 'trees'])
   })
 
   for (const [where, viewport] of STAGES) {
@@ -652,6 +666,158 @@ describeIf('the roads checkbox', () => {
       for (const tabId of boxes) await checkableFromOff('roads', tabId, where)
       await resize(ROOMY)
     }
+  })
+})
+
+/* ===========================================================================
+   4b. TREES: THE SAME TWO CONTROLS, ONE STEP FURTHER ALONG
+   ===========================================================================
+   Trees is landform's shape -- candidates with checkboxes, plus drawn tabs
+   carrying an × -- rendered over a strip that follows a roads commit. The
+   claim is the file's: the box is topmost at its own centre CHECKED and
+   UNCHECKED, and the × is topmost in every combination of checked and
+   focused, at both stages. Asked here rather than assumed from the shared
+   markup, because that is exactly the assumption the eye bug hid behind.
+   =========================================================================== */
+
+describeIf('the trees checkbox and ×', () => {
+  const DRAWN = 'drawn-tree-pointer-probe'
+
+  const setDrawnBox = async (on) => {
+    await evaluate(
+      ([id, wanted]) =>
+        window.__probe.actions.setSelection('trees', (current) =>
+          wanted ? [...new Set([...current, id])] : current.filter((each) => each !== id)
+        ),
+      [DRAWN, on]
+    )
+    await page.waitForTimeout(120)
+  }
+
+  /**
+   * REACH TREES FROM WHEREVER THE PAGE IS. Run after the sections above, the
+   * page is on roads with a network routed and this commits it. Run on its
+   * own (`-t 'the trees checkbox'`), it walks the pipeline itself: the
+   * served backend that runs the trees generate is not the one the sections
+   * above were surveyed against -- see trees.test.jsx's header -- so the two
+   * halves of this file are driven against different servers today.
+   */
+  const cursorStep = () => evaluate(() => window.__probe.cursor.cursorStepId)
+  async function reachTrees() {
+    if ((await cursorStep()) === 'trees') return
+    if (!(await evaluate(() => Boolean(window.__probe.state.sessionId)))) await startSession()
+    if ((await cursorStep()) === 'landform') {
+      await generate('landform')
+      await commit('landform')
+    }
+    if ((await cursorStep()) === 'water') {
+      await generate('water')
+      await evaluate(() => {
+        const ids = window.__probe
+          .registryProposalFeatures(window.__probe.selectStepProposals(window.__probe.state, 'water'), 'water')
+          .map((feature) => feature.id)
+        window.__probe.actions.setSelection('water', [ids[0]])
+      })
+      await page.waitForTimeout(150)
+      await commit('water')
+    }
+    if ((await cursorStep()) === 'roads') {
+      const networks = () =>
+        evaluate(() => (window.__probe.selectStepProposals(window.__probe.state, 'roads')?.networks ?? []).length)
+      if ((await networks()) === 0) {
+        await press('access-roads')
+        const point = await evaluate((coords) => {
+          const p = window.__probe.map.latLngToContainerPoint(coords)
+          const box = window.__probe.map.getContainer().getBoundingClientRect()
+          return { x: box.x + p.x, y: box.y + p.y }
+        }, ACCESS_A)
+        await page.mouse.move(point.x, point.y)
+        await page.mouse.click(point.x, point.y)
+        await waitForStore(
+          () => window.__probe.selectDraft(window.__probe.state, 'roads').inputs.access_point !== undefined,
+          60_000
+        )
+        await press('generate-roads')
+        await page.waitForFunction(
+          () => (window.__probe.selectStepProposals(window.__probe.state, 'roads')?.networks ?? []).length === 1,
+          null,
+          { timeout: SLOW }
+        )
+        await page.waitForTimeout(300)
+      }
+      await commit('roads')
+    }
+    expect(await cursorStep()).toBe('trees')
+  }
+
+  liveIt('reaches the trees step and generates', async () => {
+    await reachTrees()
+    await generate('trees')
+    expect(await statusOf('trees')).toBe('generated')
+    expect((await shownBoxes()).length, 'the fixture yields tree zone candidates').toBeGreaterThan(0)
+  })
+
+  for (const [where, viewport] of STAGES) {
+    liveIt(`every candidate's box, un-checked and checked by the mouse, on ${where}`, async () => {
+      await resize(viewport)
+      for (const tabId of await shownBoxes()) {
+        await pressableBothWays('trees', tabId, where)
+      }
+      await resize(ROOMY)
+    })
+  }
+
+  liveIt('the × on a drawn tree zone is hit-testable checked or not, focused or not, at both widths', async () => {
+    // THE SHAPE IS SETUP, NOT THE GESTURE UNDER TEST -- the landform section's
+    // reason. It arrives by the action the draw gesture ends in.
+    await evaluate((id) => {
+      const [lat, lng] = window.__probe.BOUNDARY[0]
+      const d = 0.0004
+      window.__probe.actions.addDrawnFeature('trees', {
+        type: 'Feature',
+        id,
+        properties: { layer: 'tree_zone_candidate', provenance: 'user_added', acres: 0.4, cautions: [] },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[[lng, lat], [lng + d, lat], [lng + d, lat - d], [lng, lat - d], [lng, lat]]],
+        },
+      })
+    }, DRAWN)
+    await page.waitForTimeout(200)
+    // THE STRIP MAY COLLAPSE: the drawn tab is last, and a parcel with more
+    // candidates than a row holds hides it behind "+N more" until expanded.
+    // Expanded is the state a user reaches a hidden tab in, so it is asked
+    // there; water's expanded case makes the same move.
+    if (await page.$('[data-testid="tabs-more-trees"]')) await press('tabs-more-trees')
+    expect(await shownTabs()).toContain(DRAWN)
+
+    for (const [where, viewport] of STAGES) {
+      await resize(viewport)
+      for (const focused of [false, true]) {
+        if (focused) await press(`tab-focus-${DRAWN}`)
+        for (const checked of [true, false]) {
+          await setDrawnBox(checked)
+          expect(await checkedOf(DRAWN)).toBe(String(checked))
+          expect(
+            await topAt(`tab-remove-${DRAWN}`),
+            `the × is topmost at its own centre on ${where}, checked ${checked}, focused ${focused}`
+          ).toMatchObject({ hits: true })
+          expect(
+            await topAt(`tab-check-${DRAWN}`),
+            `the drawn tab's box is topmost at its own centre on ${where}, checked ${checked}, focused ${focused}`
+          ).toMatchObject({ hits: true })
+        }
+        await setDrawnBox(true)
+        if (focused) await press(`tab-focus-${DRAWN}`)
+      }
+    }
+    await resize(ROOMY)
+  })
+
+  liveIt('destroys the drawn tree zone when the mouse presses its ×', async () => {
+    expect(await shownTabs()).toContain(DRAWN)
+    await press(`tab-remove-${DRAWN}`)
+    expect(await shownTabs()).not.toContain(DRAWN)
   })
 })
 

@@ -42,6 +42,7 @@ import {
   BOUNDARY_STEP_ID,
   LANDFORM_STEP,
   ROADS_STEP,
+  TREES_STEP,
   STEP_DEFINITIONS,
   WATER_STEP as WATER_STEP_REAL,
   registryProposalFeatures,
@@ -774,6 +775,7 @@ describe('5. reopen confirmation', () => {
               inputs: { [ACCESS_POINTS_LIST]: [[-74.0, 40.7], [-74.005, 40.705]] },
             },
             trees: committed(1, featureCollection('belt-1')),
+            structures: committed(1, featureCollection('barn-1')),
           },
         }),
       }),
@@ -789,7 +791,7 @@ describe('5. reopen confirmation', () => {
     const asText = (note) =>
       typeof note === 'string' ? note : note.map((part) => part.measure ?? part).join('')
 
-    for (const definition of [WATER_STEP_REAL, ROADS_STEP]) {
+    for (const definition of [WATER_STEP_REAL, ROADS_STEP, TREES_STEP]) {
       const note = ui.find(`reopen-reset-note-${definition.id}`)
       expect(note, `${definition.id} says what its reset costs`).not.toBeNull()
       expect(note.textContent).toBe(` — ${asText(definition.resetNote(ui.state))}`)
@@ -807,11 +809,15 @@ describe('5. reopen confirmation', () => {
       expect(figure.textContent).toBe('2')
     }
 
-    // A STEP THIS BUILD HAS NO DEFINITION FOR IS NAMED AND NOTHING MORE. trees
-    // is in the order and holds work; inventing a loss for it here is exactly
-    // what the shell must not do.
-    expect(ui.find('reopen-reset-trees')).not.toBeNull()
-    expect(ui.find('reopen-reset-note-trees')).toBeNull()
+    // TREES SAYS WHAT IT LOSES IN ITS OWN TERMS, now that it has a definition:
+    // one committed zone, none of it drawn.
+    expect(ui.find('reopen-reset-note-trees').textContent).toContain('1 committed tree zone')
+
+    // A STEP THIS BUILD HAS NO DEFINITION FOR IS NAMED AND NOTHING MORE.
+    // structures is in the order and holds work; inventing a loss for it here
+    // is exactly what the shell must not do.
+    expect(ui.find('reopen-reset-structures')).not.toBeNull()
+    expect(ui.find('reopen-reset-note-structures')).toBeNull()
 
     // LANDFORM'S OWN NOTE IS EXERCISED HERE RATHER THAN RENDERED. Nothing in
     // this build can reopen the step above it -- the boundary declares no
