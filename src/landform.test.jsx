@@ -282,6 +282,26 @@ describe('1. end to end against the real backend', () => {
       const proposalIds = payload.suggested_zones.features.map((f) => f.id)
       expect(proposalIds.length).toBeGreaterThan(1)
 
+      // THE DISPLAY-ONLY SMOOTHED OUTLINE CAME OVER THE WIRE. A production
+      // zone is a bounded opening of a 5 m cell union, so its edge is a pixel
+      // staircase; the server ships a smoothed rendering of it beside the
+      // geometry, computed by the same function the PDF's layout map uses, and
+      // map/layers.jsx draws that instead. It is a RENDERING of `geometry`,
+      // never a replacement: the two are different shapes here, and the
+      // clamp, the cautions, the acreage and the commit body below all read
+      // the second one.
+      for (const feature of payload.suggested_zones.features) {
+        const outline = feature.properties.display_only_smoothed_outline
+        expect(outline, `${feature.id} carries a smoothed outline`).toBeTruthy()
+        expect(['Polygon', 'MultiPolygon']).toContain(outline.type)
+        expect(JSON.stringify(outline)).not.toBe(JSON.stringify(feature.geometry))
+      }
+      // AND THE EXCLUSION LAYERS DO NOT. They are gate footprints, not zones,
+      // and nothing renders them as an outline.
+      for (const layer of payload.exclusion_layers) {
+        expect(layer).not.toHaveProperty('display_only_smoothed_outline')
+      }
+
       // A SUBSET: take one out. The rest stay in, because the payload is the
       // recommendation and the gesture is to remove.
       const dropped = proposalIds[proposalIds.length - 1]

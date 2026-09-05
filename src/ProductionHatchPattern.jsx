@@ -13,6 +13,14 @@ import { readToken } from './geo.js'
  * Production hatches; water's embankment type is a SCREENED TINT with an
  * outline and its excavated type is a STATIC DOT FIELD with an outline.
  *
+ * WITH ONE PAIR THAT IS TOLD APART *WITHIN* A FAMILY RATHER THAN FROM IT.
+ * Production and trees are the two CROPS -- the two things grown on this
+ * parcel, and the two layers that legitimately share ground (production is one
+ * of trees' four crossing grounds). So trees does not get a mark unlike
+ * production's; it gets production's hatch MIRRORED: the opposite diagonal,
+ * at the same spacing and weight, in its own colour. One family at a glance,
+ * two members of it on inspection.
+ *
  * THREE KINDS OF MARK, AND TWO OF THEM ARE PATTERNS.
  *
  *   hatch    a <pattern> of ruled strokes, pointed at by url(#id). Mostly
@@ -143,7 +151,7 @@ const TREATMENT_MARKS = [
   // small zone caught two or three strokes and read as stray lines. 8px with a
   // 1px stroke is an eighth of the area inked: enough to register as worked
   // ground, open enough that the eligible tint and the imagery read through.
-  { treatment: 'production', kind: 'hatch', token: '--oxide', spacing: 8, weight: 1 },
+  { treatment: 'production', kind: 'hatch', token: '--oxide', spacing: 8, weight: 1, rise: 'up' },
   // WATER, EMBANKMENT: a screened tint with an outline.
   //
   // A TINT HAS NO SPACING AND NO RADIUS. Its whole description is its colour;
@@ -218,17 +226,40 @@ const TREATMENT_MARKS = [
   // has no fill, so a paint server would be a def with nothing to reference
   // it; there is none.
   { treatment: 'road', kind: 'line', token: '--road' },
-  /* THE TREE MARK: A PLANTING LATTICE. A dot field like water's excavated
-     type, and the same tile builder -- what differs is the FREQUENCY. The
-     excavated field is fine and dense (eight dots to a 64px tile side, 1.6px
-     radius), a screen that reads as a wash with grain. This is coarse: four
-     to a side, 16px apart, 2.4px across -- an orchard's rows, read as
-     individual trees rather than as a texture, so the two dot fields cannot
-     be mistaken for one another where a tree zone meets a pond site, and a
-     tree zone never reads as a darker survey area. It is uncased for the
-     dot field's own reason (a per-dot halo is a second texture), so it
-     carries itself on --tree's value against the ground -- see index.css. */
-  { treatment: 'tree', kind: 'stipple', token: '--tree', tile: 64, grid: 4, radius: 2.4 },
+  /* THE TREE MARK: PRODUCTION'S HATCH, MIRRORED. The opposite diagonal, at
+     production's own spacing and weight, in --tree.
+
+     THE OTHER CROP, NOT ANOTHER KIND OF THING. Production and trees are the
+     two things GROWN on this parcel, and they are the two layers that
+     legitimately overlap -- production is one of trees' four crossing
+     grounds. A ruled field mirrored about the vertical is the oldest way a
+     map says "the same kind of ground, the other crop": the two read as one
+     family at a glance and as two members of it on inspection, which is
+     exactly the relationship. The ANGLE is what carries that reading, so the
+     angle is what must not move; if the pair ever needs separating further,
+     the lever is a small offset in PITCH.
+
+     IT REPLACED A DOT FIELD, and the dot field was the wrong argument. It was
+     a coarse planting lattice, chosen to be tellable from water's fine
+     excavated dots -- a real problem, solved by making trees unlike WATER.
+     What it could not say is that a tree zone is the same kind of ground as a
+     production zone. Two dot fields at different frequencies are a pair; a
+     dot field and a hatch are not, and the pair that matters more is the one
+     the map keeps drawing on top of itself.
+
+     SO THE STIPPLE IS GONE, NOT KEPT UNDERNEATH. A hatch over a dot field
+     would be two textures at two frequencies in one zone, which is the
+     interference this row exists to avoid rather than a richer mark. There is
+     ONE tree mark and it is these strokes.
+
+     NO OUTLINE, AS A CONSEQUENCE AND NOT AN OVERSIGHT: marksItsOwnEdge() gives
+     a drawn edge to marks whose extent cannot be inferred (a wash has no gaps;
+     a fine dot field's edge is where the density falls off). A hatch's extent
+     is where the ruling stops, which is legible on its own -- and an outline
+     on a candidate would read as a surveyed line, which is what the no-edge
+     rule has always been about. Trees gains that rule by becoming a hatch;
+     production has always had it. */
+  { treatment: 'tree', kind: 'hatch', token: '--tree', spacing: 8, weight: 1, rise: 'down' },
 ]
 
 /**
@@ -289,16 +320,31 @@ export function marksItsOwnEdge(mark) {
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
-/** A 45-degree hatch tile. */
+/**
+ * A 45-DEGREE HATCH TILE, IN EITHER DIRECTION.
+ *
+ * `rise` is which way the ruling runs across the tile, in the reader's terms
+ * rather than SVG's y-down ones: 'up' is the "/" diagonal (production's) and
+ * 'down' is the "\\" one (trees'). The two are exact mirrors of each other
+ * about the tile's horizontal centre line -- one geometry reflected, not two
+ * hand-written paths that happen to be at complementary angles.
+ *
+ * THE TWO CORNER STUBS ARE WHY THIS IS NOT ONE `line` ELEMENT. A <pattern>
+ * clips at the tile edge, so the main diagonal alone would break at every
+ * repeat; the stubs complete the two corners the diagonal misses, and the
+ * strokes then join across tile edges into continuous rules.
+ */
 function hatchTile(spec, colour) {
+  const size = spec.spacing
   const line = document.createElementNS(SVG_NS, 'path')
-  // One diagonal across the tile plus the two corner stubs that complete it,
-  // so the strokes join across tile edges into continuous lines rather than
-  // breaking at every repeat.
+  // Written for 'up' and reflected in y for 'down' -- the mirror is the whole
+  // of the difference between the two marks, so it is one expression.
+  const y = (value) => (spec.rise === 'down' ? size - value : value)
   line.setAttribute(
     'd',
-    `M0,${spec.spacing} l${spec.spacing},-${spec.spacing} ` +
-      `M-1,1 l2,-2 M${spec.spacing - 1},${spec.spacing + 1} l2,-2`
+    `M0,${y(size)} L${size},${y(0)} ` +
+      `M-1,${y(1)} L1,${y(-1)} ` +
+      `M${size - 1},${y(size + 1)} L${size + 1},${y(size - 1)}`
   )
   line.setAttribute('stroke', colour)
   line.setAttribute('stroke-width', String(spec.weight))

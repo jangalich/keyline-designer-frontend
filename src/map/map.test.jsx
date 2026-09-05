@@ -371,6 +371,12 @@ function surfaceApi({ container, root, get }) {
     get cursor() {
       return get().cursor
     },
+    /** The Leaflet map itself -- section 13 draws reference geometry through
+        it, because "what would Leaflet paint for this ring" is only
+        answerable on the map that would paint it. */
+    get map() {
+      return get().map
+    },
     find: (testId) => container.querySelector(`[data-testid="${testId}"]`),
     all: (selector) => [...container.querySelectorAll(selector)],
     /** The stack's panes, bottom to top, as {key, z, band}. */
@@ -1968,6 +1974,197 @@ describe('12. the commit body reads the step being committed', () => {
     const state = { steps: {}, drafts: {} }
     // 'structures', not 'trees': trees has a definition as of its branch.
     expect(() => buildCommitBody(state, 'structures', registryProposalFeatures)).toThrow(/structures/)
+  })
+})
+
+/* ===========================================================================
+   13. THE DISPLAY-ONLY SMOOTHED OUTLINE
+   ===========================================================================
+
+   Production and tree zones are unions of 5 m DEM cells, so their edges are
+   pixel boundaries: an unbroken right-angle staircase. The printed layout map
+   has never drawn that -- it smooths the same shape first -- so this map was
+   the one disagreeing about what a zone looks like. The server now ships that
+   smoothed ring beside the geometry, under
+   `properties.display_only_smoothed_outline`, computed by the SAME function
+   the PDF uses.
+
+   WHAT THIS SECTION ASSERTS IS THAT THE MAP DRAWS IT, and that nothing else
+   does. Water survey zones are clipped envelopes and roads are LineStrings --
+   neither is a cell union, neither carries the field, and both must render
+   exactly what they always did.
+   =========================================================================== */
+
+/** The property name the wire carries, matching display_outline.py's own. */
+const DISPLAY_ONLY_OUTLINE = 'display_only_smoothed_outline'
+
+/**
+ * `collection` with a smoothed outline on every feature -- an OCTAGON where
+ * the geometry is a triangle.
+ *
+ * DELIBERATELY A DIFFERENT NUMBER OF VERTICES, and a visibly different shape.
+ * A real outline is a gentle rounding of its own zone, which would make
+ * "drew the outline" and "drew the geometry" nearly the same picture and this
+ * test nearly vacuous. Here the two are unmistakable in the rendered `d`.
+ */
+function withDisplayOutlines(collection) {
+  return {
+    ...collection,
+    features: collection.features.map((feature, index) => {
+      // BIG ENOUGH TO SURVIVE THE PROJECTION. jsdom gives the map container
+      // no size, so Leaflet's scale here is a few pixels per hundredth of a
+      // degree and Leaflet's own polyline simplification collapses anything
+      // finer to a point. The octagon is sized so its eight vertices land
+      // several pixels apart and stay eight.
+      const [cx, cy] = [-74.005 + index * 0.001, 40.715]
+      const ring = Array.from({ length: 8 }, (_, corner) => {
+        const angle = (corner / 8) * 2 * Math.PI
+        return [cx + 0.03 * Math.cos(angle), cy + 0.02 * Math.sin(angle)]
+      })
+      return {
+        ...feature,
+        properties: {
+          ...feature.properties,
+          [DISPLAY_ONLY_OUTLINE]: { type: 'Polygon', coordinates: [[...ring, ring[0]]] },
+        },
+      }
+    }),
+  }
+}
+
+describe('13. the display-only smoothed outline', () => {
+  /**
+   * WHAT LEAFLET WOULD PAINT FOR ONE GEOMETRY, on THIS map at THIS zoom.
+   *
+   * A rendered `d` is in layer-point coordinates, so comparing it to anything
+   * means projecting through the same map. Rather than reimplement that
+   * projection, the candidate geometry is handed to Leaflet's own GeoJSON
+   * layer on the same map and its path read back -- so the comparison is
+   * between two things LEAFLET drew, and a change in how it rounds
+   * coordinates cannot make this test lie in either direction.
+   */
+  function drawnPathFor(map, geometry) {
+    const layer = L.geoJSON(geometry)
+    layer.addTo(map)
+    const d = layer.getLayers()[0]._path.getAttribute('d')
+    layer.remove()
+    return d
+  }
+
+  async function surfaceOver(suggested) {
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('GET', /^\/api\/sessions\/[^/]+$/, {
+        body: serverDocument({
+          revision: 3,
+          steps: {
+            landform: committedStep(1, suggested),
+            water: { status: GENERATED, revision: 2 },
+          },
+        }),
+      }),
+      route('GET', /\/steps\/landform\/layers$/, {
+        body: { ...LAYERS_PAYLOAD, suggested_zones: suggested },
+      }),
+      route('GET', /\/steps\/water\/layers$/, { body: WATER_PAYLOAD }),
+    ])
+    const ui = await renderSurface()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((a) => a.resume('sess-1'))
+    return ui
+  }
+
+  /** The one production zone's rendered path, and the two water zones'. */
+  function pathsOn(ui) {
+    return {
+      production: ui.pane('landform--landform-committed').pane.querySelector('path'),
+      water: [
+        ...ui.pane('water--water-embankment').pane.querySelectorAll('path'),
+        ...ui.pane('water--water-excavated').pane.querySelectorAll('path'),
+      ],
+    }
+  }
+
+  it('draws the smoothed outline for a production zone, and leaves water alone', async () => {
+    const zones = withDisplayOutlines(featureCollection('zone-1'))
+    const feature = zones.features[0]
+    const ui = await surfaceOver(zones)
+    const { production, water } = pathsOn(ui)
+
+    const outlineD = drawnPathFor(ui.map, feature.properties[DISPLAY_ONLY_OUTLINE])
+    const geometryD = drawnPathFor(ui.map, feature.geometry)
+
+    // THE TWO ARE DIFFERENT PICTURES, which is what makes the next lines
+    // assertions rather than tautologies: an octagon against a triangle,
+    // through the same projection.
+    expect(outlineD).not.toBe(geometryD)
+
+    // AND THE MAP DREW THE OUTLINE, NOT THE GEOMETRY. Both halves are stated:
+    // the second is what would fail if the substitution silently no-opped.
+    expect(production.getAttribute('d')).toBe(outlineD)
+    expect(production.getAttribute('d')).not.toBe(geometryD)
+
+    // WATER IS UNTOUCHED. Its features carry no outline (the backend does not
+    // ship one -- a survey zone is a clipped envelope, not a cell union), and
+    // every one of them renders its own geometry.
+    expect(water.length).toBe(WATER_PAYLOAD.survey_zones.features.length)
+    for (const [index, path] of water.entries()) {
+      const zone = WATER_PAYLOAD.survey_zones.features[index]
+      expect(zone.properties).not.toHaveProperty(DISPLAY_ONLY_OUTLINE)
+      expect(path.getAttribute('d')).toBe(drawnPathFor(ui.map, zone.geometry))
+    }
+
+    await ui.unmount()
+  })
+
+  it('draws a zone that carries no outline exactly as it always did -- the control', async () => {
+    // THE SAME FIXTURE WITH THE FIELD REMOVED. Without this the test above
+    // could pass on a renderer that draws an octagon for everything.
+    const zones = featureCollection('zone-1')
+    expect(zones.features[0].properties).not.toHaveProperty(DISPLAY_ONLY_OUTLINE)
+    const ui = await surfaceOver(zones)
+    const { production } = pathsOn(ui)
+    expect(production.getAttribute('d')).toBe(drawnPathFor(ui.map, zones.features[0].geometry))
+    // WHICH IS ALSO THE DRAWN-ZONE ANSWER. A zone the user drew has no
+    // staircase -- its edge was placed vertex by vertex -- so the server
+    // ships it no outline and it renders exactly what was clicked.
+    await ui.unmount()
+  })
+
+  /**
+   * THE SUBSTITUTION HAPPENS IN ONE PLACE, AND IT IS THE LAST ONE.
+   *
+   * A source read rather than a behavioural test, because the claim is about
+   * where the field is NOT read: if the clamp, the cautions or the commit body
+   * ever consulted it, a drawn zone could visually miss a crossing it records
+   * -- the client/server disagreement the crossing-grounds work closed. The
+   * only file that may name it is the renderer.
+   */
+  it('names the display-only outline in the renderer and nowhere else', () => {
+    const SRC = path.join(HERE, '..')
+    const files = []
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir)) {
+        const full = path.join(dir, entry)
+        if (statSync(full).isDirectory()) walk(full)
+        else if (/\.jsx?$/.test(entry) && !/\.test\.jsx?$/.test(entry)) files.push(full)
+      }
+    }
+    walk(SRC)
+    const mentions = files.filter((file) => readFileSync(file, 'utf8').includes(DISPLAY_ONLY_OUTLINE))
+    expect(mentions.map((file) => path.relative(SRC, file))).toEqual(['map/layers.jsx'])
+
+    // AND THE LINE RENDERER DOES NOT READ IT. A road is a LineString and has
+    // no staircase; its path is built straight off `feature.geometry`.
+    const layers = codeOf('layers.jsx')
+    const lineLayer = layers.slice(layers.indexOf('function LineLayer'))
+    expect(lineLayer).not.toContain(DISPLAY_ONLY_OUTLINE)
+    expect(lineLayer).not.toContain('drawnAs')
+    expect(lineLayer).toContain('lineLatLngs(feature.geometry)')
+
+    // NOR DOES THE GEOMETRY MODULE the clamp and the cautions live in.
+    const zoneGeometry = readFileSync(path.join(SRC, 'zoneGeometry.js'), 'utf8')
+    expect(zoneGeometry).not.toContain(DISPLAY_ONLY_OUTLINE)
   })
 })
 

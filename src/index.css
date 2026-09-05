@@ -248,19 +248,33 @@
      (green is never a CONTROL). But --field is also green and also map
      geometry: the boundary ring, cased on --halo, and the tick inside a
      checkbox. Where a tree zone is drawn up against the parcel edge -- which
-     is where this step is worked -- its outline runs beside that ring, so the
+     is where this step is worked -- its hatch runs beside that ring, so the
      two greens have to be TELLABLE APART by value and not only by hue.
 
-     MEASURED. #52a466 is 2.30:1 against --field (#4a5f3a), 41 degrees of
-     hue apart (135 against 94) and lighter, so an olive line and a green
-     lattice do not read as one layer; 3.06:1 against --halo, so the uncased
-     dot field still holds over pale soil; 2.38:1 against --survey-excavated,
-     the other dot field on this map. The water pair's own floor is 2.70:1
-     and was a ceiling forced by a casing this mark does not carry; this pair
-     clears 2:1 and is told apart by kind of mark as well. It was #2f6b45,
-     which sat at 1.11:1 from --field -- the same dark green twice.
+     MEASURED, AND THE VALUE IS UNCHANGED. #52a466 is 2.30:1 against --field
+     (#4a5f3a), 41 degrees of hue apart (135 against 94) and lighter, so an
+     olive line and a green ruling do not read as one layer; 3.06:1 against
+     --halo, so the uncased mark still holds over pale soil; 2.38:1 against
+     --survey-excavated, the dot field on this map. The water pair's own floor
+     is 2.70:1 and was a ceiling forced by a casing this mark does not carry;
+     this pair clears 2:1 and is told apart by kind of mark as well. It was
+     #2f6b45, which sat at 1.11:1 from --field -- the same dark green twice.
      style.test.jsx holds the ratio. Legibility over canopy and bare soil is
-     measured in layout.test.jsx with every other mark. */
+     measured in layout.test.jsx with every other mark.
+
+     THE MARK IT PAINTS CHANGED AND THE COLOUR DID NOT. It was a coarse dot
+     lattice; it is now production's hatch on the opposite diagonal, because
+     the pair that has to read as a pair is production/trees -- the two crops,
+     and the two layers that overlap. The token had been tuned against --field,
+     --halo and --survey-excavated, and all three readings are properties of
+     the colour rather than of the mark, so all three still hold -- the
+     wording above is rewritten to the ruling, and the numbers are not.
+
+     AND IT IS ONE MARK, NOT TWO. The dot field is gone rather than left under
+     the hatch: two textures at two frequencies in one zone is interference,
+     not a richer mark. See ProductionHatchPattern's own tree row, and
+     layout.test.jsx, which measures the crossing where a tree zone and a
+     production zone share ground. */
   --tree: #52a466;
 
   /* HOW PRESENT A ZONE'S MARK IS, IN THREE LEVELS -- the whole of what
