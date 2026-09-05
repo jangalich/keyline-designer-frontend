@@ -362,23 +362,17 @@
  *      there, and clicking a tab body focuses without changing what a commit
  *      would send.
  *
- * ONE FIELD THE TREES STEP ADDED, and it is the smallest of the lot -- which
- * is the finding: trees is landform's shape (select-only candidates PLUS
- * drawing) over roads' sourcing (every upstream decision is a committed
- * edge), and the schema already had words for both halves.
- *
- *  13. `step` on a `reference` layer sourced from the `document`. A drawn
- *      tree zone is warned about what the user has COMMITTED -- the
- *      production areas and the water zone -- and those are other steps'
- *      collections in the Design Document. `reference` already said "data
- *      the tools eat and nothing paints" and `document` already said "the
- *      committed collection"; what the schema could not say was WHOSE. A
- *      reference layer naming `step: 'landform'` resolves to landform's
- *      committed features, reaches the step's `shape` under its own layer id
- *      like landform's exclusion gates do, and the stack still learns nothing
- *      about either step. It is the backend registry's own
- *      `Consumed(from_step=...)`, on this side. Refused on any layer that is
- *      not a document-sourced reference -- see defineLayer.
+ * NO FIELD THE TREES STEP ADDED, and that is the finding: trees is landform's
+ * shape (select-only candidates PLUS drawing) over roads' sourcing (every
+ * upstream decision is a committed edge), and the schema already had words
+ * for both halves. Its cautions read a `reference` layer off its own payload
+ * -- `crossing_grounds`, the four grounds the backend resolves at commit,
+ * shipped in WGS84 -- under exactly the declaration landform's exclusion
+ * gates use. A `step` field briefly let a reference layer name another
+ * step's committed collection, while the payload carried only two of the
+ * four grounds and the client unioned those two itself; the payload carries
+ * all four now, from the one resolver the commit runs, and the field went
+ * with its only consumer rather than staying declared with none.
  *
  * WHAT IS NOT IN HERE. No step registers structures or fencing: those are
  * later branches, and a definition written now against a payload nobody has
@@ -404,7 +398,7 @@ import {
 } from '../session/SessionStore'
 import { polygonAreaAcres, pointFromGeoJSON, pointToGeoJSON } from '../geo.js'
 import { commitInputsFor, commitValueOf, requiredInputsMissing } from './stepInputs.js'
-import { cautionsFor, clampToBoundary, exclusionGrounds, groundFromFeatures } from '../zoneGeometry.js'
+import { cautionsFor, clampToBoundary, exclusionGrounds } from '../zoneGeometry.js'
 import {
   COMMITTING,
   EDITING,
@@ -633,17 +627,7 @@ export const LAYER_SOURCES = Object.freeze(['proposals', 'draft', 'document'])
  * failing, and it says so here rather than being guessed at down there.
  */
 function defineLayer(stepId, layer, follows) {
-  const {
-    id,
-    band,
-    kind,
-    source,
-    key = null,
-    filter = null,
-    treatment = null,
-    points = null,
-    step = null,
-  } = layer
+  const { id, band, kind, source, key = null, filter = null, treatment = null, points = null } = layer
 
   if (!id) throw new Error(`Step '${stepId}' declares a layer with no id.`)
   for (const [field, value, allowed] of [
@@ -702,23 +686,7 @@ function defineLayer(stepId, layer, follows) {
     )
   }
 
-  // `step` IS A REFERENCE'S FIELD, AND ONLY A DOCUMENT-SOURCED ONE'S. It
-  // names whose committed collection this layer carries -- the trees step's
-  // grounds are landform's and water's commits. A drawn layer cannot name
-  // another step: the stack would be painting one step's geometry under
-  // another step's treatment, which is exactly the cross-step reading the
-  // bands exist to keep straight. See LAYER SCHEMA item 13.
-  if (step !== null && (kind !== 'reference' || source !== 'document')) {
-    throw new Error(
-      `Step '${stepId}' layer '${id}' names step '${step}', but only a reference layer ` +
-        `sourced from the document may read another step's commit.`
-    )
-  }
-  if (step !== null && (typeof step !== 'string' || !step)) {
-    throw new Error(`Step '${stepId}' layer '${id}' declares a \`step\` that is not a step id.`)
-  }
-
-  return Object.freeze({ id, band, kind, source, key, filter, treatment, show, points, step })
+  return Object.freeze({ id, band, kind, source, key, filter, treatment, show, points })
 }
 
 /* ---------------------------------------------------------------------------
@@ -3393,16 +3361,14 @@ export const ROADS_STEP = documentStep({
 export const TREE_ZONE_LAYER = 'tree_zone_candidate'
 
 /**
- * THE TWO REFERENCE LAYERS THE CAUTIONS READ, by id. Each is another step's
- * committed collection (LAYER SCHEMA item 13), carried to the draw tool
- * under these ids the way landform's exclusion gates are carried under
- * LANDFORM_EXCLUSIONS_LAYER.
+ * The layer id trees reads its crossing grounds off. Its own declaration's --
+ * landform's LANDFORM_EXCLUSIONS_LAYER, for trees.
  */
-export const TREES_GROUND_PRODUCTION = 'trees-ground-production'
-export const TREES_GROUND_WATER = 'trees-ground-water'
+export const TREES_GROUNDS_LAYER = 'trees-grounds'
 
 /**
- * WHAT A DRAWN TREE ZONE IS MEASURED AGAINST.
+ * WHAT A DRAWN TREE ZONE IS MEASURED AGAINST: THE FOUR GROUNDS THE PAYLOAD
+ * SHIPS, and nothing this side assembles.
  *
  * NOT THE EXCLUSION GATES. The backend's TREES commit contract declares four
  * crossing grounds and says so at length (step_registry.CrossingGround):
@@ -3410,38 +3376,35 @@ export const TREES_GROUND_WATER = 'trees-ground-water'
  * road corridor, and existing canopy. NOT hydric and NOT slope -- steep, wet
  * ground is THE POINT of this step, and a caution there would contradict it.
  *
- * TWO OF THE FOUR ARE HERE, AND THE OTHER TWO ARE REPORTED, NOT FAKED.
+ * ALL FOUR ARRIVE ON THE PAYLOAD as `crossing_grounds`, each
+ * `{type, label, geometry_wgs84}` -- the exclusion layers' own convention --
+ * resolved by step_orchestrator.wire_crossing_grounds() from the SAME
+ * resolver the commit runs and shipped in WGS84. Two of them this client
+ * could never have derived: the road ground is the network's CELL
+ * FOOTPRINT, a real width the committed LineStrings do not carry, and the
+ * canopy is the session's exclusion gate, otherwise never on the wire. So
+ * the caution shown while drawing and the crossing the document records on
+ * commit are two readings of one geometry, and the client unions nothing.
  *
- * The production and water grounds are the committed collections in the
- * Design Document, which this client holds: each resolves through a
- * reference layer below (groundFromFeatures unions the features), under the
- * label the server records on the same crossing.
+ * NO SENTINEL PATH. Every ground that resolved is present with a geometry;
+ * a ground that did not resolve ("no water zone on this parcel") is ABSENT
+ * from the list, exactly as the commit path records nothing for it. There
+ * is no `data_available` here to read and no "never checked" to render --
+ * the em dash belongs in the factor rows, and only there.
  *
- * The road corridor and the canopy are NOT ON THE WIRE. The server measures
- * the road crossing against the network's cell footprint dilated by
- * TREE_ZONE_ROAD_BUFFER_CELLS -- the committed road features are LineStrings
- * with no width, and a client buffer would be a footprint of this app's own
- * invention. The canopy is the session's exclusion gate, which the trees
- * payload does not carry (it is exactly `tree_zones`, `zones`, `summary`,
- * `search_space`; test_trees_step.py asserts that list). Neither is
- * declared here as a ground that resolves to nothing: a ground that never
- * fires is the silent "never checked" path this step must not have. When
- * the payload carries them, each is one entry in this list.
- *
- * `type` and `label` are the SERVER'S, verbatim from the registry entry, so
- * the caution a user sees while drawing and the crossing the document records
- * on commit name the same ground in the same words.
+ * `type` is the stable key; `label` is the server's prose, carried verbatim
+ * onto the caution and never reworded here. What THIS side adds is one
+ * distinction in copy, and it is canopy's: see TREES_STEP's notices.
  */
-export const TREE_CROSSING_GROUNDS = Object.freeze([
-  Object.freeze({ type: 'production', label: 'committed production area', reference: TREES_GROUND_PRODUCTION }),
-  Object.freeze({ type: 'water', label: 'committed water zone', reference: TREES_GROUND_WATER }),
-])
+export const TREE_CROSSING_GROUND_TYPES = Object.freeze(['production', 'water', 'road', 'canopy'])
 
-/** The declared grounds, resolved off the reference layers the stack carried. */
+/** The type whose crossing means "there are already trees here", not "you committed this". */
+export const CANOPY_GROUND = 'canopy'
+
+/** The payload's grounds, off the reference layer the stack carried. */
 export function treeCrossingGrounds(references) {
-  return TREE_CROSSING_GROUNDS.map((ground) =>
-    groundFromFeatures(ground, references?.[ground.reference] ?? null)
-  )
+  const grounds = references?.[TREES_GROUNDS_LAYER]
+  return Array.isArray(grounds) ? grounds : []
 }
 
 /**
@@ -3614,7 +3577,14 @@ export const TREES_STEP = documentStep({
   title: 'Trees',
   blurb: 'Tree crops on the ground production does not want: steep, wet, poor, and near water.',
   layers: [
-    /* NO SCRIM, NO HIGHLIGHT, NO DIM OVERLAY. Landform tints the ground that
+    /* THE OFF-PARCEL SCRIM, like every step's. It marks what is not the
+       user's land at all, which is true at every step -- and it matters MORE
+       here: trees is the last zone step and its purpose is filling unused
+       ground, so the user is working right up against the parcel edge, and
+       the scrim is what shows where that edge is. */
+    { id: 'trees-offparcel', band: 'context', kind: 'scrim', source: 'document' },
+
+    /* NO HIGHLIGHT, NO ELIGIBILITY MASK. Landform tints the ground that
        cleared its gates because production ground is GATED; tree ground is
        not. What counts as marginal ground worth planting is the user's call,
        and a highlight would be this app answering it for them. The search
@@ -3622,12 +3592,11 @@ export const TREES_STEP = documentStep({
        not a drawing guide and not an eligibility hint -- so it is not
        declared, and it renders nothing. */
 
-    /* THE TWO GROUNDS THE CAUTIONS READ: other steps' commits, as reference
-       layers (LAYER SCHEMA item 13). Consumed by the draw tool; painted by
-       nothing here -- the committed bands already draw both, at their own
-       steps' marks, under whatever step the cursor is on. */
-    { id: TREES_GROUND_PRODUCTION, band: 'context', kind: 'reference', source: 'document', step: 'landform' },
-    { id: TREES_GROUND_WATER, band: 'context', kind: 'reference', source: 'document', step: 'water' },
+    /* THE FOUR GROUNDS THE CAUTIONS READ, off the payload. Consumed by the
+       draw tool; painted by nothing -- the committed bands already draw
+       three of them at their own steps' marks, and the canopy is a mask the
+       map has never painted. Landform's exclusion declaration, exactly. */
+    { id: TREES_GROUNDS_LAYER, band: 'context', kind: 'reference', source: 'proposals', key: 'crossing_grounds' },
 
     /* THE THREE ZONE LAYERS, ALL CARRYING THE TREE MARK -- landform's
        arrangement exactly: candidates, drawn, committed. */
@@ -3680,10 +3649,10 @@ export const TREES_STEP = documentStep({
 
   /**
    * WHAT ONLY THIS STEP KNOWS IS WORTH SAYING: which factors were not
-   * measured, what ground the generate actually scored, and a generate that
-   * found nothing.
+   * measured, what ground the generate actually scored, a drawn zone on
+   * existing canopy, and a generate that found nothing.
    */
-  notices: ({ proposals }) => {
+  notices: ({ proposals, draft }) => {
     if (!proposals) return []
     const summary = proposals.summary ?? {}
     const weights = summary.selection?.factor_weights_pct ?? {}
@@ -3720,6 +3689,28 @@ export const TREES_STEP = documentStep({
         ],
       })
     }
+
+    // CANOPY IS A DIFFERENT KIND OF STATEMENT. A production, water or road
+    // crossing means "this overlaps something you committed"; the caution
+    // line in the panel says so in the server's words. A canopy crossing
+    // means "there are already trees here" -- and these are tree CROPS, a
+    // different thing from standing canopy. Planting into occupied ground
+    // is worth flagging, so it is said, per drawn zone, as a caution and
+    // not a rule. The acreage is the caution's own, in the data face.
+    draft.drawnFeatures.forEach((feature, index) => {
+      const canopy = (feature.properties?.cautions ?? []).find((c) => c.type === CANOPY_GROUND)
+      if (!canopy) return
+      lines.push({
+        key: `canopy-${feature.id}`,
+        tone: 'caution',
+        text: [
+          `Drawn ${index + 1} sits on `,
+          measured(canopy.acres),
+          ' acres of existing canopy: there are already trees here. A tree crop is a different ' +
+            'thing from standing canopy, so this is a caution, not a rule.',
+        ],
+      })
+    })
 
     // NOTHING CLEARED THE FLOOR. The floor is the payload's, so it is named.
     if (summary.candidate_count === 0) {

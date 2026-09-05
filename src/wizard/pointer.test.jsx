@@ -697,10 +697,8 @@ describeIf('the trees checkbox and ×', () => {
   /**
    * REACH TREES FROM WHEREVER THE PAGE IS. Run after the sections above, the
    * page is on roads with a network routed and this commits it. Run on its
-   * own (`-t 'the trees checkbox'`), it walks the pipeline itself: the
-   * served backend that runs the trees generate is not the one the sections
-   * above were surveyed against -- see trees.test.jsx's header -- so the two
-   * halves of this file are driven against different servers today.
+   * own (`-t 'the trees checkbox'`), it walks the pipeline itself, so the
+   * section stands alone against the same served backend as the rest.
    */
   const cursorStep = () => evaluate(() => window.__probe.cursor.cursorStepId)
   async function reachTrees() {

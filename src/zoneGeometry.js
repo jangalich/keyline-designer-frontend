@@ -156,32 +156,6 @@ export function exclusionGrounds(exclusionLayers) {
 }
 
 /**
- * ONE GROUND OUT OF A STEP'S COMMITTED FEATURES: the union of every polygon
- * in the collection, or a ground with no geometry when there are none.
- *
- * THE TREES STEP'S GROUNDS ARE OTHER STEPS' COMMITS. A drawn tree zone is
- * warned about the committed production areas and the committed water zone,
- * and both reach the client as a FeatureCollection in the Design Document —
- * several features, where the clip wants one geometry per ground. Unioned
- * rather than concatenated so two adjoining production zones read as one
- * crossing with one acreage, which is what the server's own footprint
- * (wire_translation.production_zones_footprint, a unary_union) records.
- *
- * NULL GEOMETRY FOR AN EMPTY COMMIT, deliberately: "no water zone on this
- * parcel" is a decision the document carries as an empty collection, and it
- * is not a ground to cross. cautionsFor() skips it, exactly as the server's
- * crossing_grounds() omits a footprint that is None.
- */
-export function groundFromFeatures({ type, label }, collection) {
-  const polygons = (collection?.features ?? [])
-    .map((feature) => toMultiPolygon(feature.geometry))
-    .filter((multi) => multi.length)
-  if (!polygons.length) return { type, label, geometry_wgs84: null }
-  const union = polygons.length === 1 ? polygons[0] : polygonClipping.union(...polygons)
-  return { type, label, geometry_wgs84: { type: 'MultiPolygon', coordinates: union } }
-}
-
-/**
  * DEV-only invariant: a suggested zone must never trip a caution.
  *
  * A suggested zone is render_fill_polygon_utm — a morphological opening of a

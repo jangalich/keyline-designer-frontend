@@ -18,16 +18,11 @@
  *     cd ../keyline-designer && python serve_test_backend.py 5099 &
  *     VITE_API_URL=http://127.0.0.1:5099 npx vitest run src/trees.test.jsx
  *
- * ...EXCEPT THAT serve_test_backend.py CANNOT GENERATE TREES TODAY, and that
- * is reported rather than worked around here. It serves the app inside
- * test_step_commit.py's Harness, whose water_features mock carries no
- * `streams` key; tree_zone_candidates._stream_union_from_features() reads
- * exactly that key, so every trees generate on that server fails with the
- * step's generic error before scoring. The backend's own trees fixture
- * (test_trees_step.py's Harness -- same parcel, its own DEM, canopy and
- * scoring inputs) runs it: the same serve script with
- * `import test_trees_step as T` is what section 1 was run against. That is a
- * one-line backend-side runner and it is not this branch's to add.
+ * THE SAME SERVER EVERY OTHER LIVE SUITE DRIVES. It could not generate trees
+ * once: its harness's water-features mock carried a shape no fetch produces,
+ * and the tree scorer read `["streams"]` off it. The harness was fixed on the
+ * backend (test_step_commit.py section 14 walks all four steps through it and
+ * reports the figures the other suites assert), so section 1 runs here.
  *
  * SKIPPED, NOT FAILED, WITH NO SERVER -- roads.test.jsx's posture. Every
  * section that needs no server runs either way, over a hand-built payload in
@@ -38,17 +33,17 @@
  *   1  [1]  END TO END: production, water and roads committed -> generate ->
  *           tabs -> select a subset -> draw a zone -> commit -> the document
  *           carries both kinds.
- *   2  [2]  CAUTIONS record the committed grounds where crossed, through the
- *           real gesture, and name them in the server's own words. The two
- *           grounds the wire does not carry are asserted ABSENT from the
- *           declaration, with the reason, rather than declared and silent.
+ *   2  [2]  CAUTIONS record ALL FOUR grounds where crossed -- production,
+ *           water, road and canopy, the last two off the payload's own
+ *           `crossing_grounds` -- through the real gesture, in the server's
+ *           own words, with canopy's copy kept distinct.
  *   3  [3]  A drawn zone on hydric, steep ground records NO caution for
  *           either -- with a control showing the same ring DOES trip both on
  *           landform's grounds.
  *   4  [4]  A factor whose gate is false renders an em dash, never 0.5 or 50.
  *   5  [5]  A drawn zone shows its factors ABSENT, not zeroed.
- *   6  [6]  No eligible highlight and no scrim render.
- *   7  [7]  The search space renders nothing.
+ *   6  [6]  No eligible highlight renders; the off-parcel scrim DOES.
+ *   7  [7]  The search space renders nothing, and --tree is told from --field.
  *   8  [8]  The factor weights come off the payload; the definition carries
  *           no 40/30/20/10.
  *   9  [9]  The generating-state flash is asserted in roads.test.jsx section
@@ -90,11 +85,10 @@ import {
   LANDFORM_STEP,
   REOPEN_BUTTON,
   STEP_DEFINITIONS,
-  TREES_GROUND_PRODUCTION,
-  TREES_GROUND_WATER,
+  TREES_GROUNDS_LAYER,
   TREES_SHAPE,
   TREES_STEP,
-  TREE_CROSSING_GROUNDS,
+  TREE_CROSSING_GROUND_TYPES,
   TREE_FACTORS,
   TREE_ZONE_LAYER,
   defineStep,
@@ -112,7 +106,8 @@ import MapLayerStack from './map/MapLayerStack.jsx'
 import { composeLayerStack, resolveLayer } from './map/layerStack.js'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
 import { zoneMark } from './ProductionHatchPattern.jsx'
-import { cautionsFor, clampToBoundary, exclusionGrounds, groundFromFeatures } from './zoneGeometry.js'
+import { toMultiPolygon } from './geo.js'
+import { CAUTION_MIN_ACRES, cautionsFor, clampToBoundary, exclusionGrounds } from './zoneGeometry.js'
 import captured from './fixtures/landform-session.json'
 import rings from './fixtures/rings.json'
 
@@ -125,6 +120,31 @@ const HYDRIC_RING = toLatLng(rings.hydric)
 
 /** roads.test.jsx's surveyed access point A: on the parcel's west edge, and it routes. */
 const ACCESS_A = [40.6434533, -79.9836992]
+
+/**
+ * A drawable ring over one shipped ground: a small box around a vertex of the
+ * ground's own geometry, the first such box that clamps to the parcel and
+ * clears the caution floor against that ground alone. Off the geometry the
+ * server shipped, so it crosses by construction rather than by a survey of
+ * the fixture.
+ */
+function boxOver(ground, parcel, halfDegrees = 0.00025) {
+  const rings = toMultiPolygon(ground.geometry_wgs84).flatMap((polygon) => polygon)
+  for (const ring of rings) {
+    for (const [lng, lat] of ring) {
+      const candidate = [
+        [lat - halfDegrees, lng - halfDegrees],
+        [lat - halfDegrees, lng + halfDegrees],
+        [lat + halfDegrees, lng + halfDegrees],
+        [lat + halfDegrees, lng - halfDegrees],
+      ]
+      const { multi } = clampToBoundary(candidate, parcel)
+      if (!multi.length) continue
+      if (cautionsFor(multi, [ground]).length) return candidate
+    }
+  }
+  return null
+}
 
 /* ---------------------------------------------------------------------------
    Tokens into jsdom, and is the backend there?
@@ -365,9 +385,19 @@ describe('1. end to end against the real backend', () => {
       await ui.waitFor('the trees draft', () => ui.state.drafts.trees !== undefined)
 
       // THE PAYLOAD IS THE BACKEND'S OWN SHAPE, exactly (test_trees_step.py
-      // asserts the same four keys), and the candidates it carries are what
+      // asserts the same five keys), and the candidates it carries are what
       // the strip tabs.
-      expect(Object.keys(ui.trees).sort()).toEqual(['search_space', 'summary', 'tree_zones', 'zones'])
+      expect(Object.keys(ui.trees).sort()).toEqual(['crossing_grounds', 'search_space', 'summary', 'tree_zones', 'zones'])
+      // ALL FOUR GROUNDS, from the server, in its words, each with geometry.
+      const shipped = ui.trees.crossing_grounds
+      expect(shipped.map((g) => g.type)).toEqual(['production', 'water', 'road', 'canopy'])
+      expect(shipped.map((g) => g.label)).toEqual([
+        'committed production area',
+        'committed water zone',
+        'committed road corridor',
+        'tree canopy root zone',
+      ])
+      for (const g of shipped) expect(['Polygon', 'MultiPolygon']).toContain(g.geometry_wgs84.type)
       const candidates = registryProposalFeatures(ui.trees, 'trees')
       expect(candidates.length, 'the fixture yields tree zone candidates').toBeGreaterThan(0)
       expect(ui.all('[data-tab-id]')).toHaveLength(candidates.length)
@@ -399,7 +429,7 @@ describe('1. end to end against the real backend', () => {
 
       // DRAW A ZONE, through the real gesture, over the hydric ring.
       await ui.draw(HYDRIC_RING)
-      const drawn = selectDraft(ui.state, 'trees').drawnFeatures
+      let drawn = selectDraft(ui.state, 'trees').drawnFeatures
       expect(drawn).toHaveLength(1)
       expect(drawn[0].properties.layer).toBe(TREE_ZONE_LAYER)
       expect(ui.all('[data-tab-id]')).toHaveLength(candidates.length + 1)
@@ -408,41 +438,66 @@ describe('1. end to end against the real backend', () => {
       expect(drawn[0].properties.cautions.map((c) => c.type)).not.toContain('hydric')
       expect(drawn[0].properties.cautions.map((c) => c.type)).not.toContain('slope')
 
+      // [1] ROAD AND CANOPY WARN WHERE CROSSED. A box is found over each of
+      // those two grounds -- off the shipped geometry itself, so it crosses
+      // by construction -- and drawn through the real gesture.
+      for (const type of ['road', 'canopy']) {
+        const ground = shipped.find((g) => g.type === type)
+        const ring = boxOver(ground, BOUNDARY)
+        expect(ring, `a drawable box over the ${type} ground`).not.toBeNull()
+        await ui.draw(ring)
+        drawn = selectDraft(ui.state, 'trees').drawnFeatures
+        const latest = drawn[drawn.length - 1]
+        expect(latest.properties.cautions.map((c) => c.type), `the ${type} crossing warns while drawing`).toContain(type)
+        expect(latest.properties.cautions.find((c) => c.type === type).label).toBe(ground.label)
+      }
+      expect(drawn).toHaveLength(3)
+      // The canopy notice carries canopy's own copy.
+      expect(ui.find(`notice-canopy-${drawn[2].id}-trees`).textContent).toContain('there are already trees here')
+
       expect(ui.text('commit-trees')).toBe('Commit tree zones')
       await ui.click('commit-trees')
       await ui.waitFor('trees to commit', () => selectStepStatus(ui.state, 'trees') === COMMITTED)
 
       // THE DOCUMENT CARRIES BOTH KINDS: the kept candidates as generated,
-      // the drawn zone as user_added, and the un-checked one absent.
+      // the drawn zones as user_added, and the un-checked one absent.
       const committed = selectStepFeatures(ui.state, 'trees').features
       const provenance = selectStepProvenance(ui.state, 'trees')
       const kept = candidates.filter((f) => f.id !== first.feature_id).map((f) => f.id)
-      expect(committed.map((f) => f.id).sort()).toEqual([...kept, drawn[0].id].sort())
+      expect(committed.map((f) => f.id).sort()).toEqual([...kept, ...drawn.map((f) => f.id)].sort())
       for (const id of kept) expect(provenance[id]).toBe(PROVENANCE_GENERATED)
-      expect(provenance[drawn[0].id]).toBe(PROVENANCE_USER_ADDED)
+      for (const f of drawn) expect(provenance[f.id]).toBe(PROVENANCE_USER_ADDED)
 
-      // THE SERVER RECORDED WHAT THE DRAWN ZONE CROSSES, against ITS four
-      // grounds, and never hydric or slope. What the client measured is a
-      // subset of that record, ground for ground and label for label: the
-      // two grounds this client can measure agree with the server, and the
-      // two it cannot (road, canopy) are the server's alone.
-      const stored = committed.find((f) => f.id === drawn[0].id)
-      const recorded = stored.properties.exclusion_crossings
-      expect(Array.isArray(recorded)).toBe(true)
-      expect(recorded.map((c) => c.type)).not.toContain('hydric')
-      expect(recorded.map((c) => c.type)).not.toContain('slope')
-      for (const c of recorded) expect(['production', 'water', 'road', 'canopy']).toContain(c.type)
-      for (const caution of drawn[0].properties.cautions) {
-        const match = recorded.find((c) => c.type === caution.type)
-        expect(match, `the server recorded the ${caution.type} crossing the client showed`).toBeDefined()
-        expect(match.label).toBe(caution.label)
+      // [3] TWO IMPLEMENTATIONS, ONE ANSWER, ALL FOUR GROUNDS. For every
+      // drawn ring the server recorded what it crosses against ITS four
+      // grounds -- never hydric or slope -- and the client's cautions over
+      // the SHIPPED grounds name the same grounds in the same order with the
+      // same labels, agreeing on acreage to within the projection difference
+      // (lon/lat with a cosine scale here, UTM metres there, two places).
+      const lines = []
+      for (const feature of drawn) {
+        const recorded = committed.find((f) => f.id === feature.id).properties.exclusion_crossings
+        expect(Array.isArray(recorded)).toBe(true)
+        expect(recorded.map((c) => c.type)).not.toContain('hydric')
+        expect(recorded.map((c) => c.type)).not.toContain('slope')
+        const client = feature.properties.cautions
+        expect(client.map((c) => c.type)).toEqual(recorded.map((c) => c.type))
+        expect(client.map((c) => c.label)).toEqual(recorded.map((c) => c.label))
+        for (let i = 0; i < recorded.length; i++) {
+          expect(Math.abs(client[i].acres - recorded[i].acres)).toBeLessThanOrEqual(0.02 + 0.02 * client[i].acres)
+        }
+        lines.push(
+          `${feature.properties.label} client ${JSON.stringify(client.map((c) => [c.type, Number(c.acres.toFixed(2))]))}` +
+            ` server ${JSON.stringify(recorded.map((c) => [c.type, c.acres]))}`
+        )
       }
-      console.log(
-        'TREES CROSSINGS  client ' +
-          JSON.stringify(drawn[0].properties.cautions.map((c) => [c.type, Number(c.acres.toFixed(2))])) +
-          '  server ' +
-          JSON.stringify(recorded.map((c) => [c.type, c.acres]))
-      )
+      // The road and the canopy each appear in at least one record: the two
+      // grounds the client could not warn about before are warned about and
+      // recorded alike.
+      const everyType = new Set(drawn.flatMap((f) => f.properties.cautions.map((c) => c.type)))
+      expect(everyType.has('road')).toBe(true)
+      expect(everyType.has('canopy')).toBe(true)
+      console.log('TREES CROSSINGS AGREEMENT\n  ' + lines.join('\n  '))
 
       // The cursor moved on, and the committed zones are drawn in the
       // committed band at the tree mark.
@@ -478,14 +533,37 @@ const box = (west, east, south, north) => ({
 /** The committed production area and the committed water zone, as the document carries them. */
 const PRODUCTION_POLY = box(-74.015, -74.008, 40.712, 40.718)
 const WATER_POLY = box(-74.005, -73.998, 40.715, 40.72)
-/** A ring the user draws across BOTH, [lat, lng]. */
+/** The road's CELL FOOTPRINT -- a strip with width along the committed LineString -- and the canopy mask. */
+const ROAD_FOOTPRINT = box(-74.02, -74.01, 40.7198, 40.7202)
+const CANOPY_POLY = box(-73.99, -73.982, 40.724, 40.729)
+/** The four grounds as the payload ships them: the server's types and labels, geometry in WGS84. */
+const GROUNDS = [
+  { type: 'production', label: 'committed production area', geometry_wgs84: PRODUCTION_POLY },
+  { type: 'water', label: 'committed water zone', geometry_wgs84: WATER_POLY },
+  { type: 'road', label: 'committed road corridor', geometry_wgs84: ROAD_FOOTPRINT },
+  { type: 'canopy', label: 'tree canopy root zone', geometry_wgs84: CANOPY_POLY },
+]
+/** A ring the user draws across production AND water, [lat, lng]. */
 const ACROSS_BOTH = [
   [40.713, -74.012],
   [40.713, -74.0],
   [40.719, -74.0],
   [40.719, -74.012],
 ]
-/** And one across neither. */
+/** One across the road footprint, one across the canopy. */
+const ACROSS_ROAD = [
+  [40.7196, -74.018],
+  [40.7196, -74.012],
+  [40.7204, -74.012],
+  [40.7204, -74.018],
+]
+const ACROSS_CANOPY = [
+  [40.725, -73.989],
+  [40.725, -73.984],
+  [40.728, -73.984],
+  [40.728, -73.989],
+]
+/** And one across none of the four. */
 const CLEAR = [
   [40.724, -74.018],
   [40.724, -74.012],
@@ -527,7 +605,7 @@ function candidate(id, rank, geometry, extra = {}) {
  * `tree_zones`, the tabular `zones` keyed by feature id, the narrative's
  * step-level block under `summary`, and the search space.
  */
-function treesPayload({ gates, weights, candidates = 2 } = {}) {
+function treesPayload({ gates, weights, candidates = 2, grounds = GROUNDS } = {}) {
   const features = [
     candidate(ZONE_A, 1, box(-74.0, -73.99, 40.722, 40.728)),
     candidate(ZONE_B, 2, box(-73.99, -73.985, 40.712, 40.716), { tree_suitability_score: 41.0, area_acres: 0.4 }),
@@ -583,6 +661,7 @@ function treesPayload({ gates, weights, candidates = 2 } = {}) {
         },
       ],
     },
+    crossing_grounds: grounds,
   }
 }
 
@@ -676,110 +755,111 @@ const contextOver = (proposals, draft = {}) => ({
    2. CAUTIONS -- the committed grounds, through the real gesture
    =========================================================================== */
 
-describe('2. cautions record the committed grounds where crossed', () => {
-  it('declares its grounds as the server names them, and NOT the exclusion gates', () => {
-    // THE TYPES AND LABELS ARE THE REGISTRY'S OWN (step_registry.TREES
-    // commit_contract.crossings), so the caution shown while drawing and
-    // the crossing recorded on commit name one ground in one set of words.
-    expect(TREE_CROSSING_GROUNDS.map((g) => [g.type, g.label])).toEqual([
-      ['production', 'committed production area'],
-      ['water', 'committed water zone'],
-    ])
-    for (const gate of ['hydric', 'slope', 'canopy', 'roads', 'setback']) {
-      expect(TREE_CROSSING_GROUNDS.map((g) => g.type)).not.toContain(gate)
+describe('2. cautions record all four grounds where crossed', () => {
+  it('reads the four grounds off its own payload, and declares no gate', () => {
+    // THE DECLARATION: one reference layer over the payload's
+    // `crossing_grounds`, landform's exclusion declaration exactly. Nothing
+    // is unioned, nothing is read off another step's document.
+    const grounds = TREES_STEP.layers.find((layer) => layer.id === TREES_GROUNDS_LAYER)
+    expect(grounds).toMatchObject({ kind: 'reference', source: 'proposals', key: 'crossing_grounds', band: 'context' })
+    expect(TREES_STEP.layers.filter((layer) => layer.kind === 'reference')).toHaveLength(1)
+    expect(TREE_CROSSING_GROUND_TYPES).toEqual(['production', 'water', 'road', 'canopy'])
+    for (const gate of ['hydric', 'slope', 'setback', 'roads']) {
+      expect(TREE_CROSSING_GROUND_TYPES).not.toContain(gate)
     }
-
-    // THE TWO GROUNDS THE WIRE DOES NOT CARRY ARE NOT DECLARED. The road
-    // crossing is measured server-side against the network's CELL FOOTPRINT
-    // and the canopy against the session's exclusion gate; the trees payload
-    // carries neither, and a ground declared here that resolved to nothing
-    // would be a caution that never fires -- the silent "never checked" path
-    // this step must not have. Asserted so that adding them is a decision
-    // made against the wire rather than a line slipped in.
-    expect(TREE_CROSSING_GROUNDS.map((g) => g.type)).not.toContain('road')
-    expect(TREE_CROSSING_GROUNDS.map((g) => g.type)).not.toContain('canopy')
-
-    // Each ground reads one reference layer the definition declares, and
-    // those layers are other steps' COMMITS -- LAYER SCHEMA item 13.
-    const byId = Object.fromEntries(TREES_STEP.layers.map((layer) => [layer.id, layer]))
-    for (const ground of TREE_CROSSING_GROUNDS) {
-      const layer = byId[ground.reference]
-      expect(layer, `${ground.type} reads a declared layer`).toBeDefined()
-      expect(layer).toMatchObject({ kind: 'reference', source: 'document', band: 'context' })
-    }
-    expect(byId[TREES_GROUND_PRODUCTION].step).toBe('landform')
-    expect(byId[TREES_GROUND_WATER].step).toBe('water')
+    // THE PAYLOAD'S LIST IS THE GROUNDS, verbatim -- types, labels and
+    // geometry are the server's; with no payload there are none.
+    expect(treeCrossingGrounds({ [TREES_GROUNDS_LAYER]: GROUNDS })).toBe(GROUNDS)
+    expect(treeCrossingGrounds({})).toEqual([])
+    expect(treeCrossingGrounds(null)).toEqual([])
   })
 
-  it('resolves each ground off the committed collection the stack carried, unioned, and skips an empty commit', () => {
+  it('resolves the grounds through the stack off the trees payload, and a ground the server omitted is simply absent', () => {
     const state = {
-      steps: {
-        landform: committedStep(1, [
-          { type: 'Feature', id: 'p-1', properties: {}, geometry: PRODUCTION_POLY },
-          { type: 'Feature', id: 'p-2', properties: {}, geometry: box(-74.008, -74.006, 40.712, 40.718) },
-        ]),
-        water: committedStep(1, []),
-      },
+      steps: { trees: { status: GENERATED, revision: 0, proposals: treesPayload(), error: null } },
       drafts: {},
     }
-    const references = Object.fromEntries(
-      TREES_STEP.layers
-        .filter((layer) => layer.kind === 'reference')
-        .map((layer) => [layer.id, resolveLayer(state, TREES_STEP, layer)?.data ?? null])
-    )
-    expect(references[TREES_GROUND_PRODUCTION].features.map((f) => f.id)).toEqual(['p-1', 'p-2'])
-    expect(references[TREES_GROUND_WATER].features).toEqual([])
+    const layer = TREES_STEP.layers.find((entry) => entry.id === TREES_GROUNDS_LAYER)
+    const resolved = resolveLayer(state, TREES_STEP, layer)
+    expect(resolved.kind).toBe('reference')
+    expect(resolved.data.map((g) => g.type)).toEqual(['production', 'water', 'road', 'canopy'])
+    for (const ground of resolved.data) expect(Object.keys(ground).sort()).toEqual(['geometry_wgs84', 'label', 'type'])
 
-    const grounds = treeCrossingGrounds(references)
-    expect(grounds.map((g) => g.type)).toEqual(['production', 'water'])
-    // TWO ADJOINING ZONES ARE ONE GROUND: unioned, not concatenated.
-    expect(grounds[0].geometry_wgs84.type).toBe('MultiPolygon')
-    expect(grounds[0].geometry_wgs84.coordinates).toHaveLength(1)
-    // AN EMPTY WATER COMMIT IS NOT A GROUND -- null geometry, and the clip
-    // skips it rather than reporting it clear.
-    expect(grounds[1].geometry_wgs84).toBeNull()
+    // NO SENTINEL: "no water zone on this parcel" is a ground the server
+    // does not ship, so the clip never sees it -- it is not present with a
+    // null geometry, and nothing here reads a flag.
+    const three = GROUNDS.filter((g) => g.type !== 'water')
     const { multi } = clampToBoundary(ACROSS_BOTH, RING)
-    expect(cautionsFor(multi, grounds).map((c) => c.type)).toEqual(['production'])
+    expect(cautionsFor(multi, three).map((c) => c.type)).toEqual(['production'])
+    expect(cautionsFor(multi, GROUNDS).map((c) => c.type)).toEqual(['production', 'water'])
   })
 
-  it('warns about both grounds while drawing across them, marks the map, and carries the cautions on the feature', async () => {
+  it('warns about every ground while drawing across it, marks the map, and carries the cautions on the feature', async () => {
     const { ui } = await generatedTrees()
 
-    // A ring across neither: no caution, no marker.
+    // A ring across none of the four: no caution, no marker.
     await ui.draw(CLEAR)
     let drawn = selectDraft(ui.state, 'trees').drawnFeatures
     expect(drawn).toHaveLength(1)
     expect(drawn[0].properties.cautions).toEqual([])
     expect(ui.all('.caution-marker')).toHaveLength(0)
 
-    // A ring across BOTH: the panel says so while the ring is going down...
+    // ACROSS PRODUCTION AND WATER: the panel says so while the ring is going
+    // down, in the server's words...
     await ui.click('draw-trees')
     for (const point of ACROSS_BOTH) await ui.clickMap(point)
     expect(ui.find('detail-cautions-trees')).not.toBeNull()
-    expect(ui.find('caution-production')).not.toBeNull()
-    expect(ui.find('caution-water')).not.toBeNull()
     expect(ui.text('caution-production')).toContain('committed production area')
     expect(ui.text('caution-water')).toContain('committed water zone')
-    // ...and the closed shape carries them, in declaration order, each with
-    // a place to put its marker.
+    // ...and the closed shape carries them, in the payload's order, each
+    // with a place to put its marker.
     await ui.clickMap(ACROSS_BOTH[0])
     drawn = selectDraft(ui.state, 'trees').drawnFeatures
     expect(drawn).toHaveLength(2)
-    const cautions = drawn[1].properties.cautions
-    expect(cautions.map((c) => c.type)).toEqual(['production', 'water'])
-    expect(cautions.map((c) => c.label)).toEqual(['committed production area', 'committed water zone'])
-    for (const c of cautions) {
-      expect(c.acres).toBeGreaterThan(0.05)
+    const both = drawn[1].properties.cautions
+    expect(both.map((c) => [c.type, c.label])).toEqual([
+      ['production', 'committed production area'],
+      ['water', 'committed water zone'],
+    ])
+    for (const c of both) {
+      expect(c.acres).toBeGreaterThan(CAUTION_MIN_ACRES)
       expect(c.at).toHaveLength(2)
     }
     expect(ui.all('.caution-marker')).toHaveLength(2)
 
+    // [test 1] ACROSS THE ROAD -- the cell footprint, which the client could
+    // not warn about before the payload carried it.
+    await ui.draw(ACROSS_ROAD)
+    drawn = selectDraft(ui.state, 'trees').drawnFeatures
+    expect(drawn).toHaveLength(3)
+    expect(drawn[2].properties.cautions.map((c) => [c.type, c.label])).toEqual([
+      ['road', 'committed road corridor'],
+    ])
+
+    // [test 1] ACROSS THE CANOPY: the caution line carries the gate's own
+    // label, and the step says the one thing about canopy that is a
+    // different kind of statement -- there are already trees here.
+    await ui.draw(ACROSS_CANOPY)
+    drawn = selectDraft(ui.state, 'trees').drawnFeatures
+    expect(drawn).toHaveLength(4)
+    const canopy = drawn[3].properties.cautions
+    expect(canopy.map((c) => [c.type, c.label])).toEqual([['canopy', 'tree canopy root zone']])
+    await ui.focus(drawn[3].id)
+    expect(ui.text('caution-canopy')).toContain('tree canopy root zone')
+    const notice = ui.find(`notice-canopy-${drawn[3].id}-trees`)
+    expect(notice, 'the canopy notice names the drawn zone').not.toBeNull()
+    expect(notice.textContent).toContain('Drawn 4 sits on')
+    expect(notice.textContent).toContain('acres of existing canopy: there are already trees here')
+    expect(notice.textContent).toContain('a caution, not a rule')
+    expect(notice.querySelector('.measure').textContent).toBe(canopy[0].acres.toFixed(1))
+    // The committed-ground crossings carry NO such notice: their line in the
+    // panel already says what was overlapped.
+    expect(ui.find(`notice-canopy-${drawn[1].id}-trees`)).toBeNull()
+    expect(ui.all('.caution-marker')).toHaveLength(1)
+
     // THE FEATURE IS WHAT THE COMMIT SENDS: the contract's four properties,
     // the trees layer, and nothing a pipeline would have scored.
-    expect(drawn[1].properties).toMatchObject({
-      layer: TREE_ZONE_LAYER,
-      confidence: 'low',
-    })
+    expect(drawn[1].properties).toMatchObject({ layer: TREE_ZONE_LAYER, confidence: 'low' })
     expect(drawn[1].properties.confidence_notes).toMatch(/drawn by hand/i)
     for (const scored of ['tree_suitability_score', 'rank', 'hydric_overlap_factor', 'slope_factor']) {
       expect(drawn[1].properties).not.toHaveProperty(scored)
@@ -789,8 +869,9 @@ describe('2. cautions record the committed grounds where crossed', () => {
 
   it('is the ONE clip, shared: landform still reads its gates through the same function', () => {
     // Generalised, not forked. Landform's grounds are its exclusion gates
-    // with the data_available rule applied in the adapter; the clip itself
-    // reads {type, label, geometry_wgs84} and nothing else.
+    // with the data_available rule applied in the adapter; trees' are the
+    // payload's list as shipped; the clip reads {type, label, geometry_wgs84}
+    // and nothing else.
     const grounds = exclusionGrounds(captured.payload.exclusion_layers)
     expect(grounds.map((g) => g.type)).toEqual(['canopy', 'slope', 'hydric', 'roads', 'setback'])
     for (const g of grounds) expect(Object.keys(g).sort()).toEqual(['geometry_wgs84', 'label', 'type'])
@@ -799,9 +880,7 @@ describe('2. cautions record the committed grounds where crossed', () => {
       { type: 'slope', label: 'slope above 20.0%', data_available: true, geometry_wgs84: null },
     ])
     expect(unavailable).toEqual([])
-    // And a ground from a collection is the same shape.
-    const ground = groundFromFeatures({ type: 'production', label: 'committed production area' }, { features: [] })
-    expect(Object.keys(ground).sort()).toEqual(['geometry_wgs84', 'label', 'type'])
+    for (const g of GROUNDS) expect(Object.keys(g).sort()).toEqual(['geometry_wgs84', 'label', 'type'])
   })
 })
 
@@ -821,16 +900,30 @@ describe('3. a drawn zone on hydric, steep ground records no caution for either'
 
     // TREES: the committed production areas and water zone of the captured
     // session (its document, as the store would hold it) are the grounds.
+    // The captured session's committed production areas as the ONE ground
+    // its payload would ship for them (one geometry per ground); no water
+    // zone, no road, and the captured canopy gate as the canopy ground.
+    const committed = captured.document_committed.steps.landform.features.features
+    const canopyGate = captured.payload.exclusion_layers.find((layer) => layer.type === 'canopy')
     const references = {
-      [TREES_GROUND_PRODUCTION]: captured.document_committed.steps.landform.features,
-      [TREES_GROUND_WATER]: { type: 'FeatureCollection', features: [] },
+      [TREES_GROUNDS_LAYER]: [
+        {
+          type: 'production',
+          label: 'committed production area',
+          geometry_wgs84: {
+            type: 'MultiPolygon',
+            coordinates: committed.flatMap((feature) => toMultiPolygon(feature.geometry)),
+          },
+        },
+        { type: 'canopy', label: canopyGate.label, geometry_wgs84: canopyGate.geometry_wgs84 },
+      ],
     }
     const live = TREES_SHAPE.live({ points: HYDRIC_RING, parcel: BOUNDARY, references })
     const closed = TREES_SHAPE.close({ points: HYDRIC_RING, parcel: BOUNDARY, references })
     for (const cautions of [live, closed.feature.properties.cautions]) {
       expect(cautions.map((c) => c.type)).not.toContain('hydric')
       expect(cautions.map((c) => c.type)).not.toContain('slope')
-      for (const c of cautions) expect(['production', 'water']).toContain(c.type)
+      for (const c of cautions) expect(TREE_CROSSING_GROUND_TYPES).toContain(c.type)
     }
     console.log(
       `HYDRIC RING  landform ${JSON.stringify(onLandform.map((c) => c.type))}` +
@@ -842,8 +935,8 @@ describe('3. a drawn zone on hydric, steep ground records no caution for either'
     // Not "the grounds happened to be clear": the step declares no such
     // ground, so no drawn zone anywhere can be warned about the ground the
     // step exists to find.
-    for (const ground of TREE_CROSSING_GROUNDS) {
-      expect(['hydric', 'slope']).not.toContain(ground.type)
+    for (const type of TREE_CROSSING_GROUND_TYPES) {
+      expect(['hydric', 'slope']).not.toContain(type)
     }
     // And the definition's own text never wires one in.
     const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
@@ -959,10 +1052,16 @@ describe('5. a drawn zone shows its factors absent', () => {
    6, 7. NOTHING IS HIGHLIGHTED, AND THE SEARCH SPACE RENDERS NOTHING
    =========================================================================== */
 
-describe('6 & 7. no eligible highlight, no scrim, and the search space renders nothing', () => {
-  it('declares no scrim, no highlight, and no layer over the search space', () => {
+describe('6 & 7. no eligible highlight, the off-parcel scrim, and the search space renders nothing', () => {
+  it('declares the off-parcel scrim, no highlight, and no layer over the search space', () => {
+    // THE SCRIM IS NOT AN ELIGIBILITY MASK. It marks what is not the user's
+    // land at all, which is true at every step, and matters most on the
+    // step worked right up against the parcel edge.
+    expect(TREES_STEP.layers.filter((layer) => layer.kind === 'scrim').map((layer) => layer.id)).toEqual([
+      'trees-offparcel',
+    ])
     for (const layer of TREES_STEP.layers) {
-      expect(['scrim', 'highlight']).not.toContain(layer.kind)
+      expect(layer.kind).not.toBe('highlight')
       expect(layer.key).not.toBe('search_space')
     }
     expect(TREES_STEP.layers.filter((l) => l.kind === 'polygon').map((l) => l.id)).toEqual([
@@ -976,20 +1075,21 @@ describe('6 & 7. no eligible highlight, no scrim, and the search space renders n
     const { ui } = await generatedTrees()
     await ui.draw(CLEAR)
 
-    // THE PANES: no scrim, no highlight, no search space.
-    expect(ui.all('.stack-layer--kind-scrim')).toHaveLength(0)
+    // THE PANES: the scrim, no highlight, no search space.
+    expect(ui.all('.stack-layer--kind-scrim')).toHaveLength(1)
+    expect(ui.all('.stack-layer--kind-scrim path')).toHaveLength(1)
     expect(ui.all('.stack-layer--kind-highlight')).toHaveLength(0)
     expect(ui.all('[class*="search"]')).toHaveLength(0)
     // The search space polygon is in the payload and on no path.
     expect(ui.trees.search_space.features).toHaveLength(1)
     const panes = ui.all('.stack-layer').map((pane) => pane.className.match(/leaflet-([a-z-]+)-pane/)?.[1])
-    // The two grounds are panes too -- a reference layer's pane exists and
+    // The grounds are a pane too -- a reference layer's pane exists and
     // paints nothing, which is how landform's exclusion gates have always
     // been carried. The boundary is the parcel every band sits in.
     expect(panes.sort()).toEqual(
       [
-        'trees--trees-ground-production',
-        'trees--trees-ground-water',
+        'trees--trees-offparcel',
+        'trees--trees-grounds',
         'boundary--boundary-committed',
         'landform--landform-committed',
         'water--water-committed-embankment',
@@ -1018,6 +1118,40 @@ describe('6 & 7. no eligible highlight, no scrim, and the search space renders n
     for (const layer of TREES_STEP.layers.filter((l) => l.kind === 'polygon')) {
       expect(layer.treatment).toBe('tree')
     }
+  })
+
+  /**
+   * [test 5] --tree IS TOLD FROM --field. Green as map geometry is within
+   * the rule (green is never a control) -- but --field is also green and
+   * also map geometry, the boundary ring, and a tree zone drawn against the
+   * parcel edge runs its outline beside that ring. So the two are held apart
+   * by a MEASURED ratio, not only by hue: the same reading water.test.jsx
+   * holds its two blues to.
+   */
+  it('holds --tree at least 2:1 from --field, and reports the ratio', () => {
+    const token = (name) => document.documentElement.style.getPropertyValue(name).trim()
+    const luminance = (hex) => {
+      const channel = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+      const [r, g, b] = [1, 3, 5].map((i) => channel(parseInt(hex.slice(i, i + 2), 16) / 255))
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+    const ratio = (a, b) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+      return (hi + 0.05) / (lo + 0.05)
+    }
+    const tree = token('--tree')
+    const field = token('--field')
+    expect(tree).toMatch(/^#[0-9a-f]{6}$/i)
+    const treeVsField = ratio(tree, field)
+    const treeVsHalo = ratio(tree, token('--halo'))
+    const treeVsExcavated = ratio(tree, token('--survey-excavated'))
+    console.log(
+      `TREE MARK  --tree ${tree} vs --field ${field} ${treeVsField.toFixed(2)}:1  ` +
+        `vs --halo ${treeVsHalo.toFixed(2)}:1  vs --survey-excavated ${treeVsExcavated.toFixed(2)}:1`
+    )
+    expect(treeVsField, '--tree must be told from --field by value').toBeGreaterThanOrEqual(2.0)
+    // And it still holds on its own over the halo's value, uncased.
+    expect(treeVsHalo).toBeGreaterThanOrEqual(3.0)
   })
 })
 
@@ -1116,25 +1250,20 @@ describe('11. the schema: what the definition declares, and the sweep', () => {
     expect(() => registryProposalFeatures({ suggested_zones: { features: [] } }, 'trees')).toThrow(/tree_zones/)
   })
 
-  it('refuses `step` on anything but a document-sourced reference layer', () => {
-    const base = { id: 'x', status: () => NOT_STARTED, commit: { run: () => 'committed' } }
-    expect(() =>
-      defineStep({ ...base, layers: [{ id: 'l', band: 'editable', kind: 'polygon', source: 'document', step: 'landform' }] })
-    ).toThrow(/only a reference layer sourced from the document/)
-    expect(() =>
-      defineStep({ ...base, layers: [{ id: 'l', band: 'context', kind: 'reference', source: 'proposals', key: 'k', step: 'landform' }] })
-    ).toThrow(/only a reference layer sourced from the document/)
-    expect(() =>
-      defineStep({ ...base, layers: [{ id: 'l', band: 'context', kind: 'reference', source: 'document', step: 7 }] })
-    ).toThrow(/not a step id/)
-    // A reference with no `step` still reads its own step's commit.
-    const own = defineStep({ ...base, layers: [{ id: 'l', band: 'context', kind: 'reference', source: 'document' }] })
-    expect(own.layers[0].step).toBeNull()
-    // And every other layer carries `step: null` rather than an absent key.
-    expect(LANDFORM_STEP.layers.every((layer) => layer.step === null)).toBe(true)
+  it('declares no `step` on any layer: the grounds come off the payload, not another step\'s commit', () => {
+    // The field that briefly let a reference layer read another step's
+    // committed collection is gone with its only consumer. A layer is its
+    // own step's, and the four grounds arrive under the trees payload.
+    for (const definition of STEP_DEFINITIONS) {
+      for (const layer of definition.layers) expect(layer).not.toHaveProperty('step')
+    }
+    const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
+    expect(source).not.toMatch(/step: 'landform'/)
+    const stack = readFileSync(path.join(SRC, 'map', 'layerStack.js'), 'utf8')
+    expect(stack).not.toMatch(/layer\.step/)
   })
 
-  it('composes the stack with both grounds resolved and the prior commits drawn', () => {
+  it('composes the stack with the grounds resolved, the scrim, and the prior commits drawn', () => {
     const document = serverDocument({ trees: { status: GENERATED } })
     const state = {
       sessionId: 'sess-trees',
@@ -1151,8 +1280,9 @@ describe('11. the schema: what the definition declares, and the sweep', () => {
     }
     const definitions = new Map(STEP_DEFINITIONS.map((d) => [d.id, d]))
     const stack = composeLayerStack({ state, definitions, cursorStepId: 'trees' })
-    const references = stack.filter((l) => l.kind === 'reference').map((l) => l.layerId)
-    expect(references.sort()).toEqual([TREES_GROUND_PRODUCTION, TREES_GROUND_WATER].sort())
+    const references = stack.filter((l) => l.kind === 'reference')
+    expect(references.map((l) => l.layerId)).toEqual([TREES_GROUNDS_LAYER])
+    expect(references[0].data.map((g) => g.type)).toEqual(['production', 'water', 'road', 'canopy'])
     expect(stack.filter((l) => l.band === 'committed').map((l) => l.stepId)).toEqual([
       'boundary',
       'landform',
@@ -1160,7 +1290,8 @@ describe('11. the schema: what the definition declares, and the sweep', () => {
       'roads',
       'roads',
     ])
-    expect(stack.filter((l) => l.kind === 'scrim' || l.kind === 'highlight')).toEqual([])
+    expect(stack.filter((l) => l.kind === 'scrim').map((l) => l.layerId)).toEqual(['trees-offparcel'])
+    expect(stack.filter((l) => l.kind === 'highlight')).toEqual([])
   })
 
   it('says what a reset costs, in its own terms', () => {
