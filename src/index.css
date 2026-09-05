@@ -243,6 +243,26 @@
      mark, both states, whole-mark and bare. */
   --road: var(--ink);
 
+  /* THE TREE MARK'S COLOUR. A green, because a tree crop is the one thing on
+     this map that IS green -- and green as MAP GEOMETRY is within the rule
+     (green is never a CONTROL). But --field is also green and also map
+     geometry: the boundary ring, cased on --halo, and the tick inside a
+     checkbox. Where a tree zone is drawn up against the parcel edge -- which
+     is where this step is worked -- its outline runs beside that ring, so the
+     two greens have to be TELLABLE APART by value and not only by hue.
+
+     MEASURED. #52a466 is 2.30:1 against --field (#4a5f3a), 41 degrees of
+     hue apart (135 against 94) and lighter, so an olive line and a green
+     lattice do not read as one layer; 3.06:1 against --halo, so the uncased
+     dot field still holds over pale soil; 2.38:1 against --survey-excavated,
+     the other dot field on this map. The water pair's own floor is 2.70:1
+     and was a ceiling forced by a casing this mark does not carry; this pair
+     clears 2:1 and is told apart by kind of mark as well. It was #2f6b45,
+     which sat at 1.11:1 from --field -- the same dark green twice.
+     style.test.jsx holds the ratio. Legibility over canopy and bare soil is
+     measured in layout.test.jsx with every other mark. */
+  --tree: #52a466;
+
   /* HOW PRESENT A ZONE'S MARK IS, IN THREE LEVELS -- the whole of what
      distinguishes a zone's states.
 

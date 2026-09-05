@@ -65,29 +65,48 @@ export function clampToBoundary(points, boundaryPoints) {
 /**
  * Cautions for one drawn geometry: what it crosses, how much, and where.
  *
- * `exclusionLayers` is the payload's own array, passed whole rather than
- * pre-filtered, because the SKIP RULE is part of this function's contract:
+ * `grounds` IS THE PARAMETER, and it used to be landform's payload.
  *
- *   data_available false means the check never ran. There is no geometry to
- *   intersect, and staying silent is right — but silence here means "we did
- *   not look", not "it is clear". The panel's standing caveat is what says so,
- *   and it says so for the whole step rather than once per drawn zone.
+ * This took landform's `exclusion_layers` whole -- five per-gate wrappers --
+ * and the skip rule for a gate whose `data_available` was false lived in
+ * here. That made the function a reader of ONE step's payload shape rather
+ * than the clip it is. The trees step measures a drawn zone against a
+ * different set of grounds entirely (what the user has COMMITTED, and the
+ * canopy -- never the exclusion gates, see TREES_STEP), and none of those
+ * carries a `data_available`. Two implementations of one clip would drift
+ * the first time either changed its floor, so the grounds are handed in and
+ * this stays the one clip.
  *
- * Each layer is intersected INDEPENDENTLY. A zone crossing both canopy and
+ * A GROUND is `{type, label, geometry_wgs84}`:
+ *
+ *   type            the stable identity a consumer branches on
+ *   label           the ground's own words for what was crossed, carried
+ *                   through verbatim onto the caution -- never reworded here
+ *   geometry_wgs84  a GeoJSON Polygon or MultiPolygon, or null
+ *
+ * A ground with NO GEOMETRY IS SKIPPED, and that is the whole of the skip
+ * rule now: "there is nothing here to cross" (an empty water commit is not a
+ * ground -- the server's crossing_grounds() omits it for the same reason).
+ * What a ground's ABSENCE means -- "we did not look" as opposed to "it is
+ * clear" -- is the caller's to say, and exclusionGrounds() is where landform
+ * says it.
+ *
+ * Each ground is intersected INDEPENDENTLY. A zone crossing both canopy and
  * slope gets two cautions, because they are two different facts about the
  * ground and unioning them first would lose which was which.
  *
- * Returns one entry per crossed layer, above the floor:
+ * Returns one entry per crossed ground, above the floor:
  *   { type, label, acres, at: [lat, lng] }
  */
-export function cautionsFor(multi, exclusionLayers) {
+export function cautionsFor(multi, grounds) {
   if (!multi.length) return []
 
   const cautions = []
-  for (const layer of exclusionLayers) {
-    if (!layer.data_available || !layer.geometry_wgs84) continue
+  for (const ground of grounds) {
+    const geometry = toMultiPolygon(ground.geometry_wgs84)
+    if (!geometry.length) continue
 
-    const hit = polygonClipping.intersection(multi, toMultiPolygon(layer.geometry_wgs84))
+    const hit = polygonClipping.intersection(multi, geometry)
     if (!hit.length) continue
 
     const acres = multiPolygonAreaAcres(hit)
@@ -105,17 +124,35 @@ export function cautionsFor(multi, exclusionLayers) {
     if (acres < CAUTION_MIN_ACRES) continue
 
     cautions.push({
-      type: layer.type,
-      // The layer's own label, verbatim. It states the TEST that was applied
-      // ("slope above 20.0%"), which is what someone overriding an exclusion
-      // is entitled to read. Never reworded on this side, and never keyed on
-      // — `type` is the stable half of the pair.
-      label: layer.label,
+      type: ground.type,
+      // The ground's own label, verbatim. For an exclusion gate it states the
+      // TEST that was applied ("slope above 20.0%"), which is what someone
+      // overriding an exclusion is entitled to read; for a committed claim it
+      // names the claim. Never reworded on this side, and never keyed on —
+      // `type` is the stable half of the pair.
+      label: ground.label,
       acres,
       at: largestPieceCentroid(hit),
     })
   }
   return cautions
+}
+
+/**
+ * Landform's exclusion gates as grounds.
+ *
+ * THE SKIP RULE, WHERE THE PAYLOAD SHAPE IS. `data_available` false means the
+ * check never ran: there is no geometry to intersect, and staying silent is
+ * right — but silence here means "we did not look", not "it is clear". The
+ * step's standing notice is what says so, and it says so for the whole step
+ * rather than once per drawn zone. The wire's per-gate wrappers become the
+ * `{type, label, geometry_wgs84}` the clip reads, and nothing downstream of
+ * this knows there was ever a flag.
+ */
+export function exclusionGrounds(exclusionLayers) {
+  return (exclusionLayers ?? [])
+    .filter((layer) => layer.data_available && layer.geometry_wgs84)
+    .map((layer) => ({ type: layer.type, label: layer.label, geometry_wgs84: layer.geometry_wgs84 }))
 }
 
 /**
@@ -127,11 +164,14 @@ export function cautionsFor(multi, exclusionLayers) {
  * pipeline produced a zone over ground it had already rejected, and that is a
  * backend bug to fix rather than a warning to show someone.
  *
+ * Takes GROUNDS, the same `{type, label, geometry_wgs84}` cautionsFor()
+ * reads (exclusionGrounds() makes them out of a landform payload).
+ *
  * Verified empty across both reference fixtures before this was written, so
  * it is a real check rather than a hope. Throws in DEV and does nothing in a
  * production build, matching the mutual-exclusion invariant in App.jsx.
  */
-export function assertSuggestedZonesAreClean(features, exclusionLayers) {
+export function assertSuggestedZonesAreClean(features, grounds) {
   for (const feature of features) {
     // Deliberately NOT cautionsFor(). That function drops anything under
     // CAUTION_MIN_ACRES because a sliver is not worth a caution line — but
@@ -141,13 +181,11 @@ export function assertSuggestedZonesAreClean(features, exclusionLayers) {
     // and running the display filter here would hide exactly the small,
     // early-warning case an invariant exists to catch.
     const hits = []
-    for (const layer of exclusionLayers) {
-      if (!layer.data_available || !layer.geometry_wgs84) continue
-      const hit = polygonClipping.intersection(
-        toMultiPolygon(feature.geometry),
-        toMultiPolygon(layer.geometry_wgs84)
-      )
-      if (hit.length) hits.push(`${layer.type} (${multiPolygonAreaAcres(hit).toFixed(4)} ac)`)
+    for (const ground of grounds) {
+      const geometry = toMultiPolygon(ground.geometry_wgs84)
+      if (!geometry.length) continue
+      const hit = polygonClipping.intersection(toMultiPolygon(feature.geometry), geometry)
+      if (hit.length) hits.push(`${ground.type} (${multiPolygonAreaAcres(hit).toFixed(4)} ac)`)
     }
     if (hits.length) {
       throw new Error(

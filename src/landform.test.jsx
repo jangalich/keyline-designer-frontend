@@ -54,7 +54,7 @@ import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx
 import MapLayerStack from './map/MapLayerStack.jsx'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
 import { CAUTION_PANE_Z } from './map/CautionMarkers.jsx'
-import { CAUTION_MIN_ACRES, cautionsFor, clampToBoundary } from './zoneGeometry.js'
+import { CAUTION_MIN_ACRES, cautionsFor, clampToBoundary, exclusionGrounds } from './zoneGeometry.js'
 import captured from './fixtures/landform-session.json'
 import rings from './fixtures/rings.json'
 
@@ -464,7 +464,7 @@ describe('5. crossing agreement', () => {
       const captured_ = captured[key]
       const ring = captured_.feature.geometry.coordinates[0].map(([lng, lat]) => [lat, lng])
       const { multi } = clampToBoundary(ring, BOUNDARY)
-      const client = cautionsFor(multi, captured.payload.exclusion_layers)
+      const client = cautionsFor(multi, exclusionGrounds(captured.payload.exclusion_layers))
       const server = captured_.recorded_crossings
 
       // THE SAME GATES, NAMED THE SAME WAY. This is the assertion that matters:
@@ -494,7 +494,7 @@ describe('5. crossing agreement', () => {
       const perGate = captured.payload.exclusion_layers
         .filter((layer) => layer.data_available && layer.geometry_wgs84)
         .map((layer) => {
-          const hit = cautionsFor(multi, [layer])
+          const hit = cautionsFor(multi, exclusionGrounds([layer]))
           return `${layer.type}=${hit.length ? hit[0].acres.toFixed(4) : 'below-floor'}`
         })
       console.log(

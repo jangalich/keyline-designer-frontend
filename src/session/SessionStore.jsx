@@ -600,11 +600,28 @@ function reduce(state, action) {
        * KEYED BY THE STEP so a second press cannot leave two behind, and
        * `jobId: null` so any reader that reaches for one gets an absence
        * rather than a plausible wrong id to poll.
+       *
+       * AND THE STEP'S FINISHED JOB GOES FIRST, which is the half of this
+       * that was missing. JOB_SUBMITTED drops every entry carrying the step's
+       * id before it adds its own; this placeholder was appended BEHIND them.
+       * A step generating a second time -- roads, comparing access points --
+       * still had its first job in the table as `done`, selectJobForStep
+       * answers with the first entry carrying the step's id, and for the
+       * width of the POST round trip that entry was the finished one. So
+       * `isGenerating` read false, the machine fell through to `reviewing`,
+       * and the pair rendered for a split second on every press after the
+       * first -- the placeholder was there and nothing could see it. One job
+       * per step is the TABLE'S invariant, so both entries that write to it
+       * enforce it.
        */
+      const jobs = {}
+      for (const [jobId, job] of Object.entries(state.jobs)) {
+        if (job.stepId !== action.stepId) jobs[jobId] = job
+      }
       return {
         ...state,
         jobs: {
-          ...state.jobs,
+          ...jobs,
           [`pending:${action.stepId}`]: {
             jobId: null,
             stepId: action.stepId,

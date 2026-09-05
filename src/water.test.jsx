@@ -2544,7 +2544,8 @@ describe('the checkbox, both ways', () => {
   it('covers every multi-select step this build registers', () => {
     // THE LIST IS DERIVED, NOT WRITTEN. A step added later with checkboxes
     // joins these cases by existing, instead of by someone remembering.
-    expect(MULTI_SELECT.map((d) => d.id)).toEqual(['landform', 'water'])
+    // TREES JOINED BY EXISTING: landform's shape, so landform's cases.
+    expect(MULTI_SELECT.map((d) => d.id)).toEqual(['landform', 'water', 'trees'])
   })
 
   for (const definition of MULTI_SELECT) {
@@ -2561,6 +2562,8 @@ describe('the checkbox, both ways', () => {
       const payload =
         definition.id === 'water'
           ? FIXTURE
+          : definition.id === 'trees'
+          ? TREES_CHECKBOX_PAYLOAD
           : {
               suggested_zones: {
                 type: 'FeatureCollection',
@@ -2800,10 +2803,43 @@ const LANDFORM_CHECKBOX_PAYLOAD = {
   summary: {},
 }
 
+/**
+ * The trees step's payload in the backend's own shape (build_trees_payload):
+ * candidates under `tree_zones`, the tabular rows keyed by feature id, and the
+ * step-level block under `summary`. Two candidates so the focus has a second
+ * tab to move to.
+ */
+const TREES_CHECKBOX_PAYLOAD = {
+  tree_zones: {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', id: 'tree-zone-candidate-1', properties: { layer: 'tree_zone_candidate', rank: 1 }, geometry: null },
+      { type: 'Feature', id: 'tree-zone-candidate-2', properties: { layer: 'tree_zone_candidate', rank: 2 }, geometry: null },
+    ],
+  },
+  zones: [
+    { feature_id: 'tree-zone-candidate-1', rank: 1, area_acres: 2.1, score: 58.3, avg_slope_pct: 24.0, position_in_parcel: 'north', factors: { hydric_overlap: 60, slope: 48, soil_marginality: 100, stream_proximity: 12 } },
+    { feature_id: 'tree-zone-candidate-2', rank: 2, area_acres: 0.4, score: 41.0, avg_slope_pct: 9.5, position_in_parcel: 'center', factors: { hydric_overlap: 30, slope: 19, soil_marginality: 100, stream_proximity: 0 } },
+  ],
+  summary: {
+    candidate_count: 2,
+    search_space: { parcel_acres: 40.2, claimed_acres: 12.1, search_space_acres: 26.3 },
+    selection: {
+      min_suitability_score: 31,
+      min_zone_acres: 0.1,
+      existing_canopy_excluded: true,
+      factor_weights_pct: { hydric_overlap: 40, slope: 30, soil_marginality: 20, stream_proximity: 10 },
+    },
+    gates: { soil_marginality_data_available: true, hydric_data_available: true, stream_data_available: true },
+  },
+  search_space: { type: 'FeatureCollection', features: [] },
+}
+
 const CHECKBOX_PAYLOADS = {
   landform: LANDFORM_CHECKBOX_PAYLOAD,
   water: FIXTURE,
   roads: roadsCheckboxPayload(),
+  trees: TREES_CHECKBOX_PAYLOAD,
 }
 
 describe('the checkbox, on every step that renders one', () => {
@@ -2926,7 +2962,7 @@ describe('the tab body focuses without choosing, unless the step says otherwise'
   )
 
   it('covers every step whose focus and selection are independent', () => {
-    expect(INDEPENDENT.map((d) => d.id)).toEqual(['landform', 'water'])
+    expect(INDEPENDENT.map((d) => d.id)).toEqual(['landform', 'water', 'trees'])
   })
 
   for (const definition of INDEPENDENT) {

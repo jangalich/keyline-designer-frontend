@@ -1342,7 +1342,7 @@ describe('13. a null grade is an em dash, never 0.0', () => {
 
 describe('14. what the definition declares, and what the shell does not know', () => {
   it('registers roads with the fields the first two steps never needed', () => {
-    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads'])
+    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees'])
     expect(LAYER_KINDS).toContain('line')
     expect(LAYER_KINDS).toContain('point')
     expect(ROADS_STEP.accumulate).toEqual({
@@ -1605,6 +1605,167 @@ describe('15. the generating state, and the two kinds of failed generate', () =>
     letSubmitAnswer()
     await ui.run(() => running)
     await ui.waitFor('the buttons back', () => ui.find('access-roads') !== null, 5000)
+    await ui.unmount()
+  }, SECTION_15_TIMEOUT_MS)
+
+  /**
+   * [the trees branch, test 9] THE PAIR GOES ON THE PRESS, THROUGH THE REAL
+   * BUTTON, WITH A FINISHED JOB STILL IN THE TABLE -- and no frame renders it.
+   *
+   * THE HALF THE TWO CASES ABOVE COULD NOT SEE. The first holds the JOB open
+   * and waits for the pair to go, so a pair that stayed for the width of the
+   * POST passed it. The second holds the POST open but resumes straight into
+   * a generated step, so the table holds NO earlier job and the placeholder
+   * JOB_STARTED writes is the only entry -- `find` gets it right by accident.
+   * Pressing "Generate network" after a first generate had FINISHED is the
+   * case a user actually makes (a second access point to compare), and there
+   * the finished job sat first in the table, selectJobForStep answered with
+   * it, and the reviewing pair rendered until the submit was answered. Every
+   * time, for exactly one round trip.
+   *
+   * ASSERTED ON EVERY FRAME, not on the one after the press. A
+   * MutationObserver records which banner controls are in the DOM at each
+   * commit React makes from the press onward, so a pair that flashed for one
+   * render and was replaced before the next tick still fails here.
+   */
+  it('drops the reviewing pair on the press of the real button, after a finished generate, on every frame', async () => {
+    let letSubmitAnswer = null
+    const held = new Promise((resolve) => {
+      letSubmitAnswer = resolve
+    })
+    const document_ = serverDocument({
+      roads: { status: GENERATED, inputs: { [ACCESS_POINTS_LIST]: [AP_A, AP_B] } },
+    })
+    installFetch([
+      route('GET', /^\/api\/sessions\/sess-roads$/, { body: document_ }),
+      route('GET', /\/steps\/roads\/layers$/, { body: roadsPayload() }),
+      route('POST', /\/steps\/roads\/generate$/, [
+        { status: 202, body: { job_id: 'job-1', status: 'running' } },
+        async () => {
+          await held
+          return { status: 202, body: { job_id: 'job-2', status: 'running' } }
+        },
+      ]),
+      route('GET', /^\/api\/jobs\/job-1$/, {
+        body: { job_id: 'job-1', status: 'done', result: { payload: roadsPayload(), document: document_ } },
+      }),
+      route('GET', /^\/api\/jobs\/job-2$/, {
+        body: { job_id: 'job-2', status: 'done', result: { payload: roadsPayload(), document: document_ } },
+      }),
+    ])
+    const ui = await renderApp({ center: [40.72, -74.0] })
+    await ui.run((a) => a.resume('sess-roads'))
+    await ui.waitFor('the roads payload', () => ui.roads != null, 5000)
+
+    // A FIRST GENERATE, TO COMPLETION: the table now holds job-1 as `done`.
+    await ui.run((a) => a.generate('roads', accessPointParams([40.7185, -74.014])))
+    await ui.waitFor('the first generate to settle', () => ui.find('access-roads') !== null, 5000)
+    expect(ui.state.jobs['job-1']?.status).toBe('done')
+
+    // THE REAL GESTURE: arm, place a point, and press "Generate network".
+    await ui.click('access-roads')
+    expect(ui.cursor.armed).toBe('draw')
+    // ON THE PARCEL'S WEST EDGE: the placement tool takes a boundary click.
+    await ui.clickMap([40.715, -74.02])
+    expect(selectDraft(ui.state, 'roads').inputs[ACCESS_POINT_INPUT]).toBeDefined()
+    const generate = ui.find('generate-roads')
+    expect(generate).not.toBeNull()
+    expect(generate.disabled).toBe(false)
+
+    // EVERY FRAME FROM HERE ON. The observer sees each DOM commit.
+    const frames = []
+    const snapshot = () => ({
+      access: ui.find('access-roads') !== null,
+      generate: ui.find('generate-roads') !== null,
+      commit: ui.find('commit-roads') !== null,
+      working: ui.find('working-roads')?.textContent ?? null,
+    })
+    const observer = new MutationObserver(() => frames.push(snapshot()))
+    observer.observe(ui.find('banner-roads'), { childList: true, subtree: true, characterData: true })
+
+    await React.act(async () => generate.click())
+    // ONE FLUSH, NO POLLING: the submit has not answered and cannot.
+    await ui.run(() => Promise.resolve())
+    frames.push(snapshot())
+    observer.disconnect()
+
+    expect(frames.length).toBeGreaterThan(0)
+    for (const [index, frame] of frames.entries()) {
+      expect(frame.access, `frame ${index}: "Add access point" must not render after the press`).toBe(false)
+      expect(frame.generate, `frame ${index}: "Generate network" must not render after the press`).toBe(false)
+      expect(frame.commit, `frame ${index}: the commit must not render after the press`).toBe(false)
+    }
+    expect(frames[frames.length - 1].working).toMatch(/Generating/i)
+    // THE TABLE HOLDS ONE ENTRY FOR THE STEP, and it is the placeholder.
+    expect(Object.values(ui.state.jobs).filter((job) => job.stepId === 'roads')).toHaveLength(1)
+    expect(ui.state.jobs['pending:roads']).toMatchObject({ jobId: null, status: 'running' })
+    expect(ui.state.jobs['job-1']).toBeUndefined()
+
+    letSubmitAnswer()
+    await ui.waitFor('the buttons back', () => ui.find('access-roads') !== null, 5000)
+    await ui.unmount()
+  }, SECTION_15_TIMEOUT_MS)
+
+  /**
+   * [the trees branch, test 9, the commit] THE COMMIT HAS NO SUCH GAP, and
+   * this is the check rather than the assumption. `committing` is the
+   * machine's own `pending` flag, set before the request is issued, so it
+   * does not read a table that can shadow it -- but the boundary's
+   * `committing` fix had the same shape as the generate's, so the same
+   * frame-by-frame question is asked of it.
+   */
+  it('shows the committing indicator on the first frame after the commit press, with the POST held', async () => {
+    let letCommitAnswer = null
+    const held = new Promise((resolve) => {
+      letCommitAnswer = resolve
+    })
+    const document_ = serverDocument({
+      roads: { status: GENERATED, inputs: { [ACCESS_POINTS_LIST]: [AP_A, AP_B] } },
+    })
+    const committedDocument = serverDocument({
+      roads: {
+        ...committedStep(2, roadsPayload().road_corridors.features.slice(0, 2)),
+        inputs: { [ACCESS_POINTS_LIST]: [AP_A, AP_B] },
+      },
+      revision: 5,
+    })
+    installFetch([
+      route('GET', /^\/api\/sessions\/sess-roads$/, { body: document_ }),
+      route('GET', /\/steps\/roads\/layers$/, { body: roadsPayload() }),
+      route('POST', /\/steps\/roads\/commit$/, async () => {
+        await held
+        return { body: committedDocument }
+      }),
+    ])
+    const ui = await renderApp({ center: [40.72, -74.0] })
+    await ui.run((a) => a.resume('sess-roads'))
+    await ui.waitFor('the roads draft', () => ui.state.drafts.roads !== undefined, 5000)
+    const commit = ui.find('commit-roads')
+    expect(commit).not.toBeNull()
+    expect(commit.disabled).toBe(false)
+
+    const frames = []
+    const snapshot = () => ({
+      access: ui.find('access-roads') !== null,
+      commit: ui.find('commit-roads') !== null,
+      working: ui.find('working-roads')?.textContent ?? null,
+    })
+    const observer = new MutationObserver(() => frames.push(snapshot()))
+    observer.observe(ui.find('banner-roads'), { childList: true, subtree: true, characterData: true })
+
+    await React.act(async () => commit.click())
+    await ui.run(() => Promise.resolve())
+    frames.push(snapshot())
+    observer.disconnect()
+
+    for (const [index, frame] of frames.entries()) {
+      expect(frame.access, `frame ${index}: the reviewing pair must not render after the commit press`).toBe(false)
+      expect(frame.commit, `frame ${index}: the commit must not render after its own press`).toBe(false)
+    }
+    expect(frames[frames.length - 1].working).toMatch(/Committing/i)
+
+    letCommitAnswer()
+    await ui.waitFor('the commit to land', () => selectStepStatus(ui.state, 'roads') === COMMITTED, 5000)
     await ui.unmount()
   }, SECTION_15_TIMEOUT_MS)
 

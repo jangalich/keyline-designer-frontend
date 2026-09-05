@@ -218,6 +218,17 @@ const TREATMENT_MARKS = [
   // has no fill, so a paint server would be a def with nothing to reference
   // it; there is none.
   { treatment: 'road', kind: 'line', token: '--road' },
+  /* THE TREE MARK: A PLANTING LATTICE. A dot field like water's excavated
+     type, and the same tile builder -- what differs is the FREQUENCY. The
+     excavated field is fine and dense (eight dots to a 64px tile side, 1.6px
+     radius), a screen that reads as a wash with grain. This is coarse: four
+     to a side, 16px apart, 2.4px across -- an orchard's rows, read as
+     individual trees rather than as a texture, so the two dot fields cannot
+     be mistaken for one another where a tree zone meets a pond site, and a
+     tree zone never reads as a darker survey area. It is uncased for the
+     dot field's own reason (a per-dot halo is a second texture), so it
+     carries itself on --tree's value against the ground -- see index.css. */
+  { treatment: 'tree', kind: 'stipple', token: '--tree', tile: 64, grid: 4, radius: 2.4 },
 ]
 
 /**
