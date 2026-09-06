@@ -456,6 +456,52 @@ function isFocusedFeature(layer, feature, focusedFeatureId) {
   return group != null && of(feature) === group
 }
 
+/**
+ * THE PROPERTY A SERVER-PRODUCED ZONE CARRIES ITS DISPLAY-ONLY OUTLINE UNDER.
+ *
+ * Backend: display_outline.DISPLAY_ONLY_OUTLINE_PROPERTY. Spelled here once,
+ * next to the one function that reads it, because it is a wire name and a
+ * second spelling would be a feature silently drawing its staircase again.
+ */
+const DISPLAY_ONLY_OUTLINE = 'display_only_smoothed_outline'
+
+/**
+ * WHAT A FEATURE IS DRAWN WITH -- and it is not always what it IS.
+ *
+ * A production zone and a tree zone are unions of 5 m DEM cells, so their
+ * edges are pixel boundaries: an unbroken right-angle staircase. The printed
+ * layout map has never shown that -- it smooths the same shape before it draws
+ * it -- so this map was the one disagreeing about what a zone looks like. The
+ * server now ships that smoothed outline beside the geometry, computed by the
+ * SAME function the PDF uses, and this is where it is picked up.
+ *
+ * DISPLAY ONLY, AND THE SUBSTITUTION HAPPENS HERE FOR THAT REASON. It is a
+ * rendering of a shape, not the shape, and nothing may compute from it:
+ * zoneGeometry.js's clampToBoundary() and cautionsFor(), the acreage in the
+ * panel, the tab strip's checkboxes and the body buildCommitBody() sends all
+ * read `feature.geometry`, which no code path here touches. Doing the swap in
+ * the renderer -- the last place before pixels -- is what makes that true by
+ * construction rather than by discipline: there is nowhere downstream of this
+ * function for the smoothed ring to leak into.
+ *
+ * If it were the other way round -- measuring against the real geometry while
+ * DRAWING the smoothed one everywhere -- a drawn zone could visually miss a
+ * crossing it records, which is exactly the client/server disagreement the
+ * crossing-grounds work closed.
+ *
+ * A FEATURE WITHOUT THE PROPERTY IS RETURNED AS ITSELF, unwrapped, and that
+ * covers three real cases rather than being a guard: a zone the USER DREW (no
+ * staircase -- its edge was placed vertex by vertex, and moving it would put
+ * the drawn line somewhere other than where the vertices were clicked), water
+ * survey zones (clipped envelopes) and road corridors (LineStrings). None of
+ * the three is a cell union and none of them is smoothed, on the server or
+ * here.
+ */
+function drawnAs(feature) {
+  const outline = feature.properties?.[DISPLAY_ONLY_OUTLINE]
+  return outline ? { ...feature, geometry: outline } : feature
+}
+
 function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null }) {
   const { field, accent, ink, halo } = getStackColors()
   const rejections = layer.rejections ?? {}
@@ -491,7 +537,12 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
         ? features.map((feature) => (
             <GeoJSON
               key={`casing-${feature.id}`}
-              data={feature}
+              // drawnAs() on BOTH passes, so a casing can never be laid under
+              // a different ring than the one it is casing. A drawn zone
+              // carries no outline, so today this is the feature itself --
+              // which is exactly why it must be the same call and not a second
+              // decision that agrees by accident.
+              data={drawnAs(feature)}
               interactive={false}
               style={{ color: halo, weight: DRAWN_CASING_WEIGHT, fill: false }}
             />
@@ -510,7 +561,10 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
             // it diffs only `style` -- so anything that changes the geometry
             // or the styling has to arrive as a new instance via the key.
             key={`${feature.id}:${isFocused}:${interactive}:${rejection ? 'bad' : 'ok'}`}
-            data={feature}
+            // THE DISPLAY GEOMETRY, which for a cell-union zone is its
+            // smoothed outline and for everything else is its own ring. See
+            // drawnAs(): nothing but this renderer sees the substitution.
+            data={drawnAs(feature)}
             // Top-level, for the reason RingLayer gives: pathOptions is
             // applied with setStyle() and cannot make a path stop taking
             // clicks. The key above is what re-creates it when this flips.

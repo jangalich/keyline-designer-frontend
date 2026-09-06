@@ -1839,6 +1839,111 @@ describeIf('the zone patterns, rendered', () => {
     )
   }, SLOW)
 
+  /**
+   * THE TWO CROP HATCHES WHERE THEY COINCIDE -- MOIRE, TONE AND TEXTURE.
+   *
+   * THE RISK THIS EXISTS FOR. Trees now carries production's hatch mirrored:
+   * the opposite diagonal at the SAME 8px pitch. Opposite diagonals at
+   * identical pitch are the classic interference pair, and the two layers do
+   * overlap on real parcels -- production is one of trees' four crossing
+   * grounds -- so the pair is measured rather than argued, exactly as the
+   * survey pair above was.
+   *
+   * WHAT IS MEASURED, AND AGAINST WHAT.
+   *
+   *   MOIRE is COARSE structure that NEITHER mark contains on its own. Same
+   *   measure as the dot lattice's own sweep: the spread of 10px block-mean
+   *   brightness, with the LOUDER of the two single hatches subtracted rather
+   *   than the bare ground -- the question is not "does ink darken the
+   *   ground" (it does, and equally everywhere) but "does the PAIR add
+   *   blotching that one alone does not". Held to 0.004, the visibility floor
+   *   every mark on this surface is held to: a beat under the floor is not a
+   *   mark on the page.
+   *
+   *   TONE says both marks are actually there: the overlap must put down more
+   *   ink than either hatch alone, or one of them is being lost.
+   *
+   *   TEXTURE says the result is still a RULING and not a fill: two hatches
+   *   crossing must leave the ground reading through, which is the whole
+   *   reason a hatch was the right mark for a recommendation.
+   *
+   * ACROSS THE ZOOM RANGE, BY SWEEPING THE CELL SIZE. Both patterns are in
+   * screen units, so any beat between them is a fixed screen-space figure and
+   * what zoom changes is how much of it lands inside a zone. See
+   * CROP_OVERLAP_SIZES in the harness.
+   *
+   * IF A BEAT EVER APPEARS, THE FIX IS A PITCH OFFSET AND NOT AN ANGLE. The
+   * mirrored angle is what says "the other crop"; moving it would cost the
+   * reading the mark exists for, while a pitch a pixel or two off costs
+   * nothing anyone can name.
+   */
+  it('shows no moire where the two crop hatches cross, over both grounds', async () => {
+    const sizes = await page.$$eval('[data-testid^="crops-canopy-"]', (nodes) => [
+      ...new Set(nodes.map((node) => Number(node.dataset.testid.split('-')[2]))),
+    ])
+    expect(sizes.length).toBeGreaterThanOrEqual(3)
+
+    const coarse = (png) => stdDev(blockMeans(png, 10))
+    const rows = []
+    for (const ground of ['canopy', 'soil']) {
+      for (const size of sizes.sort((a, b) => a - b)) {
+        const at = async (which) => await swatchOf(page, `crops-${ground}-${size}-${which}`)
+        const bare = await at('bare')
+        const production = await at('production')
+        const tree = await at('tree')
+        const both = await at('both')
+
+        const beat = coarse(both) - Math.max(coarse(production), coarse(tree))
+        const tone = (png) => meanAbsDifference(png, bare)
+        // The interior, away from nothing in particular -- these cells have no
+        // outline to crop out, but the same inset is used as the survey pair's
+        // so the two texture readings are the same measurement.
+        const texture = (png) => textureSpread(crop(png, 8))
+        rows.push({ ground, size, beat, tone: tone(both), texture: texture(both) })
+
+        // eslint-disable-next-line no-console
+        console.log(
+          `    crops ${ground.padEnd(6)} ${String(size).padStart(3)}px  ` +
+            `beat ${beat >= 0 ? ' ' : ''}${beat.toFixed(5)}   ` +
+            `tone prod ${tone(production).toFixed(4)} tree ${tone(tree).toFixed(4)} ` +
+            `both ${tone(both).toFixed(4)}   ` +
+            `texture prod ${texture(production).toFixed(4)} tree ${texture(tree).toFixed(4)} ` +
+            `both ${texture(both).toFixed(4)}`
+        )
+
+        // BOTH MARKS ARE THERE. The crossing puts down more ink than either
+        // ruling alone -- neither hatch is being swallowed by the other.
+        expect(
+          tone(both),
+          `both crop hatches must be present over ${ground} at ${size}px`
+        ).toBeGreaterThan(Math.max(tone(production), tone(tree)))
+
+        // AND IT IS STILL A RULING. Two hatches crossing must leave the
+        // ground reading through; a pair that closed into a fill would lose
+        // the local variation a ruling is made of.
+        expect(
+          texture(both),
+          `the crossing must stay a ruling over ${ground} at ${size}px`
+        ).toBeGreaterThan(0.004)
+      }
+    }
+
+    for (const { ground, size, beat } of rows) {
+      expect(
+        beat,
+        `the crop pair must add no coarse structure over ${ground} at ${size}px`
+      ).toBeLessThan(0.004)
+    }
+
+    const tightest = rows.reduce((a, b) => (b.beat > a.beat ? b : a))
+    // eslint-disable-next-line no-console
+    console.log(
+      `    crops  tightest beat: ${tightest.beat.toFixed(5)} over ${tightest.ground} at ` +
+        `${tightest.size}px (bound 0.004) -- no pitch offset applied; both hatches are at ` +
+        `production's own 8px spacing`
+    )
+  }, SLOW)
+
   it('keeps BOTH marks present where the two survey types coincide', async () => {
     for (const ground of ['canopy', 'soil']) {
       const bare = await swatchOf(page, `ground-${ground}-bare`)

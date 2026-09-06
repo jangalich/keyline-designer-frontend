@@ -105,7 +105,7 @@ import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx
 import MapLayerStack from './map/MapLayerStack.jsx'
 import { composeLayerStack, resolveLayer } from './map/layerStack.js'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
-import { zoneMark } from './ProductionHatchPattern.jsx'
+import { injectZonePatterns, marksItsOwnEdge, zoneMark } from './ProductionHatchPattern.jsx'
 import { toMultiPolygon } from './geo.js'
 import { CAUTION_MIN_ACRES, cautionsFor, clampToBoundary, exclusionGrounds } from './zoneGeometry.js'
 import captured from './fixtures/landform-session.json'
@@ -401,6 +401,20 @@ describe('1. end to end against the real backend', () => {
       const candidates = registryProposalFeatures(ui.trees, 'trees')
       expect(candidates.length, 'the fixture yields tree zone candidates').toBeGreaterThan(0)
       expect(ui.all('[data-tab-id]')).toHaveLength(candidates.length)
+
+      // THE DISPLAY-ONLY SMOOTHED OUTLINE CAME OVER THE WIRE, from the real
+      // backend through real JSON. A tree zone is a union of 5 m DEM cells and
+      // its edge is a pixel staircase; this is that edge smoothed, computed
+      // server-side by the same function the PDF's layout map uses, and it is
+      // what map/layers.jsx draws. It is a RENDERING of `geometry`, never a
+      // replacement for it -- the two are different shapes here, and every
+      // measurement on this page reads the second one.
+      for (const candidate of candidates) {
+        const outline = candidate.properties.display_only_smoothed_outline
+        expect(outline, `${candidate.id} carries a smoothed outline`).toBeTruthy()
+        expect(['Polygon', 'MultiPolygon']).toContain(outline.type)
+        expect(JSON.stringify(outline)).not.toBe(JSON.stringify(candidate.geometry))
+      }
       for (const row of ui.trees.zones) {
         expect(ui.text(`tab-focus-${row.feature_id}`)).toContain(`Zone ${row.rank}`)
         // THE SCORE IS PRINTED AS SENT: already 0-100, one decimal.
@@ -931,6 +945,101 @@ describe('3. a drawn zone on hydric, steep ground records no caution for either'
     )
   })
 
+  /**
+   * [frontend test 2] THE DISPLAY-ONLY OUTLINE CHANGES NO CAUTION -- BYTE FOR
+   * BYTE.
+   *
+   * WHAT THE FIELD IS. Production and tree zones are unions of 5 m DEM cells,
+   * so their edges are pixel staircases; the server now ships a SMOOTHED
+   * rendering of each one beside the geometry, and layers.jsx draws that
+   * instead. It is display only: every measurement -- the clamp, the
+   * crossings, the acreage, the commit body -- reads `geometry`.
+   *
+   * THE FAILURE THIS FORECLOSES is the exact one the crossing-grounds work
+   * closed from the other side. If the map DREW the smoothed ring while the
+   * cautions were clipped against the unsmoothed one, a drawn zone could
+   * visually miss a crossing it records -- the client and the server
+   * disagreeing about the same shape again.
+   *
+   * SO IT IS ASSERTED AS AN IDENTITY, NOT AS AN ABSENCE. The whole draw is
+   * run twice over the same ring: once with every feature and every ground
+   * carrying the property, once with it stripped everywhere. Same clamped
+   * geometry, same live cautions, same closed feature, same JSON.
+   *
+   * AND WITH A CONTROL, so the identity is a measurement. The smoothed ring
+   * put through the same clip gives a DIFFERENT answer -- so a reader that had
+   * wired the display field into the caution path would have been caught here
+   * rather than agreeing by luck.
+   */
+  it('records byte-identical cautions with and without the display-only outline', () => {
+    const committed = captured.document_committed.steps.landform.features.features
+    const canopyGate = captured.payload.exclusion_layers.find((layer) => layer.type === 'canopy')
+    const productionGround = {
+      type: 'production',
+      label: 'committed production area',
+      geometry_wgs84: {
+        type: 'MultiPolygon',
+        coordinates: committed.flatMap((feature) => toMultiPolygon(feature.geometry)),
+      },
+    }
+    const grounds = [
+      productionGround,
+      { type: 'canopy', label: canopyGate.label, geometry_wgs84: canopyGate.geometry_wgs84 },
+    ]
+
+    // THE FIELD, AS THE SERVER SHIPS IT: a smoothed rendering of the same
+    // shape, on every feature and on every ground object the step is handed.
+    // Deliberately a VISIBLY DIFFERENT ring -- the whole parcel -- so that
+    // anything reading it instead of `geometry` gives a wrong answer loudly.
+    const OUTLINE_PROPERTY = 'display_only_smoothed_outline'
+    const parcelRing = { type: 'Polygon', coordinates: [BOUNDARY.map(([lat, lng]) => [lng, lat])] }
+    const withField = {
+      [TREES_GROUNDS_LAYER]: grounds.map((ground) => ({
+        ...ground,
+        [OUTLINE_PROPERTY]: parcelRing,
+      })),
+    }
+    const withoutField = { [TREES_GROUNDS_LAYER]: grounds }
+
+    const args = (references) => ({ points: HYDRIC_RING, parcel: BOUNDARY, references })
+    const liveWith = TREES_SHAPE.live(args(withField))
+    const liveWithout = TREES_SHAPE.live(args(withoutField))
+    const closedWith = TREES_SHAPE.close(args(withField))
+    const closedWithout = TREES_SHAPE.close(args(withoutField))
+
+    // NON-VACUOUS: the ring actually crosses something, so "identical" is a
+    // statement about a real answer rather than about two empty lists.
+    expect(liveWithout.length).toBeGreaterThan(0)
+
+    // The MINTED ID is the one field that legitimately differs between two
+    // draws -- it carries a timestamp and a random tail, by design -- so it is
+    // normalised away and everything else is compared verbatim.
+    const withoutId = ({ id, ...rest }) => JSON.stringify(rest)
+    expect(JSON.stringify(liveWith)).toBe(JSON.stringify(liveWithout))
+    expect(withoutId(closedWith.feature)).toBe(withoutId(closedWithout.feature))
+    expect(JSON.stringify(closedWith.multi)).toBe(JSON.stringify(closedWithout.multi))
+    // AND THE COMMIT BODY CARRIES NO TRACE OF IT: the drawn feature the client
+    // authors has its own properties and this is not one of them.
+    expect(closedWith.feature.properties).not.toHaveProperty(OUTLINE_PROPERTY)
+
+    // THE CONTROL. Clipping the SAME ring against the smoothed stand-in
+    // instead of the real ground gives a different answer -- so the identity
+    // above is a measurement of what the caution path reads, not a
+    // coincidence of two shapes that happen to agree.
+    const { multi } = clampToBoundary(HYDRIC_RING, BOUNDARY)
+    const real = cautionsFor(multi, grounds)
+    const smoothedInstead = cautionsFor(
+      multi,
+      grounds.map((ground) => ({ ...ground, geometry_wgs84: parcelRing }))
+    )
+    expect(JSON.stringify(smoothedInstead)).not.toBe(JSON.stringify(real))
+    console.log(
+      `DISPLAY OUTLINE  cautions ${JSON.stringify(liveWith.map((c) => [c.type, c.acres]))} ` +
+        `with the field and without it; reading it instead would have given ` +
+        `${JSON.stringify(smoothedInstead.map((c) => [c.type, c.acres]))}`
+    )
+  })
+
   it('has no hydric or slope ground to measure against, by declaration', () => {
     // Not "the grounds happened to be clear": the step declares no such
     // ground, so no drawn zone anywhere can be warned about the ground the
@@ -1110,14 +1219,124 @@ describe('6 & 7. no eligible highlight, the off-parcel scrim, and the search spa
     await ui.unmount()
   })
 
-  it('carries the tree mark: a coarse dot lattice in --tree, uncased, on every band', () => {
+  /**
+   * THE TREE MARK IS PRODUCTION'S HATCH, MIRRORED -- and the stipple is gone,
+   * not layered underneath it.
+   *
+   * WHY THE MARK MOVED. A dot field said "not water", which was a real
+   * problem and the wrong pair to solve for. Production and trees are the two
+   * CROPS, and the two layers that legitimately share ground -- production is
+   * one of trees' four crossing grounds -- so the pair that has to read as a
+   * pair is this one. A ruled field mirrored about the vertical is how a map
+   * has always said "the same kind of ground, the other crop".
+   *
+   * NO OUTLINE, AS A CONSEQUENCE. marksItsOwnEdge() draws an edge for marks
+   * whose extent cannot be inferred (a wash has no gaps; a fine dot field's
+   * edge is where the density falls off). A hatch's extent is where the ruling
+   * stops. Trees inherits production's no-edge rule by becoming a hatch,
+   * which is the rule the map has always wanted for a recommendation.
+   */
+  it('carries the tree mark: production\'s hatch mirrored, in --tree, with no stipple left', () => {
     const mark = zoneMark('tree')
-    expect(mark.kind).toBe('stipple')
-    expect(mark.stroke).toBe(document.documentElement.style.getPropertyValue('--tree'))
+    expect(mark.kind).toBe('pattern')
     expect(mark.fill).toBe('url(#zone-pattern-tree)')
+    // A HATCH DRAWS NO EDGE, in any state, on any band.
+    expect(mark.stroke).toBeNull()
+    expect(marksItsOwnEdge(mark)).toBe(false)
     for (const layer of TREES_STEP.layers.filter((l) => l.kind === 'polygon')) {
       expect(layer.treatment).toBe('tree')
     }
+
+    // THE STIPPLE IS GONE FROM THE TABLE, not merely unreferenced: the mark
+    // source names no dot field for trees, and the one stipple row left is
+    // water's excavated type.
+    const marks = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+    const treeRow = marks.slice(marks.indexOf("treatment: 'tree'"))
+    expect(treeRow.slice(0, treeRow.indexOf('}'))).not.toMatch(/stipple|grid|radius|tile/)
+    expect(zoneMark('survey-excavated').kind).toBe('stipple')
+  })
+
+  /**
+   * [frontend test 4] THE OPPOSITE DIAGONAL, AT PRODUCTION'S SPACING --
+   * asserted on the PATTERN CHROMIUM WOULD PAINT, not on the table it came
+   * from. injectZonePatterns() writes both <pattern> defs; the two are read
+   * back and compared.
+   *
+   * MIRRORED, MEASURED AS A MIRROR. The tree tile's path must be production's
+   * reflected in y about the tile's own centre line -- so every point (x, y)
+   * on one has (x, size - y) on the other. That is a stronger statement than
+   * "the numbers differ": it fails a tile drawn at some other angle, and it
+   * fails one drawn at the right angle but a different phase.
+   *
+   * AND THE SAME PITCH. Same tile size, same stroke width -- the spacing is
+   * what makes the two one family, and the mirror is what tells them apart.
+   */
+  it('rules the tree hatch on the opposite diagonal at production\'s spacing', () => {
+    const teardown = injectZonePatterns(document.body)
+    try {
+      const tileOf = (treatment) => {
+        const pattern = document.getElementById(`zone-pattern-${treatment}`)
+        const path = pattern.querySelector('path')
+        return {
+          size: [pattern.getAttribute('width'), pattern.getAttribute('height')].map(Number),
+          weight: Number(path.getAttribute('stroke-width')),
+          stroke: path.getAttribute('stroke'),
+          points: path
+            .getAttribute('d')
+            .split(/[ML]\s*/)
+            .filter(Boolean)
+            .map((pair) => pair.trim().split(',').map(Number)),
+        }
+      }
+      const production = tileOf('production')
+      const tree = tileOf('tree')
+
+      // SAME PITCH, SAME WEIGHT. The tile IS the spacing for a hatch.
+      expect(tree.size).toEqual(production.size)
+      expect(tree.weight).toBe(production.weight)
+      const [size] = production.size
+
+      // OPPOSITE DIAGONAL, as an exact reflection in y.
+      expect(tree.points).toHaveLength(production.points.length)
+      for (const [index, [x, y]] of production.points.entries()) {
+        expect([x, y], `point ${index} mirrors`).toEqual([tree.points[index][0], size - tree.points[index][1]])
+      }
+      // AND THE TWO ARE NOT THE SAME RULING -- the mirror is a real one, so a
+      // tile that happened to be symmetric would fail here.
+      expect(tree.points).not.toEqual(production.points)
+
+      // Each in its own colour, read from its own token.
+      expect(production.stroke).toBe(document.documentElement.style.getPropertyValue('--oxide'))
+      expect(tree.stroke).toBe(document.documentElement.style.getPropertyValue('--tree'))
+      console.log(
+        `TREE HATCH  ${size}px pitch, ${tree.weight}px stroke, both -- ` +
+          `production ${JSON.stringify(production.points)} tree ${JSON.stringify(tree.points)}`
+      )
+    } finally {
+      teardown()
+    }
+  })
+
+  /**
+   * [frontend test 6] THE THREE LEVELS STILL HOLD FOR THE TREE MARK.
+   *
+   * A hatch is ink at full strength and takes the --pattern-* scale, which is
+   * what the mark was already on as a stipple (see fillLevelFor's note) -- so
+   * the levels are inherited rather than re-tuned. What is asserted here is
+   * that they are still THREE DISTINCT, ORDERED values and that the tree mark
+   * is on that scale and not on the wash's.
+   */
+  it('keeps the three pattern levels for the tree mark', () => {
+    const level = (name) => Number(document.documentElement.style.getPropertyValue(`--pattern-${name}`))
+    const [committed, active, focused] = ['committed', 'active', 'focused'].map(level)
+    expect(committed).toBeGreaterThan(0)
+    expect(committed).toBeLessThan(active)
+    expect(active).toBeLessThan(focused)
+    // A hatch is ink, so it is on the pattern scale -- never the tint scale.
+    expect(zoneMark('tree').kind).not.toBe('tint')
+    console.log(
+      `TREE LEVELS  committed ${committed} active ${active} focused ${focused} (--pattern-*)`
+    )
   })
 
   /**

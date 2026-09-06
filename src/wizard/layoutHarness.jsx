@@ -423,6 +423,32 @@ const UNOUTLINED = [
  * bracket the 2.67px cell spacing from half of it to nine times it, in steps
  * fine enough that a beat cannot hide between two of them.
  */
+/**
+ * THE TWO CROP HATCHES ON ONE GROUND, AT THE SIZES A ZONE OCCUPIES.
+ *
+ * WHY THIS PAIR NEEDS ITS OWN BLOCK. Trees now carries production's hatch
+ * MIRRORED -- the opposite diagonal at the same 8px pitch -- and opposite
+ * diagonals at identical pitch are the classic interference pair. The two
+ * layers are not hypothetical neighbours either: production is one of trees'
+ * four crossing grounds, so a real parcel puts one on top of the other.
+ *
+ * WHAT VARIES IS THE SIZE, AND THAT IS THE ZOOM RANGE. Both patterns are
+ * userSpaceOnUse, so the ruling is the same 8px pitch at every zoom and any
+ * beat between them is a fixed screen-space figure. What zooming changes is
+ * how much of that figure fits inside the zone: at whole-parcel zoom a zone is
+ * about 90px across and a coarse beat would be one blotch; four levels in the
+ * same zone is several hundred px and a beat becomes banding across it. So
+ * sweeping the CELL SIZE is the honest way to sweep the zoom range -- the same
+ * argument MOIRE_PERIODS makes for sweeping the ground instead of driving a
+ * real map.
+ *
+ * FOUR CELLS PER SIZE, PER GROUND: the ground bare, each hatch alone, and the
+ * two together. Alone-versus-together is what makes a beat measurable --
+ * interference is coarse structure that NEITHER mark contains on its own.
+ */
+const CROP_OVERLAP_SIZES = [90, 180, 360]
+const CROP_OVERLAP_CELLS = ['bare', 'production', 'tree', 'both']
+
 const MOIRE_PERIODS = [1.5, 2, 2.5, 2.67, 3, 3.5, 4, 5, 6, 8, 11, 16, 24]
 
 /** A textured ground: canopy, with a finer/darker grid at `period` px over it. */
@@ -482,6 +508,24 @@ const GROUND_COLUMNS = 14
 
 /** Clear of both ground rows above. Their height is computed the same way. */
 const MOIRE_TOP = GROUND_TOP + SWATCH_PX * 12
+
+/** Clear of the moire sweep above, whose own height is two rows per wrap. */
+const CROP_OVERLAP_TOP =
+  MOIRE_TOP + Math.ceil(MOIRE_PERIODS.length / GROUND_COLUMNS) * 2 * SWATCH_PX + 20
+
+/**
+ * WHERE ONE (ground, size) BLOCK OF FOUR CELLS STARTS, and how tall it is.
+ *
+ * FOUR CELLS IN A 2x2 RATHER THAN A ROW, for one flat reason: at the largest
+ * size a row of four is 1440px and the harness frame is 1280. A square block
+ * is 2*size wide at worst, which fits at every size and keeps the layout the
+ * same shape for all three.
+ */
+function cropOverlapBlockTop(groundIndex, sizeIndex) {
+  const heightsBefore = CROP_OVERLAP_SIZES.slice(0, sizeIndex).reduce((a, b) => a + 2 * b, 0)
+  const groundHeight = CROP_OVERLAP_SIZES.reduce((a, b) => a + 2 * b, 0)
+  return CROP_OVERLAP_TOP + groundIndex * groundHeight + heightsBefore
+}
 
 /**
  * WHAT THE SWATCH FOR ONE TREATMENT IS MADE OF -- read from the same table the
@@ -657,6 +701,56 @@ function ZoneSwatches() {
             ) : null}
           </div>
         ))
+      )}
+      {/* THE TWO CROP HATCHES, over both grounds, at three zone sizes. Each
+          block is the ground bare, each hatch alone, and the two together --
+          the four readings a beat has to be recovered from. Every mark is an
+          ordinary data-treatment svg, so the cloning pass above dresses these
+          without knowing the block exists; `data-unoutlined` is not needed
+          because a hatch draws no outline. */}
+      {GROUNDS.map((ground, groundIndex) =>
+        CROP_OVERLAP_SIZES.map((size, sizeIndex) =>
+          CROP_OVERLAP_CELLS.map((which, cellIndex) => (
+            <div
+              key={`crops-${ground.id}-${size}-${which}`}
+              data-testid={`crops-${ground.id}-${size}-${which}`}
+              style={{
+                position: 'absolute',
+                left: (cellIndex % 2) * size,
+                top: cropOverlapBlockTop(groundIndex, sizeIndex) + Math.floor(cellIndex / 2) * size,
+                width: size,
+                height: size,
+                background: ground.color,
+              }}
+            >
+              {(which === 'both' ? ['production', 'tree'] : which === 'bare' ? [] : [which]).map(
+                (treatment, depth) => (
+                  <svg
+                    key={treatment}
+                    /* ITS OWN data-testid, AND THE CLONING PASS IS WHY. Each
+                       swatch gets its own copy of the pattern under an id
+                       derived from THIS attribute; without it every svg here
+                       would mint `local-undefined`, every rect would resolve to
+                       whichever def landed first, and all four cells would draw
+                       one pattern -- which is a measurement of nothing. */
+                    data-testid={`crops-mark-${ground.id}-${size}-${which}-${treatment}`}
+                    data-treatment={treatment}
+                    data-state="active"
+                    width={size}
+                    height={size}
+                    style={{ position: 'absolute', left: 0, top: 0, zIndex: depth }}
+                  >
+                    <rect
+                      width={size}
+                      height={size}
+                      fillOpacity={fillLevel(treatment, 'active')}
+                    />
+                  </svg>
+                )
+              )}
+            </div>
+          ))
+        )
       )}
       {GROUNDS.map((ground, row) =>
         [null, ...cells, ...UNCASED, ...UNOUTLINED, ...OVERLAP].map((cell, index) => (
