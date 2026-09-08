@@ -82,7 +82,27 @@
   --oxide: #9c4a2f;        /* the accent — primary actions only */
   --oxide-deep: #7d3a25;   /* oxide hover/active */
   --on-oxide: #fdfcf9;     /* text on oxide fill */
-  --ochre: #c99a2e;        /* secondary emphasis, access point marker */
+  /* OCHRE MEANS A LIVE POINT MARKER, and nothing else on the map. The
+     access point while roads is the active step; the structure site's pin
+     while structures is; the one point the fencing step will place, when it
+     places one. A point glyph marks a specific spot on the property that is
+     STILL BEING DECIDED, and one colour for that concept is what lets a
+     reader find the live spot on any step without learning a colour per
+     step. It is the warm complement to the greens and blues the ground
+     takes, and it is secondary emphasis in the chrome (never a control's
+     surface -- --oxide is the one action colour).
+
+     ONCE COMMITTED, A POINT MARKER JOINS ITS LAYER'S SETTLED TREATMENT and
+     gives the ochre up: the committed access point turns to --ink (the
+     token the road line is drawn in) at --pattern-committed, the committed
+     site pin keeps its shape at --pattern-committed. That is the rule that
+     keeps two different things from sharing one colour on one map: at any
+     step there is at most ONE live point kind, and it is the only ochre
+     thing on the surface. A later step that places a point takes ochre for
+     its live marker and its layer's own token once committed; it does not
+     pick a colour. pointer.test.jsx walks every step and holds the rule;
+     App.css's marker rules are where each kind reads its token. */
+  --ochre: #c99a2e;
   /* MAP GEOMETRY AND THE LEGEND -- never a control's surface or its edge.
      The rule is legibility, not taste: this chrome floats on aerial
      photography of farmland, so a control drawn in --field half-disappears
@@ -276,6 +296,11 @@
      layout.test.jsx, which measures the crossing where a tree zone and a
      production zone share ground. */
   --tree: #52a466;
+
+  /* NO --structure TOKEN. The structure site had a violet wash of its own
+     for one branch; it is a PIN now, in --ochre, for the rule written beside
+     that token: a structure site is a live point, not ground, and takes the
+     live-point colour rather than a hue of its own. */
 
   /* HOW PRESENT A ZONE'S MARK IS, IN THREE LEVELS -- the whole of what
      distinguishes a zone's states.

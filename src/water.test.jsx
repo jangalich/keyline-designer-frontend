@@ -1242,7 +1242,10 @@ describe('one pattern per step, three levels per pattern', () => {
     // A TINT'S WHOLE DESCRIPTION IS STILL ITS COLOUR: no spacing, no radius.
     // How heavy the wash is and how present its outline are STATE, not mark.
     const tintRows = [...table.matchAll(/\{[^{}]*kind: 'tint'[^{}]*\}/g)].map((m) => m[0])
-    expect(tintRows).toHaveLength(1)
+    // ONE WATER TINT. The structures step draws its building pad as a tint
+    // too, in its own token, and that is a different step's mark; what this
+    // holds is that water's pair is one wash and one texture.
+    expect(tintRows.filter((row) => row.includes('--survey-'))).toHaveLength(1)
     for (const row of tintRows) expect(row).not.toMatch(/spacing|radius|weight/)
 
     // A TEXTURE, BY CONTRAST, HAS A DENSITY AND A DOT -- the two levers it
@@ -2545,7 +2548,8 @@ describe('the checkbox, both ways', () => {
     // THE LIST IS DERIVED, NOT WRITTEN. A step added later with checkboxes
     // joins these cases by existing, instead of by someone remembering.
     // TREES JOINED BY EXISTING: landform's shape, so landform's cases.
-    expect(MULTI_SELECT.map((d) => d.id)).toEqual(['landform', 'water', 'trees'])
+    // STRUCTURES JOINED BY EXISTING: select-only candidates plus placed sites.
+    expect(MULTI_SELECT.map((d) => d.id)).toEqual(['landform', 'water', 'trees', 'structures'])
   })
 
   for (const definition of MULTI_SELECT) {
@@ -2564,6 +2568,8 @@ describe('the checkbox, both ways', () => {
           ? FIXTURE
           : definition.id === 'trees'
           ? TREES_CHECKBOX_PAYLOAD
+          : definition.id === 'structures'
+          ? STRUCTURES_CHECKBOX_PAYLOAD
           : {
               suggested_zones: {
                 type: 'FeatureCollection',
@@ -2835,11 +2841,44 @@ const TREES_CHECKBOX_PAYLOAD = {
   search_space: { type: 'FeatureCollection', features: [] },
 }
 
+/** step_orchestrator.build_structures_payload()'s shape, two candidates. */
+const STRUCTURES_CHECKBOX_PAYLOAD = {
+  structure_sites: {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        id: 'solar-candidate-1',
+        properties: { layer: 'solar_infrastructure', rank: 1, suitability_score: 71.4, distance_to_road_ft: 120.5, site_origin: 'generated' },
+        geometry: null,
+      },
+      {
+        type: 'Feature',
+        id: 'solar-candidate-2',
+        properties: { layer: 'solar_infrastructure', rank: 2, suitability_score: 64.0, distance_to_road_ft: 240.0, site_origin: 'generated' },
+        geometry: null,
+      },
+    ],
+  },
+  sites: [],
+  summary: {
+    candidate_count: 2,
+    site_found: true,
+    max_candidates: 3,
+    max_placed: 2,
+    gates: { road_proximity_source: 'selected_road_corridor' },
+    run_flags: { road_proximity_source: 'selected_road_corridor', shading_is_rough_proxy: true, tree_zone_exclusion_available: true },
+    factor_weights_pct: { slope: 30, aspect: 30, shading: 25, production_proximity: 15 },
+  },
+  placement: { input: 'site', shape: 'lon_lat', max_placed: 2 },
+}
+
 const CHECKBOX_PAYLOADS = {
   landform: LANDFORM_CHECKBOX_PAYLOAD,
   water: FIXTURE,
   roads: roadsCheckboxPayload(),
   trees: TREES_CHECKBOX_PAYLOAD,
+  structures: STRUCTURES_CHECKBOX_PAYLOAD,
 }
 
 describe('the checkbox, on every step that renders one', () => {
@@ -2962,7 +3001,7 @@ describe('the tab body focuses without choosing, unless the step says otherwise'
   )
 
   it('covers every step whose focus and selection are independent', () => {
-    expect(INDEPENDENT.map((d) => d.id)).toEqual(['landform', 'water', 'trees'])
+    expect(INDEPENDENT.map((d) => d.id)).toEqual(['landform', 'water', 'trees', 'structures'])
   })
 
   for (const definition of INDEPENDENT) {

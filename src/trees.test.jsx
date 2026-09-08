@@ -1049,7 +1049,9 @@ describe('3. a drawn zone on hydric, steep ground records no caution for either'
     }
     // And the definition's own text never wires one in.
     const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
-    const section = source.slice(source.indexOf('   THE TREES STEP\n'), source.indexOf('The registry, and the order steps run in'))
+    // TO THE NEXT SECTION HEADER, not to the registry: structures follows
+    // trees in this file now, and its section is its own sweep's business.
+    const section = source.slice(source.indexOf('   THE TREES STEP\n'), source.indexOf('   THE STRUCTURES STEP\n'))
     expect(section).not.toMatch(/type: 'hydric'/)
     expect(section).not.toMatch(/type: 'slope'/)
   })
@@ -1402,7 +1404,8 @@ describe('8. the factor weights come from the payload', () => {
 
   it('writes down no weight of its own', () => {
     const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
-    const section = source.slice(source.indexOf('   THE TREES STEP\n'), source.indexOf('The registry, and the order steps run in'))
+    // To the next section header, not to the registry: structures follows.
+    const section = source.slice(source.indexOf('   THE TREES STEP\n'), source.indexOf('   THE STRUCTURES STEP\n'))
     expect(section.length).toBeGreaterThan(1000)
     // No 40, 30, 20 or 10 anywhere in the trees section -- not as a literal,
     // not in a comment, not as a default.
@@ -1440,7 +1443,7 @@ describe('8. the factor weights come from the payload', () => {
 
 describe('11. the schema: what the definition declares, and the sweep', () => {
   it('is landform-shaped: select, draw, delete; multiple; no accumulate; the trees collection', () => {
-    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees'])
+    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees', 'structures'])
     expect(TREES_STEP.tools).toEqual(['select', 'draw', 'delete'])
     expect(TREES_STEP.selection).toEqual({ mode: 'multiple', follows: null })
     expect(TREES_STEP.accumulate).toBeNull()

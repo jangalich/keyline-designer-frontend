@@ -1972,8 +1972,8 @@ describe('12. the commit body reads the step being committed', () => {
 
   it('raises for a step the registry does not carry', () => {
     const state = { steps: {}, drafts: {} }
-    // 'structures', not 'trees': trees has a definition as of its branch.
-    expect(() => buildCommitBody(state, 'structures', registryProposalFeatures)).toThrow(/structures/)
+    // 'fencing', not 'structures': structures has a definition as of its branch.
+    expect(() => buildCommitBody(state, 'fencing', registryProposalFeatures)).toThrow(/fencing/)
   })
 })
 

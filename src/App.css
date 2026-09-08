@@ -2122,11 +2122,96 @@
   border-style: dashed;
 }
 
-/* The committed network's point: settled with its network, and no longer a
-   control. Quieter, and no pointer. */
+/* THE COMMITTED NETWORK'S POINT TURNS TO INK. Settled with its network and
+   no longer a control: it takes --ink, the token the road line is drawn in
+   (--road is --ink; a MARKER reads the ink directly, because --road is the
+   line's and the sweep in roads.test.jsx keeps it the line's), at the
+   committed level, so it recedes with the network it belongs to rather
+   than sitting at full weight over later steps' work -- and so it stops
+   being ochre. Ochre means a LIVE point marker (index.css, beside the
+   token), and from the structures step on the live one is the site pin; a
+   committed access point still in ochre would put two different things in
+   one colour on one map. In ink it reads as what it has become: the
+   network's endpoint, where the driveway starts, not a pending choice. */
 .access-point-marker--committed {
+  background: var(--ink);
   opacity: var(--pattern-committed);
   cursor: default;
+}
+
+/* THE STRUCTURE SITE PIN. A DivIcon holding one small SVG -- the pin
+   silhouette twice, a halo pass under the body (layers.jsx sitePinIcon) --
+   at a FIXED SCREEN SIZE, the caution marker's reason: a pointer is a
+   pointer, not a footprint, and scaled with the ground it vanishes at the
+   zoom where it matters most. Ochre, because ochre means a LIVE point
+   marker (index.css, beside the token) and the site is the live point of
+   the structures step. The halo is --halo for the reason every marker here
+   is ringed: measured in layout.test.jsx, the bare glyph is lost over bare
+   soil, which is nearly its own colour, and the ring is what carries it
+   there. No colour is written in the SVG; every one is a token read here.
+
+   THE STATES ARE THE ZONE'S. The pattern levels say how present the pin is
+   -- committed quietest -- and the focused pin takes the ink ring the
+   focused access point takes. A PLACED site's pin carries the accent stroke
+   a drawn zone's edge carries: the site is the user's, the pin says so. A
+   REJECTED one takes --alert, like a rejected zone, with the server's own
+   reason beside it. The PENDING one -- a spot clicked and not yet measured
+   -- is hollow and dashed, the access-point marker's own "here, pending". */
+.site-pin {
+  cursor: pointer;
+  /* The marker shadow every dot here casts, as a filter so it follows the
+     silhouette rather than the icon's box. The token, not a literal. */
+  filter: drop-shadow(var(--shadow-marker));
+}
+
+.site-pin svg {
+  display: block;
+  overflow: visible;
+}
+
+/* The width is layers.jsx's SITE_PIN_HALO_WIDTH, and measured there. */
+.site-pin__halo {
+  fill: none;
+  stroke: var(--halo);
+  stroke-width: 4;
+  stroke-linejoin: round;
+}
+
+.site-pin__body {
+  fill: var(--ochre);
+}
+
+.site-pin--placed .site-pin__body {
+  stroke: var(--oxide);
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+}
+
+.site-pin--focused .site-pin__body {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.site-pin--committed {
+  opacity: var(--pattern-committed);
+  cursor: default;
+}
+
+.site-pin--rejected .site-pin__body {
+  fill: var(--alert);
+}
+
+.site-pin--pending {
+  cursor: default;
+  pointer-events: none;
+}
+
+.site-pin--pending .site-pin__body {
+  fill: var(--paper);
+  stroke: var(--ochre);
+  stroke-width: 1.25;
+  stroke-dasharray: 1.5 1;
 }
 
 /* A road branch's own class on the path, for the DOM inspector and the tests

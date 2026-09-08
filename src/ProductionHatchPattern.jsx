@@ -260,7 +260,57 @@ const TREATMENT_MARKS = [
      rule has always been about. Trees gains that rule by becoming a hatch;
      production has always had it. */
   { treatment: 'tree', kind: 'hatch', token: '--tree', spacing: 8, weight: 1, rise: 'down' },
+  /* THE STRUCTURE MARK: A PIN, in --ochre.
+
+     A BUILDING SITE IS A SPOT, NOT GROUND. Every other mark here says what a
+     piece of ground is for; a structure site is a point the design puts a
+     building at, and the printed layout map (render_layout_map.py) has
+     always drawn it that way -- a fixed-size map pin at the site's
+     representative point, never a filled footprint. This map now draws the
+     same thing: the pin's SILHOUETTE (PIN_GLYPH_PATH below), at fixed screen
+     size, in the palette's live-point colour. The interior barn glyph the
+     printed pin carries is not reproduced: it is a legend icon baked into a
+     raster, and on a screen pin two dozen pixels tall it would be noise.
+
+     OCHRE, AND NOT A COLOUR OF ITS OWN. The printed map's pin is a bright
+     red (#D64545) that has no place in this palette -- the same class as the
+     Material-style error red the guide retired. --ochre is the guide's own
+     colour for exactly this concept, "secondary emphasis, access point
+     marker": a point glyph marking a live spot on the property. The rule
+     that lets two steps share it is written beside the token in index.css.
+
+     A PIN HAS NO FILL LEVEL AND NO PAINT SERVER. Its whole description is
+     its colour; how present it is in each state is the pattern level, like
+     a hatch's, applied to the glyph as a whole. It draws no zone edge, so
+     marksItsOwnEdge() is false of it, and TILE_BUILDERS has no tile for it,
+     so injectZonePatterns() passes it through as it does a tint. */
+  { treatment: 'structure', kind: 'pin', token: '--ochre' },
 ]
+
+/**
+ * THE PIN SILHOUETTE, as an SVG path in a 24x24 viewBox: the classic
+ * teardrop the printed map's asset draws (assets/icons/farm_location_pin.svg
+ * in the backend repo, whose <path d> this is, verbatim).
+ *
+ * A DELIBERATE DIVERGENCE FROM THE ONE-IMPLEMENTATION RULE, ON THE RECORD.
+ * The smoothed zone outline is computed ONCE, server-side, and shipped, so
+ * the map and the PDF cannot drift; this shape is drawn here a second time.
+ * The risk is different in kind: the outline is a computed geometry that
+ * changes with every parcel, while this is a fixed silhouette that changes
+ * with nothing. The interior icon is baked into the backend's rasterized
+ * PNG, so the pin could not be shipped as an asset without carrying an icon
+ * this map does not draw -- hence a path, and hence the copy. If the
+ * backend's asset ever changes shape, this string is the one place to
+ * follow it.
+ *
+ * The tip is at (12, 22) in viewBox units; sitePinIcon() anchors there, so
+ * the pin points at the site rather than covering it.
+ */
+export const PIN_GLYPH_VIEWBOX = '0 0 24 24'
+export const PIN_GLYPH_PATH =
+  'M12 2C8.13401 2 5 5.13401 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13401 15.866 2 12 2Z'
+export const PIN_GLYPH_TIP = Object.freeze([12, 22])
+
 
 /**
  * WHAT ONE TREATMENT PAINTS WITH, resolved: the fill Leaflet writes into the
@@ -288,6 +338,11 @@ export function zoneMark(treatment) {
   if (spec.kind === 'line') {
     // A stroke and nothing to fill: the line IS the mark.
     return { kind: 'line', fill: null, stroke: readToken(spec.token) }
+  }
+  if (spec.kind === 'pin') {
+    // A GLYPH, and its colour: the renderer draws PIN_GLYPH_PATH in it at
+    // fixed screen size (layers.jsx's PinLayer). No zone edge, no fill level.
+    return { kind: 'pin', fill: readToken(spec.token), stroke: null }
   }
   if (spec.kind === 'stipple') {
     // A PAINT SERVER LIKE THE HATCH, AN OUTLINE LIKE THE TINT, and one colour

@@ -813,11 +813,11 @@ describe('5. reopen confirmation', () => {
     // one committed zone, none of it drawn.
     expect(ui.find('reopen-reset-note-trees').textContent).toContain('1 committed tree zone')
 
-    // A STEP THIS BUILD HAS NO DEFINITION FOR IS NAMED AND NOTHING MORE.
-    // structures is in the order and holds work; inventing a loss for it here
-    // is exactly what the shell must not do.
+    // STRUCTURES SAYS WHAT IT LOSES IN ITS OWN TERMS TOO, now that it has a
+    // definition: one committed site, none of it placed by hand.
     expect(ui.find('reopen-reset-structures')).not.toBeNull()
-    expect(ui.find('reopen-reset-note-structures')).toBeNull()
+    expect(ui.find('reopen-reset-note-structures').textContent).toContain('1 committed structure site')
+    expect(ui.find('reopen-reset-note-structures').textContent).not.toContain('placed by hand')
 
     // LANDFORM'S OWN NOTE IS EXERCISED HERE RATHER THAN RENDERED. Nothing in
     // this build can reopen the step above it -- the boundary declares no

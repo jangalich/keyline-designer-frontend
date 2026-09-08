@@ -44,8 +44,14 @@ import { Fragment } from 'react'
 import L from 'leaflet'
 import { GeoJSON, Marker, Pane, Polygon, Polyline, Tooltip } from 'react-leaflet'
 
-import { offParcelScrimRings, readToken } from '../geo.js'
-import { marksItsOwnEdge, zoneMark } from '../ProductionHatchPattern.jsx'
+import { largestPieceCentroid, offParcelScrimRings, readToken, toMultiPolygon } from '../geo.js'
+import {
+  PIN_GLYPH_PATH,
+  PIN_GLYPH_TIP,
+  PIN_GLYPH_VIEWBOX,
+  marksItsOwnEdge,
+  zoneMark,
+} from '../ProductionHatchPattern.jsx'
 
 /**
  * Its own lazily-filled token cache, for the reason DrawTool's has one:
@@ -497,9 +503,158 @@ const DISPLAY_ONLY_OUTLINE = 'display_only_smoothed_outline'
  * the three is a cell union and none of them is smoothed, on the server or
  * here.
  */
-function drawnAs(feature) {
-  const outline = feature.properties?.[DISPLAY_ONLY_OUTLINE]
+/**
+ * A LAYER MAY SAY WHAT ITS FEATURES ARE DRAWN WITH, and one does. The
+ * structures step's placed sites are POINTS on the wire -- the document holds
+ * the coordinate the user chose, which is the one thing they authored -- and
+ * the building pad the server measured rides beside each one as
+ * properties.footprint_wgs84. A point layer would draw a marker where the map
+ * should show the pad every generated candidate is drawn as, so the layer
+ * declares `footprint(feature)` (stepDefinitions' LAYER SCHEMA item 13) and
+ * this is where it is read: the SAME substitution the smoothed outline
+ * makes, for the same reason, in the same last place before pixels.
+ * `feature.geometry` is still the point, and still what the commit sends.
+ */
+function drawnAs(feature, layer = null) {
+  const footprint = typeof layer?.footprint === 'function' ? layer.footprint(feature) : null
+  const outline = footprint ?? feature.properties?.[DISPLAY_ONLY_OUTLINE]
   return outline ? { ...feature, geometry: outline } : feature
+}
+
+/** The pin on screen: its box, and where in it the tip sits. Fixed, at every zoom. */
+export const SITE_PIN_SIZE = 28
+
+/**
+ * THE HALO'S STROKE, in viewBox units (24 to the icon's SITE_PIN_SIZE px).
+ * Half of it shows outside the body. App.css's .site-pin__halo carries the
+ * same number, because a stylesheet cannot read this constant; the layout
+ * harness draws the swatch pin from this one, and structures.test.jsx holds
+ * the two equal. MEASURED, not chosen: at 3 the committed pin over bare soil
+ * fell just under the visibility floor (0.0037 against 0.004 -- soil is
+ * nearly the pin's own colour, and at the committed level the ring is what
+ * carries it); at 4 it clears on both grounds. See layout.test.jsx.
+ */
+export const SITE_PIN_HALO_WIDTH = 4
+
+/**
+ * THE SITE PIN, AS A LEAFLET ICON: the silhouette twice -- a halo pass
+ * under the body -- in one small SVG, at fixed screen size, anchored at the
+ * tip so the pin points at the spot rather than sitting on it.
+ *
+ * A DivIcon rather than an image, for the reason every other point symbol
+ * on this map is one (the vertex, the access point, the caution): the
+ * colours are tokens read by App.css off the classes, and a DivIcon is what
+ * lets a stylesheet reach them. The SVG carries no colour of its own.
+ *
+ * THE INTERIOR IS EMPTY, on purpose -- see PIN_GLYPH_PATH.
+ */
+export function sitePinIcon(modifiers = '') {
+  const [tipX, tipY] = PIN_GLYPH_TIP
+  const scale = SITE_PIN_SIZE / 24
+  return new L.DivIcon({
+    className: `site-pin${modifiers ? ` ${modifiers}` : ''}`,
+    iconSize: [SITE_PIN_SIZE, SITE_PIN_SIZE],
+    iconAnchor: [tipX * scale, tipY * scale],
+    html:
+      `<svg viewBox="${PIN_GLYPH_VIEWBOX}" width="${SITE_PIN_SIZE}" height="${SITE_PIN_SIZE}" ` +
+      `aria-hidden="true" focusable="false">` +
+      `<path class="site-pin__halo" d="${PIN_GLYPH_PATH}"/>` +
+      `<path class="site-pin__body" d="${PIN_GLYPH_PATH}"/>` +
+      `</svg>`,
+  })
+}
+
+/**
+ * WHERE A FEATURE'S PIN POINTS: the feature's own position for a Point (a
+ * placed site is the coordinate the user chose), and the area-weighted
+ * centroid of the largest piece of a polygon otherwise -- the printed map's
+ * representative_point(), near enough for a pad that is a small square
+ * clipped, at most, by the parcel edge. Read off the DISPLAY geometry, so a
+ * placed site and its footprint agree on where the pin is.
+ */
+function pinPosition(feature) {
+  const geometry = feature.geometry
+  if (!geometry) return null
+  if (geometry.type === 'Point') {
+    const [lng, lat] = geometry.coordinates
+    return [lat, lng]
+  }
+  return largestPieceCentroid(toMultiPolygon(geometry))
+}
+
+/**
+ * A FeatureCollection of sites, each drawn as a PIN.
+ *
+ * THE STRUCTURE STEP'S MARK IS A GLYPH, and this is the renderer a glyph
+ * gets: one marker per feature, at fixed screen size (SITE_PIN_SIZE), at
+ * the feature's representative point. A pointer is a pointer, not a
+ * footprint; scaled with the ground it would vanish at the zoom where a
+ * small site matters most -- the caution marker's reason, and the vertex
+ * marker's.
+ *
+ * EVERYTHING BUT THE MARK IS FeatureLayer'S. Which features are drawn is
+ * visibleFeatures (the checkbox rule, the visibility exception); which one
+ * is focused is isFocusedFeature; the click stops at the marker and hands
+ * the feature to the tool that mounted the layer, exactly as a path's click
+ * does; a rejected feature carries the server's own reason. The three
+ * states are the pattern levels and a focus ring, on classes App.css owns
+ * -- no colour and no weight is written here.
+ *
+ * THE MODIFIERS SAY WHAT KIND OF PIN THIS IS, the way a zone's classes do:
+ * `--placed` for a site the user put down (a draft layer's), `--committed`
+ * for a settled one, `--focused` for the one being read, `--rejected` for
+ * one the commit refused. Keyed on the id and the interactivity only, for
+ * PointLayer's reason: a remount moves the marker to the end of its pane,
+ * and react-leaflet swaps a changed icon in place.
+ */
+function PinLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null }) {
+  const rejections = layer.rejections ?? {}
+  const isPlaced = layer.source === 'draft'
+  const isCommitted = layer.band === 'committed'
+  const features = visibleFeatures(layer, focusedFeatureId)
+
+  return (
+    <>
+      {features.map((feature) => {
+        const position = pinPosition(drawnAs(feature, layer))
+        if (!position) return null
+        const isFocused = isFocusedFeature(layer, feature, focusedFeatureId)
+        const rejection = rejections[feature.id] ?? null
+        const modifiers = [
+          isPlaced ? 'site-pin--placed' : '',
+          isCommitted ? 'site-pin--committed' : '',
+          isFocused ? 'site-pin--focused' : '',
+          rejection ? 'site-pin--rejected' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+        return (
+          <Marker
+            key={`${feature.id}:${interactive}`}
+            position={position}
+            icon={sitePinIcon(modifiers)}
+            interactive={interactive}
+            eventHandlers={
+              interactive
+                ? {
+                    click: (event) => {
+                      L.DomEvent.stopPropagation(event)
+                      onFeatureClick?.(layer, feature)
+                    },
+                  }
+                : undefined
+            }
+          >
+            {rejection ? (
+              <Tooltip permanent direction="top" className="zone-rejection-tip">
+                {rejection.reason}
+              </Tooltip>
+            ) : null}
+          </Marker>
+        )
+      })}
+    </>
+  )
 }
 
 function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null }) {
@@ -512,6 +667,21 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
   // layers share a band, a source and a meaning had nothing left to say them
   // apart with. See `treatment` in stepDefinitions.js's LAYER SCHEMA.
   const treatment = layer.treatment ?? null
+
+  // A TREATMENT WHOSE MARK IS A GLYPH draws no path at all: the feature is
+  // a spot, and the spot gets a pin. Same features, same checkbox rule, same
+  // focus and the same clicks -- a different renderer for the mark. See
+  // PinLayer.
+  if (treatment && zoneMark(treatment)?.kind === 'pin') {
+    return (
+      <PinLayer
+        layer={layer}
+        interactive={interactive}
+        onFeatureClick={onFeatureClick}
+        focusedFeatureId={focusedFeatureId}
+      />
+    )
+  }
 
   // The checkbox rule, and the visibility exception. See visibleFeatures.
   const features = visibleFeatures(layer, focusedFeatureId)
@@ -542,7 +712,7 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
               // carries no outline, so today this is the feature itself --
               // which is exactly why it must be the same call and not a second
               // decision that agrees by accident.
-              data={drawnAs(feature)}
+              data={drawnAs(feature, layer)}
               interactive={false}
               style={{ color: halo, weight: DRAWN_CASING_WEIGHT, fill: false }}
             />
@@ -564,7 +734,7 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
             // THE DISPLAY GEOMETRY, which for a cell-union zone is its
             // smoothed outline and for everything else is its own ring. See
             // drawnAs(): nothing but this renderer sees the substitution.
-            data={drawnAs(feature)}
+            data={drawnAs(feature, layer)}
             // Top-level, for the reason RingLayer gives: pathOptions is
             // applied with setStyle() and cannot make a path stop taking
             // clicks. The key above is what re-creates it when this flips.
@@ -972,6 +1142,7 @@ const RENDERERS = {
 export {
   LINE_WEIGHT,
   CASING_WEIGHT,
+  PinLayer,
   RingLayer,
   ScrimLayer,
   HighlightLayer,

@@ -20,17 +20,32 @@
  * path. What the two share is the GESTURE, already extracted as geo.js's
  * vertexAtPixel(), which both call and which behaves identically in both.
  *
- * A THIRD, FOR A FREE POINT (the structures step's "put a building here"), is
- * not in this branch. It attaches as one more arm of the switch below, against
- * a `kind: 'point'` layer -- see StepTools.jsx's note for the two other lines
- * it would need.
+ * A THIRD, FOR A FREE POINT (the structures step's "put a building here"):
+ *
+ *   source 'draft'  PlaceSiteTool, on a step declaring `placement`. One click
+ *   + placement     is one point, the STEP scores it (a server verb) and the
+ *                   Feature that comes back joins the draft's drawnFeatures.
+ *
+ * IT DID NOT ATTACH WHERE THE OLD NOTE SAID IT WOULD, and the reason is worth
+ * recording. The note guessed a `kind: 'point'` layer. A placed structure site
+ * IS a point on the wire -- the document holds the coordinate the user chose
+ * -- but what the MAP draws, and what a checkbox, a delete and a focus act on,
+ * is the building pad the server measured, a polygon riding beside the point
+ * as properties.footprint_wgs84. So the placed sites are a `polygon` layer
+ * sourced from the draft, exactly like a drawn zone's, and the layer declares
+ * a `footprint` reader that says what to draw (see layers.jsx's drawnAs). What
+ * tells this switch to mount a placement tool over that layer rather than a
+ * vertex tool is the STEP's `placement` declaration -- which mirrors where the
+ * backend puts the same fact (step_registry.StepDefinition.placement): a
+ * placement is a property of the step, not of a layer.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { PROVENANCE_USER_ADDED, useSession } from '../../session/SessionStore'
+import { PROVENANCE_USER_ADDED, selectStepProposals, useSession } from '../../session/SessionStore'
 import AccessPointTool from '../../AccessPointTool.jsx'
 import DrawTool from '../../DrawTool.jsx'
+import PlaceSiteTool from '../../PlaceSiteTool.jsx'
 import ZoneDrawTool from '../../ZoneDrawTool.jsx'
 import { ringToGeoJSON } from '../../geo.js'
 import { useWizardCursor } from '../../wizard/WizardCursor.jsx'
@@ -40,7 +55,9 @@ import { StackLayer } from '../layers.jsx'
 export default function DrawGesture(props) {
   if (props.layer.kind === 'ring') return <RingDraw {...props} />
   if (props.layer.kind === 'point') return <PointDraw {...props} />
-  if (props.layer.source === 'draft') return <ShapeDraw {...props} />
+  if (props.layer.source === 'draft') {
+    return props.definition?.placement ? <SitePlace {...props} /> : <ShapeDraw {...props} />
+  }
   // Reachable only if a step declares `draw` over a layer nothing here can
   // author -- proposals, say. StepTools already warns about the layer having
   // no renderer; this is the same failure seen from the tool's side.
@@ -204,3 +221,77 @@ function ShapeDraw({ layer, armed, renders, stepId, definition, references }) {
 }
 
 
+
+/**
+ * A FREE POINT INTO THE DRAFT'S DRAWN FEATURES, through PlaceSiteTool -- and
+ * the one arm of this switch whose Feature comes from the SERVER.
+ *
+ * THE STEP SAYS WHAT A CLICK MEANS. `definition.placement.place()` is handed
+ * the point, the parcel ring, the sites already placed and the step's own
+ * payload, and answers with
+ * {feature, notice}: the scored Feature to add, or null and a sentence
+ * saying why not (off the parcel; no slot left; the same spot twice; the
+ * server's own refusal). ShapeDraw's contract with `definition.shape`,
+ * exactly -- this file knows no rule about buildings, and the notice goes to
+ * DrawingProgress rather than the draft for the reason given there.
+ *
+ * ONE AT A TIME, AND THE TOOL GOES DOWN AFTER EACH. A second click while the
+ * first is being measured is dropped rather than queued: the pending marker
+ * shows where the first one is, and a queue of unscored clicks under one
+ * marker is two decisions the user cannot see. When the answer lands the
+ * gesture disarms, as ShapeDraw does on close -- placing a site is one
+ * decision, and a tool that stayed armed would turn the next stray click into
+ * another. "Place a site" is one click away in the banner.
+ *
+ * THE SETTLED PADS ARE DRAWN BY THE DELETE TOOL where the step declares one
+ * (StepTools' RENDERED_BY, polygon: delete first), and here otherwise -- the
+ * same arrangement ShapeDraw makes for drawn zones.
+ */
+function SitePlace({ layer, armed, renders, stepId, definition }) {
+  const { state, actions } = useSession()
+  const { disarm } = useWizardCursor()
+  const progress = useDrawingProgress()
+  const [pending, setPending] = useState(null)
+  const liveRef = useRef(true)
+
+  useEffect(() => {
+    liveRef.current = true
+    return () => {
+      liveRef.current = false
+    }
+  }, [])
+
+  const place = async (point) => {
+    if (pending) return
+    setPending(point)
+    // The notice from the last placement stops being about anything on
+    // screen the moment a new one starts.
+    progress.clear()
+    let prepared = null
+    try {
+      prepared = await definition.placement.place({
+        point,
+        parcel: layer.parcel ?? [],
+        placed: layer.features ?? [],
+        // The step's payload, so the reading can take its cap off the same
+        // handshake the banner's button reads rather than a second copy.
+        proposals: selectStepProposals(state, stepId),
+        actions,
+        stepId,
+      })
+    } finally {
+      if (liveRef.current) setPending(null)
+    }
+    if (!liveRef.current) return
+    progress.settle(prepared?.notice ?? null)
+    if (prepared?.feature) actions.addDrawnFeature(stepId, prepared.feature)
+    disarm()
+  }
+
+  return (
+    <>
+      {renders ? <StackLayer layer={layer} interactive={false} /> : null}
+      <PlaceSiteTool isPlacing={armed} pending={pending} onPlace={place} />
+    </>
+  )
+}
