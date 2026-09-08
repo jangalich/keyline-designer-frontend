@@ -474,12 +474,22 @@ const DISPLAY_ONLY_OUTLINE = 'display_only_smoothed_outline'
 /**
  * WHAT A FEATURE IS DRAWN WITH -- and it is not always what it IS.
  *
- * A production zone and a tree zone are unions of 5 m DEM cells, so their
- * edges are pixel boundaries: an unbroken right-angle staircase. The printed
- * layout map has never shown that -- it smooths the same shape before it draws
- * it -- so this map was the one disagreeing about what a zone looks like. The
- * server now ships that smoothed outline beside the geometry, computed by the
+ * A production zone is a union of 5 m DEM cells, so its edge is a pixel
+ * boundary: an unbroken right-angle staircase. The printed layout map has
+ * never shown that -- it smooths the same shape before it clips its contours
+ * to it -- so this map was the one disagreeing about what a zone looks like.
+ * The server ships that smoothed outline beside the geometry, computed by the
  * SAME function the PDF uses, and this is where it is picked up.
+ *
+ * A TREE ZONE IS ALSO A CELL UNION AND IS NOT SMOOTHED, on the server or
+ * here. That is the one case where the staircase is real and the smooth was
+ * still wrong: the layout map draws the tree hatch from the cell-union
+ * footprint verbatim, so a smoothed tree outline made the two maps disagree
+ * rather than agree -- and the smooth is anti-extensive, measured at 19.56% of
+ * a 0.32 ac candidate with nothing added back, taken off the thin arms a tree
+ * zone exists to be. The server stopped shipping the field for trees; this
+ * function needs no change for that, because a feature without it is returned
+ * as itself.
  *
  * DISPLAY ONLY, AND THE SUBSTITUTION HAPPENS HERE FOR THAT REASON. It is a
  * rendering of a shape, not the shape, and nothing may compute from it:
@@ -496,12 +506,12 @@ const DISPLAY_ONLY_OUTLINE = 'display_only_smoothed_outline'
  * crossing-grounds work closed.
  *
  * A FEATURE WITHOUT THE PROPERTY IS RETURNED AS ITSELF, unwrapped, and that
- * covers three real cases rather than being a guard: a zone the USER DREW (no
+ * covers four real cases rather than being a guard: a zone the USER DREW (no
  * staircase -- its edge was placed vertex by vertex, and moving it would put
- * the drawn line somewhere other than where the vertices were clicked), water
- * survey zones (clipped envelopes) and road corridors (LineStrings). None of
- * the three is a cell union and none of them is smoothed, on the server or
- * here.
+ * the drawn line somewhere other than where the vertices were clicked), TREE
+ * candidates (cell unions the layout map itself draws unsmoothed, see above),
+ * water survey zones (clipped envelopes) and road corridors (LineStrings).
+ * None of the four is smoothed, on the server or here.
  */
 /**
  * A LAYER MAY SAY WHAT ITS FEATURES ARE DRAWN WITH, and one does. The
