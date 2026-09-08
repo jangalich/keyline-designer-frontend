@@ -39,6 +39,7 @@ import {
   GENERATE_BUTTON,
   LANDFORM_STEP,
   ROADS_STEP,
+  STRUCTURES_STEP,
   TREES_STEP,
   STEP_DEFINITIONS,
   registryProposalFeatures,
@@ -577,7 +578,7 @@ describe('4. one accent per state', () => {
     // which is two forward moves in one state and exactly what the upper
     // bound below refuses. Nothing caught it, because this loop named two
     // steps and a third had been written since.
-    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP, ROADS_STEP, TREES_STEP]) {
+    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP, ROADS_STEP, TREES_STEP, STRUCTURES_STEP]) {
       for (const state of MACHINE_STATES) {
         const buttons = definition.buttons[state] ?? []
         const primary = buttons.filter((b) => b.tone === 'primary')
@@ -650,9 +651,22 @@ describe('4. one accent per state', () => {
         [COMMITTING]: 0,
         [STEP_COMMITTED]: 0,
       },
+      // STRUCTURES IS LANDFORM'S SHAPE TOO -- candidates plus a site the user
+      // PLACES -- and "Place a site" is the lateral move beside the commit,
+      // exactly as "Draw a zone" is. Same table.
+      structures: {
+        [IDLE]: 1,
+        [GENERATING]: 0,
+        [LOADING]: 0,
+        [REVIEWING]: 1,
+        // ONE BUTTON, AND IT IS AN ESCAPE: a site is placed on the MAP.
+        [EDITING]: 0,
+        [COMMITTING]: 0,
+        [STEP_COMMITTED]: 0,
+      },
     }
 
-    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP, TREES_STEP]) {
+    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP, TREES_STEP, STRUCTURES_STEP]) {
       const table = EXPECTED[definition.id]
       expect(Object.keys(table).sort()).toEqual([...MACHINE_STATES].sort())
       for (const state of MACHINE_STATES) {
@@ -664,7 +678,7 @@ describe('4. one accent per state', () => {
     // AND THE ACCENT IS ACTUALLY IN USE. A definition whose every state came
     // out zero would satisfy every rule above and be the shipped regression
     // exactly; at least one state per step has to carry it.
-    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP, TREES_STEP]) {
+    for (const definition of [BOUNDARY_STEP, LANDFORM_STEP, TREES_STEP, STRUCTURES_STEP]) {
       const states = MACHINE_STATES.filter(
         (state) => (definition.buttons[state] ?? []).some((b) => b.tone === 'primary')
       )

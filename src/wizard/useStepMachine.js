@@ -387,6 +387,17 @@ export function useStepMachine(definition) {
   // What a commit would carry, counted rather than assembled: the panel wants
   // a number and the definition wants a predicate, and neither needs the
   // features themselves.
+  //
+  // THE SELECTION IS THE COUNT, AND IT COVERS THE DRAWN SHAPES. A drawn
+  // feature joins `selectedFeatureIds` the moment it is drawn and on every
+  // seed (SessionStore's DRAFT_SHAPE_ADDED, DRAFT_SEEDED), and
+  // buildCommitBody sends exactly the selected set -- so a drawn shape whose
+  // box is un-ticked is NOT in the commit. `committableCount` used to add
+  // `drawnCount` on top, from before the selection covered drawn shapes,
+  // and the sum said "Commit structure sites" over a body that would send
+  // nothing: two placed sites un-ticked counted as two. The count is the
+  // selection alone; `drawnCount` is still carried for a definition that
+  // wants to know how many shapes the user authored.
   const selectedCount = draft.selectedFeatureIds.length
   const drawnCount = draft.drawnFeatures.length
 
@@ -404,7 +415,7 @@ export function useStepMachine(definition) {
       proposalFeatures,
       selectedCount,
       drawnCount,
-      committableCount: selectedCount + drawnCount,
+      committableCount: selectedCount,
       baseRevision: selectBaseRevision(state, stepId),
     }),
     [stepId, definition, state, draft, proposals, proposalFeatures, selectedCount, drawnCount]

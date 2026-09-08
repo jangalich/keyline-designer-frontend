@@ -425,8 +425,9 @@ describeIf('the checkbox takes a real click in both directions', () => {
         (definition) => definition.selection?.mode === 'multiple' && definition.proposalCollection
       ).map((definition) => definition.id)
     )
-    // TREES JOINED BY EXISTING, and has its own section below.
-    expect(registered).toEqual(['landform', 'water', 'trees'])
+    // TREES JOINED BY EXISTING, and has its own section below. So did
+    // STRUCTURES, whose placed tabs carry the × as well.
+    expect(registered).toEqual(['landform', 'water', 'trees', 'structures'])
   })
 
   for (const [where, viewport] of STAGES) {
@@ -680,6 +681,60 @@ describeIf('the roads checkbox', () => {
    markup, because that is exactly the assumption the eye bug hid behind.
    =========================================================================== */
 
+/**
+ * REACH TREES FROM WHEREVER THE PAGE IS. Run after the sections above, the
+ * page is on roads with a network routed and this commits it. Run on its
+ * own (`-t 'the trees checkbox'`), it walks the pipeline itself, so the
+ * section stands alone against the same served backend as the rest.
+ */
+const cursorStep = () => evaluate(() => window.__probe.cursor.cursorStepId)
+async function reachTrees() {
+  if ((await cursorStep()) === 'trees') return
+  if (!(await evaluate(() => Boolean(window.__probe.state.sessionId)))) await startSession()
+  if ((await cursorStep()) === 'landform') {
+    await generate('landform')
+    await commit('landform')
+  }
+  if ((await cursorStep()) === 'water') {
+    await generate('water')
+    await evaluate(() => {
+      const ids = window.__probe
+        .registryProposalFeatures(window.__probe.selectStepProposals(window.__probe.state, 'water'), 'water')
+        .map((feature) => feature.id)
+      window.__probe.actions.setSelection('water', [ids[0]])
+    })
+    await page.waitForTimeout(150)
+    await commit('water')
+  }
+  if ((await cursorStep()) === 'roads') {
+    const networks = () =>
+      evaluate(() => (window.__probe.selectStepProposals(window.__probe.state, 'roads')?.networks ?? []).length)
+    if ((await networks()) === 0) {
+      await press('access-roads')
+      const point = await evaluate((coords) => {
+        const p = window.__probe.map.latLngToContainerPoint(coords)
+        const box = window.__probe.map.getContainer().getBoundingClientRect()
+        return { x: box.x + p.x, y: box.y + p.y }
+      }, ACCESS_A)
+      await page.mouse.move(point.x, point.y)
+      await page.mouse.click(point.x, point.y)
+      await waitForStore(
+        () => window.__probe.selectDraft(window.__probe.state, 'roads').inputs.access_point !== undefined,
+        60_000
+      )
+      await press('generate-roads')
+      await page.waitForFunction(
+        () => (window.__probe.selectStepProposals(window.__probe.state, 'roads')?.networks ?? []).length === 1,
+        null,
+        { timeout: SLOW }
+      )
+      await page.waitForTimeout(300)
+    }
+    await commit('roads')
+  }
+  expect(await cursorStep()).toBe('trees')
+}
+
 describeIf('the trees checkbox and ×', () => {
   const DRAWN = 'drawn-tree-pointer-probe'
 
@@ -692,60 +747,6 @@ describeIf('the trees checkbox and ×', () => {
       [DRAWN, on]
     )
     await page.waitForTimeout(120)
-  }
-
-  /**
-   * REACH TREES FROM WHEREVER THE PAGE IS. Run after the sections above, the
-   * page is on roads with a network routed and this commits it. Run on its
-   * own (`-t 'the trees checkbox'`), it walks the pipeline itself, so the
-   * section stands alone against the same served backend as the rest.
-   */
-  const cursorStep = () => evaluate(() => window.__probe.cursor.cursorStepId)
-  async function reachTrees() {
-    if ((await cursorStep()) === 'trees') return
-    if (!(await evaluate(() => Boolean(window.__probe.state.sessionId)))) await startSession()
-    if ((await cursorStep()) === 'landform') {
-      await generate('landform')
-      await commit('landform')
-    }
-    if ((await cursorStep()) === 'water') {
-      await generate('water')
-      await evaluate(() => {
-        const ids = window.__probe
-          .registryProposalFeatures(window.__probe.selectStepProposals(window.__probe.state, 'water'), 'water')
-          .map((feature) => feature.id)
-        window.__probe.actions.setSelection('water', [ids[0]])
-      })
-      await page.waitForTimeout(150)
-      await commit('water')
-    }
-    if ((await cursorStep()) === 'roads') {
-      const networks = () =>
-        evaluate(() => (window.__probe.selectStepProposals(window.__probe.state, 'roads')?.networks ?? []).length)
-      if ((await networks()) === 0) {
-        await press('access-roads')
-        const point = await evaluate((coords) => {
-          const p = window.__probe.map.latLngToContainerPoint(coords)
-          const box = window.__probe.map.getContainer().getBoundingClientRect()
-          return { x: box.x + p.x, y: box.y + p.y }
-        }, ACCESS_A)
-        await page.mouse.move(point.x, point.y)
-        await page.mouse.click(point.x, point.y)
-        await waitForStore(
-          () => window.__probe.selectDraft(window.__probe.state, 'roads').inputs.access_point !== undefined,
-          60_000
-        )
-        await press('generate-roads')
-        await page.waitForFunction(
-          () => (window.__probe.selectStepProposals(window.__probe.state, 'roads')?.networks ?? []).length === 1,
-          null,
-          { timeout: SLOW }
-        )
-        await page.waitForTimeout(300)
-      }
-      await commit('roads')
-    }
-    expect(await cursorStep()).toBe('trees')
   }
 
   liveIt('reaches the trees step and generates', async () => {
@@ -816,6 +817,172 @@ describeIf('the trees checkbox and ×', () => {
     expect(await shownTabs()).toContain(DRAWN)
     await press(`tab-remove-${DRAWN}`)
     expect(await shownTabs()).not.toContain(DRAWN)
+  })
+})
+
+/* ===========================================================================
+   4c. STRUCTURES: THE SAME TWO CONTROLS, AND A SITE PLACED WITH THE MOUSE
+   ===========================================================================
+   Structures is trees' shape one step further along: candidates with
+   checkboxes, plus PLACED tabs carrying an ×. The placed site arrives the
+   way a user makes one -- "Place a site" pressed with the mouse, then the
+   map pressed at a spot inside the parcel -- so the free-point gesture is
+   hit-tested here too, not only its handler. The claim is the file's: the
+   box is topmost at its own centre CHECKED and UNCHECKED, and the × is
+   topmost in every combination of checked and focused, at both stages.
+   =========================================================================== */
+
+describeIf('the structures checkbox and ×', () => {
+  /**
+   * A spot twelve metres west of the reference parcel's rank-1 site --
+   * structures.test.jsx's CLEAN, surveyed against the same served backend.
+   * It scores, clears every siting rule, and ranks below the three.
+   */
+  const CLEAN = [40.64328007915633, -79.98334560864593]
+
+  const placedIds = () =>
+    evaluate(() => window.__probe.selectDraft(window.__probe.state, 'structures').drawnFeatures.map((f) => f.id))
+
+  const setPlacedBox = async (id, on) => {
+    await evaluate(
+      ([featureId, wanted]) =>
+        window.__probe.actions.setSelection('structures', (current) =>
+          wanted ? [...new Set([...current, featureId])] : current.filter((each) => each !== featureId)
+        ),
+      [id, on]
+    )
+    await page.waitForTimeout(120)
+  }
+
+  /** Reach structures from wherever the page is: after 4b it is on trees, generated. */
+  async function reachStructures() {
+    if ((await cursorStep()) === 'structures') return
+    await reachTrees()
+    if ((await statusOf('trees')) !== 'generated') await generate('trees')
+    await commit('trees')
+    expect(await cursorStep()).toBe('structures')
+  }
+
+  liveIt('reaches the structures step and generates, with nothing armed', async () => {
+    await reachStructures()
+    expect(await evaluate(() => window.__probe.cursor.armed)).toBeNull()
+    await generate('structures')
+    expect(await statusOf('structures')).toBe('generated')
+    expect((await shownBoxes()).length, 'the fixture yields three structure sites').toBe(3)
+    expect(await evaluate(() => window.__probe.cursor.armed)).toBeNull()
+  })
+
+  for (const [where, viewport] of STAGES) {
+    liveIt(`every candidate's box, un-checked and checked by the mouse, on ${where}`, async () => {
+      await resize(viewport)
+      for (const tabId of await shownBoxes()) {
+        await pressableBothWays('structures', tabId, where)
+      }
+      await resize(ROOMY)
+    })
+  }
+
+  liveIt('places a site with the mouse: the button arms, the map takes the press, the site scores and gets a tab', async () => {
+    expect(await topAt('place-structures'), '"Place a site" is topmost at its own centre').toMatchObject({ hits: true })
+    await press('place-structures')
+    expect(await evaluate(() => window.__probe.cursor.armed)).toBe('draw')
+    // BRING THE SPOT TO THE MIDDLE OF THE STAGE FIRST, as a user would: the
+    // harness opens on the parcel's north-west corner and this spot lies
+    // south of it, under the bottom row of chrome at a roomy stage. A press
+    // there hits the strip, not the map -- correctly -- so the map is panned
+    // before the coordinate is resolved to a pixel.
+    const point = await evaluate((coords) => {
+      window.__probe.map.panTo(coords, { animate: false })
+      const p = window.__probe.map.latLngToContainerPoint(coords)
+      const box = window.__probe.map.getContainer().getBoundingClientRect()
+      return { x: box.x + p.x, y: box.y + p.y }
+    }, CLEAN)
+    await page.waitForTimeout(200)
+    // THE SPOT IS REACHABLE: what the browser finds at that pixel is the map
+    // itself, not a card floating over it -- a placement the chrome covers
+    // is a click that places nothing, and looks exactly like a dead tool.
+    const under = await evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y)
+      return {
+        onMap: Boolean(el?.closest?.('.leaflet-container')),
+        inChrome: Boolean(el?.closest?.('.chrome')),
+        tag: el?.tagName?.toLowerCase() ?? 'nothing',
+        className: typeof el?.className === 'string' ? el.className : el?.className?.baseVal ?? '',
+      }
+    }, point)
+    expect(under, `the spot at ${JSON.stringify(point)} is on the map and under no chrome`).toMatchObject({
+      onMap: true,
+      inChrome: false,
+    })
+    await page.mouse.move(point.x, point.y)
+    await page.mouse.click(point.x, point.y)
+    await page.waitForFunction(
+      () =>
+        window.__probe.selectDraft(window.__probe.state, 'structures').drawnFeatures.length === 1 ||
+        window.__probe.state.steps.structures?.error != null ||
+        document.querySelector('[data-testid="structures-notice"]') != null,
+      null,
+      { timeout: 60_000 }
+    )
+    const outcome = await evaluate(() => ({
+      placed: window.__probe.selectDraft(window.__probe.state, 'structures').drawnFeatures.length,
+      error: window.__probe.state.steps.structures?.error ?? null,
+      notice: document.querySelector('[data-testid="structures-notice"]')?.textContent ?? null,
+    }))
+    // THE PRESS PLACED A SITE. A notice may stand beside it -- the spot is
+    // near a committed tree zone's clearance, and a site that breaks a rule
+    // is placed AND told so -- but never a refusal, and never a step error.
+    expect(outcome, `the press placed a site: ${JSON.stringify(outcome)}`).toMatchObject({ placed: 1, error: null })
+    if (outcome.notice != null) expect(outcome.notice).toMatch(/^Placed, and scored/)
+    const [placed] = await placedIds()
+    expect(placed).toMatch(/^structure-site-placed-/)
+    expect(await evaluate(() => window.__probe.cursor.armed), 'the tool went down').toBeNull()
+    // THE STRIP MAY COLLAPSE: four tabs fit a row; the placed one is last.
+    if (await page.$('[data-testid="tabs-more-structures"]')) await press('tabs-more-structures')
+    expect(await shownTabs()).toContain(placed)
+    expect(await checkedOf(placed)).toBe('true')
+  })
+
+  liveIt('the × on a placed site is hit-testable checked or not, focused or not, at both widths', async () => {
+    const [placed] = await placedIds()
+    if (await page.$('[data-testid="tabs-more-structures"]')) await press('tabs-more-structures')
+    expect(await shownTabs()).toContain(placed)
+    // NO × ON A GENERATED CANDIDATE, at either width.
+    for (const tabId of (await shownTabs()).filter((id) => id !== placed)) {
+      expect(await page.$(`[data-testid="tab-remove-${tabId}"]`), `${tabId} carries no ×`).toBeNull()
+    }
+
+    for (const [where, viewport] of STAGES) {
+      await resize(viewport)
+      for (const focused of [false, true]) {
+        if (focused) await press(`tab-focus-${placed}`)
+        for (const checked of [true, false]) {
+          await setPlacedBox(placed, checked)
+          expect(await checkedOf(placed)).toBe(String(checked))
+          expect(
+            await topAt(`tab-remove-${placed}`),
+            `the × is topmost at its own centre on ${where}, checked ${checked}, focused ${focused}`
+          ).toMatchObject({ hits: true })
+          expect(
+            await topAt(`tab-check-${placed}`),
+            `the placed tab's box is topmost at its own centre on ${where}, checked ${checked}, focused ${focused}`
+          ).toMatchObject({ hits: true })
+        }
+        await setPlacedBox(placed, true)
+        if (focused) await press(`tab-focus-${placed}`)
+      }
+    }
+    await resize(ROOMY)
+  })
+
+  liveIt('destroys the placed site when the mouse presses its ×, and the slot is free again', async () => {
+    const [placed] = await placedIds()
+    expect(await shownTabs()).toContain(placed)
+    await press(`tab-remove-${placed}`)
+    expect(await shownTabs()).not.toContain(placed)
+    expect(await placedIds()).toEqual([])
+    expect(await topAt('place-structures')).toMatchObject({ hits: true })
+    expect(await evaluate(() => document.querySelector('[data-testid="place-structures"]').disabled)).toBe(false)
   })
 })
 

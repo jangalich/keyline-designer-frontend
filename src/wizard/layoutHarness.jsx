@@ -344,7 +344,7 @@ function detailGroups(rows) {
 const SHOW_ZONES = params.get('zones') === '1'
 const SWATCH_PX = 90
 
-const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road', 'tree']
+const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road', 'tree', 'structure']
 
 /**
  * THE ROAD, ONCE MORE WITHOUT ITS CASING. Roads are lines, and a line's

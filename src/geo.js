@@ -226,6 +226,31 @@ export function vertexAtPixel(clickPoint, points, project, radiusPx) {
   return -1
 }
 
+/**
+ * Is a [lat, lng] point inside a ring of [lat, lng] points?
+ *
+ * THE PARCEL AS A CONTAINMENT TEST, for the structures step's placement: a
+ * building site is a free point anywhere INSIDE the parcel, so the question
+ * a click has to answer is "in or out", not "which edge is nearest"
+ * (snapToPolygonEdge's question). Even-odd ray casting over the raw
+ * degrees, with no cosine scaling: containment is a topological answer and
+ * scaling one axis does not change which side of an edge a point is on.
+ * A point exactly on an edge may come back either way; the server makes the
+ * same call with shapely's `contains`, which excludes the boundary, and the
+ * server's answer is the one that counts.
+ */
+export function pointInRing([lat, lng], ring) {
+  if (!Array.isArray(ring) || ring.length < 3) return false
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [latI, lngI] = ring[i]
+    const [latJ, lngJ] = ring[j]
+    const crosses = latI > lat !== latJ > lat
+    if (crosses && lng < ((lngJ - lngI) * (lat - latI)) / (latJ - latI) + lngI) inside = !inside
+  }
+  return inside
+}
+
 /* --- GeoJSON interop -------------------------------------------------------
 
    Everything above this line works in [latitude, longitude] — Leaflet's order,

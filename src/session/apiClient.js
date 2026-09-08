@@ -18,6 +18,7 @@
  *   POST   /api/sessions/{id}/steps/{step}/commit     -> 200 document
  *   POST   /api/sessions/{id}/steps/{step}/reopen     -> 200 document
  *   GET    /api/sessions/{id}/steps/{step}/layers     -> 200 step payload
+ *   POST   /api/sessions/{id}/steps/{step}/score      -> 200 {feature}
  *   GET    /api/jobs/{id}                             -> 200 {status, result|error}
  *                                                        (result: {payload, document})
  *   GET    /api/steps                                 -> 200 {step_order}
@@ -342,6 +343,45 @@ export function discardCandidate(sessionId, stepId, params, { signal } = {}) {
     `/api/sessions/${encodeURIComponent(sessionId)}/steps/${encodeURIComponent(stepId)}/discard`,
     { method: 'POST', body: { params }, signal }
   )
+}
+
+/**
+ * SCORE A FEATURE THE USER PLACED against the step's current proposals, and
+ * get back the Feature they can commit.
+ *
+ * THE ONE CALL ADDED SINCE THE DISCARD, and the first here that is neither a
+ * write nor a read of the document. The structures step lets the user put a
+ * building site down anywhere inside the parcel, and the server measures
+ * that spot with exactly the code that measured its generated candidates --
+ * the composite score, the four factors, slope, aspect, the distances, and
+ * which hard gates it fails (step_orchestrator.score_placed_feature). The
+ * answer is the Feature, verbatim, which the client holds in its draft and
+ * commits as `user_added` beside whatever generated candidates it selected.
+ *
+ * A READ. Nothing is persisted, the document does not move, and the same
+ * point may be asked about any number of times -- so the answer is a 200
+ * with the Feature under `feature`, never a 202 with a job. Unwrapped here
+ * for the reason getSteps() unwraps `step_order`: the caller holds a
+ * Feature, not an envelope.
+ *
+ * `params` names the placed input the way the step's own payload says to
+ * (`placement.input`, for structures `{site: [lon, lat]}`), in the same
+ * [lon, lat] order every other coordinate on this wire takes; the caller
+ * swaps through pointToGeoJSON like every other call site.
+ *
+ * WHAT THE SERVER REFUSES, AND HOW IT SAYS SO. A point off the parcel, or
+ * one over ground it cannot measure, is a 400 naming the input -- a plain
+ * ApiError here, with the server's sentence on it. A step that declares no
+ * placement is a 400 too; a step that is not `generated` is a 409 naming its
+ * status (a StepStateError). The ceiling on placed features is NOT enforced
+ * here -- a scored site holds no slot -- but at commit, server-side, as a
+ * 422 (CommitRejectedError) naming the rule.
+ */
+export function scorePlacedFeature(sessionId, stepId, params, { signal } = {}) {
+  return request(
+    `/api/sessions/${encodeURIComponent(sessionId)}/steps/${encodeURIComponent(stepId)}/score`,
+    { method: 'POST', body: { params }, signal }
+  ).then((body) => body.feature)
 }
 
 /**

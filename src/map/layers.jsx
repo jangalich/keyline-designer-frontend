@@ -497,8 +497,21 @@ const DISPLAY_ONLY_OUTLINE = 'display_only_smoothed_outline'
  * the three is a cell union and none of them is smoothed, on the server or
  * here.
  */
-function drawnAs(feature) {
-  const outline = feature.properties?.[DISPLAY_ONLY_OUTLINE]
+/**
+ * A LAYER MAY SAY WHAT ITS FEATURES ARE DRAWN WITH, and one does. The
+ * structures step's placed sites are POINTS on the wire -- the document holds
+ * the coordinate the user chose, which is the one thing they authored -- and
+ * the building pad the server measured rides beside each one as
+ * properties.footprint_wgs84. A point layer would draw a marker where the map
+ * should show the pad every generated candidate is drawn as, so the layer
+ * declares `footprint(feature)` (stepDefinitions' LAYER SCHEMA item 13) and
+ * this is where it is read: the SAME substitution the smoothed outline
+ * makes, for the same reason, in the same last place before pixels.
+ * `feature.geometry` is still the point, and still what the commit sends.
+ */
+function drawnAs(feature, layer = null) {
+  const footprint = typeof layer?.footprint === 'function' ? layer.footprint(feature) : null
+  const outline = footprint ?? feature.properties?.[DISPLAY_ONLY_OUTLINE]
   return outline ? { ...feature, geometry: outline } : feature
 }
 
@@ -542,7 +555,7 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
               // carries no outline, so today this is the feature itself --
               // which is exactly why it must be the same call and not a second
               // decision that agrees by accident.
-              data={drawnAs(feature)}
+              data={drawnAs(feature, layer)}
               interactive={false}
               style={{ color: halo, weight: DRAWN_CASING_WEIGHT, fill: false }}
             />
@@ -564,7 +577,7 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
             // THE DISPLAY GEOMETRY, which for a cell-union zone is its
             // smoothed outline and for everything else is its own ring. See
             // drawnAs(): nothing but this renderer sees the substitution.
-            data={drawnAs(feature)}
+            data={drawnAs(feature, layer)}
             // Top-level, for the reason RingLayer gives: pathOptions is
             // applied with setStyle() and cannot make a path stop taking
             // clicks. The key above is what re-creates it when this flips.

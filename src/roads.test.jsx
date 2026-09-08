@@ -1342,7 +1342,7 @@ describe('13. a null grade is an em dash, never 0.0', () => {
 
 describe('14. what the definition declares, and what the shell does not know', () => {
   it('registers roads with the fields the first two steps never needed', () => {
-    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees'])
+    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees', 'structures'])
     expect(LAYER_KINDS).toContain('line')
     expect(LAYER_KINDS).toContain('point')
     expect(ROADS_STEP.accumulate).toEqual({

@@ -374,11 +374,40 @@
  * all four now, from the one resolver the commit runs, and the field went
  * with its only consumer rather than staying declared with none.
  *
- * WHAT IS NOT IN HERE. No step registers structures or fencing: those are
- * later branches, and a definition written now against a payload nobody has
- * seen would be a guess dressed as a contract. The order they run in is not
- * here either -- it comes off the document's `step_order` (see
- * wizardStepOrder), because the backend owns it.
+ * TWO FIELDS THE STRUCTURES STEP ADDED, the fifth definition, and both are
+ * the schema meeting the first feature the user AUTHORS AND THE SERVER
+ * SCORES. Trees draws a zone and the server records it unscored; structures
+ * PLACES a site and the server measures it with the full candidate set
+ * (step_registry's Placement, and solar_suitability.score_placed_structure_
+ * site() for why the two steps differ on purpose). Two facts the schema had
+ * no word for:
+ *
+ *  13. `footprint(feature)` on a layer. A placed site is a POINT on the wire
+ *      -- the document holds the coordinate the user chose, the one thing
+ *      they authored -- and the building pad the server measured rides
+ *      beside it as properties.footprint_wgs84. The map has to draw the pad
+ *      (the thing every generated candidate is drawn as, and the thing a
+ *      checkbox, a delete and a focus act on), so a polygon layer may say
+ *      what its features are DRAWN WITH when that is not their geometry.
+ *      Read in exactly one place, layers.jsx's drawnAs(), beside the smoothed
+ *      outline it generalises; `feature.geometry` is still the point and
+ *      still what the commit sends. Refused on any kind but `polygon`.
+ *
+ *  14. `placement` on the step. Where the backend puts the same fact
+ *      (StepDefinition.placement): a step whose user can PLACE a feature to
+ *      be scored says so on the step, not on a layer. It names the server's
+ *      input (`input`), the cap the server enforces (`max`, mirrored the way
+ *      MAX_ROAD_NETWORKS mirrors its own), and `place()` -- what a click
+ *      means, in the step's own reading: refused off the parcel, refused
+ *      past the cap, scored otherwise. DrawGesture mounts a placement tool
+ *      over a draft layer of a step that declares this, and a vertex tool
+ *      otherwise; the shell learns nothing about buildings.
+ *
+ * WHAT IS NOT IN HERE. No step registers fencing: that is a later branch,
+ * and a definition written now against a payload nobody has seen would be a
+ * guess dressed as a contract. The order the steps run in is not here either
+ * -- it comes off the document's `step_order` (see wizardStepOrder), because
+ * the backend owns it.
  */
 
 import {
@@ -396,7 +425,7 @@ import {
   selectStepStatus,
   PROVENANCE_USER_ADDED,
 } from '../session/SessionStore'
-import { polygonAreaAcres, pointFromGeoJSON, pointToGeoJSON } from '../geo.js'
+import { pointInRing, polygonAreaAcres, pointFromGeoJSON, pointToGeoJSON } from '../geo.js'
 import { commitInputsFor, commitValueOf, requiredInputsMissing } from './stepInputs.js'
 import { cautionsFor, clampToBoundary, exclusionGrounds } from '../zoneGeometry.js'
 import {
@@ -627,7 +656,17 @@ export const LAYER_SOURCES = Object.freeze(['proposals', 'draft', 'document'])
  * failing, and it says so here rather than being guessed at down there.
  */
 function defineLayer(stepId, layer, follows) {
-  const { id, band, kind, source, key = null, filter = null, treatment = null, points = null } = layer
+  const {
+    id,
+    band,
+    kind,
+    source,
+    key = null,
+    filter = null,
+    treatment = null,
+    points = null,
+    footprint = null,
+  } = layer
 
   if (!id) throw new Error(`Step '${stepId}' declares a layer with no id.`)
   for (const [field, value, allowed] of [
@@ -686,7 +725,23 @@ function defineLayer(stepId, layer, follows) {
     )
   }
 
-  return Object.freeze({ id, band, kind, source, key, filter, treatment, show, points })
+  // WHAT A FEATURE IS DRAWN WITH, when that is not its geometry. A reader
+  // over one Feature, like `filter` and `points`; only a polygon layer can
+  // carry one, because the substitution is a polygon's (see LAYER SCHEMA
+  // item 13 and layers.jsx's drawnAs).
+  if (footprint !== null && typeof footprint !== 'function') {
+    throw new Error(
+      `Step '${stepId}' layer '${id}' declares a non-function \`footprint\`. ` +
+        'A footprint is a reader from one Feature to the geometry it is drawn with.'
+    )
+  }
+  if (footprint !== null && kind !== 'polygon') {
+    throw new Error(
+      `Step '${stepId}' layer '${id}' declares \`footprint\` but is a ${kind}, not a polygon layer.`
+    )
+  }
+
+  return Object.freeze({ id, band, kind, source, key, filter, treatment, show, points, footprint })
 }
 
 /* ---------------------------------------------------------------------------
@@ -1033,6 +1088,7 @@ export function defineStep(definition) {
     removeTab = null,
     resetNote = null,
     focusSeed = null,
+    placement = null,
   } = definition
 
   if (!id) throw new Error('A step definition needs an id.')
@@ -1080,6 +1136,32 @@ export function defineStep(definition) {
   }
   for (const input of inputs) {
     if (!input.key) throw new Error(`Step '${id}' declares an input with no key.`)
+  }
+  // A PLACEMENT IS A DECLARATION: the server's input, the cap it enforces,
+  // and what a click means. Checked here for the registry's reason: a step
+  // that declares one gets a placement tool mounted over its draft layer,
+  // and a declaration the tool cannot read is a click that does nothing.
+  if (placement !== null) {
+    if (typeof placement.input !== 'string' || !placement.input) {
+      throw new Error(`Step '${id}' declares a placement with no \`placement.input\`.`)
+    }
+    if (!Number.isInteger(placement.max) || placement.max < 1) {
+      throw new Error(`Step '${id}' declares a placement with no positive \`placement.max\`.`)
+    }
+    if (typeof placement.place !== 'function') {
+      throw new Error(`Step '${id}' declares a placement with no \`placement.place()\`.`)
+    }
+    if (shape) {
+      throw new Error(
+        `Step '${id}' declares both \`shape\` and \`placement\`. A draft layer is authored ` +
+          'by ONE gesture: a ring closed on the map, or a point the server scores.'
+      )
+    }
+    if (!tools.includes('draw')) {
+      throw new Error(
+        `Step '${id}' declares a placement but not the 'draw' tool, which is the verb a placement is served by.`
+      )
+    }
   }
   if (typeof status !== 'function') {
     throw new Error(`Step '${id}' must say where its status comes from.`)
@@ -1142,6 +1224,7 @@ export function defineStep(definition) {
     removeTab,
     resetNote,
     focusSeed,
+    placement: placement && Object.freeze({ ...placement }),
   })
 }
 
@@ -3840,6 +3923,803 @@ export const TREES_STEP = documentStep({
 
 
 /* ===========================================================================
+   THE STRUCTURES STEP
+   ===========================================================================
+   The fifth definition. SELECT-ONLY candidates, up to three, PLUS up to two
+   sites the user PLACES -- and a placed site is SCORED. That is the
+   deliberate divergence from trees, and the backend says why at length
+   (solar_suitability.score_placed_structure_site()): a drawn tree zone
+   competes for a ranking slot it never entered, so scoring it would read as
+   "scored badly" rather than "unscored"; a placed structure site is the
+   user saying "I want the building HERE -- tell me about this spot", and an
+   honest score with every gate's outcome beside it IS the answer. So a
+   placed site carries the full candidate measurement set, composite
+   included, is rankable against the generated three, and is told which
+   siting rules it breaks rather than being refused for breaking them.
+
+   ONE HARD GATE: the parcel. Off it, nothing is placed. Everything else --
+   canopy, the water ground, the tree zones, slope, the score floor, road
+   access -- is measured and reported, never refused.
+
+   NO CROSSINGS. The backend declares them ABSENT for this step
+   (step_registry.CROSSINGS_NOT_RECORDED), not as a list resolving to
+   nothing: what a placed site reports is its measurement set and the gates
+   it fails, not what it overlaps. So there is no reference layer of
+   grounds here, no `shape` with a caution reading, no caution marker and
+   no caution line -- the detail's `cautions` is [] for both kinds.
+   --------------------------------------------------------------------------- */
+
+/**
+ * The layer name the backend's structures commit contract requires, verbatim:
+ * wire_translation.LAYER_SOLAR. Every feature this step commits -- a
+ * generated candidate's clipped pad or a placed site's point -- carries it,
+ * and a placed site's comes from the server with the rest of its properties.
+ */
+export const STRUCTURE_SITE_LAYER = 'solar_infrastructure'
+
+/**
+ * THE PLACED INPUT'S NAME, and the cap on placed sites. THE SERVER OWNS
+ * BOTH: the structures entry's Placement declares `input="site"` and its
+ * commit contract `max_user_added=2`, and the payload repeats them under
+ * `placement` so a client need not spell either for itself. These are the
+ * client's own copies for the reason MAX_ROAD_NETWORKS is: to say so BEFORE
+ * the request. The live test asserts the payload's values equal them; a
+ * drift would show as a refusal the client did not predict, never as a
+ * third placed site.
+ */
+export const STRUCTURE_SITE_INPUT = 'site'
+export const MAX_PLACED_SITES = 2
+
+/** What `site_origin` says, on the wire: solar_suitability.SITE_ORIGIN_*. */
+export const SITE_ORIGIN_GENERATED = 'generated'
+export const SITE_ORIGIN_PLACED = 'user_placed'
+
+/**
+ * WHICH TIER ANSWERED THE ROAD-PROXIMITY CONSTRAINT -- the stable values of
+ * `road_proximity_source`, on every feature and under `summary.run_flags`.
+ * Solar's road proximity is two-tier: the committed corridor first, and the
+ * parcel's EXISTING mapped farm roads when there is no corridor (a roads
+ * step committed empty); when neither exists the constraint is off.
+ */
+export const ROAD_PROXIMITY_SOURCES = Object.freeze([
+  'selected_road_corridor',
+  'real_mapped_road',
+  'unavailable',
+])
+
+/**
+ * THE CONSEQUENCE OF EACH TIER, IN THE USER'S TERMS, keyed on the stable
+ * value -- production's UNAVAILABLE_CONSEQUENCE, over a flag that is a word
+ * rather than a boolean. All three are said, because all three change what
+ * "close to a road" meant when these sites were scored:
+ *
+ *   selected_road_corridor  the road they committed. The plain case, said
+ *                           once so the other two read as departures from it.
+ *   real_mapped_road        THEY COMMITTED NO ROAD, and the step did not
+ *                           silently drop the constraint -- it fell back to
+ *                           the farm roads already on the map. A site "near a
+ *                           road" is near one of those, which may not be the
+ *                           road they meant.
+ *   unavailable             no road at all, so the constraint was DISABLED:
+ *                           no site was checked for road access, and the
+ *                           road distance reads as unmeasured everywhere.
+ *                           The bigger caveat, and it is said as one.
+ */
+export const ROAD_PROXIMITY_CONSEQUENCE = Object.freeze({
+  selected_road_corridor: Object.freeze({
+    tone: 'advisory',
+    text: 'Road distance is measured to the road you committed.',
+  }),
+  real_mapped_road: Object.freeze({
+    tone: 'caution',
+    text:
+      'No road was committed, so these sites were measured against the farm roads already ' +
+      'mapped on this parcel instead — “close to a road” means close to one of those, not ' +
+      'to a road of your design.',
+  }),
+  unavailable: Object.freeze({
+    tone: 'caution',
+    text:
+      'No road was committed and none is mapped on this parcel, so the road-access rule was ' +
+      'switched off: no site here was checked for road access, and the road distance reads ' +
+      'as unmeasured.',
+  }),
+})
+
+/** What a road distance is a distance TO, by tier -- the panel's reading. */
+const ROAD_MEASURED_TO = Object.freeze({
+  selected_road_corridor: 'the road you committed',
+  real_mapped_road: 'an existing farm road on the map — no road was committed',
+  unavailable: 'no road — none committed, none mapped, rule not applied',
+})
+
+/** The tab's label for the same figure, in the words the tier allows. */
+const ROAD_TAB_LABEL = Object.freeze({
+  selected_road_corridor: 'ft to road',
+  real_mapped_road: 'ft to farm road',
+  unavailable: 'ft to road',
+})
+
+/**
+ * THE FOUR FACTORS, AS MERITS -- trees' arrangement over solar's names.
+ * `key` is the payload's own name under `summary.factor_weights_pct`;
+ * `score` is the property each feature carries the factor's credit under
+ * (0-1, the pipeline's own scale, three places). The labels are this side's
+ * and read as what the spot HAS that earned it credit, beside the score
+ * they explain. No factor here has a gate: all four are read off the DEM
+ * and the committed ground every generate has, so a factor row is always a
+ * measurement -- what is a rough reading is said at step level instead
+ * (`shading_is_rough_proxy`, see the notices).
+ */
+export const STRUCTURE_FACTORS = Object.freeze([
+  Object.freeze({ key: 'slope', score: 'slope_score', label: 'gentle ground' }),
+  Object.freeze({ key: 'aspect', score: 'aspect_score', label: 'sun-facing' }),
+  Object.freeze({ key: 'shading', score: 'shading_score', label: 'open to the sky' }),
+  Object.freeze({
+    key: 'production_proximity',
+    score: 'production_proximity_score',
+    label: 'at the edge of production ground',
+  }),
+])
+
+/** The factors in the order of the share each carries, heaviest first. Off the payload. */
+export function structureFactorsByWeight(weights) {
+  return [...STRUCTURE_FACTORS].sort((a, b) => (weights?.[b.key] ?? 0) - (weights?.[a.key] ?? 0))
+}
+
+/** A factor score is 0-1 at three places on the wire; printed as sent. */
+const FACTOR_DP = 3
+/** Whole feet: the three distances. */
+const DISTANCE_DP = 0
+/** A pad is a tenth of an acre; one place would print every pad the same. */
+const AREA_DP = 2
+const COUNT_DP_STRUCTURES = 0
+const WEIGHT_DP_STRUCTURES = 0
+
+/** One factor row for one site: the credit in the figure column, the share on the label. */
+export function structureFactorField(factor, properties, weights) {
+  const weight = weights?.[factor.key]
+  const share = weight == null ? '' : ` · ${measure(weight, WEIGHT_DP_STRUCTURES)}% of the score`
+  return {
+    label: `${factor.label}${share}`,
+    value: measure(properties?.[factor.score], FACTOR_DP),
+    measured: true,
+  }
+}
+
+/**
+ * THE SITING RULES, IN THE USER'S TERMS. `constraints_violated` names the
+ * hard gates a placed site failed by the wire's own stable names -- the
+ * same names `constraints_satisfied` lists on a generated candidate -- and
+ * each is stated here as a FACT about the spot, never as an error: the site
+ * was scored, and this is part of what the score came with. The two
+ * threshold gates carry their number in the name and it is read out rather
+ * than written here. An unknown name is shown as the server spelled it.
+ */
+const GATE_STATEMENTS = Object.freeze([
+  [/^outside_existing_canopy$/, () => 'sits under existing tree canopy'],
+  [/^outside_water_candidate_zone$/, () => 'sits on the committed water ground'],
+  [/^outside_tree_zone_candidate_buffer$/, () => 'sits inside a committed tree zone’s clearance'],
+  [/^within_road_proximity_buffer$/, () => 'is farther from a road than the siting rule allows'],
+  [/^max_slope<=(\d+(?:\.\d+)?)pct$/, (pct) => `averages more than ${pct}% slope`],
+  [/^suitability_score>=(\d+(?:\.\d+)?)$/, (floor) => `scores below the floor of ${floor}`],
+])
+
+export function gateStatement(name) {
+  for (const [pattern, words] of GATE_STATEMENTS) {
+    const match = pattern.exec(String(name))
+    if (match) return words(...match.slice(1))
+  }
+  return `fails the rule the server calls ${name}`
+}
+
+/** 1st, 2nd, 3rd, 4th … */
+function ordinal(n) {
+  const value = Number(n)
+  if (!Number.isFinite(value)) return '—'
+  const mod100 = value % 100
+  const suffix =
+    mod100 >= 11 && mod100 <= 13 ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[value % 10] ?? 'th'
+  return `${value}${suffix}`
+}
+
+/** The generated candidates a structures payload carries, in rank order. */
+export function structureSites(proposals) {
+  const features = proposals?.structure_sites?.features
+  return Array.isArray(features) ? features : []
+}
+
+function structureSite(proposals, featureId) {
+  return structureSites(proposals).find((feature) => feature.id === featureId) ?? null
+}
+
+/**
+ * WHAT A STRUCTURE SITE IS DRAWN WITH: its pad. A generated candidate's
+ * geometry IS its clipped pad and this returns null for it (the renderer
+ * draws the geometry, as for any zone). A placed site is a Point whose pad
+ * rides as `footprint_wgs84`, the real, parcel-clipped polygon the
+ * measurements were taken over, and that is what the map shows -- see
+ * LAYER SCHEMA item 13. Nothing computes from it.
+ */
+export function structureSiteFootprint(feature) {
+  if (feature?.geometry?.type !== 'Point') return null
+  return feature.properties?.footprint_wgs84 ?? null
+}
+
+/** Is this feature one the user placed? The wire says so; a Point is one whatever it says. */
+export function isPlacedSite(feature) {
+  return (
+    feature?.properties?.site_origin === SITE_ORIGIN_PLACED || feature?.geometry?.type === 'Point'
+  )
+}
+
+/** The cap on placed sites, off the payload's own handshake, or the mirrored constant. */
+export function placedCap(proposals) {
+  const cap = proposals?.placement?.max_placed
+  return Number.isInteger(cap) && cap > 0 ? cap : MAX_PLACED_SITES
+}
+
+/** How many placed slots are free: the cap less the sites in the draft. */
+export function placedSlotsRemaining(context) {
+  return Math.max(0, placedCap(context.proposals) - (context.draft?.drawnFeatures?.length ?? 0))
+}
+
+/**
+ * Why a site cannot be placed, or null when one can.
+ *
+ * THE UI REFLECTS THE CAP; IT DOES NOT OWN IT. The server enforces it at
+ * commit (commit_validation's max_user_added, a 422 naming the rule); this
+ * sentence is so the button can say why before that, and the number comes
+ * off the payload the button reads.
+ */
+export function placeSiteBlocked(context) {
+  if (placedSlotsRemaining(context) > 0) return null
+  return capSentence(placedCap(context.proposals))
+}
+
+/** The cap, as a sentence: what is placed, and that one has to go first. */
+function capSentence(cap, already = false) {
+  const placed = already ? 'already placed' : 'placed'
+  return cap === 1
+    ? `1 site is ${placed}, which is the most this step takes. Remove it to place another.`
+    : `${cap} sites are ${placed}, which is the most this step takes. Remove one to place another.`
+}
+
+/**
+ * Which tier answered the road constraint for this run, off the payload:
+ * `summary.run_flags` first (the four run-level flags the structures entry
+ * surfaces), the narrative's gate block otherwise, null when the payload
+ * carries neither.
+ */
+export function roadProximitySource(proposals) {
+  const summary = proposals?.summary ?? {}
+  const value = summary.run_flags?.road_proximity_source ?? summary.gates?.road_proximity_source ?? null
+  return ROAD_PROXIMITY_SOURCES.includes(value) ? value : null
+}
+
+/** The wire's siting-rule names a placed site failed; [] for a clean one or a generated one. */
+export function violatedGates(feature) {
+  const violated = feature?.properties?.constraints_violated
+  return Array.isArray(violated) ? violated : []
+}
+
+/**
+ * THE PRIME-FARMLAND FLAG IS NOT A MEASUREMENT OF THE SPOT. It is
+ * parcel-level SSURGO -- "prime soil was found somewhere in this boundary"
+ * -- and every site on the parcel carries the same answer, a placed one by
+ * inheritance from the run. The reading says so, and an absent key is "not
+ * checked" rather than "no".
+ */
+function primeFarmlandReading(properties) {
+  if (!('prime_farmland_conflict' in (properties ?? {}))) return 'not checked'
+  return properties.prime_farmland_conflict
+    ? 'found somewhere on this parcel — a parcel-level flag, not this spot’s'
+    : 'none found on this parcel — a parcel-level flag, not this spot’s'
+}
+
+/**
+ * The name a site's tab and panel carry.
+ *
+ * TWO TABS MAY SHOW THE SAME RANK, and the identity row has to make that
+ * legible rather than confusing. A generated candidate's rank is a SLOT in
+ * the run's ranking -- "Site 2" is the second-best spot the grid found. A
+ * placed site's rank is WHERE IT WOULD SIT in that ranking, with a tie going
+ * to the generated one, and the generated ranks are never renumbered. So
+ * the placed tab does not say "Site 2": it says what the number is --
+ * "Placed 1 · would rank 2" -- and carries the drawn treatment, which is the
+ * accent on its name, so the two kinds read apart before either is read.
+ */
+export function structureSiteName(feature, placedIndex = null) {
+  const rank = feature?.properties?.rank
+  if (placedIndex == null) return `Site ${rank ?? '—'}`
+  return `Placed ${placedIndex + 1} · would rank ${rank ?? '—'}`
+}
+
+/**
+ * WHAT A CLICK MEANS ON THIS STEP -- the placement's reading of one point,
+ * and the one place a site's fate is decided client-side.
+ *
+ *   OFF THE PARCEL     refused here, before any request, in a sentence. The
+ *                      parcel is the one hard gate and the server would say
+ *                      the same (a 400 naming the input); saying it first
+ *                      is landform's own posture for a ring drawn off the
+ *                      parcel, and it saves a round trip for the one refusal
+ *                      this side can make with certainty.
+ *   NO SLOT LEFT       refused with the cap's sentence. The button is already
+ *                      disabled at the cap; this is the tool's own guard for
+ *                      a click that reaches it anyway.
+ *   OTHERWISE          SCORED, by the server, against the run the generated
+ *                      candidates came from -- actions.scorePlacedFeature,
+ *                      the one new verb -- and the Feature it answers with is
+ *                      the site, verbatim: its id is the server's (minted
+ *                      from the point, so the same spot twice is the same
+ *                      site, and a duplicate is refused rather than doubled),
+ *                      its geometry is the point, its properties are the
+ *                      full measurement set. It joins the draft as a drawn
+ *                      feature and buildCommitBody sends it as user_added.
+ *
+ * A SITE THAT BREAKS A SITING RULE IS STILL PLACED. The server scored it and
+ * named what it breaks (`constraints_violated`); the notice says both, and
+ * the panel says which rules. That is the divergence from trees, delivered.
+ *
+ * A REFUSAL FROM THE SERVER after the parcel check passed can only be a pad
+ * it could not measure -- one that keeps too little of itself inside the
+ * boundary, or covers no DEM cell. Its sentence is the server's, with the
+ * route's own prefix taken off so the bar prints the reason rather than the
+ * plumbing.
+ */
+async function placeStructureSite({ point, parcel, placed, proposals = null, actions, stepId }) {
+  if (!pointInRing(point, parcel)) {
+    return {
+      feature: null,
+      notice: 'That spot is outside the property boundary, so no site was placed there.',
+    }
+  }
+  // THE PAYLOAD'S CAP, the same one the button reads, with the mirrored
+  // constant behind it for a payload that carries none.
+  const cap = placedCap(proposals)
+  if (placed.length >= cap) {
+    return { feature: null, notice: capSentence(cap, true) }
+  }
+
+  const answer = await actions.scorePlacedFeature(stepId, {
+    [STRUCTURE_SITE_INPUT]: pointToGeoJSON(point),
+  })
+  // A failure the store has already reported (a 409, a transport failure):
+  // the bar carries it, and a second sentence here would say it twice.
+  if (!answer) return { feature: null, notice: null }
+  if (answer.refused) {
+    return {
+      feature: null,
+      notice: `No site was placed there: ${refusalReason(answer.refused)}`,
+    }
+  }
+
+  const feature = answer.feature
+  if (placed.some((existing) => existing.id === feature.id)) {
+    return { feature: null, notice: 'A site is already placed at that spot.' }
+  }
+
+  const violated = violatedGates(feature)
+  const notice = violated.length
+    ? [
+        'Placed, and scored ',
+        measured(feature.properties?.suitability_score),
+        ' where it landed. It breaks ',
+        measured(violated.length, COUNT_DP_STRUCTURES),
+        ` of the siting rules the generated sites clear — placed, not refused; its panel says which.`,
+      ]
+    : null
+  return { feature, notice }
+}
+
+/** The server's reason for a refused placement, without the route's prefix. */
+function refusalReason(message) {
+  const text = String(message ?? '').trim()
+  const marker = 'was rejected: '
+  const at = text.indexOf(marker)
+  const reason = at >= 0 ? text.slice(at + marker.length) : text
+  return reason || 'the server refused that spot.'
+}
+
+/** Start placing a site. NEVER AUTO-ARMED: roads' "Add access point" posture. */
+const STRUCTURES_PLACE = stepButton({
+  key: 'place',
+  label: 'Place a site',
+  enabled: ({ machine }) => machine.reachable && placeSiteBlocked(machine.context) == null,
+  blocked: ({ machine }) => placeSiteBlocked(machine.context),
+  run: ({ arm }) => arm('draw'),
+})
+
+/** Put the tool down without placing. ONE BUTTON: a site is placed on the map, not here. */
+const STRUCTURES_CANCEL = disarmButton({ key: 'cancel', label: 'Cancel' })
+
+export const STRUCTURES_STEP = documentStep({
+  id: 'structures',
+  title: 'Structures',
+  blurb: 'A small solar-generating building, sited against everything committed so far.',
+  layers: [
+    /* THE OFF-PARCEL SCRIM, like every step's -- and the parcel is this
+       step's ONE hard gate, so the edge it marks is the one line a placed
+       site cannot cross. */
+    { id: 'structures-offparcel', band: 'context', kind: 'scrim', source: 'document' },
+
+    /* NO REFERENCE LAYER, NO HIGHLIGHT. Trees and landform declare the
+       grounds their cautions read; this step records no crossings and
+       raises no cautions, so there is nothing for a tool to consume. The
+       hard gates a placed site is measured against are the server's, and
+       their outcome comes back ON the site rather than being clipped here. */
+
+    /* THE THREE SITE LAYERS, ALL CARRYING THE STRUCTURE MARK: candidates,
+       placed, committed -- landform's arrangement. The placed and committed
+       layers declare the footprint reader (item 13): a placed site is a
+       Point whose pad rides beside it, and the pad is what is drawn. */
+    {
+      id: 'structures-candidates',
+      band: 'editable',
+      kind: 'polygon',
+      source: 'proposals',
+      key: 'structure_sites',
+      treatment: 'structure',
+    },
+    {
+      id: 'structures-placed',
+      band: 'editable',
+      kind: 'polygon',
+      source: 'draft',
+      treatment: 'structure',
+      footprint: structureSiteFootprint,
+    },
+    {
+      id: 'structures-committed',
+      band: 'committed',
+      kind: 'polygon',
+      source: 'document',
+      treatment: 'structure',
+      footprint: structureSiteFootprint,
+    },
+  ],
+
+  /**
+   * SELECT, DRAW, DELETE -- trees' three verbs. `draw` is the placement: a
+   * `draw` over the draft layer of a step declaring `placement`, which
+   * DrawGesture serves with the free-point tool rather than the vertex
+   * tool. `delete` is the map click that destroys a placed site, the same
+   * gesture as its tab's ×.
+   */
+  tools: ['select', 'draw', 'delete'],
+  // None. The STRUCTURES entry declares no user_inputs: a placed site is not
+  // an input to GENERATE, it is measured against a generate.
+  inputs: [],
+  generate: { label: 'Generate structure sites' },
+  commit: {
+    // AN EMPTY COMMIT IS A DECISION -- "no structure on this parcel" -- and
+    // the contract's min_features=0 carries it. No ceiling on the commit:
+    // the ceilings are on the SOURCES, three generated and two placed.
+    label: ({ committableCount }) =>
+      committableCount === 0 ? 'Commit no structure sites' : 'Commit structure sites',
+    canCommit: () => true,
+    blockedReason: () => null,
+  },
+  reopen: { label: 'Edit this step', confirmTitle: 'Reopen structures?' },
+  proposalCollection: 'structure_sites',
+  // NO `shape`: nothing on this step is drawn vertex by vertex.
+  shape: null,
+
+  /**
+   * THE PLACEMENT, DECLARED (item 14). The server's input name and cap, and
+   * what a click means -- see placeStructureSite.
+   */
+  placement: {
+    input: STRUCTURE_SITE_INPUT,
+    max: MAX_PLACED_SITES,
+    place: placeStructureSite,
+  },
+
+  /** What a reset of this step costs, for an earlier step's reopen dialogue. */
+  resetNote: (state) => {
+    const sites = committedFeatureCount(state, 'structures')
+    if (!sites) return 'the decision to site no structure on this parcel'
+    const placed = drawnFeatureCount(state, 'structures')
+    const note = [measured(sites, COUNT_DP_STRUCTURES), ` committed structure site${plural(sites)}`]
+    if (placed) note.push(', ', measured(placed, COUNT_DP_STRUCTURES), ' of them placed by hand')
+    return note
+  },
+
+  instructions: {
+    [IDLE]:
+      'A small solar-generating building — a barn or shed with rooftop panels — sited against ' +
+      'the fields, the water, the road and the trees you have committed.',
+    [GENERATING]:
+      'Scoring building sites — slope, aspect, shading, and the distance to the road, the ' +
+      'fields and the water…',
+    [REVIEWING]:
+      'Click a site to read it. Place a site of your own to have that spot scored the same way.',
+    [EDITING]: 'Click a spot inside the property boundary. It is measured where it lands.',
+    [COMMITTING]: 'Saving these structure sites…',
+    [STEP_COMMITTED]: 'These structure sites are committed. Fencing is measured against them.',
+  },
+  buttons: {
+    [IDLE]: [GENERATE_BUTTON],
+    [GENERATING]: [],
+    [REVIEWING]: [STRUCTURES_PLACE, COMMIT_BUTTON],
+    [EDITING]: [STRUCTURES_CANCEL],
+    [COMMITTING]: [],
+    [STEP_COMMITTED]: [REOPEN_BUTTON],
+  },
+
+  /**
+   * WHAT ONLY THIS STEP KNOWS IS WORTH SAYING: which road the distances are
+   * to, what the run could not check, a placed site that breaks a siting
+   * rule, the cap, and a generate that found no clean spot. NO CAUTION PATH:
+   * this step records no crossings.
+   */
+  notices: ({ proposals, draft }) => {
+    if (!proposals) return []
+    const summary = proposals.summary ?? {}
+    const flags = summary.run_flags ?? {}
+    const lines = []
+
+    // WHICH ROAD. Said for every tier, because every tier changes what
+    // "close to a road" meant; the fallback tiers are cautions.
+    const source = roadProximitySource(proposals)
+    if (source) {
+      lines.push({ key: `road-${source}`, ...ROAD_PROXIMITY_CONSEQUENCE[source] })
+    }
+
+    // THE TREE-ZONE EXCLUSION COULD NOT RUN: a false flag means no site was
+    // kept clear of the committed tree zones, and the rule reads as absent.
+    if (flags.tree_zone_exclusion_available === false) {
+      lines.push({
+        key: 'unchecked-tree-zones',
+        tone: 'caution',
+        text:
+          'The committed tree zones could not be checked, so no site here was kept clear of them.',
+      })
+    }
+
+    // SHADING IS A ROUGH READING on every run this pipeline can make today
+    // -- a terrain horizon, not canopy or buildings -- and the flag says so.
+    if (flags.shading_is_rough_proxy === true) {
+      const share = summary.factor_weights_pct?.shading
+      lines.push({
+        key: 'shading-proxy',
+        tone: 'advisory',
+        text:
+          share == null
+            ? ['Shading was estimated from the terrain horizon alone, not from canopy or buildings, so that factor is a rough reading.']
+            : [
+                'Shading was estimated from the terrain horizon alone, not from canopy or buildings, so that factor — ',
+                measured(share, WEIGHT_DP_STRUCTURES),
+                '% of every score — is a rough reading.',
+              ],
+      })
+    }
+
+    // PRIME FARMLAND IS A PARCEL-LEVEL FLAG. Said once, at step level, so it
+    // does not read as a finding about any one spot.
+    const first = structureSites(proposals)[0]
+    if (first?.properties?.prime_farmland_conflict === true) {
+      lines.push({
+        key: 'prime-farmland',
+        tone: 'advisory',
+        text:
+          'The soil survey found prime farmland somewhere on this parcel, so every site here ' +
+          'carries that flag — it is a tension to weigh, not a rule about any one spot.',
+      })
+    }
+
+    // A PLACED SITE THAT BREAKS A RULE IS SCORED AND SAYS SO. The score and
+    // the rules are both the answer the user asked for; neither is an error.
+    draft.drawnFeatures.forEach((feature, index) => {
+      const violated = violatedGates(feature)
+      if (!violated.length) return
+      lines.push({
+        key: `violates-${feature.id}`,
+        tone: 'caution',
+        text: [
+          `Placed ${index + 1} scores `,
+          measured(feature.properties?.suitability_score),
+          ` and breaks ${violated.length === 1 ? 'a siting rule' : `${violated.length} siting rules`} ` +
+            `the generated sites clear: it ${violated.map(gateStatement).join('; it ')}.`,
+        ],
+      })
+    })
+
+    // THE CAP, when it is reached.
+    if (draft.drawnFeatures.length >= placedCap(proposals)) {
+      lines.push({
+        key: 'cap',
+        tone: 'advisory',
+        text: [
+          measured(placedCap(proposals), COUNT_DP_STRUCTURES),
+          ' sites are placed, which is the most this step takes. Remove one to place another.',
+        ],
+      })
+    }
+
+    // NO SPOT CLEARED EVERY RULE.
+    if (summary.candidate_count === 0) {
+      lines.push({
+        key: 'no-candidates',
+        tone: 'caution',
+        text:
+          'No spot on the parcel cleared every siting rule, so nothing was suggested. Place a ' +
+          'site of your own — it is scored and told what it breaks — or commit none.',
+      })
+    }
+
+    return lines
+  },
+
+  /**
+   * ONE TAB PER SITE -- the generated candidates in rank order, then the
+   * placed sites in the order placed. THREE ROWS: the identity, the
+   * composite score, and the distance to the road.
+   *
+   * THE IDENTITY ROW TELLS THE TWO KINDS APART AT EQUAL RANK -- see
+   * structureSiteName. THE SECOND MEASURED ROW IS THE ROAD DISTANCE, and
+   * not the slope or the pad's acreage: slope is already inside the score
+   * (a factor), and every pad is the same tenth of an acre unless the
+   * boundary clipped it. Road access is the one siting fact the score does
+   * not carry -- it is a GATE, not a factor -- and the one whose meaning the
+   * tier caveat changes, so it earns the row. Whole feet; the label says
+   * which road the tier allows it to (ROAD_TAB_LABEL), and it prints an em
+   * dash under the `unavailable` tier, where the pipeline sent null.
+   */
+  tabs: ({ proposals, draft }) => {
+    const selected = new Set(draft.selectedFeatureIds)
+    const source = roadProximitySource(proposals)
+    const roadLabel = ROAD_TAB_LABEL[source] ?? 'ft to road'
+    const rows = (properties) => [
+      { value: measure(properties?.suitability_score), label: 'score' },
+      { value: measure(properties?.distance_to_road_ft, DISTANCE_DP), label: roadLabel },
+    ]
+
+    const tabs = structureSites(proposals).map((feature) => ({
+      id: feature.id,
+      name: structureSiteName(feature),
+      checkbox: true,
+      selected: selected.has(feature.id),
+      rows: rows(feature.properties),
+    }))
+
+    draft.drawnFeatures.forEach((feature, index) => {
+      tabs.push({
+        id: feature.id,
+        name: structureSiteName(feature, index),
+        drawn: true,
+        checkbox: true,
+        removable: true,
+        selected: selected.has(feature.id),
+        rows: rows(feature.properties),
+      })
+    })
+
+    return tabs
+  },
+
+  /**
+   * WHAT THE DETAIL PANEL SAYS ABOUT ONE SITE -- THE SAME FIELDS FOR BOTH
+   * KINDS, off one property block, because the server measures a placed
+   * site with exactly the code that measures a generated one.
+   *
+   *   THE SITE       the score; the rank, AS A COMPARISON and not a figure
+   *                  (it is a place in the shortlist for a candidate and
+   *                  where it would sit for a placed site); the pad's
+   *                  acreage; which kind of site this is.
+   *   THE GROUND     slope, aspect, facing -- and the prime-farmland flag,
+   *                  stated as the parcel-level reading it is.
+   *   DISTANCES      the three, in whole feet, each labelled by what it is a
+   *                  distance to; the road's says which tier answered.
+   *   WHAT EARNED THE SCORE
+   *                  the four factors, weighted off the payload.
+   *   THE SITING RULES, on a placed site only: which it breaks, as facts, or
+   *                  that it clears them all. A generated candidate cleared
+   *                  every gate by construction and carries no such list.
+   *
+   * `cautions` IS [] FOR BOTH KINDS. This step records no crossings.
+   */
+  detail: ({ proposals, draft }, featureId) => {
+    const placedIndex = draft.drawnFeatures.findIndex((feature) => feature.id === featureId)
+    const placed = placedIndex >= 0 ? draft.drawnFeatures[placedIndex] : null
+    const feature = placed ?? structureSite(proposals, featureId)
+    if (!feature) return null
+
+    const p = feature.properties ?? {}
+    const summary = proposals?.summary ?? {}
+    const weights = summary.factor_weights_pct ?? {}
+    const generatedCount = structureSites(proposals).length
+    const source = roadProximitySource(proposals)
+    const isPlaced = placed != null
+
+    const groups = [
+      {
+        id: 'site',
+        label: null,
+        fields: [
+          { label: 'score', value: measure(p.suitability_score), measured: true },
+          {
+            label: 'rank',
+            value: isPlaced
+              ? `would sit ${ordinal(p.rank)} among the ${generatedCount} generated site${plural(generatedCount)} — a comparison, not a measurement; a tie goes to the generated site`
+              : `${ordinal(p.rank)} of the ${generatedCount} generated site${plural(generatedCount)} — a place in the run’s ranking, not a measurement`,
+          },
+          { label: 'pad acres', value: measure(p.footprint_area_acres, AREA_DP), measured: true },
+          {
+            label: 'origin',
+            value: isPlaced
+              ? 'placed by you, and scored where it landed with the same measurements as the generated sites'
+              : 'suggested by the pipeline; it clears every siting rule by construction',
+          },
+        ],
+      },
+      {
+        id: 'ground',
+        label: 'The ground',
+        fields: [
+          { label: 'avg slope %', value: measure(p.avg_slope_pct), measured: true },
+          { label: 'aspect °', value: measure(p.aspect_degrees), measured: true },
+          { label: 'facing', value: p.aspect ?? '—' },
+          { label: 'prime farmland', value: primeFarmlandReading(p) },
+        ],
+      },
+      {
+        id: 'distances',
+        label: 'Distances',
+        fields: [
+          {
+            label: ROAD_TAB_LABEL[source] ?? 'ft to road',
+            value: measure(p.distance_to_road_ft, DISTANCE_DP),
+            measured: true,
+          },
+          { label: 'road measured to', value: ROAD_MEASURED_TO[source] ?? '—' },
+          {
+            label: 'ft to production ground',
+            value: measure(p.distance_to_production_zone_ft, DISTANCE_DP),
+            measured: true,
+          },
+          { label: 'production ground', value: p.production_zone_relationship ?? '—' },
+          {
+            label: 'ft to water zone',
+            value: measure(p.distance_to_water_zone_ft, DISTANCE_DP),
+            measured: true,
+          },
+        ],
+      },
+      {
+        id: 'merits',
+        label: 'What earned the score',
+        fields: structureFactorsByWeight(weights).map((factor) =>
+          structureFactorField(factor, p, weights)
+        ),
+      },
+    ]
+
+    if (isPlaced) {
+      const violated = violatedGates(feature)
+      groups.push({
+        id: 'rules',
+        label: 'The siting rules',
+        fields: violated.length
+          ? violated.map((name, index) => ({
+              label: `breaks rule ${index + 1}`,
+              value: gateStatement(name),
+            }))
+          : [{ label: 'clears', value: 'every siting rule the generated sites clear' }],
+      })
+    }
+
+    return {
+      name: structureSiteName(feature, isPlaced ? placedIndex : null),
+      groups,
+      cautions: [],
+    }
+  },
+})
+
+
+/* ===========================================================================
    The registry, and the order steps run in
    =========================================================================== */
 
@@ -3850,6 +4730,7 @@ export const STEP_DEFINITIONS = Object.freeze([
   WATER_STEP,
   ROADS_STEP,
   TREES_STEP,
+  STRUCTURES_STEP,
 ])
 
 /**

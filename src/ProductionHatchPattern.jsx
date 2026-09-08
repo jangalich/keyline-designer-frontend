@@ -260,6 +260,27 @@ const TREATMENT_MARKS = [
      rule has always been about. Trees gains that rule by becoming a hatch;
      production has always had it. */
   { treatment: 'tree', kind: 'hatch', token: '--tree', spacing: 8, weight: 1, rise: 'down' },
+  /* THE STRUCTURE MARK: A WASH WITH ITS OWN OUTLINE, in --structure.
+
+     A BUILDING PAD IS NOT GROUND. Every mark above says what a piece of
+     ground is FOR -- two crops ruled, two survey surfaces washed and
+     stippled, a road drawn as the line it is. A structure site is a fixed
+     footprint about a tenth of an acre across, and the question its mark
+     answers is not "what grows here" but "where does the building sit" --
+     so it is drawn as a FOOTPRINT: a flat wash with the edge that a wash
+     gets (marksItsOwnEdge), the way a plan shows a building.
+
+     A HATCH WAS THE WRONG MARK AT THIS SIZE. At the zoom the whole parcel
+     is in frame a pad is a few dozen pixels across and an 8px ruling would
+     catch three or four strokes -- the reading production's own row rejects
+     as "stray lines". A wash reads as a shape at any size, and the outline
+     says where it ends on a footprint whose whole point is its edge.
+
+     A TINT, SO IT SHARES THE TINT LEVELS WITH THE EMBANKMENT WASH -- and the
+     two cannot be confused: one is a light blue over pond ground, the other
+     a dark violet square the size of a barn. Nothing else on this map is
+     violet, which is the whole of why the hue was chosen; see the token. */
+  { treatment: 'structure', kind: 'tint', token: '--structure' },
 ]
 
 /**

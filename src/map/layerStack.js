@@ -219,6 +219,11 @@ export function resolveLayer(state, definition, layer) {
     // the layer rather than looked up per feature by the renderer, for the
     // same reason `selectedFeatureIds` is: the renderer reads one shape.
     rejections: selectStepRejections(state, stepId),
+    // WHAT A FEATURE IS DRAWN WITH, when that is not its geometry -- the
+    // declaration's own reader, or null. Carried, never called: the renderer
+    // is the last place before pixels and the only place the substitution
+    // may happen (layers.jsx's drawnAs). See LAYER SCHEMA item 13.
+    footprint: layer.footprint ?? null,
   }
 }
 

@@ -50,6 +50,8 @@ import {
   commitStep as apiCommitStep,
   createSession as apiCreateSession,
   discardCandidate as apiDiscardCandidate,
+  scorePlacedFeature as apiScorePlacedFeature,
+  ApiError,
   getSession as apiGetSession,
   getStepLayers as apiGetStepLayers,
   reopenStep as apiReopenStep,
@@ -1607,6 +1609,46 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
     [state.sessionId, handleFailure, hydrateDocument, loadLayers]
   )
 
+  /**
+   * SCORE A FEATURE THE USER PLACED, against the step's current proposals --
+   * the structures step's "put a building here, tell me about this spot".
+   *
+   * A READ THAT WRITES NOTHING. The server measures the point and answers
+   * with the Feature; the document does not move and nothing here is
+   * hydrated. What the caller does with the Feature is the gesture's
+   * business (the step's own `placement.place` puts it in the draft as a
+   * drawn feature, where buildCommitBody sends it as user_added), so this
+   * returns the Feature and dispatches nothing on success.
+   *
+   * A REFUSAL IS AN ANSWER, NOT A STEP ERROR. A point off the parcel, or over
+   * ground the scorer cannot measure, comes back as a 400 naming the input.
+   * That is the server saying "not there" about one click -- the same kind
+   * of statement landform's own clamp makes about a ring drawn off the parcel
+   * -- and it belongs beside the gesture (DrawingProgress's notice), not in
+   * the step's error slot, where the bar would print it as the step failing.
+   * So a 400 resolves to `{refused: <the server's sentence>}` and dispatches
+   * nothing. Everything else -- a 409 for a step that is not generated, a
+   * transport failure -- takes handleFailure's paths exactly as every other
+   * verb's failure does, and resolves to false.
+   */
+  const scorePlacedFeature = useCallback(
+    async (stepId, params) => {
+      const sessionId = state.sessionId
+      if (!sessionId) return false
+      try {
+        const feature = await apiScorePlacedFeature(sessionId, stepId, params)
+        return { feature }
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 400) {
+          return { refused: error.message }
+        }
+        handleFailure(error, stepId)
+        return false
+      }
+    },
+    [state.sessionId, handleFailure]
+  )
+
   const actions = useMemo(
     () => ({
       startSession,
@@ -1615,6 +1657,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       commit,
       reopen,
       discardCandidate,
+      scorePlacedFeature,
       loadLayers,
       seedDraft: (stepId, selectedFeatureIds, drawnFeatures) =>
         dispatch({ type: DRAFT_SEEDED, stepId, selectedFeatureIds, drawnFeatures }),
@@ -1635,7 +1678,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
         dispatch({ type: SESSION_CLEARED, resume: 'idle' })
       },
     }),
-    [startSession, resume, generate, commit, reopen, discardCandidate, loadLayers]
+    [startSession, resume, generate, commit, reopen, discardCandidate, scorePlacedFeature, loadLayers]
   )
 
   const value = useMemo(() => ({ state, actions }), [state, actions])

@@ -19,14 +19,17 @@
  * which behaves identically for both. So this file mounts parallel components
  * rather than parameterising one, and the declaration picks between them.
  *
- * WHERE THE THIRD TOOL WOULD ATTACH. A free point marker -- the structures
- * step's "put a building here", which is a click that places one coordinate
- * rather than a ring -- is NOT in this branch. It attaches in exactly two
- * places and nowhere else: a `kind: 'point'` in stepDefinitions' LAYER_KINDS
- * with a renderer beside RingLayer in layers.jsx, and a row in RENDERED_BY
- * below saying that `draw` over a point layer is served by a PointDrawTool.
- * Nothing else in this file, in layerStack.js, or in the machine would change
- * -- which is the test of whether the declaration is carrying its weight.
+ * WHERE THE THIRD TOOL ATTACHED. A free point -- the structures step's "put a
+ * building here", one click that places one coordinate -- is DrawGesture's
+ * third arm (PlaceSiteTool, mounted on a step declaring `placement`), and it
+ * changed NOTHING in this file: the placed sites are a `polygon` layer sourced
+ * from the draft, so `draw` claims it and `delete` renders it through the
+ * rows below exactly as a drawn zone's layer is claimed and rendered. The
+ * earlier note here guessed the tool would arrive over a `kind: 'point'`
+ * layer with a row of its own; it did not, because what the map draws and
+ * the tools act on is the measured pad, not the point -- see DrawGesture's
+ * header for the reasoning. That this file did not move is the test the note
+ * proposed, passed the other way round.
  */
 
 import { STEP_MODES } from '../session/SessionStore'

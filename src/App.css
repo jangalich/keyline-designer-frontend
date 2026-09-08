@@ -2129,6 +2129,23 @@
   cursor: default;
 }
 
+/* THE SPOT A STRUCTURE SITE IS BEING MEASURED AT. PlaceSiteTool draws it
+   between the click and the server's answer, and it goes the moment either
+   the scored pad or a refusal lands. The access-point marker's own "here,
+   pending" treatment -- hollow, dashed, on --paper -- in the structure token
+   rather than ochre, because it is this step's point and not the road's.
+   Not a control: it sits under an armed tool and takes no pointer. */
+.site-marker {
+  border: 2px solid var(--structure);
+  border-radius: 2px;
+  background: var(--paper);
+  box-shadow: var(--shadow-marker);
+}
+
+.site-marker--pending {
+  border-style: dashed;
+}
+
 /* A road branch's own class on the path, for the DOM inspector and the tests
    -- the styling is a pathOption in layers.jsx like every other line's, and
    the casing under it is the halo rule every line here takes. */
