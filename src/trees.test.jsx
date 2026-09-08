@@ -402,18 +402,26 @@ describe('1. end to end against the real backend', () => {
       expect(candidates.length, 'the fixture yields tree zone candidates').toBeGreaterThan(0)
       expect(ui.all('[data-tab-id]')).toHaveLength(candidates.length)
 
-      // THE DISPLAY-ONLY SMOOTHED OUTLINE CAME OVER THE WIRE, from the real
-      // backend through real JSON. A tree zone is a union of 5 m DEM cells and
-      // its edge is a pixel staircase; this is that edge smoothed, computed
-      // server-side by the same function the PDF's layout map uses, and it is
-      // what map/layers.jsx draws. It is a RENDERING of `geometry`, never a
-      // replacement for it -- the two are different shapes here, and every
-      // measurement on this page reads the second one.
+      // NO DISPLAY-ONLY SMOOTHED OUTLINE ON A TREE CANDIDATE, from the real
+      // backend through real JSON. A tree zone IS a union of 5 m DEM cells, so
+      // it is the one layer where the staircase argument applied -- and the
+      // answer is still no. The PDF's layout map draws the tree hatch from the
+      // cell-union footprint verbatim ("no hull, no opening, no smoothing of
+      // any kind"), so smoothing here made the two maps disagree instead of
+      // agree; and the smooth is anti-extensive, measured on this same parcel
+      // at 19.56% of a 0.32 ac candidate with NOTHING added back, all of it
+      // taken off the thin arms -- a windbreak row, a riparian strip -- that
+      // the layer exists to find. Production zones still carry theirs, where
+      // it does match the printed map: landform.test.jsx asserts that.
+      //
+      // NON-VACUOUS: the candidates carry plenty of other properties, so this
+      // is a statement about this key rather than about an empty object.
       for (const candidate of candidates) {
-        const outline = candidate.properties.display_only_smoothed_outline
-        expect(outline, `${candidate.id} carries a smoothed outline`).toBeTruthy()
-        expect(['Polygon', 'MultiPolygon']).toContain(outline.type)
-        expect(JSON.stringify(outline)).not.toBe(JSON.stringify(candidate.geometry))
+        expect(
+          candidate.properties,
+          `${candidate.id} must carry no smoothed outline`
+        ).not.toHaveProperty('display_only_smoothed_outline')
+        expect(Object.keys(candidate.properties).length).toBeGreaterThan(3)
       }
       for (const row of ui.trees.zones) {
         expect(ui.text(`tab-focus-${row.feature_id}`)).toContain(`Zone ${row.rank}`)
