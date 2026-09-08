@@ -520,8 +520,9 @@ describeIf('the checkbox takes a real click in both directions', () => {
       ).map((definition) => definition.id)
     )
     // TREES JOINED BY EXISTING, and has its own section below. So did
-    // STRUCTURES, whose placed tabs carry the × as well.
-    expect(registered).toEqual(['landform', 'water', 'trees', 'structures'])
+    // STRUCTURES, whose placed tabs carry the × as well, and FENCING, whose
+    // tab is a fence TYPE and whose box toggles every loop of it.
+    expect(registered).toEqual(['landform', 'water', 'trees', 'structures', 'fencing'])
   })
 
   for (const [where, viewport] of STAGES) {
@@ -1151,6 +1152,90 @@ describeIf('the structures checkbox and ×', () => {
     expect(await placedIds()).toEqual([])
     expect(await topAt('place-structures')).toMatchObject({ hits: true })
     expect(await evaluate(() => document.querySelector('[data-testid="place-structures"]').disabled)).toBe(false)
+  })
+})
+
+/* ===========================================================================
+   4c. THE FENCING CHECKBOX -- A TAB THAT IS A FENCE TYPE
+   ===========================================================================
+   The sixth step's tab is a GROUP: one box toggles every loop of a fence
+   type. The strip is the same strip, so the claim is the same claim -- the
+   box is topmost at its own centre in both states, at both widths -- asked
+   of a tab whose id is not a feature id and whose box moves several. The
+   fencing step is reached from wherever the page is: structures, generated
+   with three candidates and no placed site, is committed whole.
+   =========================================================================== */
+
+describeIf('the fencing checkbox', () => {
+  async function reachFencing() {
+    if ((await cursorStep()) === 'fencing') return
+    if ((await cursorStep()) !== 'structures') {
+      await reachTrees()
+      if ((await statusOf('trees')) !== 'generated') await generate('trees')
+      await commit('trees')
+    }
+    if ((await statusOf('structures')) !== 'generated') await generate('structures')
+    await commit('structures')
+    expect(await cursorStep()).toBe('fencing')
+  }
+
+  liveIt('reaches the fencing step and generates, with no tool at all', async () => {
+    await reachFencing()
+    expect(await evaluate(() => window.__probe.cursor.armed)).toBeNull()
+    expect(await evaluate(() => window.__probe.cursor.tools)).toEqual(['select'])
+    await generate('fencing')
+    expect(await statusOf('fencing')).toBe('generated')
+    const tabs = await shownTabs()
+    expect(tabs.length, 'one tab per candidate fence type').toBeGreaterThanOrEqual(1)
+    expect(tabs.length).toBeLessThanOrEqual(3)
+    // EVERY TAB IS A TYPE, NOT A FEATURE: its id is a fence type, its box
+    // carries every feature of that type.
+    const types = await evaluate(() =>
+      window.__probe.state.steps.fencing.proposals.candidate_fence_types
+    )
+    expect(tabs).toEqual(types)
+    expect((await shownBoxes()).length).toBe(tabs.length)
+    // [5] THE MARKERS THAT SHARE THIS MAP: the committed access point and
+    // the committed site pins, each in its settled colour, nothing live.
+    const markers = await assertPointMarkersDistinct('fencing')
+    expect(markers.find((m) => m.kind.startsWith('access point')).kind).toBe('access point (committed)')
+    expect(markers.some((m) => m.kind.includes('(live)'))).toBe(false)
+  })
+
+  for (const [where, viewport] of STAGES) {
+    liveIt(`every type's box, un-checked and checked by the mouse, on ${where}`, async () => {
+      await resize(viewport)
+      for (const tabId of await shownBoxes()) {
+        await pressableBothWays('fencing', tabId, where)
+        // AND THE BOX MOVED THE WHOLE TYPE: the selection holds every one of
+        // its feature ids once it is back on.
+        const ids = await evaluate(
+          (type) =>
+            window.__probe.state.steps.fencing.proposals.fence_types.find((b) => b.fence_type === type).feature_ids,
+          tabId
+        )
+        const selected = await evaluate(() => window.__probe.selectDraft(window.__probe.state, 'fencing').selectedFeatureIds)
+        for (const id of ids) expect(selected).toContain(id)
+      }
+      await resize(ROOMY)
+    })
+  }
+
+  liveIt('leaves the whole type out of the commit body when its box is off, and puts it all back', async () => {
+    const [tabId] = await shownBoxes()
+    const ids = await evaluate(
+      (type) => window.__probe.state.steps.fencing.proposals.fence_types.find((b) => b.fence_type === type).feature_ids,
+      tabId
+    )
+    expect(ids.length).toBeGreaterThan(0)
+    const before = JSON.parse(await commitBody('fencing'))
+    for (const id of ids) expect(before.features.features.map((f) => f.id)).toContain(id)
+    await press(`tab-check-${tabId}`)
+    const off = JSON.parse(await commitBody('fencing'))
+    for (const id of ids) expect(off.features.features.map((f) => f.id)).not.toContain(id)
+    await press(`tab-check-${tabId}`)
+    const back = JSON.parse(await commitBody('fencing'))
+    expect(back.features.features.map((f) => f.id).sort()).toEqual(before.features.features.map((f) => f.id).sort())
   })
 })
 

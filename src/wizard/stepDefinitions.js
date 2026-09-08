@@ -403,11 +403,47 @@
  *      over a draft layer of a step that declares this, and a vertex tool
  *      otherwise; the shell learns nothing about buildings.
  *
- * WHAT IS NOT IN HERE. No step registers fencing: that is a later branch,
- * and a definition written now against a payload nobody has seen would be a
- * guess dressed as a contract. The order the steps run in is not here either
- * -- it comes off the document's `step_order` (see wizardStepOrder), because
- * the backend owns it.
+ * NO FIELD THE FENCING STEP ADDED -- the sixth and last definition -- and
+ * three things the schema could not say, recorded in the posture the others
+ * are, because the point of the last definition is to find out which of the
+ * schema's shapes were general:
+ *
+ *  15. A LINE LAYER DRAWN WITH A DISPLAY GEOMETRY. A fence feature's drawn
+ *      line is not its ring: the server ships `display_only_fence_line`,
+ *      the ring angular-simplified and trimmed where it coincides with
+ *      another ring, beside the real geometry. `footprint` (item 13) is the
+ *      schema's word for "drawn with something other than its geometry" and
+ *      it is refused on anything but a polygon -- so the fence line follows
+ *      the smoothed outline's precedent instead: layers.jsx's drawnAs() reads
+ *      the wire property by name, in the one place before pixels, and the
+ *      declaration says nothing. Two wire names now live in the renderer. A
+ *      field that let ANY layer name its display reader would have covered
+ *      the outline, the footprint and the fence line with one word; that is
+ *      the schema failing, and it is reported rather than widened here.
+ *
+ *  16. A STATE A STEP CANNOT ENTER MUST STILL BE DECLARED. The chrome is
+ *      keyed by machine state and every step is held to every state, so a
+ *      select-only step with no arming tool declares an instruction and a
+ *      button list for `editing`, which it never reaches. The declaration
+ *      is honest filler, and the schema has no way to say "not this state".
+ *
+ *  17. AN ABSENCE WITH A REASON. A fence type that produced no tab is a fact
+ *      about the STEP -- which of its candidates exist, and why not -- and
+ *      the schema's only slot for a step-level statement is `notices`. It
+ *      serves; but a notice's tone vocabulary (advisory, caution, error,
+ *      blocked) has no word for "absent by design", and `advisory` is the
+ *      nearest. The backend's `generated` flag is data, read by the
+ *      definition, and needed no schema.
+ *
+ *  AND ONE THING THAT NEEDED NO WORD. Nothing in the schema says a step is
+ *  LAST. Committing fencing calls the same `advance()` every commit calls;
+ *  the cursor's own fallback -- the first uncommitted step, or the last in
+ *  the order when there is none -- lands on fencing, committed, and the
+ *  banner renders that state's buttons: the way back in and nothing forward.
+ *  auto-advance needed no guard.
+ *
+ * The order the steps run in is not here -- it comes off the document's
+ * `step_order` (see wizardStepOrder), because the backend owns it.
  */
 
 import {
@@ -4720,6 +4756,263 @@ export const STRUCTURES_STEP = documentStep({
 
 
 /* ===========================================================================
+   THE FENCING STEP
+   ===========================================================================
+   The sixth and LAST definition. SELECT-ONLY, like water: nothing is drawn.
+   Sourced like roads, trees and structures: every upstream decision reaches
+   the backend as a committed edge, and this is the first step that consumes
+   all five before it. And the first whose TAB IS A FENCE TYPE, not a
+   feature.
+
+   A TAB IS A FENCE TYPE. Three candidate types -- water zone fencing, tree
+   zone fencing, boundary fencing -- one tab each, any number of the three
+   committable. A type's length is the SUM across every loop of that type,
+   and committing a type commits ALL its loops: the backend enforces that
+   with `feature_group="fence_type"` and a group check that refuses a partial
+   type. Roads' arrangement -- `groupOf` and a tab's `featureIds` -- carries
+   it here without a new field: the checkbox toggles every feature of the
+   type, focusing a loop focuses its type, and the stack draws by group.
+
+   THE CANDIDATE SET VARIES, ONE TO THREE. A type with nothing to fence gets
+   NO tab -- not a zero-length one. The backend lists every type in
+   `fence_types` with a `generated` flag, a `candidate` flag, a loop count
+   and a reason, so a type that produced nothing (generated: false) is
+   DISTINGUISHABLE from one whose pass ran and produced zero (generated:
+   true, loop_count: 0), and both from a candidate. The flag is READ; nothing
+   here infers absence from a missing key. Boundary fencing always exists.
+
+   TABS ARE TWO LINES: the type and its length. Not three. Length is the
+   only measurement this step has, and a third row would invent one.
+
+   THE MAP DRAWS THE DISPLAY LINE, NOT THE RING. Each fence feature carries
+   `display_only_fence_line`: its ring angular-simplified and, for a zone
+   ring, trimmed where it runs on top of another drawn ring -- the two
+   passes the printed layout map has always run, computed by the same server
+   function. layers.jsx's drawnAs() picks it up. The tab's length, the commit
+   body and the document use the REAL geometry, so a trimmed line and its
+   reported length legitimately disagree.
+
+   THE END OF THE FLOW. Committing fencing leaves no next step. The cursor's
+   fallback puts it on the last step in the order, which is this one, in its
+   committed state; the rail reads 'done' on every row and the banner offers
+   the way back in and nothing forward. No terminal button is invented here:
+   the report path is getting its own revamp, and a completed rail is the
+   honest end state for now.
+   --------------------------------------------------------------------------- */
+
+export const FENCE_LINE_LAYER = 'perimeter_fencing'
+export const FENCE_TYPE_PROPERTY = 'fence_type'
+
+/**
+ * THE DETAIL PANEL'S PLACEHOLDER. The official panel format for a fence is
+ * being settled separately; until it is, the panel says the length -- the
+ * one thing this step measures -- and this.
+ */
+export const FENCE_DESCRIPTION_PLACEHOLDER = 'Fence description TBD'
+
+const FENCE_LENGTH_DP = 0
+const COUNT_DP_FENCING = 0
+
+/** Which fence type a fence-line feature belongs to -- the tab it is under. */
+export function fenceTypeOf(feature) {
+  return feature?.properties?.[FENCE_TYPE_PROPERTY] ?? null
+}
+
+/** Every fence type block the payload lists -- ALWAYS all three, candidate or not. */
+export function fenceTypeBlocks(proposals) {
+  return Array.isArray(proposals?.fence_types) ? proposals.fence_types : []
+}
+
+/** The tabs: the types the backend flagged as candidates. */
+export function candidateFenceTypes(proposals) {
+  return fenceTypeBlocks(proposals).filter((block) => block.candidate === true)
+}
+
+/** The block behind a focused id -- a type id (a tab) or one of its feature ids (a loop on the map). */
+export function fenceTypeBlock(proposals, focusedId) {
+  if (focusedId == null) return null
+  return (
+    fenceTypeBlocks(proposals).find(
+      (block) =>
+        block.fence_type === focusedId ||
+        (Array.isArray(block.feature_ids) && block.feature_ids.includes(focusedId))
+    ) ?? null
+  )
+}
+
+/**
+ * WHY A TYPE HAS NO TAB, read off its flags: 'nothing_to_fence' when the
+ * pass never ran (generated: false -- the upstream commit was empty),
+ * 'generated_nothing' when it ran and produced no loop (generated: true,
+ * loop_count 0), null for a candidate. The FLAG is read, never a missing
+ * key: a block with generated false and a total_length_ft present is still
+ * "nothing to fence", and one with generated true and no total is still
+ * "generated nothing".
+ */
+export function fenceTypeAbsence(block) {
+  if (!block || block.candidate === true) return null
+  if (block.generated === false) return 'nothing_to_fence'
+  if (block.generated === true) return 'generated_nothing'
+  return null
+}
+
+function committedFenceTypes(state) {
+  const committed = selectStepFeatures(state, 'fencing')
+  const features = Array.isArray(committed?.features) ? committed.features : []
+  return new Set(features.map(fenceTypeOf).filter(Boolean))
+}
+
+export const FENCING_STEP = documentStep({
+  id: 'fencing',
+  title: 'Fencing',
+  blurb: 'Fence lines around what you have committed: the water, the trees, and the developed ground.',
+  layers: [
+    /* THE OFF-PARCEL SCRIM, like every step's. */
+    { id: 'fencing-offparcel', band: 'context', kind: 'scrim', source: 'document' },
+
+    /* NO REFERENCE LAYER, NO HIGHLIGHT, NO DRAFT LAYER. Nothing is drawn on
+       this step and nothing is measured against a ground: the backend's
+       contract records no crossings. */
+
+    /* THE TWO FENCE LINE LAYERS, both at the fence mark: the candidates,
+       and what was committed. `line`, like a road -- a fence is a LineString
+       or a MultiLineString per feature -- so the halo-casing rule applies
+       and the renderer reads the display-only line off each feature. */
+    {
+      id: 'fencing-candidates',
+      band: 'editable',
+      kind: 'line',
+      source: 'proposals',
+      key: 'fence_lines',
+      treatment: 'fence',
+    },
+    { id: 'fencing-committed', band: 'committed', kind: 'line', source: 'document', treatment: 'fence' },
+  ],
+
+  /** SELECT ONLY. No draw, no delete: the fence lines are the ones generated. */
+  tools: ['select'],
+  // None. The FENCING entry declares no user_inputs.
+  inputs: [],
+  generate: { label: 'Generate fencing' },
+  commit: {
+    // AN EMPTY COMMIT IS A DECISION -- "no fencing on this parcel" -- and
+    // the contract's min_features=0 carries it.
+    label: ({ committableCount }) => (committableCount === 0 ? 'Commit no fencing' : 'Commit fencing'),
+    canCommit: () => true,
+    blockedReason: () => null,
+  },
+  reopen: { label: 'Edit this step', confirmTitle: 'Reopen fencing?' },
+  proposalCollection: 'fence_lines',
+  // NO `shape`: nothing on this step is drawn.
+  shape: null,
+
+  /** THE UNIT OF THE COMMIT DECISION IS THE TYPE. See the header. */
+  groupOf: fenceTypeOf,
+
+  /** What a reset of this step costs, for an earlier step's reopen dialogue. */
+  resetNote: (state) => {
+    const types = committedFenceTypes(state).size
+    if (!types) return 'the decision to fence nothing on this parcel'
+    return [measured(types, COUNT_DP_FENCING), ` committed fence type${plural(types)}`]
+  },
+
+  instructions: {
+    [IDLE]:
+      'Fence lines around what you have committed — the water zones, the tree zones, and the ' +
+      'developed ground — every one measured from the steps before this.',
+    [GENERATING]:
+      'Drawing fence lines — buffering the water and tree zones, hulling the developed footprint, ' +
+      'clipping to the parcel…',
+    [REVIEWING]:
+      'Each tab is a fence type. Ticking one commits every loop of that type; click a line to read it.',
+    // UNREACHABLE, AND DECLARED ANYWAY: the chrome is keyed by machine state
+    // and this step arms no tool, so it never enters `editing`. The schema
+    // asks every step for every state; this is the honest answer.
+    [EDITING]: 'Fencing is select-only: there is nothing to draw on this step.',
+    [COMMITTING]: 'Saving this fencing…',
+    [STEP_COMMITTED]: 'This fencing is committed. It is the last step in the design.',
+  },
+  buttons: {
+    [IDLE]: [GENERATE_BUTTON],
+    [GENERATING]: [],
+    [REVIEWING]: [COMMIT_BUTTON],
+    [EDITING]: [],
+    [COMMITTING]: [],
+    // THE WAY BACK IN, AND NOTHING FORWARD. There is no next step.
+    [STEP_COMMITTED]: [REOPEN_BUTTON],
+  },
+
+  /**
+   * WHAT ONLY THIS STEP KNOWS IS WORTH SAYING: which types have NO tab and
+   * why -- in the backend's own words -- with the two absences told apart.
+   */
+  notices: ({ proposals }) => {
+    if (!proposals) return []
+    const lines = []
+    for (const block of fenceTypeBlocks(proposals)) {
+      const absence = fenceTypeAbsence(block)
+      if (!absence) continue
+      const label = String(block.label ?? block.fence_type)
+      lines.push({
+        key: `${absence}-${block.fence_type}`,
+        tone: 'advisory',
+        text:
+          absence === 'nothing_to_fence'
+            ? `No ${label.toLowerCase()} — there was nothing to fence. ${block.reason ?? ''}`.trim()
+            : `${label} was generated and produced no fence loop. ${block.reason ?? ''}`.trim(),
+      })
+    }
+    return lines
+  },
+
+  /**
+   * ONE TAB PER CANDIDATE TYPE, TWO LINES: the type's label, and its length
+   * -- the sum over every loop of every feature of the type, as the backend
+   * summed it off the real geometry. `featureIds` is the whole type, so the
+   * checkbox toggles all of its loops and a partial type cannot be sent.
+   */
+  tabs: ({ proposals, draft }) => {
+    const selected = new Set(draft.selectedFeatureIds)
+    return candidateFenceTypes(proposals).map((block) => {
+      const featureIds = Array.isArray(block.feature_ids) ? block.feature_ids : []
+      return {
+        id: block.fence_type,
+        name: String(block.label ?? block.fence_type),
+        featureIds,
+        checkbox: true,
+        selected: featureIds.length > 0 && featureIds.every((id) => selected.has(id)),
+        rows: [{ value: measure(block.total_length_ft, FENCE_LENGTH_DP), label: 'feet' }],
+      }
+    })
+  },
+
+  /**
+   * WHAT THE DETAIL PANEL SAYS ABOUT ONE TYPE: its length, and a
+   * placeholder. The official panel format is being settled separately.
+   * `cautions` IS [] -- this step records no crossings.
+   */
+  detail: ({ proposals }, focusedId) => {
+    const block = fenceTypeBlock(proposals, focusedId)
+    if (!block) return null
+    return {
+      name: String(block.label ?? block.fence_type),
+      groups: [
+        {
+          id: 'fence',
+          label: null,
+          fields: [
+            { label: 'feet', value: measure(block.total_length_ft, FENCE_LENGTH_DP), measured: true },
+            { label: 'description', value: FENCE_DESCRIPTION_PLACEHOLDER },
+          ],
+        },
+      ],
+      cautions: [],
+    }
+  },
+})
+
+
+/* ===========================================================================
    The registry, and the order steps run in
    =========================================================================== */
 
@@ -4731,6 +5024,7 @@ export const STEP_DEFINITIONS = Object.freeze([
   ROADS_STEP,
   TREES_STEP,
   STRUCTURES_STEP,
+  FENCING_STEP,
 ])
 
 /**

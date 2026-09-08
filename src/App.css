@@ -2218,6 +2218,7 @@
    -- the styling is a pathOption in layers.jsx like every other line's, and
    the casing under it is the halo rule every line here takes. */
 .road--road,
+.road--fence,
 .road--casing {
   pointer-events: visibleStroke;
 }

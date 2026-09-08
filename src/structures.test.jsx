@@ -1630,7 +1630,8 @@ describe('10. no caution markers render on this step', () => {
     // clampToBoundary, no crossing ground.
     const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
     const section = source
-      .slice(source.indexOf('   THE STRUCTURES STEP\n'), source.indexOf('The registry, and the order steps run in'))
+      // ...and closes where the NEXT section opens: fencing follows it now.
+      .slice(source.indexOf('   THE STRUCTURES STEP\n'), source.indexOf('   THE FENCING STEP\n'))
       // The slice opens inside the section's own header comment.
       .replace(/^[\s\S]*?\*\//, '')
       .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -1664,7 +1665,7 @@ describe('10. no caution markers render on this step', () => {
 
 describe('12. what the definition declares, and the sweep', () => {
   it('is registered fifth, landform-shaped with a placement instead of a shape', () => {
-    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees', 'structures'])
+    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees', 'structures', 'fencing'])
     expect(STRUCTURES_STEP.selection).toEqual({ mode: 'multiple', follows: null })
     expect(STRUCTURES_STEP.accumulate).toBeNull()
     expect(STRUCTURES_STEP.inputs).toEqual([])
@@ -1934,7 +1935,8 @@ describe('12. what the definition declares, and the sweep', () => {
   it('writes down no weight, no floor and no slope ceiling of its own; every figure comes off the wire', () => {
     const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
     const section = source
-      .slice(source.indexOf('   THE STRUCTURES STEP\n'), source.indexOf('The registry, and the order steps run in'))
+      // ...and closes where the NEXT section opens: fencing follows it now.
+      .slice(source.indexOf('   THE STRUCTURES STEP\n'), source.indexOf('   THE FENCING STEP\n'))
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '')
     expect(section.length).toBeGreaterThan(1000)

@@ -238,9 +238,12 @@ describe('1. the rail at the boundary step', () => {
     expect(ui.statusWord('roads')).toBe('not yet')
     // AND TREES, with its own.
     expect(ui.statusWord('trees')).toBe('not yet')
-    // AND STRUCTURES, with its own. Fencing is the one still to come.
+    // AND STRUCTURES, with its own.
     expect(ui.statusWord('structures')).toBe('not yet')
-    for (const unbuilt of ['fencing']) {
+    // AND FENCING, the sixth and last: every step in the order has a
+    // definition now, so no row reads 'not built yet'.
+    expect(ui.statusWord('fencing')).toBe('not yet')
+    for (const unbuilt of []) {
       expect(ui.statusWord(unbuilt), `${unbuilt} has no definition yet`).toBe('not built yet')
     }
 
