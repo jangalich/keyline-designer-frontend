@@ -59,8 +59,8 @@ import {
   registryProposalFeatures,
   stepButton,
 } from './stepDefinitions'
-import { injectZonePatterns, marksItsOwnEdge, zoneMark } from '../ProductionHatchPattern.jsx'
-import { CASING_WEIGHT, LINE_WEIGHT } from '../map/layers.jsx'
+import { PIN_GLYPH_PATH, injectZonePatterns, marksItsOwnEdge, zoneMark } from '../ProductionHatchPattern.jsx'
+import { CASING_WEIGHT, LINE_WEIGHT, SITE_PIN_HALO_WIDTH, SITE_PIN_SIZE } from '../map/layers.jsx'
 import { readToken } from '../geo.js'
 
 const params = new URLSearchParams(window.location.search)
@@ -357,6 +357,11 @@ const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road
 const UNCASED = [
   { treatment: 'road', state: 'committed', uncased: true },
   { treatment: 'road', state: 'active', uncased: true },
+  // THE PIN, ONCE MORE WITHOUT ITS HALO: the same question asked of the
+  // structure site's glyph, whose body is ochre over soil that is nearly
+  // ochre. Two cells beside the cased ones, so the halo's worth is a number.
+  { treatment: 'structure', state: 'committed', uncased: true },
+  { treatment: 'structure', state: 'active', uncased: true },
 ]
 
 /**
@@ -580,6 +585,38 @@ function ZoneSwatches() {
       }
       // ...unless this is the cell that asks what the field carries alone.
       if (svg.dataset.unoutlined === 'true') continue
+      if (mark.kind === 'pin') {
+        // THE SITE PIN: the glyph the map draws (layers.jsx sitePinIcon) at
+        // its own screen size, centred in the swatch, the halo pass under
+        // the body, the whole glyph at the state's pattern level -- which is
+        // what App.css's .site-pin rules do. `data-uncased` leaves the halo
+        // out, for the measurement that asks what it is worth.
+        svg.querySelector('rect').setAttribute('fill', 'none')
+        const level = patternLevel(svg.dataset.state)
+        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+        const scale = SITE_PIN_SIZE / 24
+        const offset = (SWATCH_PX - SITE_PIN_SIZE) / 2
+        group.setAttribute('transform', `translate(${offset} ${offset}) scale(${scale})`)
+        group.setAttribute('opacity', level)
+        const passes = svg.dataset.uncased === 'true' ? [] : [['halo', readToken('--halo')]]
+        passes.push(['body', mark.fill])
+        for (const [pass, colour] of passes) {
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+          path.setAttribute('d', PIN_GLYPH_PATH)
+          if (pass === 'halo') {
+            path.setAttribute('fill', 'none')
+            path.setAttribute('stroke', colour)
+            path.setAttribute('stroke-width', String(SITE_PIN_HALO_WIDTH))
+            path.setAttribute('stroke-linejoin', 'round')
+          } else {
+            path.setAttribute('fill', colour)
+          }
+          group.appendChild(path)
+        }
+        svg.appendChild(group)
+        svg.dataset.cased = svg.dataset.uncased === 'true' ? 'false' : 'true'
+        continue
+      }
       if (mark.kind === 'line') {
         // A ROAD: a cased line corner to corner, the halo pass under the
         // coloured line, both at the state's level -- which is what LineLayer

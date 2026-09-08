@@ -82,7 +82,27 @@
   --oxide: #9c4a2f;        /* the accent — primary actions only */
   --oxide-deep: #7d3a25;   /* oxide hover/active */
   --on-oxide: #fdfcf9;     /* text on oxide fill */
-  --ochre: #c99a2e;        /* secondary emphasis, access point marker */
+  /* OCHRE MEANS A LIVE POINT MARKER, and nothing else on the map. The
+     access point while roads is the active step; the structure site's pin
+     while structures is; the one point the fencing step will place, when it
+     places one. A point glyph marks a specific spot on the property that is
+     STILL BEING DECIDED, and one colour for that concept is what lets a
+     reader find the live spot on any step without learning a colour per
+     step. It is the warm complement to the greens and blues the ground
+     takes, and it is secondary emphasis in the chrome (never a control's
+     surface -- --oxide is the one action colour).
+
+     ONCE COMMITTED, A POINT MARKER JOINS ITS LAYER'S SETTLED TREATMENT and
+     gives the ochre up: the committed access point turns to --ink (the
+     token the road line is drawn in) at --pattern-committed, the committed
+     site pin keeps its shape at --pattern-committed. That is the rule that
+     keeps two different things from sharing one colour on one map: at any
+     step there is at most ONE live point kind, and it is the only ochre
+     thing on the surface. A later step that places a point takes ochre for
+     its live marker and its layer's own token once committed; it does not
+     pick a colour. pointer.test.jsx walks every step and holds the rule;
+     App.css's marker rules are where each kind reads its token. */
+  --ochre: #c99a2e;
   /* MAP GEOMETRY AND THE LEGEND -- never a control's surface or its edge.
      The rule is legibility, not taste: this chrome floats on aerial
      photography of farmland, so a control drawn in --field half-disappears
@@ -277,26 +297,10 @@
      production zone share ground. */
   --tree: #52a466;
 
-  /* THE STRUCTURE MARK'S COLOUR. A violet, because nothing else on this map
-     is violet: the crops are an oxide ruling and a green one, water is two
-     blues, the road is the ink of the type, the boundary is --field. A
-     building is the one thing on the parcel that is BUILT rather than grown,
-     dug or driven, and it takes a hue no ground has -- which is also what
-     keeps it tellable from the embankment wash beside it, the only other
-     tint on the map: 62 degrees of hue apart (265 against 203) and darker.
-
-     MEASURED. #6a4c93 is 6.85:1 against --halo, so the outline holds over
-     pale soil uncased; 2.53:1 against --survey-embankment (#6da4c6), the
-     other wash, and told from it by value as well as hue (265 against 203
-     degrees); 2.24:1 against --tree, the green a site is most often drawn
-     beside, and 62 degrees of hue from it. structures.test.jsx holds the
-     three ratios. It is a WASH with
-     an outline in the one colour (see ProductionHatchPattern's structure
-     row), on the --tint-* levels for the fill and the --pattern-* levels for
-     the edge, like the embankment mark. A placed site's pad takes the drawn
-     zone's accent outline over this fill, which is what says the SITE is the
-     user's while the pad is the server's measurement of it. */
-  --structure: #6a4c93;
+  /* NO --structure TOKEN. The structure site had a violet wash of its own
+     for one branch; it is a PIN now, in --ochre, for the rule written beside
+     that token: a structure site is a live point, not ground, and takes the
+     live-point colour rather than a hue of its own. */
 
   /* HOW PRESENT A ZONE'S MARK IS, IN THREE LEVELS -- the whole of what
      distinguishes a zone's states.

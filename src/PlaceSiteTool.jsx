@@ -1,5 +1,6 @@
 import { useMapEvents, Marker } from 'react-leaflet'
-import L from 'leaflet'
+
+import { sitePinIcon } from './map/layers.jsx'
 
 /**
  * PlaceSiteTool
@@ -34,21 +35,18 @@ import L from 'leaflet'
  * THE PENDING MARKER. A placed site is not on the map the instant it is
  * clicked: the server measures the spot first, and while that request is
  * out the click has to be visibly somewhere or the user places it twice.
- * `pending` is that coordinate, drawn hollow in the structure token
- * (App.css's .site-marker--pending, the access-point marker's own "here,
- * pending" treatment in this step's colour), and it goes the moment the
- * answer lands -- as the scored pad, or as a notice saying why not. It is
- * NOT interactive: it sits under an armed tool and must never swallow the
- * next click.
+ * `pending` is that coordinate, drawn as the site pin HOLLOW (App.css's
+ * .site-pin--pending, the access-point marker's own "here, pending"
+ * treatment on this step's glyph), and it goes the moment the answer lands
+ * -- as the scored site's pin, or as a notice saying why not. It is NOT
+ * interactive: it sits under an armed tool and must never swallow the next
+ * click.
  *
  * This component's click handler is one of several on this map; none stops
  * propagation, and the arming register (WizardCursor) holds the invariant
  * that no two tools are armed at once.
  */
-const pendingSiteIcon = new L.DivIcon({
-  className: 'site-marker site-marker--pending',
-  iconSize: [18, 18],
-})
+const pendingSiteIcon = sitePinIcon('site-pin--pending')
 
 function PlaceSiteTool({ isPlacing, pending, onPlace }) {
   useMapEvents({

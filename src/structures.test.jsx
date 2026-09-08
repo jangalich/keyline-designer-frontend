@@ -110,7 +110,14 @@ import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx
 import MapLayerStack from './map/MapLayerStack.jsx'
 import { resolveLayer } from './map/layerStack.js'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
-import { marksItsOwnEdge, zoneMark } from './ProductionHatchPattern.jsx'
+import {
+  PIN_GLYPH_PATH,
+  PIN_GLYPH_TIP,
+  PIN_GLYPH_VIEWBOX,
+  marksItsOwnEdge,
+  zoneMark,
+} from './ProductionHatchPattern.jsx'
+import { SITE_PIN_HALO_WIDTH, SITE_PIN_SIZE, sitePinIcon } from './map/layers.jsx'
 import { pointInRing, pointToGeoJSON } from './geo.js'
 import rings from './fixtures/rings.json'
 
@@ -486,9 +493,11 @@ describe('1. end to end against the real backend', () => {
       expect(ui.find(`tab-${clean.id}`).dataset.checked).toBe('true')
       expect(ui.find(`tab-remove-${clean.id}`)).not.toBeNull()
       expect(selectDraft(ui.state, 'structures').selectedFeatureIds).toContain(clean.id)
-      // THE PAD IS ON THE MAP, drawn as the user's, in the structure mark.
-      expect(ui.all('.leaflet-structures--structures-placed-pane path.zone--drawn')).toHaveLength(1)
-      expect(ui.all('.leaflet-structures--structures-candidates-pane path.zone--structure')).toHaveLength(3)
+      // THE SITE IS ON THE MAP AS A PIN, marked as the user's; the three
+      // generated sites are three pins in their own pane.
+      expect(ui.all('.leaflet-structures--structures-placed-pane .site-pin.site-pin--placed')).toHaveLength(1)
+      expect(ui.all('.leaflet-structures--structures-candidates-pane .site-pin')).toHaveLength(3)
+      expect(ui.all('.leaflet-structures--structures-candidates-pane .site-pin--placed')).toHaveLength(0)
       // A clean site raises no notice and no caution.
       expect(ui.find('structures-notice')).toBeNull()
       expect(ui.find(`notice-violates-${clean.id}-structures`)).toBeNull()
@@ -608,10 +617,15 @@ describe('1. end to end against the real backend', () => {
         // NO CROSSINGS KEY, declared absent rather than recorded empty.
         expect(stored.properties).not.toHaveProperty('exclusion_crossings')
       }
-      // The cursor moved on; the committed pads are in the committed band
-      // at the structure mark -- four of them, the two points drawn as pads.
+      // The cursor moved on; the committed sites are in the committed band
+      // as pins at the committed level -- four of them, the two points and
+      // the two pads alike.
       expect(ui.cursor.cursorStepId).toBe('fencing')
-      expect(ui.all('.leaflet-structures--structures-committed-pane path.zone--structure')).toHaveLength(4)
+      expect(ui.all('.leaflet-structures--structures-committed-pane .site-pin--committed')).toHaveLength(4)
+      // AND THE COMMITTED ACCESS POINT IS STILL THERE, marked committed --
+      // ink at the committed level by App.css's rule -- beside the pins.
+      expect(ui.all('.access-point-marker--committed')).toHaveLength(1)
+      expect(ui.all('.access-point-marker:not(.access-point-marker--committed)')).toHaveLength(0)
 
       // REOPEN: the placed sites come home from the document as placed
       // sites, scored -- their measurement set INHERITED from the wire, not
@@ -1039,13 +1053,13 @@ describe('2. the placement tool is not armed on entry, and "Place a site" arms i
     })
     await ui.click('place-structures')
     await ui.clickMap(INSIDE)
-    expect(ui.all('.site-marker--pending')).toHaveLength(1)
+    expect(ui.all('.site-pin--pending')).toHaveLength(1)
     // A second click while the first is out is dropped, not queued.
     await ui.clickMap(INSIDE_2)
-    expect(ui.all('.site-marker--pending')).toHaveLength(1)
+    expect(ui.all('.site-pin--pending')).toHaveLength(1)
     await ui.run(async () => release())
     await ui.waitFor('the placement', () => ui.placed.length === 1, 5000)
-    expect(ui.all('.site-marker--pending')).toHaveLength(0)
+    expect(ui.all('.site-pin--pending')).toHaveLength(0)
     expect(ui.placed[0].geometry.coordinates).toEqual(pointToGeoJSON(INSIDE))
     await ui.unmount()
   })
@@ -1402,7 +1416,7 @@ describe('7. × on placed tabs only, and destroying one frees a slot', () => {
     // THE SLOT IS FREE AGAIN.
     expect(ui.find('place-structures').disabled).toBe(false)
     expect(ui.find('notice-cap-structures')).toBeNull()
-    expect(ui.all('.leaflet-structures--structures-placed-pane path.zone--drawn')).toHaveLength(1)
+    expect(ui.all('.leaflet-structures--structures-placed-pane .site-pin--placed')).toHaveLength(1)
     // And the way back, for a few seconds.
     expect(ui.find('undo-structures')).not.toBeNull()
     await ui.click('undo-action-structures')
@@ -1495,7 +1509,7 @@ describe('8. committing several sites succeeds; committing none succeeds', () =>
     expect(ui.text('detail-value-pad acres')).toBe('0.08')
     expect(ui.text('detail-value-score')).toBe('61.5')
     expect(ui.text('detail-value-origin')).toContain('placed by you')
-    expect(ui.all('.leaflet-structures--structures-placed-pane path.zone--drawn')).toHaveLength(1)
+    expect(ui.all('.leaflet-structures--structures-placed-pane .site-pin--placed')).toHaveLength(1)
     await ui.unmount()
   })
 
@@ -1720,36 +1734,201 @@ describe('12. what the definition declares, and the sweep', () => {
     expect(defineStep(base).placement).toBeNull()
   })
 
-  it('carries the structure mark: a wash with its own edge, in --structure, told from every neighbour', () => {
-    const mark = zoneMark('structure')
-    expect(mark.kind).toBe('tint')
-    expect(marksItsOwnEdge(mark)).toBe(true)
-    const token = (name) => document.documentElement.style.getPropertyValue(name).trim()
-    expect(mark.fill).toBe(token('--structure'))
-    expect(mark.stroke).toBe(token('--structure'))
-    expect(token('--structure')).toMatch(/^#[0-9a-f]{6}$/i)
+  /**
+   * [1] THE SITE IS A PIN GLYPH WITH NO INTERIOR ICON. The printed map draws
+   * a pin carrying a barn; this map draws the pin's silhouette and nothing
+   * inside it. Two paths -- the halo pass and the body -- both the one
+   * silhouette, and no other drawing element in the icon.
+   */
+  it('[1] renders every site as a pin glyph: the silhouette twice, nothing inside it', async () => {
+    const { ui } = await generatedStructures()
+    await ui.place(INSIDE)
+    const pins = ui.all('.site-pin')
+    expect(pins).toHaveLength(4)
+    for (const pin of pins) {
+      const svg = pin.querySelector('svg')
+      expect(svg).not.toBeNull()
+      expect(svg.getAttribute('viewBox')).toBe(PIN_GLYPH_VIEWBOX)
+      const paths = [...svg.querySelectorAll('path')]
+      expect(paths).toHaveLength(2)
+      expect(paths.map((p) => p.getAttribute('d'))).toEqual([PIN_GLYPH_PATH, PIN_GLYPH_PATH])
+      expect(paths.map((p) => p.getAttribute('class'))).toEqual(['site-pin__halo', 'site-pin__body'])
+      // NO INTERIOR ICON: no third path, no group, no circle, no text, no image.
+      expect(svg.querySelectorAll('*')).toHaveLength(2)
+      // AND NO COLOUR IN THE SVG: every colour is a token App.css reads.
+      expect(svg.outerHTML).not.toMatch(/fill=|stroke=|#[0-9a-fA-F]{3,8}\b|rgb/)
+    }
+    // No pad is drawn for a site any more, in either pane: the only paths
+    // there are the pins' own two.
+    expect(ui.all('.leaflet-structures--structures-candidates-pane path:not([class^="site-pin"])')).toHaveLength(0)
+    expect(ui.all('.leaflet-structures--structures-placed-pane path:not([class^="site-pin"])')).toHaveLength(0)
+    expect(ui.all('.leaflet-structures--structures-placed-pane path.zone--drawn')).toHaveLength(0)
+    // The placed pin says it is the user's; the generated ones do not.
+    expect(ui.all('.leaflet-structures--structures-placed-pane .site-pin--placed')).toHaveLength(1)
+    expect(ui.all('.leaflet-structures--structures-candidates-pane .site-pin--placed')).toHaveLength(0)
+    await ui.unmount()
+  })
 
-    const luminance = (hex) => {
-      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
-      const f = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
-      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
-    }
-    const contrast = (a, b) => {
-      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
-      return (hi + 0.05) / (lo + 0.05)
-    }
-    // THE THREE RATIOS THE TOKEN'S NOTE WRITES DOWN, held.
-    expect(contrast(token('--structure'), token('--halo'))).toBeCloseTo(6.85, 1)
-    expect(contrast(token('--structure'), token('--survey-embankment'))).toBeCloseTo(2.53, 1)
-    expect(contrast(token('--structure'), token('--tree'))).toBeCloseTo(2.24, 1)
-    // The token is at :root and nowhere else; the mark table reads it by name.
-    const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
-    expect(css.match(/--structure:\s*#[0-9a-f]{6};/gi)).toHaveLength(1)
+  it('is the silhouette the backend draws, copied on purpose and said so', () => {
+    // THE PATH IS THE BACKEND ASSET'S <path d>, verbatim -- the classic
+    // teardrop -- and the copy is recorded as a deliberate divergence where
+    // the path is defined.
+    expect(PIN_GLYPH_PATH).toBe(
+      'M12 2C8.13401 2 5 5.13401 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13401 15.866 2 12 2Z'
+    )
     const marks = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
-    expect(marks).toContain("{ treatment: 'structure', kind: 'tint', token: '--structure' }")
+    const note = marks.slice(marks.indexOf('THE PIN SILHOUETTE'), marks.indexOf('export const PIN_GLYPH_VIEWBOX'))
+    expect(note).toMatch(/DELIBERATE DIVERGENCE/)
+    expect(note).toMatch(/one-implementation rule/i)
+    expect(note).toMatch(/fixed silhouette/i)
+    expect(note).toMatch(/interior icon/i)
+  })
+
+  /**
+   * [2] OCHRE, AT FIXED SCREEN SIZE ACROSS ZOOM LEVELS. The mark's colour is
+   * the live-point token, read by App.css; the icon's box is the same number
+   * of pixels at any zoom, because a pointer is a pointer, not a footprint.
+   */
+  it('[2] is ochre, and the same size on screen at every zoom', async () => {
+    const mark = zoneMark('structure')
+    expect(mark.kind).toBe('pin')
+    expect(marksItsOwnEdge(mark)).toBe(false)
+    const token = (name) => document.documentElement.style.getPropertyValue(name).trim()
+    expect(mark.fill).toBe(token('--ochre'))
+    expect(mark.stroke).toBeNull()
+    expect(token('--structure')).toBe('')
+    const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
+    expect(css).not.toMatch(/--structure:\s*#/)
     const app = readFileSync(path.join(SRC, 'App.css'), 'utf8')
-    expect(app).toContain('.site-marker')
-    expect(app.slice(app.indexOf('.site-marker'))).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    const body = app.slice(app.indexOf('.site-pin__body {'), app.indexOf('}', app.indexOf('.site-pin__body {')))
+    expect(body).toContain('fill: var(--ochre)')
+    // THE HALO: --halo, at the width the harness measured with.
+    const halo = app.slice(app.indexOf('.site-pin__halo {'), app.indexOf('}', app.indexOf('.site-pin__halo {')))
+    expect(halo).toContain('stroke: var(--halo)')
+    expect(halo).toContain(`stroke-width: ${SITE_PIN_HALO_WIDTH};`)
+    // The pin never takes the borrowed red, as a token or as a literal.
+    expect(css.toLowerCase()).not.toContain('#d64545')
+    expect(app.toLowerCase()).not.toContain('#d64545')
+    expect(app.slice(app.indexOf('.site-pin'))).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(/)
+
+    const { ui } = await generatedStructures()
+    const sizeAt = () =>
+      ui.all('.site-pin').map((pin) => [pin.style.width, pin.style.height].join('x'))
+    const zoomed = []
+    for (const zoom of [14, 16, 18]) {
+      await ui.run(async () => ui.map.setZoom(zoom, { animate: false }))
+      const sizes = new Set(sizeAt())
+      expect(sizes.size).toBe(1)
+      zoomed.push([...sizes][0])
+    }
+    expect(new Set(zoomed).size).toBe(1)
+    expect(zoomed[0]).toBe(`${SITE_PIN_SIZE}px x ${SITE_PIN_SIZE}px`.replace(' x ', 'x'))
+    // Anchored at the tip, so the pin points at the site.
+    const [tipX, tipY] = PIN_GLYPH_TIP
+    const scale = SITE_PIN_SIZE / 24
+    const icon = sitePinIcon()
+    expect(icon.options.iconAnchor).toEqual([tipX * scale, tipY * scale])
+    await ui.unmount()
+  })
+
+  /**
+   * [4] AN ACTIVE ACCESS POINT IS OCHRE; A COMMITTED ONE IS INK AT COMMITTED
+   * MUTING -- read off the stylesheet's own rules, and off the classes the
+   * renderer puts on each. The live reading of the same rules, in a real
+   * engine, is pointer.test.jsx's.
+   */
+  it('[4] reads the access point as ochre while live and as ink at committed muting once committed', async () => {
+    const app = readFileSync(path.join(SRC, 'App.css'), 'utf8')
+    const rule = (selector) => {
+      const at = app.indexOf(`\n${selector} {`)
+      expect(at, `${selector} is styled`).toBeGreaterThan(-1)
+      return app.slice(at, app.indexOf('}', at))
+    }
+    expect(rule('.access-point-marker')).toContain('background: var(--ochre)')
+    const committed = rule('.access-point-marker--committed')
+    expect(committed).toContain('background: var(--ink)')
+    expect(committed).toContain('opacity: var(--pattern-committed)')
+    // --road IS --ink: the token the road line is drawn in, so the committed
+    // point and the committed line are one colour.
+    const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
+    expect(css).toMatch(/--road:\s*var\(--ink\);/)
+    expect(Number(document.documentElement.style.getPropertyValue('--pattern-committed'))).toBe(0.4)
+
+    // ON THE MAP: the committed roads layer's point carries the committed
+    // class, the structures step's candidates are live pins, and nothing
+    // else ochre is on the surface.
+    const { ui } = await generatedStructures()
+    expect(ui.all('.access-point-marker')).toHaveLength(1)
+    expect(ui.all('.access-point-marker--committed')).toHaveLength(1)
+    expect(ui.all('.site-pin')).toHaveLength(3)
+    expect(ui.all('.site-pin--committed')).toHaveLength(0)
+    await ui.unmount()
+  })
+
+  /**
+   * [5] NO TWO POINT MARKERS SHARE A COLOUR ON ONE MAP AT ANY STEP -- the
+   * stylesheet half. Every point-marker class in App.css is read for the
+   * token it fills with, and every pair of kinds that can be on one map at
+   * one step is held to two different tokens. The rendered half, with real
+   * computed colours, walks every step in pointer.test.jsx.
+   */
+  it('[5] gives every point-marker kind that can share a map a different token', () => {
+    const app = readFileSync(path.join(SRC, 'App.css'), 'utf8')
+    const fillOf = (selector, property) => {
+      const at = app.indexOf(`\n${selector} {`)
+      expect(at, `${selector} is styled`).toBeGreaterThan(-1)
+      const block = app.slice(at, app.indexOf('}', at))
+      const match = block.match(new RegExp(`${property}:\\s*var\\((--[a-z-]+)\\)`))
+      expect(match, `${selector} reads a token for ${property}`).not.toBeNull()
+      return match[1]
+    }
+    const MARKERS = {
+      'vertex (a ring being drawn)': fillOf('.vertex-marker', 'background'),
+      'caution': fillOf('.caution-marker', 'background'),
+      'access point, live': fillOf('.access-point-marker', 'background'),
+      'access point, committed': fillOf('.access-point-marker--committed', 'background'),
+      'site pin, live': fillOf('.site-pin__body', 'fill'),
+      'site pin, pending': fillOf('.site-pin--pending .site-pin__body', 'fill'),
+      'site pin, rejected': fillOf('.site-pin--rejected .site-pin__body', 'fill'),
+    }
+    // EVERY MARKER READS A TOKEN, never a literal.
+    for (const token of Object.values(MARKERS)) expect(token).toMatch(/^--[a-z-]+$/)
+    // WHAT SHARES A MAP, BY STEP. A live access point exists only on roads;
+    // a live site pin only on structures; the committed access point from
+    // trees onward; a vertex while any ring is drawn; a caution wherever a
+    // drawn zone crosses a ground.
+    const STEPS = {
+      boundary: ['vertex (a ring being drawn)'],
+      landform: ['vertex (a ring being drawn)', 'caution'],
+      water: ['caution'],
+      roads: ['access point, live'],
+      trees: ['vertex (a ring being drawn)', 'caution', 'access point, committed'],
+      structures: ['access point, committed', 'site pin, live', 'site pin, pending', 'site pin, rejected'],
+      fencing: ['access point, committed', 'site pin, committed'],
+    }
+    MARKERS['site pin, committed'] = MARKERS['site pin, live']
+    const clashes = []
+    for (const [step, kinds] of Object.entries(STEPS)) {
+      for (let i = 0; i < kinds.length; i++) {
+        for (let j = i + 1; j < kinds.length; j++) {
+          const a = kinds[i]
+          const b = kinds[j]
+          if (MARKERS[a] === MARKERS[b]) clashes.push(`${step}: ${a} and ${b} both ${MARKERS[a]}`)
+        }
+      }
+    }
+    expect(clashes).toEqual([])
+    // THE RULE IS WRITTEN WHERE THE TOKENS ARE, so the next step inherits it.
+    const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
+    const note = css.slice(css.indexOf('OCHRE MEANS A LIVE POINT MARKER'), css.indexOf('--ochre: #'))
+    expect(note.length).toBeGreaterThan(200)
+    expect(note).toMatch(/ONCE COMMITTED, A POINT MARKER JOINS ITS LAYER'S SETTLED TREATMENT/)
+    expect(note).toMatch(/fencing/)
+    // And the live access point and the live pin are the SAME token: one
+    // colour for one concept, on two steps that never share a map.
+    expect(MARKERS['access point, live']).toBe('--ochre')
+    expect(MARKERS['site pin, live']).toBe('--ochre')
+    expect(MARKERS['access point, committed']).toBe('--ink')
   })
 
   it('writes down no weight, no floor and no slope ceiling of its own; every figure comes off the wire', () => {

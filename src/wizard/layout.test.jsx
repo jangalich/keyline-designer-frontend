@@ -1629,6 +1629,57 @@ describeIf('the zone patterns, rendered', () => {
    * two, and why the assertion on the casing is made over canopy and not
    * over soil.
    */
+  /**
+   * THE SITE PIN IS A GLYPH, AND A GLYPH OVER IMAGERY IS ITS HALO -- the
+   * road's argument, asked of the structure site's pin. The body is ochre;
+   * bare soil is nearly ochre. This measures the pin with and without the
+   * halo pass, over both grounds, at both levels, so "it survives aerial
+   * imagery" is a number and "the halo was needed" is a fact the numbers
+   * state rather than a guess the stylesheet makes.
+   */
+  it('keeps the site pin legible over canopy and soil, and reports what the halo is worth', async () => {
+    const lines = []
+    let haloNeeded = false
+    for (const ground of ['canopy', 'soil']) {
+      for (const state of ['committed', 'active']) {
+        const cased = await addedInkOver(page, ground, 'structure', state)
+        const uncased = await addedInkOver(page, ground, 'structure', `${state}-uncased`)
+        lines.push(
+          `    ink  ${ground.padEnd(6)} pin ${state.padEnd(9)} ` +
+            `haloed ${cased.toFixed(4)}  bare ${uncased.toFixed(4)}  (halo x${(cased / uncased).toFixed(2)})`
+        )
+        // Logged BEFORE it is held, so a miss still reports its number.
+        // eslint-disable-next-line no-console
+        console.log(lines[lines.length - 1])
+        if (uncased <= 0.004) haloNeeded = true
+      }
+    }
+    for (const ground of ['canopy', 'soil']) {
+      for (const state of ['committed', 'active']) {
+        // THE PIN AS DRAWN clears the floor on both grounds at both levels.
+        expect(
+          await addedInkOver(page, ground, 'structure', state),
+          `site pin ${state} must be legible over ${ground}`
+        ).toBeGreaterThan(0.004)
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.log(
+      `    the halo ${haloNeeded ? 'IS needed: the bare glyph falls below the floor on at least one ground' : 'is NOT strictly needed: the bare glyph clears the floor on both grounds'}`
+    )
+    // A pin is a POINT, not a footprint: on a 90px swatch it is a 28px glyph,
+    // so its ink is a fraction of a hatch's. What matters is that it is
+    // there, that the haloed pin adds ink the bare one does not, and that
+    // committed stays quieter than active.
+    for (const ground of ['canopy', 'soil']) {
+      const committed = await addedInkOver(page, ground, 'structure', 'committed')
+      const active = await addedInkOver(page, ground, 'structure', 'active')
+      expect(committed, `site pin: committed quieter than active over ${ground}`).toBeLessThan(active)
+      const bare = await addedInkOver(page, ground, 'structure', 'active-uncased')
+      expect(active, `the halo adds ink over ${ground}`).toBeGreaterThan(bare)
+    }
+  }, SLOW)
+
   it('keeps a road legible over canopy and soil, and the casing is what does it', async () => {
     for (const ground of ['canopy', 'soil']) {
       for (const state of ['committed', 'active']) {
