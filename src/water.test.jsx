@@ -2549,7 +2549,10 @@ describe('the checkbox, both ways', () => {
     // joins these cases by existing, instead of by someone remembering.
     // TREES JOINED BY EXISTING: landform's shape, so landform's cases.
     // STRUCTURES JOINED BY EXISTING: select-only candidates plus placed sites.
-    expect(MULTI_SELECT.map((d) => d.id)).toEqual(['landform', 'water', 'trees', 'structures'])
+    // FENCING JOINED BY EXISTING: select-only, and its tab is a fence TYPE --
+    // a group of features, which is what made the cases below read a tab's
+    // `featureIds` rather than assume a tab is one feature.
+    expect(MULTI_SELECT.map((d) => d.id)).toEqual(['landform', 'water', 'trees', 'structures', 'fencing'])
   })
 
   for (const definition of MULTI_SELECT) {
@@ -2570,6 +2573,8 @@ describe('the checkbox, both ways', () => {
           ? TREES_CHECKBOX_PAYLOAD
           : definition.id === 'structures'
           ? STRUCTURES_CHECKBOX_PAYLOAD
+          : definition.id === 'fencing'
+          ? FENCING_CHECKBOX_PAYLOAD
           : {
               suggested_zones: {
                 type: 'FeatureCollection',
@@ -2592,23 +2597,27 @@ describe('the checkbox, both ways', () => {
 
       const tabsAt = (selectedFeatureIds) =>
         definition.tabs({ proposals: payload, draft: { selectedFeatureIds, drawnFeatures: [] } })
-      const press = (selectedFeatureIds) => {
-        const tab = tabsAt(selectedFeatureIds).find((t) => t.id === victim)
-        return selectionAfterCheck(selectedFeatureIds, tab, definition.selection.mode)
-      }
+      // THE TAB THE VICTIM IS UNDER: its own, or -- on a step whose tab is a
+      // GROUP (fencing's fence type) -- the one whose featureIds carry it.
+      const tabOf = (selectedFeatureIds) =>
+        tabsAt(selectedFeatureIds).find((t) => t.id === victim || t.featureIds?.includes(victim))
+      const under = tabOf(ids).featureIds ?? [victim]
+      const press = (selectedFeatureIds) =>
+        selectionAfterCheck(selectedFeatureIds, tabOf(selectedFeatureIds), definition.selection.mode)
 
-      // OFF. The zone leaves the set and nothing else moves.
+      // OFF. The zone -- every feature under its tab -- leaves the set and
+      // nothing else moves.
       const off = press(ids)
       expect(off).not.toContain(victim)
-      expect(off.length).toBe(ids.length - 1)
+      expect(off.length).toBe(ids.length - under.length)
       // ...and the strip says so, which is what the user has to click again.
-      expect(tabsAt(off).find((t) => t.id === victim).selected).toBe(false)
+      expect(tabOf(off).selected).toBe(false)
 
       // ON. It comes back, and the set is the one it started as.
       const back = press(off)
       expect(back).toContain(victim)
       expect([...back].sort()).toEqual([...ids].sort())
-      expect(tabsAt(back).find((t) => t.id === victim).selected).toBe(true)
+      expect(tabOf(back).selected).toBe(true)
     })
   }
 
@@ -2873,12 +2882,52 @@ const STRUCTURES_CHECKBOX_PAYLOAD = {
   placement: { input: 'site', shape: 'lon_lat', max_placed: 2 },
 }
 
+/**
+ * step_orchestrator.build_fencing_payload()'s shape: two candidate types
+ * (boundary, one loop; tree zone, two loops) and a water type that was NOT
+ * generated -- so a tab is a fence TYPE carrying several feature ids, and
+ * one listed type has no tab at all.
+ */
+const FENCING_CHECKBOX_PAYLOAD = {
+  fence_lines: {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        id: 'perimeter-fencing-boundary-1',
+        properties: { layer: 'perimeter_fencing', fence_type: 'boundary', fence_index: 1, fence_count: 1, loop_count: 1, length_ft: 2100.4, display_only_fence_line: null },
+        geometry: null,
+      },
+      {
+        type: 'Feature',
+        id: 'perimeter-fencing-tree-zone-1',
+        properties: { layer: 'perimeter_fencing', fence_type: 'tree_zone_exclusion', fence_index: 1, fence_count: 2, loop_count: 1, length_ft: 640.0, display_only_fence_line: null },
+        geometry: null,
+      },
+      {
+        type: 'Feature',
+        id: 'perimeter-fencing-tree-zone-2',
+        properties: { layer: 'perimeter_fencing', fence_type: 'tree_zone_exclusion', fence_index: 2, fence_count: 2, loop_count: 1, length_ft: 512.5, display_only_fence_line: null },
+        geometry: null,
+      },
+    ],
+  },
+  fence_types: [
+    { fence_type: 'boundary', label: 'Boundary fencing', generated: true, candidate: true, loop_count: 1, feature_count: 1, total_length_ft: 2100.4, feature_ids: ['perimeter-fencing-boundary-1'], features: [], reason: null },
+    { fence_type: 'water_zone_exclusion', label: 'Water zone fencing', generated: false, candidate: false, loop_count: 0, feature_count: 0, total_length_ft: null, feature_ids: [], features: [], reason: 'The water step was committed with no zone, so there is no water ground to fence.' },
+    { fence_type: 'tree_zone_exclusion', label: 'Tree zone fencing', generated: true, candidate: true, loop_count: 2, feature_count: 2, total_length_ft: 1152.5, feature_ids: ['perimeter-fencing-tree-zone-1', 'perimeter-fencing-tree-zone-2'], features: [], reason: null },
+  ],
+  candidate_fence_types: ['boundary', 'tree_zone_exclusion'],
+  summary: { narrative_only: {}, segment_count: 1, developed_site_count: 1, buffers_ft: {} },
+}
+
 const CHECKBOX_PAYLOADS = {
   landform: LANDFORM_CHECKBOX_PAYLOAD,
   water: FIXTURE,
   roads: roadsCheckboxPayload(),
   trees: TREES_CHECKBOX_PAYLOAD,
   structures: STRUCTURES_CHECKBOX_PAYLOAD,
+  fencing: FENCING_CHECKBOX_PAYLOAD,
 }
 
 describe('the checkbox, on every step that renders one', () => {
@@ -3001,40 +3050,44 @@ describe('the tab body focuses without choosing, unless the step says otherwise'
   )
 
   it('covers every step whose focus and selection are independent', () => {
-    expect(INDEPENDENT.map((d) => d.id)).toEqual(['landform', 'water', 'trees', 'structures'])
+    expect(INDEPENDENT.map((d) => d.id)).toEqual(['landform', 'water', 'trees', 'structures', 'fencing'])
   })
 
   for (const definition of INDEPENDENT) {
     it(`focuses without changing the selection: ${definition.id}`, async () => {
       const proposals = CHECKBOX_PAYLOADS[definition.id]
-      const all = definition
+      const boxed = definition
         .tabs({ proposals, draft: { selectedFeatureIds: [], drawnFeatures: [], inputs: {} } })
         .filter((tab) => tab.checkbox)
-        .map((tab) => tab.id)
+      // THE SELECTION IS FEATURE IDS: a tab's own id, or -- for a GROUP tab
+      // (fencing's fence type) -- every feature id it carries.
+      const idsOf = (tab) => (tab.featureIds?.length ? tab.featureIds : [tab.id])
+      const all = boxed.flatMap(idsOf)
       const ui = await renderStrip(definition, proposals, [...all])
 
-      const [first, second] = all
+      const [first, second] = boxed
       expect(second, `${definition.id} offers a second tab to move the focus to`).toBeDefined()
 
-      await ui.click(`tab-focus-${first}`)
-      expect(ui.focused).toBe(first)
+      await ui.click(`tab-focus-${first.id}`)
+      expect(ui.focused).toBe(first.id)
       expect([...ui.selection].sort()).toEqual([...all].sort())
-      expect(ui.find(`tab-${first}`).getAttribute('data-checked')).toBe('true')
+      expect(ui.find(`tab-${first.id}`).getAttribute('data-checked')).toBe('true')
 
       // A SECOND TAB, and still nothing moves but the focus.
-      await ui.click(`tab-focus-${second}`)
-      expect(ui.focused).toBe(second)
+      await ui.click(`tab-focus-${second.id}`)
+      expect(ui.focused).toBe(second.id)
       expect([...ui.selection].sort()).toEqual([...all].sort())
 
       // AND CLICKING THE FOCUSED TAB LETS GO OF THE FOCUS, without touching
       // the commit either.
-      await ui.click(`tab-focus-${second}`)
+      await ui.click(`tab-focus-${second.id}`)
       expect(ui.focused).toBeNull()
       expect([...ui.selection].sort()).toEqual([...all].sort())
 
-      // The CHECKBOX is still the one thing that changes it.
-      await ui.click(`tab-check-${first}`)
-      expect(ui.selection).not.toContain(first)
+      // The CHECKBOX is still the one thing that changes it -- and it takes
+      // every feature under its tab out.
+      await ui.click(`tab-check-${first.id}`)
+      for (const id of idsOf(first)) expect(ui.selection).not.toContain(id)
 
       await ui.unmount()
     })

@@ -1451,7 +1451,7 @@ describe('8. the factor weights come from the payload', () => {
 
 describe('11. the schema: what the definition declares, and the sweep', () => {
   it('is landform-shaped: select, draw, delete; multiple; no accumulate; the trees collection', () => {
-    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees', 'structures'])
+    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees', 'structures', 'fencing'])
     expect(TREES_STEP.tools).toEqual(['select', 'draw', 'delete'])
     expect(TREES_STEP.selection).toEqual({ mode: 'multiple', follows: null })
     expect(TREES_STEP.accumulate).toBeNull()

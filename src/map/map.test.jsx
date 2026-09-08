@@ -1972,8 +1972,9 @@ describe('12. the commit body reads the step being committed', () => {
 
   it('raises for a step the registry does not carry', () => {
     const state = { steps: {}, drafts: {} }
-    // 'fencing', not 'structures': structures has a definition as of its branch.
-    expect(() => buildCommitBody(state, 'fencing', registryProposalFeatures)).toThrow(/fencing/)
+    // A step no branch registers: every step in the pipeline's order has a
+    // definition now (fencing was the last), so the case is an invented id.
+    expect(() => buildCommitBody(state, 'irrigation', registryProposalFeatures)).toThrow(/irrigation/)
   })
 })
 
@@ -2158,13 +2159,15 @@ describe('13. the display-only smoothed outline', () => {
     const mentions = files.filter((file) => readFileSync(file, 'utf8').includes(DISPLAY_ONLY_OUTLINE))
     expect(mentions.map((file) => path.relative(SRC, file))).toEqual(['map/layers.jsx'])
 
-    // AND THE LINE RENDERER DOES NOT READ IT. A road is a LineString and has
-    // no staircase; its path is built straight off `feature.geometry`.
+    // AND THE LINE RENDERER DOES NOT NAME IT. A road is a LineString and has
+    // no staircase. The line renderer does draw through drawnAs() now -- a
+    // FENCE line is drawn with its own display-only line, the second wire
+    // name that function reads -- but no line feature carries the smoothed
+    // outline, and the renderer never spells it.
     const layers = codeOf('layers.jsx')
     const lineLayer = layers.slice(layers.indexOf('function LineLayer'))
     expect(lineLayer).not.toContain(DISPLAY_ONLY_OUTLINE)
-    expect(lineLayer).not.toContain('drawnAs')
-    expect(lineLayer).toContain('lineLatLngs(feature.geometry)')
+    expect(lineLayer).toContain('lineLatLngs(drawnAs(feature, layer).geometry)')
 
     // NOR DOES THE GEOMETRY MODULE the clamp and the cautions live in.
     const zoneGeometry = readFileSync(path.join(SRC, 'zoneGeometry.js'), 'utf8')

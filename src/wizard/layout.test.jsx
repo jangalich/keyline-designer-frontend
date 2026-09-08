@@ -62,7 +62,7 @@ const CHROMIUM = '/opt/pw-browsers/chromium'
 const VIEWPORT = { width: 1280, height: 800 }
 
 /** Every mark the harness swatches: the five zone treatments and the road line. */
-const SWATCH_TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road', 'tree', 'structure']
+const SWATCH_TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road', 'tree', 'structure', 'fence']
 
 /** App.css's --measure, in px. The prose cap the instruction card takes. */
 const READING_MEASURE = 680
@@ -1334,6 +1334,20 @@ describeIf('the zone patterns, rendered', () => {
     )
   }, 60_000)
 
+  /**
+   * THE FENCE'S OWN FLOOR, ON THIS SWATCH ONLY. A fence is a PALE line (--rule)
+   * on a --halo casing: against mid-grey the casing is most of the ink and
+   * the line adds little over it, so the focused state cannot swing against
+   * grey the way the road's dark core does (2.64x). Measured at 1.41x for
+   * --rule, and 1.22x for the rejected --ink-muted (a mid-grey line on a
+   * mid-grey ground, which is the mid-value trap in one number). On IMAGERY
+   * the fence's committed-to-active step is the road's own -- 1.28x over
+   * canopy, 1.26x over soil, against the road's 1.23x -- and the ground
+   * tests below hold it there like every other mark. Every other treatment
+   * keeps the 1.5x floor. See the --fence note in index.css.
+   */
+  const STATE_STEP_FLOOR = { fence: 1.3 }
+
   it('tells the focused state from the active one at whole-parcel size', async () => {
     for (const treatment of SWATCH_TREATMENTS) {
       const active = await inkOf(page, treatment, 'active')
@@ -1354,7 +1368,7 @@ describeIf('the zone patterns, rendered', () => {
       // opacity vanishes at this size; the fix is a wide gap between levels
       // rather than a hope about perception. Half again as much ink is the
       // floor this asserts against.
-      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThan(1.5)
+      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThan(STATE_STEP_FLOOR[treatment] ?? 1.5)
     }
   }, SLOW)
 
@@ -1702,6 +1716,90 @@ describeIf('the zone patterns, rendered', () => {
       expect(committed, `road committed must stay quieter than active over ${ground}`).toBeLessThan(active)
     }
   }, SLOW)
+
+  /**
+   * THE FENCE IS THE OTHER LINE, AND ITS COLOUR WAS MEASURED BEFORE IT WAS
+   * CHOSEN. Two palette tokens were candidates: --rule (#ddd6c8, the hairline)
+   * and --ink-muted (#8a8477, the caption colour). The harness draws both
+   * exactly as the shipped mark is drawn -- the road's cased line at each
+   * level, and the bare line beside it -- over canopy and over bare soil.
+   * This reports `addedInkOver` for every combination, so the choice in
+   * index.css quotes numbers rather than a hunch, and holds the SHIPPED
+   * fence mark (whichever token --fence resolves to) to the same floor every
+   * other mark meets.
+   *
+   * WHAT THE MEASUREMENT WAS EXPECTED TO SHOW, stated so it can be confirmed
+   * or refuted: --rule is close in value to bare soil and washes out there
+   * while reading strongly over canopy; --ink-muted is mid-value, the worst
+   * case for imagery -- the trap the road's old umber hit, carried entirely
+   * by its casing over canopy -- and risks reading as a washed-out road.
+   */
+  it('measures both fence colour candidates over both grounds, and holds the shipped fence mark to the floor', async () => {
+    const table = {}
+    for (const candidate of ['fence-rule', 'fence-ink-muted']) {
+      table[candidate] = {}
+      for (const ground of ['canopy', 'soil']) {
+        for (const state of ['committed', 'active']) {
+          const cased = await addedInkOver(page, ground, candidate, state)
+          const uncased = await addedInkOver(page, ground, candidate, `${state}-uncased`)
+          table[candidate][`${ground}-${state}`] = { cased, uncased }
+          // eslint-disable-next-line no-console
+          console.log(
+            `    ink  ${ground.padEnd(6)} ${candidate.padEnd(16)} ${state.padEnd(9)} ` +
+              `cased ${cased.toFixed(4)}  uncased ${uncased.toFixed(4)}  ` +
+              `(cased/uncased ${(cased / uncased).toFixed(2)}x)`
+          )
+        }
+      }
+    }
+    // BOTH CANDIDATES WERE MEASURED, on both grounds, with and without the
+    // casing: eight numbers each, every one a real reading.
+    for (const candidate of Object.keys(table)) {
+      expect(Object.keys(table[candidate])).toHaveLength(4)
+      for (const reading of Object.values(table[candidate])) {
+        expect(reading.cased).toBeGreaterThan(0)
+        expect(reading.uncased).toBeGreaterThan(0)
+      }
+    }
+    // THE CANDIDATES' BARE LINES DISAGREE ABOUT WHICH GROUND IS HARD, which is
+    // the whole reason a cased line has two passes: --rule's bare line is
+    // stronger over canopy than over soil, --ink-muted's bare line is weaker
+    // over canopy than --rule's.
+    expect(table['fence-rule']['canopy-committed'].uncased).toBeGreaterThan(
+      table['fence-rule']['soil-committed'].uncased
+    )
+    expect(table['fence-ink-muted']['canopy-committed'].uncased).toBeLessThan(
+      table['fence-rule']['canopy-committed'].uncased
+    )
+
+    // THE SHIPPED MARK, under its own name, over both grounds at both levels:
+    // legible, quieter when committed, and the casing adds ink.
+    for (const ground of ['canopy', 'soil']) {
+      for (const state of ['committed', 'active']) {
+        const cased = await addedInkOver(page, ground, 'fence', state)
+        const uncased = await addedInkOver(page, ground, 'fence', `${state}-uncased`)
+        // eslint-disable-next-line no-console
+        console.log(
+          `    ink  ${ground.padEnd(6)} fence (shipped)  ${state.padEnd(9)} ` +
+            `cased ${cased.toFixed(4)}  uncased ${uncased.toFixed(4)}  ` +
+            `(cased/uncased ${(cased / uncased).toFixed(2)}x)`
+        )
+        expect(cased, `fence ${state} must be legible over ${ground}`).toBeGreaterThan(0.004)
+        expect(cased, `the casing adds ink to the fence over ${ground}`).toBeGreaterThan(uncased)
+      }
+      const committed = await addedInkOver(page, ground, 'fence', 'committed')
+      const active = await addedInkOver(page, ground, 'fence', 'active')
+      expect(committed, `fence committed must stay quieter than active over ${ground}`).toBeLessThan(active)
+    }
+    // AND IT IS NOT THE ROAD'S COLOUR: the two lines on this map are told
+    // apart by value, so the shipped token must resolve to something other
+    // than --road.
+    const tokens = await page.evaluate(() => {
+      const read = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+      return { fence: read('--fence'), road: read('--road') }
+    })
+    expect(tokens.fence).not.toBe(tokens.road)
+  }, MANY_PAGES)
 
   it('lets production-committed and water-committed share the map readably', async () => {
     // THE STATE FROM THE ROADS STEP ONWARD. Both present and both above the

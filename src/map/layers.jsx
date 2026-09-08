@@ -472,6 +472,26 @@ function isFocusedFeature(layer, feature, focusedFeatureId) {
 const DISPLAY_ONLY_OUTLINE = 'display_only_smoothed_outline'
 
 /**
+ * THE PROPERTY A FENCE LINE CARRIES ITS DISPLAY-ONLY LINE UNDER.
+ *
+ * Backend: fence_display_geometry.DISPLAY_ONLY_FENCE_LINE_PROPERTY. The
+ * second wire name spelled in this file, beside the first and read by the
+ * same function, for the same reason: a fence's drawn line is NOT its ring.
+ * The server angular-simplifies every fence ring and trims each zone ring
+ * where it runs on top of another drawn ring -- the two passes the printed
+ * layout map has always run before drawing -- and ships the result beside
+ * the real geometry. Where the trim left nothing (a zone ring that shares
+ * its whole length with the boundary fence, which draws that line), the
+ * value is NULL, and null means DRAW NOTHING rather than fall back to the
+ * ring: the doubled line the trim removed must not come back through a
+ * default. So the substitution below tests for the KEY, not the value.
+ * NOTHING MAY COMPUTE FROM IT: the tab's length is the backend's own
+ * measurement of the real ring, the commit sends `feature.geometry`, and a
+ * trimmed display line and its reported length legitimately disagree.
+ */
+const DISPLAY_ONLY_FENCE_LINE = 'display_only_fence_line'
+
+/**
  * WHAT A FEATURE IS DRAWN WITH -- and it is not always what it IS.
  *
  * A production zone is a union of 5 m DEM cells, so its edge is a pixel
@@ -528,7 +548,13 @@ const DISPLAY_ONLY_OUTLINE = 'display_only_smoothed_outline'
 function drawnAs(feature, layer = null) {
   const footprint = typeof layer?.footprint === 'function' ? layer.footprint(feature) : null
   const outline = footprint ?? feature.properties?.[DISPLAY_ONLY_OUTLINE]
-  return outline ? { ...feature, geometry: outline } : feature
+  if (outline) return { ...feature, geometry: outline }
+  // A FENCE LINE: present key, possibly null -- and null is "nothing to
+  // draw", never "draw the ring". See DISPLAY_ONLY_FENCE_LINE.
+  if (feature.properties && Object.prototype.hasOwnProperty.call(feature.properties, DISPLAY_ONLY_FENCE_LINE)) {
+    return { ...feature, geometry: feature.properties[DISPLAY_ONLY_FENCE_LINE] }
+  }
+  return feature
 }
 
 /** The pin on screen: its box, and where in it the tip sits. Fixed, at every zoom. */
@@ -1021,7 +1047,14 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
         const isFocused = isFocusedFeature(layer, feature, focusedFeatureId)
         const rejection = rejections[feature.id] ?? null
         const level = rejection ? 1 : patternLevelFor({ isFocused, isCommitted })
-        const positions = lineLatLngs(feature.geometry)
+        // THE DISPLAY GEOMETRY, which for a fence is its simplified, trimmed
+        // line and for a road is its own LineString. See drawnAs(): nothing
+        // but this renderer sees the substitution, and the casing below is
+        // laid under the same positions.
+        const positions = lineLatLngs(drawnAs(feature, layer).geometry)
+        // NOTHING TO DRAW -- a fence line the trim took entirely -- draws
+        // nothing: no casing, no path, no click target for an invisible line.
+        if (!positions.length) return null
         const key = `${feature.id}:${isFocused}:${interactive}:${rejection ? 'bad' : 'ok'}`
         const className = focusClass(
           rejection ? 'road--rejected' : `road--${layer.treatment ?? 'untreated'}`,
@@ -1076,10 +1109,20 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
   )
 }
 
-/** A GeoJSON LineString's coordinates as Leaflet [lat, lng] positions. */
+/**
+ * A GeoJSON LineString's coordinates as Leaflet [lat, lng] positions -- or a
+ * MultiLineString's as the nested form Polyline takes for several parts (a
+ * fence around a severed zone, or a trimmed ring that split into pieces).
+ * Anything else, null included, is nothing to draw.
+ */
 function lineLatLngs(geometry) {
-  const coordinates = geometry?.type === 'LineString' ? geometry.coordinates : []
-  return coordinates.map(([lng, lat]) => [lat, lng])
+  if (geometry?.type === 'LineString') return geometry.coordinates.map(([lng, lat]) => [lat, lng])
+  if (geometry?.type === 'MultiLineString') {
+    return geometry.coordinates
+      .filter((part) => part.length)
+      .map((part) => part.map(([lng, lat]) => [lat, lng]))
+  }
+  return []
 }
 
 const accessPointIcon = (extra) =>

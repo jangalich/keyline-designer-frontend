@@ -285,6 +285,17 @@ const TREATMENT_MARKS = [
      marksItsOwnEdge() is false of it, and TILE_BUILDERS has no tile for it,
      so injectZonePatterns() passes it through as it does a tint. */
   { treatment: 'structure', kind: 'pin', token: '--ochre' },
+  /* THE FENCE MARK: A CASED LINE, in --fence -- the road's kind of mark, in a
+     second colour, because a fence is the other LINE on this map and the two
+     are told apart by value rather than by kind. The candidates, the
+     measurements over canopy and bare soil, and the choice are written
+     beside the token in index.css; nothing here picks a colour. Same
+     LINE_WEIGHT / CASING_WEIGHT pair every line on this map takes, drawn by
+     layers.jsx's LineLayer, which reads the DISPLAY-ONLY line the server
+     ships (fence_display_geometry.py's angular-simplified, coincidence-
+     trimmed rendering) rather than the raw ring -- see drawnAs(). No fill,
+     no paint server, no outline: the line IS the mark. */
+  { treatment: 'fence', kind: 'line', token: '--fence' },
 ]
 
 /**

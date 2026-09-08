@@ -297,6 +297,65 @@
      production zone share ground. */
   --tree: #52a466;
 
+  /* THE FENCE MARK'S COLOUR: --rule, ON A --halo CASING. A fence is the other
+     LINE on this map -- the road is --ink, dark -- and the two are told apart
+     by VALUE: a pale line beside a dark one, both cased. Two palette tokens
+     were candidates, --rule (#ddd6c8, the hairline) and --ink-muted (#8a8477,
+     the caption colour), and BOTH WERE MEASURED BEFORE ONE WAS CHOSEN, in
+     layout.test.jsx's harness, drawn exactly as the mark is drawn (the road's
+     cased line, LINE_WEIGHT on CASING_WEIGHT) at the committed and active
+     levels, over closed canopy (#2e3a24) and dry bare soil (#cbb896), with and
+     without the casing -- the same `addedInkOver` every other mark is held to,
+     against the same 0.004 visibility floor:
+
+                                    cased            bare line
+       --rule       canopy  committed  0.0238          0.0081
+                            active     0.0305          0.0112
+                    soil    committed  0.0072          0.0016
+                            active     0.0091          0.0021
+       --ink-muted  canopy  committed  0.0197          0.0041
+                            active     0.0251          0.0055
+                    soil    committed  0.0041          0.0026
+                            active     0.0057          0.0035
+
+     WHAT WAS EXPECTED, AND WHAT THE NUMBERS SAY. --rule was expected to wash
+     out over bare soil (it is nearly soil's own value) and to read strongly
+     over canopy: CONFIRMED -- its bare line is a fifth of the floor over
+     soil (0.0016) and twice the floor over canopy (0.0081). --ink-muted was
+     expected to be the mid-value trap the road's old umber hit, weak over
+     both grounds: CONFIRMED -- bare, it sits AT the floor over canopy
+     (0.0041) and under it over soil (0.0026), and even CASED it only just
+     clears the floor over soil at the committed level (0.0041, 1.03x), which
+     is a line that disappears on the ground the road already holds. Both
+     need the casing, and with it --rule clears the floor on both grounds at
+     both levels by 1.8x or more, --ink-muted by 1.03x at its worst.
+
+     THE CASING IS WHAT CARRIES --rule OVER SOIL (4.6x the bare line), as it
+     carries the road over canopy; over canopy the pale line reads on its
+     own and the casing widens it. A pale line on a white casing is, at that
+     point, nearly one mark -- a soft pale stroke -- and that is the reading
+     wanted: a fence is a lighter thing than a road, on the map as on the
+     ground. --ink-muted is the same neutral as --road at a lighter value,
+     so a fence in it would read as a road that has faded, which is the
+     wrong statement about a different thing. --rule sits at the other end
+     of the value scale from --road (4.8:1 against it), so the two lines are
+     a pair told apart at a glance.
+
+     ONE COST, STATED. On the mid-grey swatch the fence's focused state is
+     1.41x its active state, under the 1.5x floor the pattern marks meet: a
+     pale line over a white casing cannot swing against grey the way a dark
+     core does (the road manages 2.64x there), and --ink-muted is worse
+     still at 1.22x, a mid-grey line on mid-grey ground. On imagery the
+     fence's committed-to-active step (1.28x over canopy, 1.26x over soil)
+     is the road's own (1.23x). layout.test.jsx holds the fence to 1.3x on
+     mid-grey and to the same imagery floors as every other mark, and says
+     why beside the number.
+
+     #D4A017, the printed layout map's FENCE_COLOR, was NOT a candidate: it
+     is a near neighbour of --ochre, which is the live-point-marker colour
+     (see that token's rule), and a fence is not a live point. */
+  --fence: var(--rule);
+
   /* NO --structure TOKEN. The structure site had a violet wash of its own
      for one branch; it is a PIN now, in --ochre, for the rule written beside
      that token: a structure site is a live point, not ground, and takes the

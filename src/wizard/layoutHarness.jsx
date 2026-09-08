@@ -344,7 +344,7 @@ function detailGroups(rows) {
 const SHOW_ZONES = params.get('zones') === '1'
 const SWATCH_PX = 90
 
-const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road', 'tree', 'structure']
+const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road', 'tree', 'structure', 'fence']
 
 /**
  * THE ROAD, ONCE MORE WITHOUT ITS CASING. Roads are lines, and a line's
@@ -362,7 +362,36 @@ const UNCASED = [
   // ochre. Two cells beside the cased ones, so the halo's worth is a number.
   { treatment: 'structure', state: 'committed', uncased: true },
   { treatment: 'structure', state: 'active', uncased: true },
+  // THE FENCE, ONCE MORE WITHOUT ITS CASING: the shipped fence mark, the
+  // same question the road answers.
+  { treatment: 'fence', state: 'committed', uncased: true },
+  { treatment: 'fence', state: 'active', uncased: true },
 ]
+
+/**
+ * THE TWO FENCE COLOUR CANDIDATES, MEASURED BEFORE ONE WAS CHOSEN.
+ *
+ * A fence is the other LINE on this map, and two tokens from the palette
+ * were under consideration for it: --rule (#ddd6c8, the hairline colour) and
+ * --ink-muted (#8a8477, the caption colour). Rather than argue which reads
+ * over imagery, both are drawn here exactly as the shipped mark is drawn --
+ * the road's cased line at each level, and the bare line beside it -- over
+ * both grounds, so layout.test.jsx can report `addedInkOver` for each and
+ * the choice in index.css can quote the numbers. `lineToken` overrides the
+ * mark's own token for these cells only; the shipped `fence` treatment is
+ * still measured above under its own name, so whichever token it resolves
+ * to is held to the floor like every other mark.
+ */
+const FENCE_CANDIDATES = []
+for (const [id, lineToken] of [
+  ['fence-rule', '--rule'],
+  ['fence-ink-muted', '--ink-muted'],
+]) {
+  for (const state of ['committed', 'active']) {
+    FENCE_CANDIDATES.push({ treatment: 'fence', id, lineToken, state })
+    FENCE_CANDIDATES.push({ treatment: 'fence', id, lineToken, state, uncased: true })
+  }
+}
 
 /**
  * THE TWO SURVEY MARKS ON THE SAME GROUND, WHICH IS THE CASE THE PAIR EXISTS
@@ -473,7 +502,7 @@ function cellId(cell) {
   if (!cell) return 'bare'
   if (cell.overlap) return `overlap-${cell.state}`
   const suffix = cell.uncased ? '-uncased' : cell.unoutlined ? '-unoutlined' : ''
-  return `${cell.treatment}-${cell.state}${suffix}`
+  return `${cell.id ?? cell.treatment}-${cell.state}${suffix}`
 }
 
 /**
@@ -625,7 +654,9 @@ function ZoneSwatches() {
         svg.querySelector('rect').setAttribute('fill', 'none')
         const level = patternLevel(svg.dataset.state)
         const passes = svg.dataset.uncased === 'true' ? [] : [[readToken('--halo'), CASING_WEIGHT]]
-        passes.push([mark.stroke, LINE_WEIGHT])
+        // A CANDIDATE CELL draws the same line in another token -- see
+        // FENCE_CANDIDATES. The shipped mark's own cells carry no override.
+        passes.push([svg.dataset.lineToken ? readToken(svg.dataset.lineToken) : mark.stroke, LINE_WEIGHT])
         for (const [stroke, weight] of passes) {
           const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
           line.setAttribute('x1', '0')
@@ -790,7 +821,7 @@ function ZoneSwatches() {
         )
       )}
       {GROUNDS.map((ground, row) =>
-        [null, ...cells, ...UNCASED, ...UNOUTLINED, ...OVERLAP].map((cell, index) => (
+        [null, ...cells, ...UNCASED, ...UNOUTLINED, ...OVERLAP, ...FENCE_CANDIDATES].map((cell, index) => (
           <div
             key={`${ground.id}-${cellId(cell)}`}
             data-testid={`ground-${ground.id}-${cellId(cell)}`}
@@ -801,7 +832,12 @@ function ZoneSwatches() {
                 GROUND_TOP +
                 (row *
                   Math.ceil(
-                    (cells.length + UNCASED.length + UNOUTLINED.length + OVERLAP.length + 1) /
+                    (cells.length +
+                      UNCASED.length +
+                      UNOUTLINED.length +
+                      OVERLAP.length +
+                      FENCE_CANDIDATES.length +
+                      1) /
                       GROUND_COLUMNS
                   ) +
                   Math.floor(index / GROUND_COLUMNS)) *
@@ -823,6 +859,7 @@ function ZoneSwatches() {
                 data-state={cell.state}
                 data-uncased={cell.uncased ? 'true' : undefined}
                 data-unoutlined={cell.unoutlined ? 'true' : undefined}
+                data-line-token={cell.lineToken ?? undefined}
                 width={SWATCH_PX}
                 height={SWATCH_PX}
                 style={cell?.overlap ? { position: 'absolute', left: 0, top: 0, zIndex: depth } : undefined}
