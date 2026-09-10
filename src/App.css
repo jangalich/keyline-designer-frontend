@@ -864,6 +864,37 @@
   color: var(--ink);
 }
 
+/* THE WAITING LINE'S SLOT DOES NOT BREATHE WHILE IT CYCLES.
+
+   A request that is out for eight seconds turns four phrases through the
+   direction above, and this card is `width: fit-content` and centred -- so a
+   slot holding one phrase at a time would grow and shrink on BOTH sides every
+   two seconds, in the region whose whole job is to be read, over a map. That
+   is the same defect the tab strip and the detail panel were fixed for: a
+   region sized by its content deciding what the frame does.
+
+   SO EVERY PHRASE IS IN THE DOCUMENT AND ONE IS VISIBLE. A single-cell grid
+   stacks them, the box takes the width of the longest, and the ones that are
+   not current are hidden by VISIBILITY -- which still occupies its cell, where
+   `display: none` would give up the measurement this exists for.
+
+   NOTHING HERE ANIMATES. The phrase changes because a different one becomes
+   visible, so there is no transition to hold and none to remove under reduced
+   motion; what that setting changes is whether the cycle runs at all, and that
+   is decided in WaitingLine.jsx rather than here. */
+.chrome-bar__waiting {
+  display: grid;
+}
+
+.chrome-bar__waiting-phrase {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+
+.chrome-bar__waiting-phrase[data-current='true'] {
+  visibility: visible;
+}
+
 /* Notices sit UNDER the direction rather than replacing it. A caution that
    erases the instruction leaves someone holding a warning and no way forward. */
 .chrome-bar__notices {
