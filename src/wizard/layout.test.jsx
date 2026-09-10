@@ -1571,6 +1571,22 @@ describeIf('the zone patterns, rendered', () => {
     expect(marks.excavated.screenOpacity).toBeGreaterThan(0)
     expect(marks.excavated.screenOpacity).toBeLessThan(0.4)
 
+    // AND IT IS AT ITS MEASURED CEILING, WHICH IS A NARROWER CLAIM THAN THAT.
+    //
+    // The band is here rather than in the ink measures below because the ink
+    // measures cannot hold it: a bound tight enough to catch a step back down
+    // to 0.2 would sit within a rounding of the shipped reading, and its own
+    // comment says why that is the wrong kind of bound. This reads the value
+    // out of the def instead, where a change to it is exact.
+    //
+    // 0.32 IS WHERE THE OVERLAP BREAKS -- the dot field's surviving texture
+    // measures 0.0035 there against the 0.004 floor asserted at the bottom of
+    // this file. So the upper end is the last value below the cliff, and the
+    // lower end is high enough that a revert to the 0.2 this shipped with
+    // fails here. See the sweep in ProductionHatchPattern.jsx.
+    expect(marks.excavated.screenOpacity).toBeGreaterThanOrEqual(0.25)
+    expect(marks.excavated.screenOpacity).toBeLessThanOrEqual(0.3)
+
     // A HALFTONE: MANY DOTS, EACH ONE ACTUALLY DRAWABLE, GROUND BETWEEN THEM.
     //
     // THIS USED TO ASK FOR "MANY, AND FINE" -- over 200 dots a tile, radius
@@ -2025,17 +2041,19 @@ describeIf('the zone patterns, rendered', () => {
        * while the tile still carried a rect, which is the failure that looks
        * like a working mark.
        *
-       * 0.025 OVER CANOPY, WHICH IS THE HARDER GROUND. Measured at 0.0319
-       * with the shipped 0.2 screen, against 0.0165 for the bare field, so
-       * this holds the gain at roughly half of what was won rather than at
-       * the exact reading -- a bound that pins the measurement to four
-       * decimals is a bound that fails on a renderer's rounding.
+       * 0.03 OVER CANOPY, WHICH IS THE HARDER GROUND. Measured at 0.0365
+       * with the 0.28 screen, against 0.0165 for the bare field, so this
+       * holds the gain at roughly half of what was won rather than at the
+       * exact reading -- a bound that pins the measurement to four decimals
+       * is a bound that fails on a renderer's rounding. WHICH VALUE the
+       * screen carries is asserted where it can be read exactly, off the
+       * pattern def above.
        */
       if (ground === 'canopy') {
         expect(
           active,
           'the screen has to keep the excavated zone visible over canopy'
-        ).toBeGreaterThan(0.025)
+        ).toBeGreaterThan(0.03)
       }
     }
   }, SLOW)
