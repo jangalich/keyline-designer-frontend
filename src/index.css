@@ -165,10 +165,25 @@
      ceiling derived below had already spent it.
 
      So the EMBANKMENT type keeps the screened tint and the EXCAVATED type is
-     now a STATIC DOT FIELD -- a fine, dense, irregular field of ~1px dots in
-     --survey-excavated, at the --pattern-* levels, with an outline in that
-     same colour. See ProductionHatchPattern.jsx for the mark and its measured
-     ink, and layout.test.jsx for the measurement.
+     now a DOT FIELD ON A SCREEN OF ITS OWN COLOUR -- a lattice of dots in
+     --survey-excavated over a light wash of the same, at the --pattern-*
+     levels, with an outline in that colour too. See ProductionHatchPattern.jsx
+     for the mark and its measured ink, and layout.test.jsx for the measurement.
+
+     THE SCREEN CAME BACK, AND THE PARAGRAPH ABOVE IS WHY IT COULD. What was
+     rejected was TWO WASHES AND NOTHING ELSE: with a tint the only axis, the
+     overlap multiplied into a third, darker fill and read as its own zone.
+     The dot field is what fixed that, and it fixed it by being a different
+     KIND of mark -- which the screen underneath does not undo, because the
+     dots are still the thing that tells the two types apart where they
+     coincide. What the dots could not do alone is hold the zone against
+     imagery: a field that inks an eighth of its ground leaves the other
+     seven eighths bare, and excavated was the quietest mark on this map. So
+     the screen is the ground under the texture rather than the mark itself,
+     it is deliberately LIGHTER than the embankment wash (0.29 of opaque
+     against 0.40), and the overlap is measured with it in place -- the dot
+     field still carries its texture through a wash, which is the assertion
+     the pair has always been held to.
 
      THE TWO ARE STILL ONE HUE, and the pair below is unchanged: same hue
      (203.0 and 202.9 degrees), same saturation (0.44 and 0.45), so the step is

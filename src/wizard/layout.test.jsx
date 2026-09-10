@@ -1393,21 +1393,33 @@ describeIf('the zone patterns, rendered', () => {
       const shapesOf = (t) =>
         defOf(t) ? [...new Set([...defOf(t).children].map((n) => n.tagName.toLowerCase()))] : null
       const fillOf = (t) =>
-        document.querySelector(`[data-testid="swatch-${t}-active"] rect`).getAttribute('fill')
+        document
+          .querySelector(`[data-testid="swatch-${t}-active"]`)
+          .querySelector(':scope > rect')
+          .getAttribute('fill')
       return {
         production: { shapes: shapesOf('production'), fill: fillOf('production') },
         embankment: { shapes: shapesOf('survey-embankment'), fill: fillOf('survey-embankment') },
-        excavated: {
-          shapes: shapesOf('survey-excavated'),
-          fill: fillOf('survey-excavated'),
-          dots: defOf('survey-excavated').children.length,
-          radii: [
-            ...new Set([...defOf('survey-excavated').children].map((n) => n.getAttribute('r'))),
-          ],
-          strokes: [...defOf('survey-excavated').children].filter((n) =>
-            n.hasAttribute('stroke')
-          ).length,
-        },
+        excavated: (() => {
+          const children = [...defOf('survey-excavated').children]
+          const circles = children.filter((n) => n.tagName === 'circle')
+          const rects = children.filter((n) => n.tagName === 'rect')
+          return {
+            shapes: shapesOf('survey-excavated'),
+            fill: fillOf('survey-excavated'),
+            dots: circles.length,
+            radii: [...new Set(circles.map((n) => n.getAttribute('r')))],
+            strokes: children.filter((n) => n.hasAttribute('stroke')).length,
+            // THE SCREEN: one full-tile rect, FIRST, so the dots sit on it.
+            screens: rects.length,
+            screenFirst: children[0]?.tagName,
+            screenOpacity: Number(rects[0]?.getAttribute('fill-opacity')),
+            screenCoversTile: rects[0]
+              ? Number(rects[0].getAttribute('width')) === 64 &&
+                Number(rects[0].getAttribute('height')) === 64
+              : false,
+          }
+        })(),
       }
     })
 
@@ -1423,9 +1435,28 @@ describeIf('the zone patterns, rendered', () => {
     // ruled lines -- so the two survey types differ in the KIND of mark, not
     // just in the value of one mark. That is what makes their overlap read as
     // two zones sharing ground instead of as a third, darker zone.
-    expect(marks.excavated.shapes).toEqual(['circle'])
+    // A SCREEN AND A FIELD OF DOTS, in that order in the tile. The dots are
+    // still what tells this type from embankment's wash; the screen is what
+    // lifts the whole zone off the imagery under it.
+    expect(marks.excavated.shapes).toEqual(['rect', 'circle'])
     expect(marks.excavated.fill).toMatch(/^url\(#/)
     expect(marks.excavated.fill).not.toBe(marks.production.fill)
+
+    // EXACTLY ONE SCREEN, COVERING THE WHOLE TILE, UNDER THE DOTS. Anything
+    // less than the whole tile leaves a seam at every repeat; anything after
+    // the dots paints over them.
+    expect(marks.excavated.screens).toBe(1)
+    expect(marks.excavated.screenFirst).toBe('rect')
+    expect(marks.excavated.screenCoversTile).toBe(true)
+
+    // AND IT IS A SCREEN RATHER THAN PAINT. The dots are opaque ink at the
+    // pattern levels; the rect under them has to stay well below that or the
+    // imagery stops reading through and the mark becomes a fill with specks
+    // on it. Held under the embankment wash's own active level (0.22 / 0.55
+    // = 0.4 of the pattern scale it rides), so the type that IS a wash stays
+    // the heavier screen of the two.
+    expect(marks.excavated.screenOpacity).toBeGreaterThan(0)
+    expect(marks.excavated.screenOpacity).toBeLessThan(0.4)
 
     // A HALFTONE: MANY DOTS, EACH ONE ACTUALLY DRAWABLE, GROUND BETWEEN THEM.
     //
@@ -1473,8 +1504,12 @@ describeIf('the zone patterns, rendered', () => {
         .trim()
       return ['survey-embankment', 'survey-excavated'].map((t) => {
         const svg = document.querySelector(`[data-testid="swatch-${t}-active"]`)
-        const strokes = [...svg.querySelectorAll('rect[stroke]')]
-        const fill = svg.querySelector('rect').getAttribute('fill')
+        // `:scope > rect` FOR BOTH: the swatch's own display rect and its
+        // own outline, never a rect inside the pattern def cloned in above
+        // them (the excavated tile's screen is one). See the harness's
+        // swatchRect() for the failure a bare 'rect' selector produced.
+        const strokes = [...svg.querySelectorAll(':scope > rect[stroke]')]
+        const fill = svg.querySelector(':scope > rect').getAttribute('fill')
         return {
           outlined: svg.dataset.outlined === 'true',
           count: strokes.length,
@@ -1846,9 +1881,16 @@ describeIf('the zone patterns, rendered', () => {
             `whole ${whole.toFixed(4)}  field-only ${field.toFixed(4)}  ` +
             `(outline adds ${(whole - field).toFixed(4)})`
         )
-        // ABOVE THE FLOOR ON BOTH GROUNDS, whole mark and field alone. The
+          // ABOVE THE FLOOR ON BOTH GROUNDS, whole mark and field alone. The
         // second is the load-bearing one: it is what says the DENSITY carries
         // the mark, so the outline never had to take a halo casing.
+        //
+        // THE SCREEN LIFTS BOTH, AND THE FLOOR IS NOT WHAT IT IS FOR. Since
+        // the tile gained a wash under its dots these clear the floor by an
+        // order of magnitude, so the floor no longer says anything about
+        // this mark -- it is kept because it is the same floor every other
+        // mark is held to, and the reading that matters now is the one
+        // asserted after the loop.
         expect(whole, `excavated ${state} must be legible over ${ground}`).toBeGreaterThan(0.004)
         expect(
           field,
@@ -1859,6 +1901,29 @@ describeIf('the zone patterns, rendered', () => {
       const committed = await addedInkOver(page, ground, 'survey-excavated', 'committed')
       const active = await addedInkOver(page, ground, 'survey-excavated', 'active')
       expect(committed).toBeLessThan(active)
+
+      /**
+       * THE SCREEN IS DOING ITS JOB, AND THE JOB IS THE ZONE'S PRESENCE.
+       *
+       * WHY A BOUND AT ALL. The screen exists because the dot field alone was
+       * the quietest mark on this map over imagery -- 0.0165 added ink over
+       * canopy where the embankment wash reads 0.1089. A screen that had
+       * drifted back toward nothing would leave that complaint unanswered
+       * while the tile still carried a rect, which is the failure that looks
+       * like a working mark.
+       *
+       * 0.025 OVER CANOPY, WHICH IS THE HARDER GROUND. Measured at 0.0319
+       * with the shipped 0.2 screen, against 0.0165 for the bare field, so
+       * this holds the gain at roughly half of what was won rather than at
+       * the exact reading -- a bound that pins the measurement to four
+       * decimals is a bound that fails on a renderer's rounding.
+       */
+      if (ground === 'canopy') {
+        expect(
+          active,
+          'the screen has to keep the excavated zone visible over canopy'
+        ).toBeGreaterThan(0.025)
+      }
     }
   }, SLOW)
 

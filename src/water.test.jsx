@@ -585,8 +585,22 @@ describe('3. two treatments, both cased', () => {
     // See ProductionHatchPattern's own note and layout.test.jsx, which
     // measures the consequence. What matters HERE is unchanged and is
     // asserted below: no ring around any dot.
-    expect(drawn.length).toBeGreaterThanOrEqual(36)
-    for (const dot of drawn) {
+    // THE SCREEN IS NOT A DOT, and it is separated out rather than allowed
+    // through the loop below: what that loop forbids is a RING AT THE DOT'S
+    // OWN FREQUENCY, and the screen is one rect per tile, under all of them.
+    // Letting it fall through would either fail on its tagName or, worse,
+    // make the loop's stroke check vacuous for it.
+    const screens = drawn.filter((node) => node.tagName.toLowerCase() === 'rect')
+    const tileDots = drawn.filter((node) => node.tagName.toLowerCase() !== 'rect')
+    expect(screens).toHaveLength(1)
+    // AND THE SCREEN IS A SCREEN: no stroke of its own, and well short of
+    // opaque, or the imagery stops reading through and the dots sit on paint.
+    expect(screens[0].getAttribute('stroke')).toBeNull()
+    expect(Number(screens[0].getAttribute('fill-opacity'))).toBeGreaterThan(0)
+    expect(Number(screens[0].getAttribute('fill-opacity'))).toBeLessThan(0.4)
+
+    expect(tileDots.length).toBeGreaterThanOrEqual(36)
+    for (const dot of tileDots) {
       expect(dot.tagName.toLowerCase()).toBe('circle')
       // ONE FILL, NO STROKE OF ANY COLOUR. Not "no --halo stroke": any ring
       // at the dot's frequency is the failure, whatever it is painted in.
