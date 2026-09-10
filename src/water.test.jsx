@@ -585,8 +585,22 @@ describe('3. two treatments, both cased', () => {
     // See ProductionHatchPattern's own note and layout.test.jsx, which
     // measures the consequence. What matters HERE is unchanged and is
     // asserted below: no ring around any dot.
-    expect(drawn.length).toBeGreaterThanOrEqual(36)
-    for (const dot of drawn) {
+    // THE SCREEN IS NOT A DOT, and it is separated out rather than allowed
+    // through the loop below: what that loop forbids is a RING AT THE DOT'S
+    // OWN FREQUENCY, and the screen is one rect per tile, under all of them.
+    // Letting it fall through would either fail on its tagName or, worse,
+    // make the loop's stroke check vacuous for it.
+    const screens = drawn.filter((node) => node.tagName.toLowerCase() === 'rect')
+    const tileDots = drawn.filter((node) => node.tagName.toLowerCase() !== 'rect')
+    expect(screens).toHaveLength(1)
+    // AND THE SCREEN IS A SCREEN: no stroke of its own, and well short of
+    // opaque, or the imagery stops reading through and the dots sit on paint.
+    expect(screens[0].getAttribute('stroke')).toBeNull()
+    expect(Number(screens[0].getAttribute('fill-opacity'))).toBeGreaterThan(0)
+    expect(Number(screens[0].getAttribute('fill-opacity'))).toBeLessThan(0.4)
+
+    expect(tileDots.length).toBeGreaterThanOrEqual(36)
+    for (const dot of tileDots) {
       expect(dot.tagName.toLowerCase()).toBe('circle')
       // ONE FILL, NO STROKE OF ANY COLOUR. Not "no --halo stroke": any ring
       // at the dot's frequency is the failure, whatever it is painted in.
@@ -2174,6 +2188,59 @@ describe('notices', () => {
     // THE FLOOR ITSELF IS NOT QUOTED: MIN_SURVEY_REGION_AREA_ACRES is a
     // backend constant and no key in this payload carries it.
     expect(dropped.text.join('')).not.toMatch(/0\.1/)
+  })
+
+  it('tells a withheld survivor apart from a dropped one, and quotes the rule it was withheld by', () => {
+    const zone = fixtureZone({})
+
+    // NOTHING WITHHELD -> NOTHING SAID. The presented set is everything that
+    // survived, so there is no shape to explain.
+    const all = WATER_STEP.notices({
+      proposals: payloadOf([zone], {
+        zone_count: 1,
+        presentation: { presented_count: 1, withheld_count: 0, rule_applied: '1 embankment' },
+      }),
+      draft: { selectedFeatureIds: [], drawnFeatures: [] },
+    })
+    expect(all.map((n) => n.key)).not.toContain('withheld')
+
+    const capped = WATER_STEP.notices({
+      proposals: payloadOf([zone], {
+        zone_count: 11,
+        dropped_count: 2,
+        presentation: {
+          presented_count: 4,
+          withheld_count: 7,
+          rule_applied: '2 embankment + 1 excavated + 1 embankment backfill',
+        },
+      }),
+      draft: { selectedFeatureIds: [], drawnFeatures: [] },
+    })
+    const withheld = capped.find((n) => n.key === 'withheld')
+    expect(withheld).toBeDefined()
+
+    // BOTH FIGURES MEASURED AND SET AS SUCH, mid-sentence, like the dropped
+    // notice's own count.
+    expect(withheld.text.some((part) => part?.measure === '4')).toBe(true)
+    expect(withheld.text.some((part) => part?.measure === '11')).toBe(true)
+    expect(withheld.text.some((part) => part?.measure === '7')).toBe(true)
+
+    // THE RULE IS THE PAYLOAD'S OWN WORDS, not a second copy of it over here.
+    expect(withheld.text.join('')).toContain(
+      '2 embankment + 1 excavated + 1 embankment backfill'
+    )
+
+    // THE TWO SENTENCES STAY DIFFERENT SENTENCES. A withheld zone passed
+    // every test; a dropped one failed one. Reading the withheld line as a
+    // rejection is the exact confusion this notice exists to prevent.
+    expect(withheld.text.join('')).toContain('passed every test')
+    expect(withheld.text.join('')).not.toMatch(/floor/)
+    const dropped = capped.find((n) => n.key === 'dropped')
+    expect(dropped).toBeDefined()
+    expect(dropped.text.join('')).toMatch(/minimum area floor/)
+
+    // AND IT IS NOT A CAUTION. Nothing is wrong.
+    expect(withheld.tone).toBe('advisory')
   })
 
   liveIt('says nothing untrue about the reference parcel', async () => {

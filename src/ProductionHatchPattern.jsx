@@ -211,6 +211,23 @@ const TREATMENT_MARKS = [
   // survive imagery alone, and a ring at the dot's own frequency is a second
   // texture rather than a support for the first. A 3.2px dot does not need
   // one; it is legible because it is a dot.
+  //
+  // AND A SCREEN UNDER THE DOTS. The dots alone were the quietest mark on
+  // this map over imagery -- 0.0165 added ink over canopy at active, against
+  // the embankment wash's 0.1089 -- because a dot field inks an eighth of
+  // what it covers by design and the other seven eighths were bare frame. The
+  // screen is the other seven eighths, at a fifth of the colour's strength.
+  //
+  // 0.2, AND THE NUMBER IS MEASURED RATHER THAN CHOSEN. Swept against
+  // layout.test.jsx's own instruments: it very nearly doubles the zone's
+  // presence over both grounds (canopy 0.0165 -> 0.0319, soil 0.0390 ->
+  // 0.0722 at active) while the dot field keeps most of its local contrast
+  // and the overlap still reads as a texture on a wash. Above about 0.3 the
+  // dots stop carrying: at 0.34 the overlap's surviving texture measures
+  // 0.0040 against a 0.004 floor, which is the mark ceasing to be one. The
+  // screened fraction lands at 0.29 of opaque against the embankment wash's
+  // 0.40, so the type that IS a wash is still the heavier screen of the two
+  // and the pair stays tellable apart by weight as well as by kind.
   {
     treatment: 'survey-excavated',
     kind: 'stipple',
@@ -218,6 +235,7 @@ const TREATMENT_MARKS = [
     tile: 64,
     grid: 8,
     radius: 1.6,
+    screen: 0.2,
   },
   // ROADS: a cased LINE. The first mark here that is not ground. Its whole
   // description is its colour -- the weights are layers.jsx's LINE_WEIGHT and
@@ -467,7 +485,27 @@ function hatchTile(spec, colour) {
  */
 function stippleTile(spec, colour) {
   const cell = spec.tile / spec.grid
-  const dots = []
+  const nodes = []
+  if (spec.screen) {
+    // THE SCREEN, FIRST IN THE TILE SO THE DOTS SIT ON IT. A full-tile rect
+    // in the mark's own colour at spec.screen, which makes this the one row
+    // in the table that is a screen AND a texture.
+    //
+    // WHY IT IS INSIDE THE TILE RATHER THAN A SECOND PATH UNDER THE ZONE.
+    // A second path would be a second layer with its own opacity, its own
+    // state scale and its own edge to keep in step -- three things to keep
+    // in agreement for one mark. In the tile it is part of the paint server,
+    // so the path's own fill-opacity scales screen and dots TOGETHER and the
+    // three states stay three opacities of ONE mark, which is the property
+    // the whole level language rests on. It also tiles for free: the rect is
+    // exactly the tile, so the screen is seamless where the tiles meet.
+    const screen = document.createElementNS(SVG_NS, 'rect')
+    screen.setAttribute('width', String(spec.tile))
+    screen.setAttribute('height', String(spec.tile))
+    screen.setAttribute('fill', colour)
+    screen.setAttribute('fill-opacity', String(spec.screen))
+    nodes.push(screen)
+  }
   for (let row = 0; row < spec.grid; row += 1) {
     for (let col = 0; col < spec.grid; col += 1) {
       const dot = document.createElementNS(SVG_NS, 'circle')
@@ -475,10 +513,10 @@ function stippleTile(spec, colour) {
       dot.setAttribute('cy', ((row + 0.5) * cell).toFixed(2))
       dot.setAttribute('r', String(spec.radius))
       dot.setAttribute('fill', colour)
-      dots.push(dot)
+      nodes.push(dot)
     }
   }
-  return dots
+  return nodes
 }
 
 /**

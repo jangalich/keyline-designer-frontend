@@ -577,6 +577,25 @@ function ZonePatternHost() {
   return null
 }
 
+/**
+ * THE SWATCH'S OWN DISPLAY RECT -- the one the cell paints -- and never a rect
+ * that happens to live inside the pattern def cloned in above it.
+ *
+ * `:scope > rect` RATHER THAN `querySelector('rect')`, and the difference is
+ * not pedantry. The clone is inserted as the svg's FIRST child, so a bare
+ * `querySelector('rect')` returns the first rect in document order ANYWHERE
+ * under the svg -- which was the display rect only for as long as no pattern
+ * tile contained a rect of its own. The excavated stipple's screen is exactly
+ * such a rect, and the failure it produced was silent and total: the fill was
+ * set on the pattern's screen instead, making the tile reference itself, and
+ * the swatch rendered as flat dark ground whose appearance did not respond to
+ * the screen's opacity at all. Every ink and texture measurement over it was
+ * measuring nothing.
+ */
+function swatchRect(svg) {
+  return svg.querySelector(':scope > rect')
+}
+
 function ZoneSwatches() {
   const [ready, setReady] = useState(false)
   const host = useRef(null)
@@ -606,7 +625,7 @@ function ZoneSwatches() {
         clone.setAttribute('id', `local-${svg.dataset.testid}`)
         defs.appendChild(clone)
         svg.insertBefore(defs, svg.firstChild)
-        svg.querySelector('rect').setAttribute('fill', `url(#local-${svg.dataset.testid})`)
+        swatchRect(svg).setAttribute('fill', `url(#local-${svg.dataset.testid})`)
         // A STIPPLE FALLS THROUGH TO THE OUTLINE PASS BELOW; a hatch does
         // not. Both are paint servers and only one of them draws its own
         // edge, which is marksItsOwnEdge()'s distinction and not this file's.
@@ -620,7 +639,7 @@ function ZoneSwatches() {
         // the body, the whole glyph at the state's pattern level -- which is
         // what App.css's .site-pin rules do. `data-uncased` leaves the halo
         // out, for the measurement that asks what it is worth.
-        svg.querySelector('rect').setAttribute('fill', 'none')
+        swatchRect(svg).setAttribute('fill', 'none')
         const level = patternLevel(svg.dataset.state)
         const group = document.createElementNS('http://www.w3.org/2000/svg', 'g')
         const scale = SITE_PIN_SIZE / 24
@@ -651,7 +670,7 @@ function ZoneSwatches() {
         // coloured line, both at the state's level -- which is what LineLayer
         // draws. `data-uncased` leaves the halo pass out, for the one
         // measurement that asks what the casing is worth.
-        svg.querySelector('rect').setAttribute('fill', 'none')
+        swatchRect(svg).setAttribute('fill', 'none')
         const level = patternLevel(svg.dataset.state)
         const passes = svg.dataset.uncased === 'true' ? [] : [[readToken('--halo'), CASING_WEIGHT]]
         // A CANDIDATE CELL draws the same line in another token -- see
@@ -677,7 +696,7 @@ function ZoneSwatches() {
       // outline over it. One colour, one line, nothing under it. Insetting by
       // half the stroke keeps the whole outline inside the swatch, so the
       // screenshot measures all of it instead of half of it.
-      if (mark.kind === 'tint') svg.querySelector('rect').setAttribute('fill', mark.fill)
+      if (mark.kind === 'tint') swatchRect(svg).setAttribute('fill', mark.fill)
       const inset = OUTLINE_WEIGHT / 2
       const outline = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
       outline.setAttribute('x', String(inset))
