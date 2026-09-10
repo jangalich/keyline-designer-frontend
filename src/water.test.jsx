@@ -2176,6 +2176,59 @@ describe('notices', () => {
     expect(dropped.text.join('')).not.toMatch(/0\.1/)
   })
 
+  it('tells a withheld survivor apart from a dropped one, and quotes the rule it was withheld by', () => {
+    const zone = fixtureZone({})
+
+    // NOTHING WITHHELD -> NOTHING SAID. The presented set is everything that
+    // survived, so there is no shape to explain.
+    const all = WATER_STEP.notices({
+      proposals: payloadOf([zone], {
+        zone_count: 1,
+        presentation: { presented_count: 1, withheld_count: 0, rule_applied: '1 embankment' },
+      }),
+      draft: { selectedFeatureIds: [], drawnFeatures: [] },
+    })
+    expect(all.map((n) => n.key)).not.toContain('withheld')
+
+    const capped = WATER_STEP.notices({
+      proposals: payloadOf([zone], {
+        zone_count: 11,
+        dropped_count: 2,
+        presentation: {
+          presented_count: 4,
+          withheld_count: 7,
+          rule_applied: '2 embankment + 1 excavated + 1 embankment backfill',
+        },
+      }),
+      draft: { selectedFeatureIds: [], drawnFeatures: [] },
+    })
+    const withheld = capped.find((n) => n.key === 'withheld')
+    expect(withheld).toBeDefined()
+
+    // BOTH FIGURES MEASURED AND SET AS SUCH, mid-sentence, like the dropped
+    // notice's own count.
+    expect(withheld.text.some((part) => part?.measure === '4')).toBe(true)
+    expect(withheld.text.some((part) => part?.measure === '11')).toBe(true)
+    expect(withheld.text.some((part) => part?.measure === '7')).toBe(true)
+
+    // THE RULE IS THE PAYLOAD'S OWN WORDS, not a second copy of it over here.
+    expect(withheld.text.join('')).toContain(
+      '2 embankment + 1 excavated + 1 embankment backfill'
+    )
+
+    // THE TWO SENTENCES STAY DIFFERENT SENTENCES. A withheld zone passed
+    // every test; a dropped one failed one. Reading the withheld line as a
+    // rejection is the exact confusion this notice exists to prevent.
+    expect(withheld.text.join('')).toContain('passed every test')
+    expect(withheld.text.join('')).not.toMatch(/floor/)
+    const dropped = capped.find((n) => n.key === 'dropped')
+    expect(dropped).toBeDefined()
+    expect(dropped.text.join('')).toMatch(/minimum area floor/)
+
+    // AND IT IS NOT A CAUTION. Nothing is wrong.
+    expect(withheld.tone).toBe('advisory')
+  })
+
   liveIt('says nothing untrue about the reference parcel', async () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)

@@ -2606,6 +2606,43 @@ export const WATER_STEP = documentStep({
       })
     }
 
+    /* SURVIVED AND WITHHELD, which is a DIFFERENT SENTENCE from the one above
+       and must stay one. A dropped zone failed a test -- the acreage floor,
+       the catchment ceiling, a dedupe -- and the notice above says so. A
+       WITHHELD zone passed every one of them and is being held back only
+       because the backend's presentation rule sends the top few (the top 2 of
+       each survey type, backfilled to a fixed count). Saying "not showing
+       them" without saying WHICH of those two happened would let a perfectly
+       good pond site read as a rejected one.
+
+       THE COUNT IS THE PAYLOAD'S, like the dropped count beside it, and the
+       rule is the payload's own words (`rule_applied`, e.g. "2 embankment +
+       1 excavated + 1 embankment backfill"). Neither is inferred here and
+       neither is reworded: a second copy of the rule on this side is the
+       copy that goes stale silently the first time the backend retunes it --
+       the same argument the dropped notice makes about the floor constant.
+
+       NOT A CAUTION. Nothing is wrong; the user is being told the shape of
+       what they are looking at. */
+    const presentation = summary.presentation ?? {}
+    if (presentation.withheld_count > 0) {
+      lines.push({
+        key: 'withheld',
+        tone: 'advisory',
+        text: [
+          'Showing the ',
+          measured(presentation.presented_count, COUNT_DP),
+          ' strongest areas of the ',
+          measured(summary.zone_count, COUNT_DP),
+          ' that qualified (',
+          presentation.rule_applied ?? '',
+          '). The other ',
+          measured(presentation.withheld_count, COUNT_DP),
+          ' passed every test and were held back only by that rule — they are in the report and the diagnostic export, but cannot be selected here.',
+        ],
+      })
+    }
+
     return lines
   },
 
