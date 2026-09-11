@@ -518,9 +518,21 @@ export function measured(value, dp = MEASURE_DP) {
  * than no column. So the step that knows its own figure's precision says so,
  * and MEASURE_DP stops being a claim about every payload.
  *
- * WHAT THIS IS NOT is a rescale. Water's mean_suitability is 0-1 and is
- * printed as 0-1; multiplying by 100 to make it look like landform's 0-100
- * score would be this app inventing a unit the backend does not use.
+ * WHAT THIS IS NOT, AND STILL IS NOT, is a rescale. Water's suitability now
+ * reaches this app ALREADY on the 0-100 KSOP display scale -- the backend
+ * converts it once, at the panel row and in the scales block, and ships whole
+ * numbers -- and this side prints what it is sent. The old note here argued
+ * that multiplying by 100 would be this app inventing a unit the backend does
+ * not use; the backend uses it now, and the rule is unchanged for the better
+ * reason: a client-side multiplier on a server-converted value is a SECOND
+ * scale, and two multipliers is how one display scale silently becomes two.
+ * No score or suitability on this side is multiplied by anything, and the
+ * source-level assertion in water.test.jsx holds the file to it.
+ *
+ * The stored 0-1 values are still on the features under their own names
+ * (`mean_suitability`, and every criterion score), untouched and unconverted
+ * -- they are the diagnostic record. Nothing on this path renders them, and
+ * nothing that renders a grade reads them.
  */
 export function measure(value, dp = MEASURE_DP) {
   return value == null ? '—' : Number(value).toFixed(dp)
@@ -2267,7 +2279,7 @@ export function surveyZonePanel(proposals, featureId) {
  *
  *   rank         `2` alone is not a reading. `scales.rank[type].count` is the
  *                denominator and rank is PER TYPE, so it renders "2 of 3".
- *   suitability  `0.53` against a theoretical 1.0 says "barely half". The
+ *   suitability  `53` against a theoretical 100 says "barely half". The
  *                soil criterion's parcel range caps the blend, so the honest
  *                denominator is the parcel's own attainable ceiling --
  *                `scales.suitability.parcel_observed_max[type]`, measured by
@@ -2276,6 +2288,14 @@ export function surveyZonePanel(proposals, featureId) {
  * Both fall back to the bare number when the scale is absent: a payload
  * without scales is older, not wrong, and a missing denominator must not blank
  * a measurement.
+ *
+ * THE SUITABILITY PAIR ARRIVES ALREADY CONVERTED, AND THIS IS A READING RATHER
+ * THAN A CONVERSION. The row's value and the ceiling are both whole numbers on
+ * the backend's 0-100 display scale, converted there by one helper, so joining
+ * them here is the same arithmetic-free join `rank` gets -- the numerator and
+ * the denominator cannot be on two different scales because neither of them
+ * was computed on this side. The row's `unit` ("/100") is what the field label
+ * carries, so the pair reads as "53 of 82" under "suitability (/100)".
  *
  * EVERY OTHER NUMBER IS PRINTED AS THE BACKEND SENT IT -- no toFixed, no
  * rescale. The pipeline rounds at its own documented boundary and those values
@@ -2305,14 +2325,21 @@ export function panelValue(row, scales, surveyType) {
  * a second spelling of that path is a second answer waiting to disagree with
  * the first.
  *
- * WHY THIS DENOMINATOR RATHER THAN 1.0. `scales.suitability` says min 0.0,
- * max 1.0 -- and reading 0.53 against 1.0 says "barely half" when the honest
- * reading is "0.53 of an attainable 0.68". The soil criterion's own parcel
+ * WHY THIS DENOMINATOR RATHER THAN 100. `scales.suitability` says min 0,
+ * max 100 -- and reading 53 against 100 says "barely half" when the honest
+ * reading is "53 of an attainable 68". The soil criterion's own parcel
  * range caps the blend: on a parcel whose best soil scores 0.6, no cell can
- * reach 1.0 however good its slope, catchment and wetness. The backend
- * measures the ceiling off its own gate-masked surface and ships it PER TYPE,
- * because the two surfaces are kept apart end to end and are never comparable
- * on one scale.
+ * reach the top however good its slope, catchment and wetness. The backend
+ * measures the ceiling off its own gate-masked surface, converts it through
+ * the same helper the row value goes through, and ships it PER TYPE, because
+ * the two surfaces are kept apart end to end and are never comparable on one
+ * scale.
+ *
+ * IT IS A DENOMINATOR, NOT A NORMALIZER. The parcel's best cell reads 82, not
+ * 100. Rescaling so it read 100 was rejected on the backend for reasons that
+ * apply just as hard here: the reference moves when the boundary moves, and a
+ * 100 on poor ground would look like a 100 on excellent ground. So the
+ * ceiling is shown BESIDE the value and never divided into it.
  *
  * NULL WHEN THE PAYLOAD DOES NOT CARRY IT, and every caller falls back to the
  * bare number. A payload without `scales` is OLDER, not wrong, and a missing
@@ -2352,23 +2379,29 @@ export function panelFields(rows, scales) {
 }
 
 /**
- * How many decimal places water's own figures carry.
+ * How many decimal places water's own figures carry: NONE, now that the
+ * backend ships them on the 0-100 display scale.
  *
- * NOT MEASURE_DP, AND SEE measure()'s NOTE FOR WHY. mean_suitability is a
- * weighted-overlay fraction on 0-1 (0.5260, 0.7933, 0.5586 on the reference
- * parcel), so one decimal place prints all three as "0.5" -- a column of
- * identical numbers for zones the pipeline ranked apart.
+ * THIS CONSTANT USED TO BE 2 AND THE REASON IT WAS IS THE REASON IT IS NOW 0.
+ * mean_suitability was a 0-1 weighted-overlay fraction (0.5260, 0.7933,
+ * 0.5586 on the reference parcel) and one decimal place printed all three as
+ * "0.5" -- a column of identical numbers for zones the pipeline ranked apart.
+ * The same three figures on the 0-100 display scale are 53, 79 and 56: the
+ * spread that needed two decimals is in the whole number, and a ".00" after
+ * every grade is a decimal point the value does not have.
+ *
+ * IT IS A PRINTING WIDTH, NEVER A CONVERSION. The figure it is applied to has
+ * already been converted by the backend and is already a whole number; this
+ * side has no multiplier anywhere (see measure()).
  *
  * TWO OF THE THREE WENT WITH THE PANEL. METRIC_DP existed for the depth and
  * catchment figures the detail panel printed, and those are not on the panel
  * any more (they are on the feature, and the export reads them); the
  * PANEL's own numbers are printed as the backend sent them, at the backend's
  * own rounding boundary -- see panelValue(). What is left is the TAB's
- * suitability figure, which this side still chooses the precision of because
- * the tab's two rows are this side's design, and the dropped-count in the
- * step notice.
+ * suitability figure and the dropped-count in the step notice.
  */
-const SUITABILITY_DP = 2
+const SUITABILITY_DP = 0
 const COUNT_DP = 0
 
 export const WATER_STEP = documentStep({
@@ -2674,6 +2707,11 @@ export const WATER_STEP = documentStep({
     // `removable` is simply not declared, which is how the strip is told.
     return surveyZoneFeatures(proposals).map((feature) => {
       const ceiling = suitabilityCeiling(scales, feature.properties?.survey_type)
+      // THE TAB'S FIGURE COMES OFF THE PANEL ROW, NOT OFF THE FEATURE, and
+      // that is the change the display scale forced. See the row below.
+      const suitability = surveyZonePanel(proposals, feature.id).find(
+        (row) => row.key === 'suitability'
+      )
       return {
         id: feature.id,
         name: surveyZoneName(feature.properties),
@@ -2685,21 +2723,36 @@ export const WATER_STEP = documentStep({
             /**
              * THE SUITABILITY, AGAINST THE SCALE THE PAYLOAD SHIPPED FOR IT.
              *
-             * A BARE "0.56" IS NOT A READING. It was the last figure on this
+             * READ OFF THE PANEL ROW, WHICH IS THE ONE CONVERTED FIGURE ON
+             * THE WIRE, and this is the whole of what the display scale
+             * changed on this side. The tab used to print
+             * `feature.properties.mean_suitability`, and that property is the
+             * DIAGNOSTIC RECORD: it is still 0-1 and was deliberately left
+             * that way. The ceiling beside it is on the 0-100 display scale
+             * now, so a tab reading the feature would have printed "0.56 of
+             * 68" -- a numerator and a denominator on two different scales,
+             * which is exactly the double-scaling the backend's single
+             * conversion point exists to prevent. Both halves of this reading
+             * now come from the same converted source and nothing here
+             * multiplies anything.
+             *
+             * A BARE "56" IS NOT A READING. It was the last figure on this
              * step still printed with nothing to read it against -- the detail
              * panel has read `scales` since the panel became the server's own
-             * rows, and the tab had not caught up. Two decimals of a 0-1
-             * fraction with no denominator is a number nobody can act on, and
-             * this tab exists to be acted on: it is the two figures someone
-             * scans to decide which area to walk.
+             * rows, and the tab had not caught up. A grade with no denominator
+             * is a number nobody can act on, and this tab exists to be acted
+             * on: it is the two figures someone scans to decide which area to
+             * walk.
              *
              * THE DENOMINATOR RIDES THE LABEL, NOT THE FIGURE, which is the
              * rule the panel's own units follow (see panelFields). The value
              * column is a fixed-width monospace column whose whole job is to
-             * hold the decimal point still down a strip of tabs; "0.56 of
-             * 0.68" in it widens that column for every tab and turns a column
-             * of figures into a column of phrases. The label is the prose
-             * half, and "of 0.68 suitability" is prose.
+             * hold the figures aligned down a strip of tabs; "56 of 68" in it
+             * widens that column for every tab and turns a column of figures
+             * into a column of phrases. The label is the prose half, and "of
+             * 68 suitability" is prose -- and it is also where this reading
+             * says which scale it is on, since a bare "56" beside "2.6 acres"
+             * must not be mistakable for a fraction.
              *
              * NO BAND NAME, AND THAT IS THE PAYLOAD'S SHAPE RATHER THAN A
              * CHOICE. Landform's `scales` carries `bands` and `band_bounds`,
@@ -2712,13 +2765,18 @@ export const WATER_STEP = documentStep({
              * the block exists to prevent. What water DOES ship is the
              * parcel's own measured ceiling, and that is what is rendered.
              *
-             * BOTH FIGURES AT THE TAB'S OWN PRECISION. SUITABILITY_DP is this
-             * side's choice (see its note) and the ceiling is printed at it
-             * too -- "0.56 of 0.675" would be two precisions in one reading.
-             * The panel, which prints the backend's numbers as sent, shows the
-             * unrounded pair.
+             * BOTH FIGURES AT THE TAB'S OWN PRECISION, which is now no
+             * decimals at all because the backend ships whole numbers (see
+             * SUITABILITY_DP). The panel shows the same pair through
+             * panelValue(); the two cannot disagree, because both read the
+             * same two converted numbers.
+             *
+             * AND THE EM DASH SURVIVES. A payload whose row set does not carry
+             * a suitability row leaves `suitability` undefined, measure()
+             * prints the dash, and nothing here coerces it to a 0 -- the same
+             * rule the never-checked overlaps are held to.
              */
-            value: measure(feature.properties?.mean_suitability, SUITABILITY_DP),
+            value: measure(suitability?.value, SUITABILITY_DP),
             label:
               ceiling == null
                 ? 'suitability'
