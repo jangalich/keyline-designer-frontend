@@ -11,6 +11,14 @@
  *
  *   THE DIRECTION   One sentence, from the cursor step's `instructions` keyed
  *                   by the state it is in. What to do with your hands, now.
+ *                   The ONE exception is a state where there is nothing to do
+ *                   with your hands because a request is out: past a couple of
+ *                   seconds the declared line gives way to a few phrases that
+ *                   turn over while it travels, and past a threshold to a line
+ *                   that says the wait has run long. Neither claims anything
+ *                   about what the request is doing -- see WaitingLine.jsx,
+ *                   which holds the whole of that and the argument for why it
+ *                   must stay that way.
  *
  *   THE NOTICES     Everything the user has to know that is not that. They sit
  *                   under the direction rather than replacing it, because a
@@ -47,6 +55,10 @@ import { useDrawingProgress } from '../../map/DrawingProgress.jsx'
 /* A notice's text is prose with measured values in it, and so is the reopen
    confirmation's per-step note. One renderer, in MeasuredText.jsx. */
 import MeasuredText from './MeasuredText.jsx'
+/* WHAT THE DIRECTION SAYS WHILE A REQUEST IS OUT, for the two states that can
+   keep one out long enough for the question to arise. See WaitingLine.jsx --
+   including why it claims nothing about what the request is doing. */
+import WaitingLine, { useWaitingLine } from './WaitingLine.jsx'
 
 /** A step id as a person reads it, from its definition when we have one. */
 function titleFor(stepId, definitions) {
@@ -99,6 +111,24 @@ export default function InstructionBar({ machine, chromeState, definitions, undo
   const { notice: gestureNotice } = useDrawingProgress()
 
   const direction = definition.instructions[chromeState] ?? definition.blurb
+
+  /**
+   * A WAIT THAT HAS LASTED LONG ENOUGH TO SAY MORE THAN ITS ONE LINE, or null.
+   *
+   * IT REPLACES THE DIRECTION AND DOES NOT JOIN IT. There is one sentence in
+   * this card and this is the slot it lives in: a second line under the
+   * declared one would be a notice, and a notice is something the user has to
+   * know rather than something to look at while a request travels. The
+   * declared instruction is what stands until the wait earns the swap, and the
+   * moment the request answers the state changes and the declaration is back.
+   *
+   * THE NOTICES BELOW ARE UNTOUCHED BY IT. A commit that comes back having
+   * failed leaves `committing`, which ends the wait, and renders its own
+   * notice under whatever the new state's direction is -- see the
+   * `commitFailure` branch. Nothing here can suppress that, and nothing here
+   * outlives the state that produced it.
+   */
+  const waiting = useWaitingLine(chromeState)
 
   const notices = []
 
@@ -244,8 +274,13 @@ export default function InstructionBar({ machine, chromeState, definitions, undo
       data-step-state={machine.machineState}
       data-chrome-state={chromeState}
     >
-      <p className="chrome-bar__direction" data-testid={`instruction-${stepId}`} role="status">
-        {direction}
+      <p
+        className="chrome-bar__direction"
+        data-testid={`instruction-${stepId}`}
+        data-waiting={waiting ? waiting.kind : undefined}
+        role="status"
+      >
+        {waiting ? <WaitingLine waiting={waiting} stepId={stepId} /> : direction}
       </p>
 
       {notices.length ? (

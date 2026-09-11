@@ -400,6 +400,119 @@ describeIf('5. the instruction card', () => {
 })
 
 /* ===========================================================================
+   5b. THE WAITING LINE DOES NOT MAKE THE CARD BREATHE
+   ===========================================================================
+   A commit that is out for eight seconds turns four phrases through the
+   direction slot, and this card is `width: fit-content` and CENTRED -- so a
+   slot holding one phrase at a time would grow and shrink on both sides every
+   two seconds, in the region whose whole job is to be read, over a map.
+
+   THE FIX IS A STACK AND IT IS ONLY CHECKABLE HERE. Every phrase is in the
+   document in one grid cell and all but the current one are held at
+   `visibility: hidden`, so the box takes the width of the longest for the
+   whole wait. Whether that actually holds is four computed widths, and nothing
+   in jsdom computes one -- waiting.test.jsx can prove the phrases turn over
+   and cannot prove the card stayed still while they did.
+   =========================================================================== */
+
+/** WaitingLine.jsx's own interval, in ms. The page is not asked for it. */
+const PHRASE_INTERVAL = 2000
+
+describeIf('5b. the instruction card while a commit is out', () => {
+  it('keeps one width and one centre across a full turn of the phrases', async () => {
+    // A COMMIT THAT NEVER ANSWERS, so the wait lasts as long as the
+    // measurements do rather than the measurements racing a timeout.
+    const ui = await openHarness({ waiting: 1, notice: 'none' })
+    const stage = await ui.stage()
+
+    const declared = await ui.box(REGIONS.instruction)
+    await ui.page.click('[data-testid="commit-landform"]')
+
+    // THE PHRASES ARE NOT THERE YET. The first interval is the grace period --
+    // the declared instruction stands, and a commit that answers inside it
+    // never shows a phrase at all.
+    expect(await ui.page.locator('.chrome-bar__waiting').count()).toBe(0)
+
+    // ONE FULL TURN OF THE SET, MEASURED AT EACH PHRASE.
+    const widths = []
+    const centres = []
+    const phrases = []
+    for (let i = 0; i < 5; i += 1) {
+      await ui.page.waitForFunction(
+        (previous) => {
+          const current = document.querySelector('.chrome-bar__waiting-phrase[data-current="true"]')
+          return current !== null && current.textContent !== previous
+        },
+        phrases[phrases.length - 1] ?? null,
+        { timeout: PHRASE_INTERVAL * 3 }
+      )
+      const card = await ui.box(REGIONS.instruction)
+      widths.push(Math.round(card.width))
+      centres.push(Math.round(card.x + card.width / 2))
+      phrases.push(
+        await ui.page.locator('.chrome-bar__waiting-phrase[data-current="true"]').textContent()
+      )
+    }
+
+    // THE PHRASES DID TURN OVER -- otherwise "the width never changed" is a
+    // claim about one phrase measured five times.
+    expect(new Set(phrases).size).toBeGreaterThan(1)
+
+    // AND THE CARD DID NOT MOVE. One width, one centre, across all of them.
+    expect(new Set(widths).size, `widths seen: ${widths.join(', ')}`).toBe(1)
+    expect(new Set(centres).size, `centres seen: ${centres.join(', ')}`).toBe(1)
+
+    // STILL CENTRED ON THE STAGE, and still capped -- the stack is a slot
+    // inside the card, not a way around the card's own rules.
+    const card = await ui.box(REGIONS.instruction)
+    const left = card.x - stage.x
+    const right = stage.x + stage.width - (card.x + card.width)
+    expect(Math.abs(left - right)).toBeLessThanOrEqual(1)
+    expect(card.width).toBeLessThanOrEqual(READING_MEASURE)
+
+    // THE WIDTH IS THE LONGEST PHRASE'S, WHICH IS WHAT THE STACK BOUGHT. The
+    // card is wider than it was under the declared instruction it replaced --
+    // said as the assertion it is, because a stack that had collapsed to the
+    // current phrase would also report "one width" if every phrase happened to
+    // wrap to the cap.
+    expect(card.width).toBeGreaterThan(declared.width)
+
+    // AND EXACTLY ONE PHRASE IS VISIBLE. The rest hold the slot open and are
+    // not drawn: `visibility`, so they still occupy the cell they are
+    // measuring, and one line of text on screen rather than four.
+    const visible = await ui.page.evaluate(() =>
+      [...document.querySelectorAll('.chrome-bar__waiting-phrase')].filter(
+        (el) => getComputedStyle(el).visibility === 'visible'
+      ).length
+    )
+    expect(visible).toBe(1)
+
+    // AND THEY ARE STACKED, NOT LISTED. Every phrase sits at the same top, and
+    // the slot is one line tall -- which is the difference between four
+    // phrases in one grid cell and four phrases down the card. A `display:
+    // none` on the hidden ones would pass the "one visible" check above and
+    // fail this one by taking the width measurement with it.
+    const stacked = await ui.page.evaluate(() => {
+      const wrap = document.querySelector('.chrome-bar__waiting').getBoundingClientRect()
+      const spans = [...document.querySelectorAll('.chrome-bar__waiting-phrase')].map((el) =>
+        el.getBoundingClientRect()
+      )
+      return {
+        tops: new Set(spans.map((rect) => Math.round(rect.top))).size,
+        height: Math.round(wrap.height),
+        tallest: Math.round(Math.max(...spans.map((rect) => rect.height))),
+        count: spans.length,
+      }
+    })
+    expect(stacked.count).toBeGreaterThan(1)
+    expect(stacked.tops).toBe(1)
+    expect(stacked.height).toBe(stacked.tallest)
+
+    await ui.close()
+  }, SLOW)
+})
+
+/* ===========================================================================
    6. THE BOTTOM ROW: THE ACTION CARD HOLDS THE CORNER
    =========================================================================== */
 
@@ -1458,6 +1571,22 @@ describeIf('the zone patterns, rendered', () => {
     expect(marks.excavated.screenOpacity).toBeGreaterThan(0)
     expect(marks.excavated.screenOpacity).toBeLessThan(0.4)
 
+    // AND IT IS AT ITS MEASURED CEILING, WHICH IS A NARROWER CLAIM THAN THAT.
+    //
+    // The band is here rather than in the ink measures below because the ink
+    // measures cannot hold it: a bound tight enough to catch a step back down
+    // to 0.2 would sit within a rounding of the shipped reading, and its own
+    // comment says why that is the wrong kind of bound. This reads the value
+    // out of the def instead, where a change to it is exact.
+    //
+    // 0.32 IS WHERE THE OVERLAP BREAKS -- the dot field's surviving texture
+    // measures 0.0035 there against the 0.004 floor asserted at the bottom of
+    // this file. So the upper end is the last value below the cliff, and the
+    // lower end is high enough that a revert to the 0.2 this shipped with
+    // fails here. See the sweep in ProductionHatchPattern.jsx.
+    expect(marks.excavated.screenOpacity).toBeGreaterThanOrEqual(0.25)
+    expect(marks.excavated.screenOpacity).toBeLessThanOrEqual(0.3)
+
     // A HALFTONE: MANY DOTS, EACH ONE ACTUALLY DRAWABLE, GROUND BETWEEN THEM.
     //
     // THIS USED TO ASK FOR "MANY, AND FINE" -- over 200 dots a tile, radius
@@ -1912,17 +2041,19 @@ describeIf('the zone patterns, rendered', () => {
        * while the tile still carried a rect, which is the failure that looks
        * like a working mark.
        *
-       * 0.025 OVER CANOPY, WHICH IS THE HARDER GROUND. Measured at 0.0319
-       * with the shipped 0.2 screen, against 0.0165 for the bare field, so
-       * this holds the gain at roughly half of what was won rather than at
-       * the exact reading -- a bound that pins the measurement to four
-       * decimals is a bound that fails on a renderer's rounding.
+       * 0.03 OVER CANOPY, WHICH IS THE HARDER GROUND. Measured at 0.0365
+       * with the 0.28 screen, against 0.0165 for the bare field, so this
+       * holds the gain at roughly half of what was won rather than at the
+       * exact reading -- a bound that pins the measurement to four decimals
+       * is a bound that fails on a renderer's rounding. WHICH VALUE the
+       * screen carries is asserted where it can be read exactly, off the
+       * pattern def above.
        */
       if (ground === 'canopy') {
         expect(
           active,
           'the screen has to keep the excavated zone visible over canopy'
-        ).toBeGreaterThan(0.025)
+        ).toBeGreaterThan(0.03)
       }
     }
   }, SLOW)

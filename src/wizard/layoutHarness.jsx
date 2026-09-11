@@ -40,6 +40,8 @@
  *   ?reopen=1      the SHIPPED steps over a hydrated document, with landform
  *                  committed and three steps below it holding work -- the
  *                  page the reopen confirmation is read on. See REOPEN below.
+ *   ?waiting=1     a commit that never answers, so the instruction card can be
+ *                  measured while the waiting phrases turn over. See WAITING.
  */
 
 import React, { useEffect, useRef, useState } from 'react'
@@ -256,8 +258,41 @@ function noticesFor(kind) {
   return []
 }
 
+/**
+ * ?waiting=1  --  A COMMIT THAT IS OUT AND STAYS OUT.
+ *
+ * THE ONE CLAIM THE WAITING LINE MAKES THAT ONLY AN ENGINE CAN SETTLE. Its
+ * phrases cycle through the direction slot every two seconds, and the
+ * instruction card is `width: fit-content` and centred -- so "the card does
+ * not resize while it cycles" is a statement about four computed widths and
+ * cannot be checked anywhere jsdom runs. waiting.test.jsx proves the phrases
+ * turn over; this page is where the box they turn over inside is measured.
+ *
+ * HELD OPEN RATHER THAN SLOW. The commit's `run` returns a promise that never
+ * settles, so the machine's own `pending` flag parks the step in `committing`
+ * for as long as the test needs and the state under measurement does not
+ * depend on a timeout somewhere being longer than the measurements are.
+ *
+ * THE PRESS COMES FROM `idle`, WHICH IS WHERE THIS PAGE ACTUALLY RESTS. There
+ * is no session and no payload behind the harness, so a step declaring itself
+ * `generated` reads as `loading` -- proposals the client does not have -- and
+ * a state that withholds the commit on purpose is the wrong door to knock on.
+ * This case says `not_started` instead and puts the forward move where a step
+ * with nothing yet offers one. What is being measured is the state the press
+ * leads to, and that state is the shipped one either way.
+ */
+const WAITING = params.get('waiting') === '1'
+
 const BUTTONS = [
-  stepButton({ key: 'commit', label: 'Commit these zones', tone: 'primary', run: () => {} }),
+  stepButton({
+    key: 'commit',
+    label: 'Commit these zones',
+    tone: 'primary',
+    // Every other case measures the button as a BOX and never presses it, so
+    // its run is a no-op. The waiting case is the one that needs the press to
+    // reach the machine, because `committing` is what it is measuring.
+    run: WAITING ? (chrome) => chrome.machine.commit() : () => {},
+  }),
   stepButton({ key: 'discard', label: 'Discard', tone: 'secondary', run: () => {} }),
 ]
 
@@ -914,13 +949,23 @@ const HARNESS_STEP = documentStep({
   blurb: 'Where production can go.',
   proposalCollection: 'suggested_zones',
   Panel: null,
-  status: () => 'generated',
+  status: () => (WAITING ? 'not_started' : 'generated'),
   reachable: () => true,
   blockedBy: () => null,
   instructions: {
     reviewing: 'Review the proposed production zones and commit the ones you want.',
+    // The declared line the waiting phrases replace once the wait has lasted.
+    // A real step's own words, so the swap being measured is the shipped one.
+    committing: 'Saving these zones…',
   },
-  buttons: { reviewing: BUTTONS.slice(0, BUTTON_COUNT) },
+  buttons: {
+    reviewing: BUTTONS.slice(0, BUTTON_COUNT),
+    idle: WAITING ? BUTTONS.slice(0, 1) : [],
+    committing: [],
+  },
+  // A REQUEST THAT NEVER ANSWERS, for ?waiting=1 only. Every other case leaves
+  // documentStep's own commit in place and never presses it.
+  commit: WAITING ? { run: () => new Promise(() => {}) } : undefined,
   notices: () => noticesFor(NOTICE_KIND),
   tabs: () => Array.from({ length: TAB_COUNT }, (_, i) => tab(i)),
   detail: () =>

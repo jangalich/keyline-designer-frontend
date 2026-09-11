@@ -216,18 +216,51 @@ const TREATMENT_MARKS = [
   // this map over imagery -- 0.0165 added ink over canopy at active, against
   // the embankment wash's 0.1089 -- because a dot field inks an eighth of
   // what it covers by design and the other seven eighths were bare frame. The
-  // screen is the other seven eighths, at a fifth of the colour's strength.
+  // screen is the other seven eighths, at a little over a quarter of the
+  // colour's strength.
   //
-  // 0.2, AND THE NUMBER IS MEASURED RATHER THAN CHOSEN. Swept against
-  // layout.test.jsx's own instruments: it very nearly doubles the zone's
-  // presence over both grounds (canopy 0.0165 -> 0.0319, soil 0.0390 ->
-  // 0.0722 at active) while the dot field keeps most of its local contrast
-  // and the overlap still reads as a texture on a wash. Above about 0.3 the
-  // dots stop carrying: at 0.34 the overlap's surviving texture measures
-  // 0.0040 against a 0.004 floor, which is the mark ceasing to be one. The
-  // screened fraction lands at 0.29 of opaque against the embankment wash's
-  // 0.40, so the type that IS a wash is still the heavier screen of the two
-  // and the pair stays tellable apart by weight as well as by kind.
+  // 0.28, AND THE NUMBER IS THE CEILING RATHER THAN A PREFERENCE. It shipped
+  // at 0.2 and the zone was still reported as hard to find over imagery, so
+  // the screen was swept again against layout.test.jsx's own instruments, at
+  // active, over both grounds an aerial frame carries:
+  //
+  //                   canopy   soil    overlap texture (canopy)
+  //     no screen     0.0165   0.0390  0.0061
+  //     0.20          0.0319   0.0722  0.0050
+  //     0.28          0.0365   0.0853  0.0045
+  //     0.32          0.0409   0.0930  0.0035   <- below the 0.004 floor
+  //
+  // WHAT STOPS IT GOING FURTHER IS THE OVERLAP, NOT TASTE. The right-hand
+  // column is the dot field's surviving local contrast where the two survey
+  // types coincide -- `cross_type_overlaps`, the reading this pair of marks
+  // exists to support. The screen is the excavated type's own colour, so
+  // every point of it moves the ground toward the dots and takes contrast off
+  // them; past 0.3 the field stops being a texture on a wash and the overlap
+  // collapses toward one darker fill, which is the failure the dot field
+  // replaced a second wash to avoid.
+  //
+  // 0.28 RATHER THAN 0.30, WHICH READ MARGINALLY BETTER. The measurements are
+  // not monotone through the last few hundredths -- 0.30 returns 0.0046 where
+  // 0.28 returns 0.0045, which is the renderer's rounding of one blend and
+  // not a property of the mark -- and the cliff is at 0.32. The value is the
+  // last one with a clear step of headroom to it rather than the best single
+  // reading beside it.
+  //
+  // AND IT IS STILL THE LIGHTER SCREEN OF THE TWO. Measured against an opaque
+  // fill of the same colour, the whole focused mark -- screen and dots
+  // together -- lands at 0.36 of opaque, against the embankment wash's 0.40.
+  // It was 0.29 before this and the gap has narrowed, which is the cost of
+  // the change worth naming: the type that IS a wash is still the heavier
+  // one, and the margin that says so is now a twentieth rather than a tenth.
+  // The pair is told apart by KIND first and by weight second, and the second
+  // has no room left in it.
+  //
+  // WHAT THIS DOES NOT DO IS CLOSE THE GAP WITH EMBANKMENT. At the ceiling
+  // the excavated zone adds 0.0365 over canopy against that wash's 0.1089 --
+  // still a third of it, because --survey-excavated sits close to closed
+  // canopy in luminance and a screen in the mark's own colour cannot outrun
+  // that. If this zone has to read as loudly as its sibling, the lever is the
+  // colour or the state levels, and both are index.css's to move.
   {
     treatment: 'survey-excavated',
     kind: 'stipple',
@@ -235,7 +268,7 @@ const TREATMENT_MARKS = [
     tile: 64,
     grid: 8,
     radius: 1.6,
-    screen: 0.2,
+    screen: 0.28,
   },
   // ROADS: a cased LINE. The first mark here that is not ground. Its whole
   // description is its colour -- the weights are layers.jsx's LINE_WEIGHT and

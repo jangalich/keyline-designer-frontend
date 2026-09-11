@@ -637,6 +637,13 @@ describe('4. the shell names no step', () => {
       path.join('shell', 'DetailPanel.jsx'),
       path.join('shell', 'TabStrip.jsx'),
       path.join('shell', 'ActionBanner.jsx'),
+      // The waiting line's phrases are the machine's copy for two of its
+      // states, and the sweep applies to them for exactly the reason it
+      // applies to the banner's "Committing…": a phrase that named a step
+      // would be this shell knowing which one it is rendering. waiting.test
+      // makes the same check against the phrases themselves, in prose rather
+      // than in quoted identifiers.
+      path.join('shell', 'WaitingLine.jsx'),
     ]
 
     for (const file of generic) {
