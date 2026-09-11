@@ -2013,7 +2013,11 @@ describe('the panel', () => {
     expect(detail.fields.map((f) => f.label)).toEqual([
       'area to survey (acres)',
       'survey type',
-      'suitability',
+      // THE UNIT RIDES THE LABEL, and on this row the unit is the SCALE. The
+      // backend's labels never spell their own unit, so "(/100)" is the
+      // backend's own word appended by the one rule every row follows -- not
+      // a sentence this side wrote about water's scale.
+      'suitability (/100)',
       'rank',
       'water delivery',
     ])
@@ -2051,10 +2055,11 @@ describe('the panel', () => {
     // "1" alone is not a reading. rank is PER TYPE and the scale carries the
     // denominator.
     expect(value('rank')).toBe('1 of 2')
-    // 0.7933 against a theoretical 1.0 understates what was attainable here:
-    // the soil criterion's parcel range caps the blend, and the scale carries
-    // the parcel's own measured ceiling.
-    expect(value('suitability')).toBe('0.7933 of 0.82')
+    // 79 against a theoretical 100 understates what was attainable here: the
+    // soil criterion's parcel range caps the blend, and the scale carries the
+    // parcel's own measured ceiling -- converted by the backend through the
+    // same helper the row value went through, so the pair is one scale.
+    expect(value('suitability (/100)')).toBe('79 of 82')
   })
 
   it('falls back to the bare number when a payload carries no scales', () => {
@@ -2066,7 +2071,10 @@ describe('the panel', () => {
     const detail = WATER_STEP.detail({ proposals }, zone.id)
     const value = (label) => detail.fields.find((f) => f.label === label).value
     expect(value('rank')).toBe('1')
-    expect(value('suitability')).toBe('0.7933')
+    // The CONVERTED value the backend sent, bare. A missing ceiling costs the
+    // reading its denominator; it must not cost it its scale, which is why
+    // the scale rides the row's unit and not the scales block.
+    expect(value('suitability (/100)')).toBe('79')
   })
 
   it('puts figures in the aligned column and categorical readings in prose', () => {
@@ -2074,7 +2082,9 @@ describe('the panel', () => {
     const detail = WATER_STEP.detail({ proposals: payloadOf([zone]) }, zone.id)
     const measured = Object.fromEntries(detail.fields.map((f) => [f.label, f.measured]))
     expect(measured['area to survey (acres)']).toBe(true)
-    expect(measured['suitability']).toBe(true)
+    // A CONVERTED VALUE IS STILL A NUMBER, so it keeps the aligned column.
+    // The scale is in the label, where a word belongs.
+    expect(measured['suitability (/100)']).toBe(true)
     // The survey type and the water-delivery answer have no decimal point to
     // hold still, and a word in the aligned column widens it for every row.
     expect(measured['survey type']).toBe(false)
@@ -2358,10 +2368,35 @@ function alwaysRows(properties) {
   return [
     { key: 'zone_acres', label: 'area to survey', value: properties.zone_acres, unit: 'acres' },
     { key: 'survey_type', label: 'survey type', value: properties.survey_type, unit: null },
-    { key: 'suitability', label: 'suitability', value: properties.mean_suitability, unit: null },
+    // THE ONE CONVERTED ROW ON THE WIRE. The backend grades zones on the
+    // 0-100 KSOP display scale and ships the suitability row already
+    // converted, as a whole number carrying its scale in `unit`; the FEATURE
+    // keeps `mean_suitability` on 0-1 as the diagnostic record. This fixture
+    // models both, because the failure this file has to be able to catch is
+    // a renderer that reaches for the wrong one.
+    {
+      key: 'suitability',
+      label: 'suitability',
+      value: displayScale(properties.mean_suitability),
+      unit: '/100',
+    },
     { key: 'rank', label: 'rank', value: properties.rank, unit: null },
     { key: 'water_delivery', label: 'water delivery', value: 'gravity_feed', unit: null },
   ]
+}
+
+/**
+ * The backend's conversion, mirrored HERE AND ONLY HERE so the fixtures model
+ * the wire rather than a guess at it.
+ *
+ * THIS IS A FIXTURE, NOT A RENDERER. The app under test does no multiplying at
+ * all -- the source-level assertion at the bottom of this file holds it to
+ * that -- and this exists so a test can say "a zone the backend scored 0.7933
+ * arrives as 79" without every case writing 79 next to 0.7933 and one of them
+ * eventually disagreeing.
+ */
+function displayScale(value) {
+  return value == null ? null : Math.round(value * 100)
 }
 
 /**
@@ -2372,11 +2407,15 @@ function alwaysRows(properties) {
 function scalesOf(features) {
   const countOf = (type) => features.filter((f) => f.properties.survey_type === type).length
   return {
+    // ON THE DISPLAY SCALE, because this block describes what the panel
+    // prints and the panel's suitability row is converted. The ceiling is
+    // the parcel's OWN measured maximum, converted -- 0.82 of an attainable
+    // 1.0 becomes 82 of an attainable 100, NOT 100.
     suitability: {
-      min: 0.0,
-      max: 1.0,
+      min: 0,
+      max: 100,
       higher_is_better: true,
-      parcel_observed_max: { embankment: 0.82, excavated: 0.6 },
+      parcel_observed_max: { embankment: 82, excavated: 60 },
     },
     rank: { embankment: { count: countOf('embankment') }, excavated: { count: countOf('excavated') } },
     overlap_pct: { min: 0, max: 100 },
@@ -2442,8 +2481,8 @@ const FIXTURE = payloadOf([
 describe('the suitability figure is read against the payload\'s own scale', () => {
   const scalesWith = (embankment, excavated) => ({
     suitability: {
-      min: 0.0,
-      max: 1.0,
+      min: 0,
+      max: 100,
       higher_is_better: true,
       parcel_observed_max: { embankment, excavated },
     },
@@ -2462,15 +2501,42 @@ describe('the suitability figure is read against the payload\'s own scale', () =
         fixtureZone({ zone_id: 4, survey_type: 'excavated', mean_suitability: 0.7933 }),
       ],
       {},
-      { scales: scalesWith(0.82, 0.675) }
+      { scales: scalesWith(82, 68) }
     )
     const [embankment, excavated] = rowsOf(payload)
 
     // THE FIGURE IS THE ZONE'S; THE DENOMINATOR IS THE TYPE'S OWN CEILING.
     // Rank is per type on this step and so is the ceiling: the two surfaces
     // are never comparable on one scale.
-    expect(embankment.rows[1]).toEqual({ value: '0.53', label: 'of 0.82 suitability' })
-    expect(excavated.rows[1]).toEqual({ value: '0.79', label: 'of 0.68 suitability' })
+    expect(embankment.rows[1]).toEqual({ value: '53', label: 'of 82 suitability' })
+    expect(excavated.rows[1]).toEqual({ value: '79', label: 'of 68 suitability' })
+  })
+
+  it('reads the CONVERTED panel row, never the feature\'s 0-1 property', () => {
+    // THE DOUBLE-SCALING THIS BRANCH HAD TO PREVENT, pinned as a case rather
+    // than left to the other assertions to imply. The feature still carries
+    // mean_suitability on 0-1 (it is the diagnostic record and was
+    // deliberately not converted) and the ceiling beside it is on 0-100. A
+    // tab reading the feature would print "0.53 of 82" -- a numerator and a
+    // denominator on two different scales, each correct alone. So the zone
+    // below carries a feature property that DISAGREES with its panel row,
+    // and the tab has to follow the row.
+    const zone = fixtureZone({ zone_id: 1, survey_type: 'embankment', mean_suitability: 0.526 })
+    const payload = payloadOf([zone], {}, { scales: scalesWith(82, 60) })
+    payload.zones[0].panel = payload.zones[0].panel.map((row) =>
+      row.key === 'suitability' ? { ...row, value: 61 } : row
+    )
+    expect(rowsOf(payload)[0].rows[1]).toEqual({ value: '61', label: 'of 82 suitability' })
+  })
+
+  it('prints an em dash, never a zero, when no suitability row was sent', () => {
+    // The same rule the never-checked overlaps are held to: a missing
+    // measurement is a dash, and nothing on this path may coerce it to a 0
+    // that reads as the worst possible ground.
+    const zone = fixtureZone({ zone_id: 1, survey_type: 'embankment' })
+    const payload = payloadOf([zone], {}, { scales: scalesWith(82, 60) })
+    payload.zones[0].panel = payload.zones[0].panel.filter((row) => row.key !== 'suitability')
+    expect(rowsOf(payload)[0].rows[1].value).toBe('\u2014')
   })
 
   it('follows the payload rather than remembering a number', () => {
@@ -2478,10 +2544,10 @@ describe('the suitability figure is read against the payload\'s own scale', () =
     // moves the rendering; nothing on this side has to be edited, and nothing
     // on this side can be left stale.
     const zone = () => fixtureZone({ zone_id: 1, survey_type: 'embankment', mean_suitability: 0.526 })
-    const first = rowsOf(payloadOf([zone()], {}, { scales: scalesWith(0.82, 0.6) }))
-    const retuned = rowsOf(payloadOf([zone()], {}, { scales: scalesWith(0.44, 0.6) }))
-    expect(first[0].rows[1].label).toBe('of 0.82 suitability')
-    expect(retuned[0].rows[1].label).toBe('of 0.44 suitability')
+    const first = rowsOf(payloadOf([zone()], {}, { scales: scalesWith(82, 60) }))
+    const retuned = rowsOf(payloadOf([zone()], {}, { scales: scalesWith(44, 60) }))
+    expect(first[0].rows[1].label).toBe('of 82 suitability')
+    expect(retuned[0].rows[1].label).toBe('of 44 suitability')
   })
 
   it('falls back to the bare figure when the payload carries no scale', () => {
@@ -2492,35 +2558,54 @@ describe('the suitability figure is read against the payload\'s own scale', () =
       {},
       { scales: {} }
     )
-    expect(rowsOf(payload)[0].rows[1]).toEqual({ value: '0.53', label: 'suitability' })
+    expect(rowsOf(payload)[0].rows[1]).toEqual({ value: '53', label: 'suitability' })
   })
 
   it('reads the same ceiling on the panel and on the tab, off one key', () => {
     const zone = fixtureZone({ zone_id: 1, survey_type: 'embankment', mean_suitability: 0.526 })
-    const payload = payloadOf([zone], {}, { scales: scalesWith(0.82, 0.675) })
+    const payload = payloadOf([zone], {}, { scales: scalesWith(82, 68) })
 
-    // The panel prints the backend's own number, unrounded; the tab prints it
-    // at the tab's own precision. Both denominators come off the same key --
-    // suitabilityCeiling() is the one reader -- so they cannot disagree about
-    // WHICH number it is.
-    expect(suitabilityCeiling(payload.scales, 'embankment')).toBe(0.82)
+    // The panel and the tab print the SAME pair, because both halves of the
+    // reading are the backend's own converted numbers and both denominators
+    // come off the same key -- suitabilityCeiling() is the one reader, so
+    // they cannot disagree about WHICH number it is. The panel's label
+    // carries the scale from the row's unit; the tab's carries it in prose.
+    expect(suitabilityCeiling(payload.scales, 'embankment')).toBe(82)
     const panel = WATER_STEP.detail({ proposals: payload }, zone.id)
-    expect(panel.fields.find((f) => f.label === 'suitability').value).toBe('0.526 of 0.82')
-    expect(rowsOf(payload)[0].rows[1].label).toContain('0.82')
+    const panelField = panel.fields.find((f) => f.label === 'suitability (/100)')
+    expect(panelField.value).toBe('53 of 82')
+    expect(panelField.measured).toBe(true)
+    expect(rowsOf(payload)[0].rows[1]).toEqual({ value: '53', label: 'of 82 suitability' })
   })
 
-  it('stays a 0-1 fraction: the backend did not rescale it', () => {
-    // `scales.suitability` DECLARES THE RANGE, and it is the same 0-1 the
-    // measure() note was written against -- so SUITABILITY_DP's two decimals
-    // are still the right precision and nothing here multiplies by 100 to
-    // make water's figure look like landform's 0-100 score.
-    const payload = payloadOf([fixtureZone({})], {}, { scales: scalesWith(0.82, 0.675) })
-    expect(payload.scales.suitability.min).toBe(0.0)
-    expect(payload.scales.suitability.max).toBe(1.0)
+  it('is a whole number on 0-100, and the scale says so where it is read', () => {
+    // `scales.suitability` DECLARES THE RANGE and it is the 0-100 KSOP
+    // DISPLAY SCALE now. The figure arrives converted and whole; this side
+    // prints it and does not round it, does not multiply it, and does not
+    // put a decimal point on a grade that has none.
+    const payload = payloadOf([fixtureZone({})], {}, { scales: scalesWith(82, 68) })
+    expect(payload.scales.suitability.min).toBe(0)
+    expect(payload.scales.suitability.max).toBe(100)
     expect(payload.scales.suitability.higher_is_better).toBe(true)
-    // Two decimals, because one collapses the reference parcel's zones into a
-    // column of identical "0.5"s.
-    expect(rowsOf(payload)[0].rows[1].value).toMatch(/^\d\.\d\d$/)
+    expect(rowsOf(payload)[0].rows[1].value).toMatch(/^\d{1,3}$/)
+
+    // AMBIGUITY GUARD: a bare figure that could be read as either scale is
+    // worse than either scale alone, so both renderings say which one they
+    // are on -- the tab in its label, the panel in the unit the backend put
+    // on the row.
+    expect(rowsOf(payload)[0].rows[1].label).toMatch(/suitability/)
+    const panel = WATER_STEP.detail({ proposals: payload }, fixtureZone({}).id)
+    expect(panel.fields.map((f) => f.label)).toContain('suitability (/100)')
+  })
+
+  it('never rescales the parcel ceiling to 100 -- it is a denominator', () => {
+    // THE REJECTED ALTERNATIVE, pinned. Normalizing so the parcel's best
+    // cell reads 100 would make the same ground grade differently under a
+    // redrawn boundary and would flatten a poor parcel and an excellent one
+    // onto the same top mark. The ceiling is shown BESIDE the value.
+    const payload = payloadOf([fixtureZone({})], {}, { scales: scalesWith(82, 68) })
+    expect(payload.scales.suitability.parcel_observed_max.embankment).toBe(82)
+    expect(rowsOf(payload)[0].rows[1].label).not.toContain('of 100')
   })
 
   liveIt('renders the live payload\'s own ceilings, and every zone sits under its own', async () => {
@@ -2578,6 +2663,20 @@ describe('the suitability figure is read against the payload\'s own scale', () =
     // than quoting a number they would have had to hardcode.
     for (const constant of ['MIN_SURVEY_REGION_AREA_ACRES', 'suitability_threshold']) {
       expect(code).not.toContain(constant)
+    }
+
+    // AND NO MULTIPLIER ANYWHERE. The 0-100 display scale is the BACKEND'S
+    // conversion, done once, in one helper; a client-side multiply on a
+    // server-converted value is how one scale silently becomes two -- and it
+    // fails in the same worst way a copied threshold does, since the number
+    // still renders and is simply a hundred times wrong.
+    // The one multiply by 100 this file DOES contain is landform's acreage
+    // share of the parcel, which is a percentage of an area rather than a
+    // grade; the assertion is that no SCORE is on either side of one.
+    const hundreds = [...code.matchAll(/.{0,80}(?:\*\s*100|100\s*\*).{0,40}/g)].map((m) => m[0])
+    expect(hundreds.length).toBeGreaterThan(0)
+    for (const context of hundreds) {
+      expect(context).not.toMatch(/score|suitability/i)
     }
 
     // AND EVERY SCALE READ IS AN INDEX INTO THE PAYLOAD'S OWN BLOCK.
