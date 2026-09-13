@@ -465,14 +465,6 @@ const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road
  * assume it.
  */
 const UNCASED = [
-  // PRODUCTION'S HATCH WITHOUT ITS CASING, at all three levels. The hatch was
-  // cased when it stopped reading on bare imagery downstream (see
-  // ProductionHatchPattern's hatchTile), and "the casing is what does it" has
-  // to be a number like the road's. The cloning pass lifts the casing pass off
-  // the local <pattern> clone, so this is the same tile minus one path.
-  { treatment: 'production', state: 'committed', uncased: true },
-  { treatment: 'production', state: 'active', uncased: true },
-  { treatment: 'production', state: 'focused', uncased: true },
   { treatment: 'road', state: 'committed', uncased: true },
   { treatment: 'road', state: 'active', uncased: true },
   // THE PIN, ONCE MORE WITHOUT ITS HALO: the same question asked of the
@@ -537,6 +529,69 @@ const ELIGIBLE = [
   { treatment: 'production', state: 'active', eligible: true },
   { treatment: 'production', state: 'focused', eligible: true },
 ]
+
+/**
+ * THE SCREEN UNDER PRODUCTION'S HATCH: the candidates, swept.
+ *
+ * WHY THERE IS A SCREEN AT ALL. A committed production block is barely visible
+ * from the water step onward, and the cause is the GROUND rather than the mark.
+ * During landform the hatch sits on the eligible highlight and reads against
+ * that tint; downstream the highlight is gone and the same ruling sits on bare
+ * imagery, where a mid-tone oxide diagonal over closed canopy measures 0.0089
+ * against a 0.004 floor. The screen puts the ground back. See
+ * ProductionHatchPattern's screenNode().
+ *
+ * NOT --eligible, WHICH IS THE ONE OBVIOUS ANSWER AND IS WRONG. Reusing the
+ * highlight's token downstream would say "this ground is eligible" about a
+ * committed block on the water step, which is a claim about a gate that is no
+ * longer being run. The screen has to be NEUTRAL: a ground, not a reading.
+ *
+ * SO THE TWO NEUTRALS THE SYSTEM HAS ARE MEASURED AGAINST EACH OTHER, at three
+ * alphas each, the way the fence's two colour candidates were. --stock is the
+ * page background and --rule is the hairline; both are warm light neutrals and
+ * they differ by about a third of a step in lightness, which is exactly the
+ * kind of difference an ink measure can settle and an eye cannot.
+ *
+ * EACH CANDIDATE GETS TWO CELLS PER LEVEL: the hatch ON the screen, and the
+ * SCREEN ALONE. The second is the one that decides it -- a screen heavy enough
+ * to read as a layer of its own has stopped being a ground and started being a
+ * wash over the block, which is a mark nobody declared.
+ */
+const HATCH_SCREEN_CANDIDATES = []
+for (const token of ['--stock', '--rule']) {
+  for (const alpha of [0.06, 0.12, 0.2, 0.3]) {
+    const id = `screen${token.replace('--', '-')}-${String(alpha).replace('0.', '')}`
+    for (const state of ['committed', 'active', 'focused']) {
+      HATCH_SCREEN_CANDIDATES.push({
+        treatment: 'production',
+        id,
+        screenToken: token,
+        screenAlpha: alpha,
+        state,
+      })
+      HATCH_SCREEN_CANDIDATES.push({
+        treatment: 'production',
+        id,
+        screenToken: token,
+        screenAlpha: alpha,
+        state,
+        screenOnly: true,
+      })
+    }
+  }
+}
+
+/**
+ * PRODUCTION'S SHIPPED HATCH WITH ITS SCREEN LIFTED OFF, at all three levels --
+ * the bare ruling, which is what the screen is worth measured against. The
+ * cloning pass removes the screen pass from the local <pattern> clone, so this
+ * is the same tile minus one rect.
+ */
+const UNSCREENED = ['committed', 'active', 'focused'].map((state) => ({
+  treatment: 'production',
+  state,
+  unscreened: true,
+}))
 
 const FENCE_CANDIDATES = []
 for (const [id, lineToken] of [
@@ -657,7 +712,15 @@ function moireGround(period) {
 function cellId(cell) {
   if (!cell) return 'bare'
   if (cell.overlap) return `overlap-${cell.state}`
-  const suffix = cell.uncased ? '-uncased' : cell.unoutlined ? '-unoutlined' : ''
+  const suffix = cell.uncased
+    ? '-uncased'
+    : cell.unoutlined
+      ? '-unoutlined'
+      : cell.unscreened
+        ? '-unscreened'
+        : cell.screenOnly
+          ? '-alone'
+          : ''
   // A CELL MAY HAVE NO STATE, AND MAY HAVE NO MARK. The opaque reference is one
   // colour laid solid -- not a state of a mark, but the thing every state is a
   // fraction of -- and the eligible-only cell is a GROUND rather than a mark at
@@ -704,8 +767,48 @@ const GROUND_TOP = SWATCH_PX * TREATMENTS.length + 20
 /** A ground's cells wrap at this many columns, to stay inside a 1280px frame. */
 const GROUND_COLUMNS = 14
 
-/** Clear of both ground rows above. Their height is computed the same way. */
-const MOIRE_TOP = GROUND_TOP + SWATCH_PX * 12
+/**
+ * EVERY CELL ONE GROUND CARRIES, in the order they are laid out. Named once
+ * because THREE things need it and they must agree: the layout below, the row
+ * height each ground block takes, and where the moire sweep starts under them.
+ *
+ * IT WAS A LITERAL 12 AND THAT WAS A TRAP. `MOIRE_TOP` was `GROUND_TOP +
+ * SWATCH_PX * 12` -- the row count as it happened to be, with a comment saying
+ * the height "is computed the same way" when it was not computed at all. Adding
+ * cells silently slid the ground block down OVER the moire swatches, and what
+ * failed was the moire assertion: the dot field appeared to have gained coarse
+ * structure (0.0044 against a 0.004 ceiling) because a production swatch was
+ * sitting on top of the cell being screenshotted. A layout fixture that
+ * overlaps is not a fixture, and the failure it produces accuses the wrong
+ * thing. Derived now, so a cell added anywhere below cannot do it again.
+ */
+const GROUND_CELLS = () => [
+  null,
+  ...cellsFor(),
+  ...UNCASED,
+  ...UNOUTLINED,
+  ...OVERLAP,
+  ...FENCE_CANDIDATES,
+  ...HATCH_SCREEN_CANDIDATES,
+  ...UNSCREENED,
+  ...OPAQUE,
+  ...ELIGIBLE,
+]
+
+/** The three states of every treatment -- the block the ground rows open with. */
+function cellsFor() {
+  const cells = []
+  for (const treatment of TREATMENTS) {
+    for (const state of ['committed', 'active', 'focused']) cells.push({ treatment, state })
+  }
+  return cells
+}
+
+/** How many rows ONE ground's block of cells takes. */
+const GROUND_ROWS = Math.ceil(GROUND_CELLS().length / GROUND_COLUMNS)
+
+/** Clear of both ground blocks above, at whatever height they actually are. */
+const MOIRE_TOP = GROUND_TOP + GROUND_ROWS * GROUNDS.length * SWATCH_PX + 20
 
 /** Clear of the moire sweep above, whose own height is two rows per wrap. */
 const CROP_OVERLAP_TOP =
@@ -787,13 +890,35 @@ function ZoneSwatches() {
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
         const clone = source.cloneNode(true)
         clone.setAttribute('id', `local-${svg.dataset.testid}`)
-        // `data-uncased` ON A PATTERN lifts the casing pass off the tile, which
-        // is the same question the road, the pin and the fence answer by
-        // leaving their halo pass out. The pass is found BY NAME (hatchTile
-        // tags it) rather than by position, so a row with no casing yields
-        // nothing to remove instead of losing its rule.
-        if (svg.dataset.uncased === 'true') {
-          for (const pass of clone.querySelectorAll('[data-pass="casing"]')) pass.remove()
+        // THE SCREEN IS THE THING UNDER TEST ON SOME OF THESE CELLS, so the
+        // clone is dressed three ways. Every pass is found BY NAME (the tile
+        // builders tag it) rather than by position, so a row with no screen
+        // yields nothing to remove instead of losing its marks.
+        //
+        //   data-unscreened     the shipped tile with its screen lifted off --
+        //                       the bare mark, which is what the screen is
+        //                       worth measured against.
+        //   data-screen-token   a CANDIDATE screen: a full-tile rect in that
+        //                       token at that alpha, pushed under the marks.
+        //                       This is how a colour that is not shipped gets
+        //                       measured, the way the fence's two candidates
+        //                       are measured through data-line-token.
+        //   data-screen-only    the candidate screen with the marks removed --
+        //                       the tint on its own.
+        if (svg.dataset.unscreened === 'true' || svg.dataset.screenToken) {
+          for (const pass of clone.querySelectorAll('[data-pass="screen"]')) pass.remove()
+        }
+        if (svg.dataset.screenToken) {
+          if (svg.dataset.screenOnly === 'true') {
+            while (clone.firstChild) clone.removeChild(clone.firstChild)
+          }
+          const size = Number(clone.getAttribute('width'))
+          const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+          rect.setAttribute('width', String(size))
+          rect.setAttribute('height', String(size))
+          rect.setAttribute('fill', readToken(svg.dataset.screenToken))
+          rect.setAttribute('fill-opacity', svg.dataset.screenAlpha)
+          clone.insertBefore(rect, clone.firstChild)
         }
         defs.appendChild(clone)
         svg.insertBefore(defs, svg.firstChild)
@@ -894,10 +1019,7 @@ function ZoneSwatches() {
   const fillLevel = (treatment, state) =>
     zoneMark(treatment)?.kind === 'tint' ? tintLevel(state) : patternLevel(state)
 
-  const cells = []
-  for (const treatment of TREATMENTS) {
-    for (const state of ['committed', 'active', 'focused']) cells.push({ treatment, state })
-  }
+  const cells = cellsFor()
 
   return (
     <div
@@ -1012,7 +1134,7 @@ function ZoneSwatches() {
         )
       )}
       {GROUNDS.map((ground, row) =>
-        [null, ...cells, ...UNCASED, ...UNOUTLINED, ...OVERLAP, ...FENCE_CANDIDATES, ...OPAQUE, ...ELIGIBLE].map((cell, index) => (
+        GROUND_CELLS().map((cell, index) => (
           <div
             key={`${ground.id}-${cellId(cell)}`}
             data-testid={`ground-${ground.id}-${cellId(cell)}`}
@@ -1021,20 +1143,7 @@ function ZoneSwatches() {
               left: (index % GROUND_COLUMNS) * SWATCH_PX,
               top:
                 GROUND_TOP +
-                (row *
-                  Math.ceil(
-                    (cells.length +
-                      UNCASED.length +
-                      UNOUTLINED.length +
-                      OVERLAP.length +
-                      FENCE_CANDIDATES.length +
-                      OPAQUE.length +
-                      ELIGIBLE.length +
-                      1) /
-                      GROUND_COLUMNS
-                  ) +
-                  Math.floor(index / GROUND_COLUMNS)) *
-                  SWATCH_PX,
+                (row * GROUND_ROWS + Math.floor(index / GROUND_COLUMNS)) * SWATCH_PX,
               width: SWATCH_PX,
               height: SWATCH_PX,
               background: ground.color,
@@ -1078,6 +1187,10 @@ function ZoneSwatches() {
                 data-uncased={cell.uncased ? 'true' : undefined}
                 data-unoutlined={cell.unoutlined ? 'true' : undefined}
                 data-line-token={cell.lineToken ?? undefined}
+                data-unscreened={cell.unscreened ? 'true' : undefined}
+                data-screen-token={cell.screenToken ?? undefined}
+                data-screen-alpha={cell.screenAlpha ?? undefined}
+                data-screen-only={cell.screenOnly ? 'true' : undefined}
                 width={SWATCH_PX}
                 height={SWATCH_PX}
                 style={
