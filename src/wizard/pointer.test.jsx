@@ -937,7 +937,7 @@ describeIf('the trees checkbox and ×', () => {
     expect(committedAccess, 'the committed access point is still on the map').toBeDefined()
     expect(committedAccess.colour).toBe(await tokenColour('--ink'))
     expect(committedAccess.colour).toBe(await tokenColour('--road'))
-    expect(committedAccess.opacity).toBeCloseTo(0.55, 5)
+    expect(committedAccess.opacity).toBeCloseTo(0.4, 5)
     const ochre = await tokenColour('--ochre')
     expect(atTrees.some((m) => m.colour === ochre)).toBe(false)
   })
@@ -1100,7 +1100,7 @@ describeIf('the structures checkbox and ×', () => {
     expect(livePin.opacity).toBe(1)
     const committedAccess = atStructures.find((m) => m.kind === 'access point (committed)')
     expect(committedAccess.colour).toBe(await tokenColour('--ink'))
-    expect(committedAccess.opacity).toBeCloseTo(0.55, 5)
+    expect(committedAccess.opacity).toBeCloseTo(0.4, 5)
     expect(committedAccess.colour).not.toBe(livePin.colour)
   })
 

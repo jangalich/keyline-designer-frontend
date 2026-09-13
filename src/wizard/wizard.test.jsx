@@ -562,7 +562,9 @@ describe('3. a generate hydrates both halves', () => {
     // recommendation, so the opening gesture is to take things out.
     expect(ui.find('tabs-landform').getAttribute('data-tab-count')).toBe('3')
     expect(ui.text('tab-zone-1')).toContain('2.5acres')
-    expect(ui.text('tab-zone-1')).toContain('81.0/100 score')
+    // The strip's label is bare "score"; "/100 score" is the panel's. See
+    // panelFormat.denominated().
+    expect(ui.text('tab-zone-1')).toContain('81.0score')
     expect(new Set(ui.state.drafts.landform.selectedFeatureIds)).toEqual(
       new Set(['zone-1', 'zone-2', 'zone-3'])
     )

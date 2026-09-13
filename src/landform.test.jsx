@@ -966,9 +966,21 @@ describe('12. the panel, against the shared format', () => {
     // other two there.
     const { detail, tab } = bodyFor(TOP.feature_id)
     expect(detail.rows).toHaveLength(5)
-    expect(body.slice(0, 2).map((row) => [row.value, row.label])).toEqual(
-      tab.rows.map((row) => [row.value, row.label])
-    )
+
+    // THE FIGURES CROSS VERBATIM. Never touched, never reformatted.
+    expect(body.slice(0, 2).map((row) => row.value)).toEqual(tab.rows.map((row) => row.value))
+
+    // THE LABELS CROSS VERBATIM EXCEPT FOR THE DENOMINATOR, which is the one
+    // thing the panel adds and the strip does not show -- the row declares
+    // `denominator: 100`, the tab prints "score", the panel prints "/100
+    // score". See panelFormat.denominated().
+    expect(tab.rows.map((row) => row.label)).toEqual(['acres', 'score'])
+    expect(body.slice(0, 2).map((row) => row.label)).toEqual(['acres', '/100 score'])
+    expect(tab.rows[1].denominator).toBe(100)
+    // ...AND THE 100 IS THE PAYLOAD'S OWN SCALE CEILING, not a literal.
+    expect(tab.rows[1].denominator).toBe(Math.round(captured.payload.scales.range[1]))
+    // A row with nothing to be out of declares no denominator and gains none.
+    expect(tab.rows[0].denominator).toBeUndefined()
 
     // THE FIGURES ARE THE PAYLOAD'S, at the pipeline's own one decimal.
     expect(body[0].value).toBe(TOP.area_acres.toFixed(1))

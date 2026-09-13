@@ -1115,18 +1115,26 @@ describeIf('the shared panel format, in a real engine', () => {
     // "not the header" as its `name` precisely so this cannot pass by accident.
     expect(await ui.page.locator('.chrome-detail__name').textContent()).toBe('Block 1')
 
-    // AND THE TAB ROWS ARE THE TAB'S, VERBATIM -- same figures, same labels,
-    // same order as the strip is showing at this moment.
+    // AND THE TAB ROWS ARE THE TAB'S, VERBATIM -- same figures, same order as
+    // the strip is showing at this moment, in the DOM of both at once.
     const tabRows = await ui.page.evaluate(() =>
       [...document.querySelectorAll('[data-testid="tab-production-area-1"] .chrome-tab__body > span')]
         .slice(1)
         .map((span) => span.textContent)
     )
-    expect(tabRows).toEqual(['4.0', 'acres', '42.9', '/100 score'])
+
+    // THE ONE DIFFERENCE IS THE DENOMINATOR, AND IT IS ON THE PANEL ONLY.
+    // BOTH SURFACES ASSERTED SIDE BY SIDE, because "the panel adds it" is a
+    // claim about the pair and neither half of it can be checked alone: the
+    // strip says "score" and the panel says "/100 score", off one declared row
+    // carrying `denominator: 100`. See panelFormat.denominated().
+    expect(tabRows, 'the strip shows no denominator').toEqual(['4.0', 'acres', '42.9', 'score'])
     expect(rows.slice(0, 2).map((row) => [row.text, row.label])).toEqual([
       ['4.0', 'acres'],
       ['42.9', '/100 score'],
     ])
+    // The FIGURES are untouched in both -- the denominator rode the label.
+    expect([tabRows[0], tabRows[2]]).toEqual(rows.slice(0, 2).map((row) => row.text))
 
     // ONE RULE, AND IT IS BETWEEN THE TWO HALVES rather than at either end.
     const breaks = rows.map((row, index) => (row.break ? index : null)).filter((i) => i != null)
@@ -1676,38 +1684,18 @@ describeIf('the zone patterns, rendered', () => {
   }, 60_000)
 
   /**
-   * THE FLOOR WAS 1.5x AND IS 1.25x, AND THE SCALE SHIFT IS WHY.
-   *
-   * --pattern-* went 0.4/0.55/1 to 0.55/0.75/1 (see index.css, which carries
-   * the reasoning and the numbers). Focus was already at the ceiling, so
-   * raising everything under it for legibility on imagery COMPRESSED THE TOP
-   * OF THE SCALE: the focused/active step was 1.82x in alpha and is 1.33x.
-   * Measured on this swatch it lands at 1.31-1.35x for every mark on the
-   * pattern scale, and the embankment wash -- whose fill is on the --tint-*
-   * scale, which did not move -- still reports 1.69x.
-   *
-   * THIS IS A WEAKENED ASSERTION AND IT IS RECORDED AS ONE. 1.25x is set below
-   * what the shipped scale measures, with the usual headroom, and not a
-   * millimetre lower: it is a floor under the CURRENT scheme, not a licence to
-   * keep compressing. The next change that pushes any of these under it is
-   * making the same trade again, and should have to say so here.
-   *
-   * THE FENCE'S OWN FLOOR, ON THIS SWATCH ONLY, AND IT TOOK THE WORST OF IT. A
-   * fence is a PALE line (--rule) on a --halo casing: against mid-grey the
-   * casing is most of the ink and the line adds little over it, so the focused
-   * state cannot swing against grey the way the road's dark core does (2.64x).
-   * It measured 1.41x before the shift -- already the weakest case, which is
-   * why it already had a floor of its own -- and measures 1.13x after, 1.16x
-   * over canopy and 1.13x over soil. That is the thinnest state step in the
-   * build and it is the one number in this change worth watching: a fence at
-   * focus is now told from a fence in the commit by an eighth more ink.
-   * Nothing else moves it back short of unpinning --pattern-focused, which is
-   * pinned for a reason (see index.css). On IMAGERY the fence's
-   * committed-to-active step is the road's own -- 1.25x over canopy, 1.25x over
-   * soil -- and the ground tests below hold it there like every other mark.
-   * See the --fence note in index.css.
+   * THE FENCE'S OWN FLOOR, ON THIS SWATCH ONLY. A fence is a PALE line (--rule)
+   * on a --halo casing: against mid-grey the casing is most of the ink and
+   * the line adds little over it, so the focused state cannot swing against
+   * grey the way the road's dark core does (2.64x). Measured at 1.41x for
+   * --rule, and 1.22x for the rejected --ink-muted (a mid-grey line on a
+   * mid-grey ground, which is the mid-value trap in one number). On IMAGERY
+   * the fence's committed-to-active step is the road's own -- 1.28x over
+   * canopy, 1.26x over soil, against the road's 1.23x -- and the ground
+   * tests below hold it there like every other mark. Every other treatment
+   * keeps the 1.5x floor. See the --fence note in index.css.
    */
-  const STATE_STEP_FLOOR = { fence: 1.1 }
+  const STATE_STEP_FLOOR = { fence: 1.3 }
 
   it('tells the focused state from the active one at whole-parcel size', async () => {
     for (const treatment of SWATCH_TREATMENTS) {
@@ -1727,10 +1715,9 @@ describeIf('the zone patterns, rendered', () => {
 
       // AND BY ENOUGH TO SEE. A pattern is mostly unfilled, so a small step in
       // opacity vanishes at this size; the fix is a wide gap between levels
-      // rather than a hope about perception. A quarter again as much ink is the
-      // floor this asserts against -- it was half again, and STATE_STEP_FLOOR
-      // above says what moved it and what that cost.
-      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThan(STATE_STEP_FLOOR[treatment] ?? 1.25)
+      // rather than a hope about perception. Half again as much ink is the
+      // floor this asserts against.
+      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThan(STATE_STEP_FLOOR[treatment] ?? 1.5)
     }
   }, SLOW)
 
@@ -1982,11 +1969,11 @@ describeIf('the zone patterns, rendered', () => {
   }
 
   async function addedInkOver(page, ground, treatment, state) {
-    const marked = decodePng(
-      await (await page.$(`[data-testid="ground-${ground}-${treatment}-${state}"]`)).screenshot({
-        type: 'png',
-      })
-    )
+    // A STATELESS CELL IS A REAL CELL. The opaque reference is one colour laid
+    // solid -- not a state of a mark, but the thing every state is a fraction
+    // of -- and it is addressed by its id alone. See the harness's cellId().
+    const id = state == null ? `ground-${ground}-${treatment}` : `ground-${ground}-${treatment}-${state}`
+    const marked = decodePng(await (await page.$(`[data-testid="${id}"]`)).screenshot({ type: 'png' }))
     const bare = decodePng(
       await (await page.$(`[data-testid="ground-${ground}-bare"]`)).screenshot({ type: 'png' })
     )
@@ -2115,6 +2102,240 @@ describeIf('the zone patterns, rendered', () => {
       expect(committed, `site pin: committed quieter than active over ${ground}`).toBeLessThan(active)
       const bare = await addedInkOver(page, ground, 'structure', 'active-uncased')
       expect(active, `the halo adds ink over ${ground}`).toBeGreaterThan(bare)
+    }
+  }, SLOW)
+
+  /**
+   * PRODUCTION'S HATCH, CASED: THE WHOLE TABLE, AND WHAT IT COSTS.
+   *
+   * WHY THE HATCH IS CASED AT ALL. During landform the hatch sits on the
+   * eligible highlight and reads against that tint; from water onward the
+   * highlight is gone and the same mark sits on bare imagery, where a mid-tone
+   * oxide diagonal over closed canopy has almost nothing to work with. That was
+   * first treated as an opacity problem -- the whole --pattern-* scale was
+   * raised, which compressed the top of it and cost the fence its state step --
+   * and it is a CONTRAST problem. The road's fix, applied to a pattern: a
+   * --halo stroke under each rule, both inside the tile so the level scales
+   * them together. See ProductionHatchPattern's hatchTile().
+   *
+   * THREE CLAIMS, ALL MEASURED HERE RATHER THAN JUDGED:
+   *
+   *   1. THE CASING IS WHAT DOES IT. The same tile with the casing pass lifted
+   *      off, beside the shipped one -- the road's own comparison.
+   *   2. WHAT THE CASED MARK IS, AGAINST PAINT. The same colour laid solid over
+   *      the same ground, so "is this still a hatch" has a denominator.
+   *   3. THE LEVELS STILL MEAN ONE THING. Both strokes ride the path's
+   *      fill-opacity, so committed is a faint cased mark and focused is a
+   *      strong one -- the ratios are the scale's, unchanged by the casing.
+   *
+   * THE CASING IS NOT NARROWED TO PROTECT THE TEXTURE. Casing doubles the
+   * strokes and takes ground the imagery used to read through; that cost is
+   * accepted, and this test reports it rather than guarding against it.
+   */
+  it('cases production’s hatch, and reports what the casing is worth and what it costs', async () => {
+    // --oxide laid solid over the same ground: what a fill of this mark's own
+    // colour actually moves, which is the only honest denominator for "does
+    // this read as a fill".
+    const paintOver = (ground) => addedInkOver(page, ground, 'oxide', null)
+
+    for (const ground of ['canopy', 'soil']) {
+      const paint = await paintOver(ground)
+      for (const state of ['committed', 'active', 'focused']) {
+        const cased = await addedInkOver(page, ground, 'production', state)
+        const bare = await addedInkOver(page, ground, 'production', `${state}-uncased`)
+        // eslint-disable-next-line no-console
+        console.log(
+          `    hatch  ${ground.padEnd(6)} ${state.padEnd(9)} ` +
+            `cased ${cased.toFixed(4)}  bare ${bare.toFixed(4)}  ` +
+            `(casing ${(cased / bare).toFixed(2)}x)  ` +
+            `paint ${paint.toFixed(4)}  (${((cased / paint) * 100).toFixed(0)}% of a fill)`
+        )
+
+        // [1] THE CASING IS WHAT DOES IT, on both grounds and at every level.
+        expect(cased, `${ground}/${state}: the casing adds ink`).toBeGreaterThan(bare)
+        // AND THE BARE MARK IS WHY IT WAS NEEDED: over canopy the uncased
+        // committed hatch is the road's own failure -- under the 0.004 floor
+        // this suite holds every committed mark to.
+        expect(cased, `${ground}/${state}: the cased mark clears the floor`).toBeGreaterThan(0.004)
+      }
+    }
+
+    // [3] AND THE LEVELS ARE STILL THE SCALE'S. The casing rides the same
+    // fill-opacity as the rule, so the three states keep their ratios -- which
+    // is the property that would have been lost by drawing the casing as a
+    // second layer with an opacity of its own.
+    for (const ground of ['canopy', 'soil']) {
+      const at = async (state) => addedInkOver(page, ground, 'production', state)
+      const [committed, active, focused] = [await at('committed'), await at('active'), await at('focused')]
+      expect(committed / active, `${ground}: committed stays under three quarters`).toBeLessThan(0.75)
+      expect(focused / active, `${ground}: the top gap is the scale's`).toBeGreaterThan(1.5)
+    }
+  }, SLOW)
+
+  /**
+   * [2] DOES THE CASING CLOSE THE HATCH?
+   *
+   * THE QUESTION IS REAL AND THE ANSWER IS ALLOWED TO BE "YES". Casing doubles
+   * the pattern's strokes, and at an 8px pitch the halo may close the gaps
+   * between rules -- at which point the mark is a fill wearing a texture's
+   * name, which is a different problem from the one the casing solves. It is
+   * ACCEPTED if it happens; what is not acceptable is not knowing.
+   *
+   * TWO MEASURES, BECAUSE "A FILL" MEANS TWO THINGS:
+   *
+   *   HOW MUCH -- the cased mark's ink as a fraction of the same colour laid
+   *   solid over the same ground. A hatch inks about an eighth of what it
+   *   covers; paint inks all of it.
+   *
+   *   HOW FLAT -- textureSpread over the swatch's interior, against the same
+   *   swatch's opaque reference. A fill is UNIFORM: its spread collapses toward
+   *   the ground's own. A hatch has light and dark within it whatever its
+   *   coverage, which is what makes it read as worked ground rather than as a
+   *   wash, and it is the measure that actually answers "is this still a
+   *   hatch".
+   */
+  it('says whether the casing closed the hatch, measured against paint', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      const paint = await swatchOf(page, `ground-${ground}-oxide`)
+      const bareGround = await swatchOf(page, `ground-${ground}-bare`)
+      // Cropped, like every other texture reading here: a swatch edge is a
+      // hard transition that both measures would count as texture.
+      const spread = (png) => textureSpread(crop(png, 8))
+      const paintSpread = spread(paint)
+      const groundSpread = spread(bareGround)
+      const cropped = crop(bareGround, 8)
+
+      for (const state of ['committed', 'active', 'focused']) {
+        const marked = await swatchOf(page, `ground-${ground}-production-${state}`)
+        const uncased = await swatchOf(page, `ground-${ground}-production-${state}-uncased`)
+        const open = untouchedFraction(crop(marked, 8), cropped)
+        const openBare = untouchedFraction(crop(uncased, 8), cropped)
+        // eslint-disable-next-line no-console
+        console.log(
+          `    hatch-texture  ${ground.padEnd(6)} ${state.padEnd(9)} ` +
+            `open ${(open * 100).toFixed(0)}% (bare ${(openBare * 100).toFixed(0)}%)  ` +
+            `spread cased ${spread(marked).toFixed(4)} bare ${spread(uncased).toFixed(4)} ` +
+            `paint ${paintSpread.toFixed(4)} ground ${groundSpread.toFixed(4)}`
+        )
+
+        // [a] THE GAPS ARE STILL THERE, AND THEY ARE MUCH NARROWER THAN THEY
+        // WERE. The direct question: what fraction of the swatch still reads
+        // as bare ground. A fill leaves nothing -- the opaque control below
+        // measures under 1% -- and this is the number that says how far
+        // towards one the casing took the mark.
+        //
+        //   MEASURED, cased against bare, at the shipped 8px pitch:
+        //     canopy    88% open -> 37%, at every level
+        //     bare soil 88% open -> 63% committed, 58% active, 37% focused
+        //
+        // THE COST IS REAL AND IT IS ACCEPTED. The bare hatch inked about an
+        // eighth of what it covered, which is the figure production's row was
+        // tuned to; cased, it changes nearly two thirds of the ground over
+        // canopy. The mark is no longer "mostly unfilled" there. It is also
+        // not a fill: over a third of the frame still reads through it at every
+        // level, and [b] shows it is still a texture rather than a wash. The
+        // casing is NOT narrowed to buy the openness back -- visibility on
+        // imagery is what it exists for, and the geometry it takes is the
+        // price.
+        //
+        // THE TWO GROUNDS DIFFER BECAUSE THIS MEASURES WHAT READS THROUGH,
+        // not what is geometrically covered. --halo over dark canopy is a
+        // change at every pixel it touches; over bright soil it is close to
+        // the ground's own tone, so much of the casing does not register --
+        // which is the same asymmetry that makes the casing worth 9.9x over
+        // canopy and 2.7x over soil. Perceptual openness is the property being
+        // claimed, so it is the one measured.
+        expect(open, `${ground}/${state}: the cased hatch still has gaps`).toBeGreaterThan(0.3)
+
+        // [b] AND IT IS STILL A TEXTURE RATHER THAN A WASH. Both flat
+        // references measure exactly 0 -- a uniform colour has no spread at
+        // all -- so this is asserted against an absolute rather than as a
+        // multiple of zero. The cased mark is in fact MORE textured than the
+        // bare one, on both grounds: the halo and the rule alternate against
+        // each other, which is more internal contrast than oxide against its
+        // ground.
+        expect(paintSpread, 'paint is flat').toBeLessThan(0.002)
+        expect(groundSpread, 'the ground is flat').toBeLessThan(0.002)
+        expect(
+          spread(marked),
+          `${ground}/${state}: the cased hatch is not a wash`
+        ).toBeGreaterThan(0.02)
+        expect(
+          spread(marked),
+          `${ground}/${state}: casing did not cost the mark its texture`
+        ).toBeGreaterThan(spread(uncased))
+      }
+
+      // THE FILL IS THE CONTROL, and it behaves like one: it leaves nothing
+      // untouched. Without this the gap measure above could be passing because
+      // the measure is wrong rather than because the hatch is open.
+      expect(
+        untouchedFraction(crop(paint, 8), cropped),
+        `${ground}: a real fill leaves nothing`
+      ).toBeLessThan(0.01)
+    }
+  }, SLOW)
+
+  /**
+   * [5] THE LANDFORM CASE: THE CASED HATCH ON THE ELIGIBLE HIGHLIGHT.
+   *
+   * THE GROUND EVERY OTHER CELL HERE IS NOT. The casing was added because the
+   * hatch sits on bare imagery from water onward. During LANDFORM it sits on
+   * --eligible at ELIGIBLE_OPACITY, and a casing built to lift a mark off
+   * imagery could be redundant there, or heavy enough to fight the highlight it
+   * is on -- the highlight's whole job is to say which ground cleared the
+   * gates, and a mark that erases it takes that reading away.
+   *
+   * SO BOTH READINGS ARE TAKEN: what the mark adds OVER THE HIGHLIGHT (is it
+   * still there), and whether the highlight is still legible UNDER IT (is it
+   * still there). Neither is a substitute for the other.
+   */
+  it('keeps the cased hatch and the eligible highlight both readable during landform', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      const highlight = await swatchOf(page, `ground-${ground}-eligible`)
+      // THE HIGHLIGHT'S OWN CONTRIBUTION, which is what it is worth with
+      // nothing on it -- the number the combination has to be read against.
+      const highlightAlone = meanAbsDifference(highlight, bare)
+
+      for (const state of ['committed', 'active', 'focused']) {
+        const onHighlight = await swatchOf(
+          page,
+          `ground-${ground}-production-${state}-eligible`
+        )
+        // THE MARK'S OWN CONTRIBUTION OVER THE HIGHLIGHT -- differenced
+        // against the highlight, not against the ground, so what is measured
+        // is the hatch and not the tint under it.
+        const markOverHighlight = meanAbsDifference(onHighlight, highlight)
+        // AND THE HIGHLIGHT UNDER THE MARK -- the whole combination against
+        // bare ground. If the mark had erased the tint this would collapse
+        // toward the mark's own downstream figure.
+        const combination = meanAbsDifference(onHighlight, bare)
+        const downstream = await addedInkOver(page, ground, 'production', state)
+
+        // eslint-disable-next-line no-console
+        console.log(
+          `    eligible  ${ground.padEnd(6)} ${state.padEnd(9)} ` +
+            `highlight ${highlightAlone.toFixed(4)}  mark-over-highlight ${markOverHighlight.toFixed(4)}  ` +
+            `combination ${combination.toFixed(4)}  (downstream ${downstream.toFixed(4)})`
+        )
+
+        // THE MARK IS STILL THERE ON THE HIGHLIGHT, above the same floor every
+        // other mark is held to. A casing that had become redundant over a
+        // tint would show up as the mark adding nothing.
+        expect(
+          markOverHighlight,
+          `${ground}/${state}: the cased hatch reads on the eligible highlight`
+        ).toBeGreaterThan(0.004)
+
+        // AND THE HIGHLIGHT IS STILL THERE UNDER THE MARK. The combination has
+        // to carry more than the mark does on bare ground -- if the casing had
+        // painted the tint out, the two would converge.
+        expect(
+          combination,
+          `${ground}/${state}: the highlight still reads under the cased hatch`
+        ).toBeGreaterThan(downstream)
+      }
     }
   }, SLOW)
 
@@ -2764,6 +2985,34 @@ function textureSpread({ pixels, channels, width, height }) {
   }
   const mean = values.reduce((a, b) => a + b, 0) / values.length
   return values.reduce((a, b) => a + Math.abs(b - mean), 0) / values.length / 255
+}
+
+/**
+ * THE FRACTION OF PIXELS A MARK LEFT ALONE, 0..1.
+ *
+ * THE DIRECT ANSWER TO "IS IT STILL A HATCH". textureSpread says whether the
+ * swatch is flat and meanAbsDifference says how much ink is on it; neither
+ * says whether the GAPS are still gaps, which is the whole property that makes
+ * a pattern a pattern -- the imagery reads through it. This counts the pixels
+ * that are still the bare ground, within a tolerance that absorbs the
+ * antialiasing along every stroke edge without absorbing a stroke.
+ *
+ * 6/255 PER CHANNEL is that tolerance, arrived at from the control: a solid
+ * fill of the mark's own colour measures under 1% untouched with it, so it is
+ * not quietly counting covered ground as open.
+ */
+function untouchedFraction({ pixels, channels, width, height }, bare) {
+  let untouched = 0
+  let count = 0
+  for (let i = 0; i < width * height * channels; i += channels) {
+    const same =
+      Math.abs(pixels[i] - bare.pixels[i]) <= 6 &&
+      Math.abs(pixels[i + 1] - bare.pixels[i + 1]) <= 6 &&
+      Math.abs(pixels[i + 2] - bare.pixels[i + 2]) <= 6
+    if (same) untouched += 1
+    count += 1
+  }
+  return untouched / count
 }
 
 function localVariation({ pixels, channels, width, height }) {

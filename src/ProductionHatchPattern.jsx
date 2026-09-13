@@ -151,7 +151,18 @@ const TREATMENT_MARKS = [
   // small zone caught two or three strokes and read as stray lines. 8px with a
   // 1px stroke is an eighth of the area inked: enough to register as worked
   // ground, open enough that the eligible tint and the imagery read through.
-  { treatment: 'production', kind: 'hatch', token: '--oxide', spacing: 8, weight: 1, rise: 'up' },
+  //
+  // AND CASED, at the halo-casing rule's own ratio. `casing` is a --halo stroke
+  // under each rule, twice the rule's own weight -- the ratio every cased mark
+  // in the build uses (road 2/4, drawn zone 1.5/3, the site pin's halo pass),
+  // so the hatch joins that family rather than inventing a width. It exists
+  // because from water onward this mark sits on bare imagery instead of on the
+  // eligible highlight; see hatchTile() for the argument and for why a casing
+  // is not an outline.
+  //
+  // TREES IS NOT CASED IN THIS BRANCH and that is a deliberate gap, not an
+  // oversight -- see its own row.
+  { treatment: 'production', kind: 'hatch', token: '--oxide', spacing: 8, weight: 1, casing: 2, rise: 'up' },
   // WATER, EMBANKMENT: a screened tint with an outline.
   //
   // A TINT HAS NO SPACING AND NO RADIUS. Its whole description is its colour;
@@ -309,7 +320,19 @@ const TREATMENT_MARKS = [
      is where the ruling stops, which is legible on its own -- and an outline
      on a candidate would read as a surveyed line, which is what the no-edge
      rule has always been about. Trees gains that rule by becoming a hatch;
-     production has always had it. */
+     production has always had it.
+
+     AND IT IS NOT CASED, WHILE PRODUCTION'S IS -- a DELIBERATE GAP in this
+     branch, recorded rather than left to be noticed. Trees has production's
+     problem exactly: from structures onward a committed tree zone sits on bare
+     imagery with no eligible highlight under it, and --tree is a mid-tone green
+     over canopy that is also green. The reason it is bare here is scope, not a
+     judgement that it does not need one: casing changes what a mark inks, this
+     branch is production's, and the pair is held apart by ANGLE rather than by
+     weight -- so casing one of the two and not the other is the LESS symmetric
+     state, not the more. Measured figures for the cased mark are in
+     layout.test.jsx; the same numbers are what a trees branch should take the
+     decision on. See hatchTile(). */
   { treatment: 'tree', kind: 'hatch', token: '--tree', spacing: 8, weight: 1, rise: 'down' },
   /* THE STRUCTURE MARK: A PIN, in --ochre.
 
@@ -438,7 +461,7 @@ export function marksItsOwnEdge(mark) {
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
 /**
- * A 45-DEGREE HATCH TILE, IN EITHER DIRECTION.
+ * A 45-DEGREE HATCH TILE, IN EITHER DIRECTION, CASED OR BARE.
  *
  * `rise` is which way the ruling runs across the tile, in the reader's terms
  * rather than SVG's y-down ones: 'up' is the "/" diagonal (production's) and
@@ -450,24 +473,131 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
  * clips at the tile edge, so the main diagonal alone would break at every
  * repeat; the stubs complete the two corners the diagonal misses, and the
  * strokes then join across tile edges into continuous rules.
+ *
+ *
+ * A CASING IS NOT AN OUTLINE, AND THE DIFFERENCE IS THE WHOLE NO-STROKE RULE
+ *
+ * READ THIS BEFORE CONCLUDING THAT THE HATCH NOW HAS AN EDGE. It does not.
+ *
+ *   AN OUTLINE runs along the ZONE'S BOUNDARY. It is a second mark, at the one
+ *   place a recommendation is least certain, and it says someone surveyed and
+ *   agreed that line. That is what the no-stroke rule forbids for a hatch, and
+ *   it is still forbidden: zoneMark() returns `stroke: null` for every pattern
+ *   row, marksItsOwnEdge() is false for `hatch`, and nothing here draws at the
+ *   polygon's edge in any state.
+ *
+ *   A CASING runs under the MARK'S OWN LINES, inside the tile, wherever the
+ *   hatch happens to fall. It is a contrast backing -- the same ink, made
+ *   legible -- and it stops where the hatch stops, because it IS the hatch. The
+ *   zone's extent is still where the ruling ends, unnanounced.
+ *
+ * A reader who sees two strokes per rule and thinks "the zone is outlined now"
+ * has confused the two. A drawn zone's deliberate edge (layers.jsx,
+ * DRAWN_CASING_WEIGHT) is the outlined case, and it is outlined on purpose and
+ * separately.
+ *
+ *
+ * WHY THE HATCH IS CASED AT ALL, AND WHY OPACITY WAS THE WRONG ANSWER
+ *
+ * During LANDFORM the hatch sits on the eligible highlight (--eligible at
+ * 0.32), and that tint is most of what the mark reads against. From water
+ * onward the highlight is gone and the same hatch sits DIRECTLY ON IMAGERY,
+ * where a mid-tone oxide diagonal over closed canopy has almost nothing to work
+ * with. The committed block is not fainter downstream; it is on a different
+ * ground.
+ *
+ * That was first treated as an opacity problem and the whole --pattern-* scale
+ * was raised. It is a contrast problem, and index.css records what the raise
+ * cost. THE FIX IS THE ROAD'S FIX: the road's bare umber line measured 0.0008
+ * over canopy against a 0.004 floor -- a fifth of the visibility floor -- and
+ * is carried entirely by its --halo casing. Same problem, same technique,
+ * applied to a pattern rather than to a path.
+ *
+ * BOTH STROKES ARE IN THE TILE, SO THE LEVEL SCALES THEM TOGETHER. The path's
+ * own fill-opacity is the state, and a paint server's contents ride it -- the
+ * stipple's screen is in its tile for exactly this reason. A committed block is
+ * a faint cased mark and a focused one is a strong cased mark; three opacities
+ * of ONE mark, which is the property the whole level language rests on. A
+ * casing drawn as a second layer would be a second opacity to keep in step.
+ *
+ * WHAT IT IS WORTH, measured as the ink the mark ADDS over its own ground at
+ * the 90px square (layout.test.jsx, `addedInkOver`), cased against the same
+ * tile with the casing pass lifted off:
+ *
+ *                        cased     bare      casing    of a solid --oxide fill
+ *   over canopy
+ *     committed 0.4      0.0870    0.0089    9.7x      49%
+ *     active    0.55     0.1195    0.0124    9.7x      67%
+ *     focused   1        0.2178    0.0225    9.7x      122%
+ *   over bare soil
+ *     committed 0.4      0.0455    0.0170    2.7x      13%
+ *     active    0.55     0.0625    0.0234    2.7x      18%
+ *     focused   1        0.1138    0.0425    2.7x      33%
+ *
+ * THE CASING IS A CANOPY FIX, and the two columns say so. Over dark canopy it
+ * is worth nearly ten times the bare mark; over bright soil, where --halo is
+ * close to the ground's own tone, under three. That asymmetry is the point --
+ * the bare hatch was already legible on soil (0.0170) and was at the road's own
+ * failure point on canopy (0.0089, against a 0.004 floor).
+ *
+ * THE 122% IS NOT AN ERROR. At full strength over canopy the cased mark moves
+ * MORE pixels than solid --oxide does, because most of its ink is halo and a
+ * near-white stroke on dark canopy out-contrasts oxide on dark canopy. It is a
+ * contrast reading, not a coverage one; how much ground the mark actually
+ * takes is the separate measure below.
+ *
+ * IT COSTS TEXTURE AND THAT COST IS ACCEPTED. Casing doubles the strokes, and
+ * at this pitch the halo takes ground the imagery used to read through: the
+ * share of the swatch still reading as bare ground falls from 88% to 37% over
+ * canopy, and to 63/58/37% over soil by level. The mark is no longer "mostly
+ * unfilled" on canopy. It is also not a fill -- over a third still reads
+ * through at every level, a solid fill leaves under 1%, and the tile's texture
+ * spread is HIGHER cased than bare (the halo and the rule alternate against
+ * each other). The casing is NOT narrowed to buy the openness back: visibility
+ * on imagery is what it exists for, and layout.test.jsx measures what the tile
+ * is actually inking rather than leaving it to judgement.
+ *
+ * AND IT STILL WORKS UNDER THE ELIGIBLE HIGHLIGHT, which is the one ground
+ * this was NOT built for -- a casing meant to lift a mark off imagery could
+ * have been redundant on a tint, or heavy enough to paint out the highlight
+ * whose whole job is to say which ground cleared the gates. Neither: on
+ * --eligible over canopy the mark still adds 0.0668/0.0919/0.1673, and the
+ * combination (0.2511/0.2732/0.3398) stays well above what the mark carries on
+ * bare ground, so the highlight is still there underneath it.
  */
 function hatchTile(spec, colour) {
   const size = spec.spacing
-  const line = document.createElementNS(SVG_NS, 'path')
   // Written for 'up' and reflected in y for 'down' -- the mirror is the whole
   // of the difference between the two marks, so it is one expression.
   const y = (value) => (spec.rise === 'down' ? size - value : value)
-  line.setAttribute(
-    'd',
+  const d =
     `M0,${y(size)} L${size},${y(0)} ` +
-      `M-1,${y(1)} L1,${y(-1)} ` +
-      `M${size - 1},${y(size + 1)} L${size + 1},${y(size - 1)}`
-  )
-  line.setAttribute('stroke', colour)
-  line.setAttribute('stroke-width', String(spec.weight))
-  line.setAttribute('stroke-linecap', 'square')
-  line.setAttribute('fill', 'none')
-  return [line]
+    `M-1,${y(1)} L1,${y(-1)} ` +
+    `M${size - 1},${y(size + 1)} L${size + 1},${y(size - 1)}`
+
+  const rule = (pass, stroke, width) => {
+    const path = document.createElementNS(SVG_NS, 'path')
+    path.setAttribute('d', d)
+    path.setAttribute('stroke', stroke)
+    path.setAttribute('stroke-width', String(width))
+    path.setAttribute('stroke-linecap', 'square')
+    path.setAttribute('fill', 'none')
+    // WHICH PASS THIS IS, named on the node. The map never reads it; the
+    // layout harness does, to lift the casing back off and measure what it is
+    // worth -- the same question the road, the pin and the fence each answer
+    // through `data-uncased`. A pass identified by position ("the first
+    // child") would silently become the wrong pass the day a row has no
+    // casing.
+    path.dataset.pass = pass
+    return path
+  }
+
+  // THE CASING PASS, UNDER THE RULES, WHEN THE ROW ASKS FOR ONE. Same geometry,
+  // wider stroke, --halo. See the `casing` note on production's row for why the
+  // mark needs it and A CASING IS NOT AN OUTLINE below for what it is not.
+  const marks = spec.casing ? [rule('casing', readToken('--halo'), spec.casing)] : []
+  marks.push(rule('rule', colour, spec.weight))
+  return marks
 }
 
 /**

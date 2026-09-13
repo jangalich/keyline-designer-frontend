@@ -1281,16 +1281,25 @@ describe('6 & 7. no eligible highlight, the off-parcel scrim, and the search spa
    * AND THE SAME PITCH. Same tile size, same stroke width -- the spacing is
    * what makes the two one family, and the mirror is what tells them apart.
    */
+  /** One treatment's RULE path data, for comparing a casing against it. */
+  const pattern_d = (doc, treatment) =>
+    doc.getElementById(`zone-pattern-${treatment}`).querySelector('[data-pass="rule"]').getAttribute('d')
+
   it('rules the tree hatch on the opposite diagonal at production\'s spacing', () => {
     const teardown = injectZonePatterns(document.body)
     try {
       const tileOf = (treatment) => {
         const pattern = document.getElementById(`zone-pattern-${treatment}`)
-        const path = pattern.querySelector('path')
+        // THE RULE PASS, BY NAME. Production's tile carries a --halo CASING
+        // under its rule (see hatchTile), so "the pattern's path" is now two
+        // paths there and one here. The ruling is what this test is about, and
+        // the casing is asked about separately below.
+        const path = pattern.querySelector('[data-pass="rule"]')
         return {
           size: [pattern.getAttribute('width'), pattern.getAttribute('height')].map(Number),
           weight: Number(path.getAttribute('stroke-width')),
           stroke: path.getAttribute('stroke'),
+          casing: pattern.querySelector('[data-pass="casing"]'),
           points: path
             .getAttribute('d')
             .split(/[ML]\s*/)
@@ -1305,6 +1314,29 @@ describe('6 & 7. no eligible highlight, the off-parcel scrim, and the search spa
       expect(tree.size).toEqual(production.size)
       expect(tree.weight).toBe(production.weight)
       const [size] = production.size
+
+      // ONE CASED AND ONE NOT, WHICH IS A KNOWN ASYMMETRY AND NOT A DRIFT.
+      // Production's hatch was cased when it stopped reading on bare imagery
+      // downstream; trees has the same problem from structures onward and has
+      // not been given the same treatment, because casing changes what a mark
+      // inks and that decision belongs to a trees branch with the measurements
+      // in front of it (layout.test.jsx has them). Asserted so the gap is a
+      // recorded state rather than something nobody noticed -- and so that
+      // closing it has to come here and say so.
+      expect(production.casing, 'production’s hatch is cased').not.toBeNull()
+      expect(
+        Number(production.casing.getAttribute('stroke-width')),
+        'the casing is twice the rule, the build’s casing ratio'
+      ).toBe(production.weight * 2)
+      expect(production.casing.getAttribute('stroke')).toBe(
+        document.documentElement.style.getPropertyValue('--halo')
+      )
+      // AND THE CASING IS THE SAME GEOMETRY, which is what makes it a backing
+      // under the mark's own lines rather than an outline round the zone.
+      expect(production.casing.getAttribute('d')).toBe(
+        pattern_d(document, 'production')
+      )
+      expect(tree.casing, 'the tree hatch is not cased in this build').toBeNull()
 
       // OPPOSITE DIAGONAL, as an exact reflection in y.
       expect(tree.points).toHaveLength(production.points.length)

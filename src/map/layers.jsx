@@ -155,7 +155,11 @@ const SCRIM_OPACITY = 0.55
 // Presence comes from opacity rather than from a colour picked to beat the
 // imagery -- see the --eligible token's own note for why that differs from the
 // halo-casing rule DrawTool established for LINES.
-const ELIGIBLE_OPACITY = 0.32
+// EXPORTED so the layout harness lays the highlight at the shipped alpha
+// rather than at a copy of it -- the landform case measures production's cased
+// hatch ON this tint, and a harness that guessed 0.3 would be measuring a
+// combination the app never draws.
+export const ELIGIBLE_OPACITY = 0.32
 
 /** Committed geometry is settled: no dash, no fill weight, and no click to make. */
 const COMMITTED_FILL_OPACITY = 0.12

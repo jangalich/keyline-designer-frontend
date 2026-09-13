@@ -1344,36 +1344,17 @@ describe('one pattern per step, three levels per pattern', () => {
     }
 
     // AND THE RELATIONSHIPS HOLD FOR BOTH TREATMENTS: committed quietest,
-    // focused fullest -- and the gap between active and focused is now the
-    // gap OF THE SCALE EACH FILL RIDES, which is the whole reason the two
-    // scales are separate.
-    //
-    // THEY USED TO BE ONE NUMBER AND THEY ARE NOT ANY MORE. Both scales were
-    // tuned to the same "nearly 2x" top gap, so one assertion of 1.7x covered
-    // both. Then --pattern-* shifted (0.4/0.55/1 -> 0.55/0.75/1, see index.css)
-    // to get a committed hatch legible on imagery; focus was already pinned at
-    // the ceiling, so everything under it coming up compressed the top of THAT
-    // scale to 1.33x. --tint-* did not move -- a wash covers all of the ground
-    // it is over and was never in danger of going faint -- so it still steps
-    // 1.82x.
-    //
-    // ASSERTING EACH AGAINST ITS OWN SCALE rather than dropping to the lower of
-    // the two is the point: a single 1.3x floor here would pass silently the
-    // day the wash quietly lost its gap too, which is the failure this test
-    // exists to catch.
-    const TOP_GAP = { 'survey-embankment': 1.8, 'survey-excavated': 1.3 }
+    // focused fullest, with the same wide gap between active and focused.
     for (const treatment of ['survey-embankment', 'survey-excavated']) {
       const committed = at(treatment, { isCommitted: true }).fillOpacity
       const active = at(treatment, {}).fillOpacity
       const focused = at(treatment, { isFocused: true }).fillOpacity
       expect(committed, `${treatment}: committed < active`).toBeLessThan(active)
       expect(active, `${treatment}: active < focused`).toBeLessThan(focused)
-      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThanOrEqual(
-        TOP_GAP[treatment]
-      )
-      // AND THE BOTTOM GAP IS THE ONE THE SHIFT WAS FOR, on both scales:
-      // settled stays under three quarters of working, which is what stops a
-      // committed block and a candidate zone carrying equal weight.
+      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThanOrEqual(1.7)
+      // AND THE BOTTOM GAP: settled stays under three quarters of working,
+      // which is what stops a committed block and a candidate zone carrying
+      // equal weight during the step in hand.
       expect(committed / active, `${treatment}: committed vs active`).toBeLessThan(0.75)
     }
   })

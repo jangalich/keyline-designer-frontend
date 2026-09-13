@@ -84,10 +84,28 @@
  * fixed tracks it also spans (CSS Grid §12.5), which is exactly the rule the
  * old label-first treatment was working around by leaving the column entirely.
  *
- * DENOMINATORS RIDE THE LABEL. `42.9` is the value and `/100 score` is the
- * label. `42.9/100` in the value position is four characters of non-numeric
- * text in the number track, and `4.0` above it no longer lines up with
- * anything.
+ * DENOMINATORS RIDE THE LABEL, AND THEY ONLY APPEAR IN THE PANEL. `42.9` is
+ * the value and `/100 score` is the label. `42.9/100` in the value position is
+ * four characters of non-numeric text in the number track, and `4.0` above it
+ * no longer lines up with anything.
+ *
+ * THE SCAN TAB SAYS "score" AND THE PANEL SAYS "/100 score", off ONE
+ * declaration. A tab row declares `denominator: 100` beside its label; the
+ * strip renders the label and the panel, repeating that same row below its
+ * header, renders the denominator with it. See denominated().
+ *
+ * THE SPLIT IS WHAT EACH SURFACE IS FOR. The strip is read ACROSS candidates,
+ * where every score is on one scale and the denominator is the same four
+ * characters on every tab -- noise in a cell 6ch wide that is trying to hold a
+ * column of figures. The panel is read about ONE feature, where "what is this
+ * out of" is a real question and nothing else on screen answers it. Denominator
+ * is explanation, and explanation lives below the break.
+ *
+ * ONE SOURCE, TWO RENDERINGS, and that is why it is here and not in a step. The
+ * panel already takes the tab's rows verbatim (tabRowsOf), so the denominator
+ * is something the PANEL ADDS rather than something the step declares twice --
+ * a step that wrote "/100 score" into the panel and "score" into the tab would
+ * have two strings to keep in step and nothing to notice when they part.
  *
  * EVERYTHING BELOW THE HEADER IS LOWER CASE, and the panel does it in CSS
  * rather than by rewriting anyone's words. That matters: `caution.label` is the
@@ -154,6 +172,22 @@ export function dropsAtZero(value, row) {
 }
 
 /**
+ * A LABEL WITH ITS DENOMINATOR ON IT -- "score" becomes "/100 score".
+ *
+ * THE PANEL'S FORM OF A TAB ROW'S LABEL, and the only place the `/N` is
+ * written. A row with no `denominator` passes through untouched, which is every
+ * row that is not a figure out of something: an acreage is not out of anything.
+ *
+ * `/N` RATHER THAN "of N" or "out of N", because the panel's label column is
+ * the data face and a solidus is the notation a data face is for. It also
+ * sorts: "/100 score" and "acres" stack as two labels rather than as a label
+ * and a phrase.
+ */
+export function denominated(label, denominator) {
+  return denominator == null ? label : `/${denominator} ${label}`
+}
+
+/**
  * THE SCAN TAB'S ROWS, AS PANEL ROWS. A tab row is `{value, label}` and is
  * MEASURED unless it says otherwise -- a tab is a name and figures. `measured:
  * false` on a tab row carries a categorical across unchanged.
@@ -162,13 +196,19 @@ export function dropsAtZero(value, row) {
  * makes "repeated verbatim" true by construction. A step that declared the same
  * two rows twice would have two copies to keep in step and no test that notices
  * when it stops.
+ *
+ * "VERBATIM" IS ABOUT THE FIGURES AND WHICH ROWS, NOT ABOUT THE LABEL'S EXACT
+ * CHARACTERS. The one thing the panel adds is the denominator -- see
+ * denominated() for why the strip does not carry it. The value is never
+ * touched.
  */
 export function tabRowsOf(tab) {
-  return (tab?.rows ?? []).map((row) =>
-    row.measured === false
-      ? categoricalRow(row.value, row.label)
-      : measuredRow(row.value, row.label)
-  )
+  return (tab?.rows ?? []).map((row) => {
+    const label = denominated(row.label, row.denominator)
+    return row.measured === false
+      ? categoricalRow(row.value, label)
+      : measuredRow(row.value, label)
+  })
 }
 
 /**

@@ -66,7 +66,13 @@ import {
 } from './stepDefinitions'
 import { EM_DASH, categoricalRow, measuredRow } from './shell/panelFormat.js'
 import { PIN_GLYPH_PATH, injectZonePatterns, marksItsOwnEdge, zoneMark } from '../ProductionHatchPattern.jsx'
-import { CASING_WEIGHT, LINE_WEIGHT, SITE_PIN_HALO_WIDTH, SITE_PIN_SIZE } from '../map/layers.jsx'
+import {
+  CASING_WEIGHT,
+  ELIGIBLE_OPACITY,
+  LINE_WEIGHT,
+  SITE_PIN_HALO_WIDTH,
+  SITE_PIN_SIZE,
+} from '../map/layers.jsx'
 import { readToken } from '../geo.js'
 
 const params = new URLSearchParams(window.location.search)
@@ -382,7 +388,9 @@ const FORMAT_TABS = [
     selected: true,
     rows: [
       { value: measure(4.0), label: 'acres' },
-      { value: measure(42.9), label: '/100 score' },
+      // DECLARED, NOT PRINTED. The strip renders "score" and the panel renders
+      // "/100 score" off this one row -- panelFormat.denominated().
+      { value: measure(42.9), label: 'score', denominator: 100 },
     ],
   },
   {
@@ -392,7 +400,7 @@ const FORMAT_TABS = [
     selected: true,
     rows: [
       { value: measure(11.7), label: 'acres' },
-      { value: measure(100), label: '/100 score' },
+      { value: measure(100), label: 'score', denominator: 100 },
     ],
   },
 ]
@@ -457,6 +465,14 @@ const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road
  * assume it.
  */
 const UNCASED = [
+  // PRODUCTION'S HATCH WITHOUT ITS CASING, at all three levels. The hatch was
+  // cased when it stopped reading on bare imagery downstream (see
+  // ProductionHatchPattern's hatchTile), and "the casing is what does it" has
+  // to be a number like the road's. The cloning pass lifts the casing pass off
+  // the local <pattern> clone, so this is the same tile minus one path.
+  { treatment: 'production', state: 'committed', uncased: true },
+  { treatment: 'production', state: 'active', uncased: true },
+  { treatment: 'production', state: 'focused', uncased: true },
   { treatment: 'road', state: 'committed', uncased: true },
   { treatment: 'road', state: 'active', uncased: true },
   // THE PIN, ONCE MORE WITHOUT ITS HALO: the same question asked of the
@@ -484,6 +500,44 @@ const UNCASED = [
  * still measured above under its own name, so whichever token it resolves
  * to is held to the floor like every other mark.
  */
+/**
+ * THE OPAQUE REFERENCE: --oxide laid solid, over each ground.
+ *
+ * WHAT A MARK IS A FRACTION OF. "Is this still a hatch or is it a fill" is only
+ * answerable against the fill it would be -- the same colour, the same ground,
+ * covering all of it. The water tests already ask this of a tint and compute
+ * the reference arithmetically against a flat mid-grey; that shortcut does not
+ * work over canopy or soil, where the ground is nowhere near grey, so the
+ * opaque case is RENDERED here and differenced like every other cell.
+ *
+ * NOT A STATE. It is deliberately not `--pattern-focused`, which is also 1:
+ * focused is a hatch at full strength and this is paint. The point of the pair
+ * is the distance between them.
+ */
+const OPAQUE = [{ id: 'oxide', opaque: '--oxide' }]
+
+/**
+ * THE LANDFORM CASE: production's mark ON THE ELIGIBLE HIGHLIGHT.
+ *
+ * EVERY OTHER GROUND CELL HERE IS A DOWNSTREAM CELL, and that asymmetry is the
+ * bug the casing was added to fix. From water onward the hatch sits on bare
+ * imagery; during LANDFORM it sits on --eligible at ELIGIBLE_OPACITY, and that
+ * tint is most of what the mark reads against. The levels were tuned on the
+ * downstream case, which is why they looked right and the result did not.
+ *
+ * A CASING BUILT TO LIFT A MARK OFF IMAGERY MAY BE REDUNDANT OR HEAVY OVER A
+ * TINT, so the combination is measured rather than assumed -- the highlight
+ * alone, then the mark on it at each level. The first cell is the highlight by
+ * itself, which is what the other three are differenced against: what is being
+ * asked is what the MARK adds over the ground it actually has during landform.
+ */
+const ELIGIBLE = [
+  { id: 'eligible', eligible: true },
+  { treatment: 'production', state: 'committed', eligible: true },
+  { treatment: 'production', state: 'active', eligible: true },
+  { treatment: 'production', state: 'focused', eligible: true },
+]
+
 const FENCE_CANDIDATES = []
 for (const [id, lineToken] of [
   ['fence-rule', '--rule'],
@@ -604,7 +658,15 @@ function cellId(cell) {
   if (!cell) return 'bare'
   if (cell.overlap) return `overlap-${cell.state}`
   const suffix = cell.uncased ? '-uncased' : cell.unoutlined ? '-unoutlined' : ''
-  return `${cell.id ?? cell.treatment}-${cell.state}${suffix}`
+  // A CELL MAY HAVE NO STATE, AND MAY HAVE NO MARK. The opaque reference is one
+  // colour laid solid -- not a state of a mark, but the thing every state is a
+  // fraction of -- and the eligible-only cell is a GROUND rather than a mark at
+  // all, so it takes its id alone: "eligible", which is what the three marks on
+  // it are differenced against.
+  if (!cell.treatment) return `${cell.id}${suffix}`
+  const state = cell.state ? `-${cell.state}` : ''
+  const ground = cell.eligible ? '-eligible' : ''
+  return `${cell.id ?? cell.treatment}${state}${ground}${suffix}`
 }
 
 /**
@@ -725,6 +787,14 @@ function ZoneSwatches() {
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
         const clone = source.cloneNode(true)
         clone.setAttribute('id', `local-${svg.dataset.testid}`)
+        // `data-uncased` ON A PATTERN lifts the casing pass off the tile, which
+        // is the same question the road, the pin and the fence answer by
+        // leaving their halo pass out. The pass is found BY NAME (hatchTile
+        // tags it) rather than by position, so a row with no casing yields
+        // nothing to remove instead of losing its rule.
+        if (svg.dataset.uncased === 'true') {
+          for (const pass of clone.querySelectorAll('[data-pass="casing"]')) pass.remove()
+        }
         defs.appendChild(clone)
         svg.insertBefore(defs, svg.firstChild)
         swatchRect(svg).setAttribute('fill', `url(#local-${svg.dataset.testid})`)
@@ -942,7 +1012,7 @@ function ZoneSwatches() {
         )
       )}
       {GROUNDS.map((ground, row) =>
-        [null, ...cells, ...UNCASED, ...UNOUTLINED, ...OVERLAP, ...FENCE_CANDIDATES].map((cell, index) => (
+        [null, ...cells, ...UNCASED, ...UNOUTLINED, ...OVERLAP, ...FENCE_CANDIDATES, ...OPAQUE, ...ELIGIBLE].map((cell, index) => (
           <div
             key={`${ground.id}-${cellId(cell)}`}
             data-testid={`ground-${ground.id}-${cellId(cell)}`}
@@ -958,6 +1028,8 @@ function ZoneSwatches() {
                       UNOUTLINED.length +
                       OVERLAP.length +
                       FENCE_CANDIDATES.length +
+                      OPAQUE.length +
+                      ELIGIBLE.length +
                       1) /
                       GROUND_COLUMNS
                   ) +
@@ -968,11 +1040,36 @@ function ZoneSwatches() {
               background: ground.color,
             }}
           >
+            {/* THE ELIGIBLE HIGHLIGHT, UNDER THE MARK, at the alpha layers.jsx
+                draws it at. A plain tinted layer rather than a Leaflet path:
+                what is being measured is the ground the hatch sits on during
+                landform, and a tint over a colour is a tint over a colour. */}
+            {cell?.eligible ? (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'var(--eligible)',
+                  opacity: ELIGIBLE_OPACITY,
+                }}
+              />
+            ) : null}
+            {/* THE OPAQUE REFERENCE: the mark's own colour, covering the cell.
+                No pattern, no level -- see OPAQUE. */}
+            {cell?.opaque ? (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: `var(${cell.opaque})`,
+                }}
+              />
+            ) : null}
             {/* THE OVERLAP CELL IS TWO MARKS IN ONE CELL, stacked in the
                 order the map's panes stack them. Each is an ordinary
                 data-treatment svg, so the cloning pass above dresses both
                 without knowing this cell exists. */}
-            {(cell?.overlap ?? (cell ? [cell.treatment] : [])).map((treatment, depth) => (
+            {(cell?.overlap ?? (cell?.treatment ? [cell.treatment] : [])).map((treatment, depth) => (
               <svg
                 key={treatment}
                 data-testid={`ground-mark-${ground.id}-${cellId(cell)}${cell?.overlap ? `-${treatment}` : ''}`}
@@ -983,7 +1080,11 @@ function ZoneSwatches() {
                 data-line-token={cell.lineToken ?? undefined}
                 width={SWATCH_PX}
                 height={SWATCH_PX}
-                style={cell?.overlap ? { position: 'absolute', left: 0, top: 0, zIndex: depth } : undefined}
+                style={
+                  cell?.overlap || cell?.eligible
+                    ? { position: 'absolute', left: 0, top: 0, zIndex: depth + 1 }
+                    : undefined
+                }
               >
                 <rect
                   width={SWATCH_PX}

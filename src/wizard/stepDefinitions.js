@@ -1787,15 +1787,31 @@ export function totalsFor(payload, selectedIds, drawnFeatures) {
 }
 
 /**
- * THE SCORE'S LABEL, DENOMINATOR AND ALL. Written once because the tab declares
- * it and the panel repeats the tab's rows verbatim -- one string, one place.
+ * THE SCORE'S DENOMINATOR: the top of the backend's own published scale.
  *
- * "/100" IS A LABEL, NOT PART OF THE VALUE. In the value position "42.9/100" is
- * four non-numeric characters inside the number track, and the acreage on the
- * line above stops lining up with anything. The scale itself is the backend's:
- * narrative_data['scales'].range is [0, 100], and nothing here converts.
+ * DECLARED ON THE TAB ROW, RENDERED ONLY BY THE PANEL. panelFormat.denominated()
+ * is what turns "score" into "/100 score", and it does it for the panel's copy
+ * of the row and not for the strip's -- the strip is scanned across candidates
+ * that are all on one scale, the panel is read about one. One declaration, two
+ * renderings; see that function for the argument.
+ *
+ * READ OFF `scales.range`, NOT WRITTEN DOWN. narrative_data['scales'] ships
+ * `range: [0.0, 100.0]` with `score` in its `applies_to`, and that is the
+ * statement of what a score is out of. A 100 typed here is a second copy of it,
+ * and the day the backend rescales, the panel keeps confidently printing the
+ * old denominator against the new figure -- which is exactly the failure
+ * scoreBandName()'s own note is about, in the one place a reader would never
+ * think to check.
+ *
+ * AN INTEGER, because 100.0 is a number the pipeline rounded and "/100.0 score"
+ * reads as a measurement rather than as a scale. NOTHING AT ALL when the
+ * payload carries no scale: a denominator this side cannot back is worse than
+ * no denominator, and the label falls back to plain "score".
  */
-const SCORE_LABEL = '/100 score'
+function scoreDenominator(proposals) {
+  const top = proposals?.scales?.range?.[1]
+  return top == null ? undefined : Math.round(Number(top))
+}
 
 /**
  * THE ASPECT AS A PHRASE: "south facing", "northeast facing".
@@ -2035,16 +2051,19 @@ export const LANDFORM_STEP = documentStep({
    * called. The report still says "production zone"; that divergence is
    * accepted and belongs to the report revamp.
    *
-   * "/100 score", NOT "score". THE DENOMINATOR RIDES THE LABEL -- putting it in
-   * the value ("42.9/100") puts four non-numeric characters in the number track
-   * and the acreage above stops lining up with anything. panelFormat.js's rule,
-   * and the tab is where the panel reads these rows from.
+   * THE SCORE ROW DECLARES A DENOMINATOR AND DOES NOT PRINT ONE. The strip
+   * shows "score"; the panel, repeating this same row below its header, shows
+   * "/100 score". Both come off this one declaration -- panelFormat's
+   * denominated() adds the `/N`, and only for the panel's copy. See that
+   * function for why the two surfaces want different labels, and
+   * scoreDenominator() for where the 100 comes from.
    *
    * `selected` is carried so the strip can show what a commit would take, and
    * it is what the tab's CHECKBOX reads.
    */
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
+    const denominator = scoreDenominator(proposals)
 
     // THE SUGGESTIONS. Every one carries a checkbox and none carries an ×: a
     // suggestion cannot be destroyed, because the server made it and will make
@@ -2058,7 +2077,7 @@ export const LANDFORM_STEP = documentStep({
       selected: selected.has(zone.feature_id),
       rows: [
         { value: measure(zone.area_acres), label: 'acres' },
-        { value: measure(zone.score), label: SCORE_LABEL },
+        { value: measure(zone.score), label: 'score', denominator },
       ],
     }))
 
@@ -2076,7 +2095,7 @@ export const LANDFORM_STEP = documentStep({
         selected: selected.has(feature.id),
         rows: [
           { value: measure(feature.properties?.acres), label: 'acres' },
-          { value: measure(null), label: SCORE_LABEL },
+          { value: measure(null), label: 'score', denominator },
         ],
       })
     })

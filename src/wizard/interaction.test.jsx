@@ -114,6 +114,9 @@ const PAYLOAD = {
     { id: 1, feature_id: 'zone-2', rank: 2, area_acres: 1.2, score: 64, slope_min_pct: 3, slope_max_pct: 11, slope_median_pct: 6, aspect_available: false, dominant_aspect: null, elevation_position: null, soil_components: null, drainage_class: null },
   ],
   scales: {
+    // `range` is what a score is OUT OF, and it is the panel's denominator --
+    // read off the payload rather than written client-side, like the bands.
+    range: [0, 100],
     bands: { poor: [0, 40], fair: [40, 60], good: [60, 80], excellent: [80, 100] },
     band_bounds: 'lower_inclusive_upper_exclusive_last_band_inclusive',
   },
