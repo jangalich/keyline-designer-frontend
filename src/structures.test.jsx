@@ -1853,7 +1853,7 @@ describe('12. what the definition declares, and the sweep', () => {
     // point and the committed line are one colour.
     const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
     expect(css).toMatch(/--road:\s*var\(--ink\);/)
-    expect(Number(document.documentElement.style.getPropertyValue('--pattern-committed'))).toBe(0.4)
+    expect(Number(document.documentElement.style.getPropertyValue('--pattern-committed'))).toBe(0.55)
 
     // ON THE MAP: the committed roads layer's point carries the committed
     // class, the structures step's candidates are live pins, and nothing

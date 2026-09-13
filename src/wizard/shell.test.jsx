@@ -430,8 +430,8 @@ describe('2. landform in the new shell', () => {
     // treatment, generalised.
     const strip = ui.find('tabs-landform')
     expect(strip.dataset.tabCount).toBe('3')
-    expect(ui.text('tab-zone-1')).toBe('Zone 12.5acres81.0score')
-    expect(ui.text('tab-zone-3')).toBe('Zone 32.5acres79.0score')
+    expect(ui.text('tab-zone-1')).toBe('Block 12.5acres81.0/100 score')
+    expect(ui.text('tab-zone-3')).toBe('Block 32.5acres79.0/100 score')
     // No "+N more": three is under the cap.
     expect(ui.find('tabs-more-landform')).toBeNull()
 

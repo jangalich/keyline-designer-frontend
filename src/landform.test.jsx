@@ -25,6 +25,10 @@
  * through the same harness).
  */
 
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import L from 'leaflet'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
@@ -46,9 +50,12 @@ import {
 import { API_URL } from './session/apiClient'
 import {
   LANDFORM_SHAPE,
+  LANDFORM_STEP,
   PRODUCTION_AREA_LAYER,
+  aspectPhrase,
   registryProposalFeatures,
 } from './wizard/stepDefinitions'
+import { EM_DASH, panelBody } from './wizard/shell/panelFormat.js'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
 import MapLayerStack from './map/MapLayerStack.jsx'
@@ -899,5 +906,274 @@ describe('11. the step payload carries everything the step reads', () => {
     expect(prepared.feature.properties.confidence).toBe('low')
     expect(prepared.feature.properties.confidence_notes.trim()).not.toBe('')
     expect(prepared.feature.geometry.type).toBe('MultiPolygon')
+  })
+})
+
+
+/* ===========================================================================
+   12. THE PANEL, AGAINST THE SHARED FORMAT
+   ===========================================================================
+   ASKED OF THE CAPTURE, NOT OF A HAND-WRITTEN ROW. Everything below reads the
+   payload the real backend produced for the reference parcel -- so "soil
+   renders an em dash" is a statement about what the pipeline actually ships
+   today, not about a null someone typed into a fixture to make the assertion
+   pass.
+
+   THE PANEL'S ARRANGEMENT IS MEASURED IN A BROWSER, not here: layout.test.jsx's
+   "the shared panel format, in a real engine" reads computed styles and
+   rendered boxes, which jsdom has neither of. What is asked here is the half
+   that IS data -- which rows, in which order, carrying which values, and where
+   the words in them came from.
+   =========================================================================== */
+
+describe('12. the panel, against the shared format', () => {
+  const HERE = path.dirname(fileURLToPath(import.meta.url))
+
+  /** The step's context, from the captured payload and an empty draft. */
+  const context = (drawnFeatures = []) => ({
+    proposals: captured.payload,
+    draft: { selectedFeatureIds: captured.payload.zones.map((z) => z.feature_id), drawnFeatures },
+  })
+
+  /** One block's panel body, composed exactly as DetailPanel composes it. */
+  function bodyFor(featureId, drawnFeatures = []) {
+    const ctx = context(drawnFeatures)
+    const tab = LANDFORM_STEP.tabs(ctx).find((entry) => entry.id === featureId)
+    const detail = LANDFORM_STEP.detail(ctx, featureId)
+    return { tab, detail, body: panelBody(tab, detail.rows) }
+  }
+
+  const TOP = captured.payload.zones[0]
+
+  /**
+   * [1] THE ROWS, IN ORDER, WITH THE BREAK WHERE THE FORMAT PUTS IT.
+   */
+  it('renders the tab’s rows, a break, then the step’s five', () => {
+    const { body } = bodyFor(TOP.feature_id)
+    expect(body.map((row) => (row.panelBreak ? '——' : row.label))).toEqual([
+      'acres',
+      '/100 score',
+      '——',
+      'aspect',
+      'position',
+      'median slope %',
+      'soil',
+      'drainage class',
+    ])
+
+    // THE TAB'S ROWS ARE THE TAB'S. Not restated by the step -- `detail.rows`
+    // is the five below the break and nothing else, and the panel put the
+    // other two there.
+    const { detail, tab } = bodyFor(TOP.feature_id)
+    expect(detail.rows).toHaveLength(5)
+    expect(body.slice(0, 2).map((row) => [row.value, row.label])).toEqual(
+      tab.rows.map((row) => [row.value, row.label])
+    )
+
+    // THE FIGURES ARE THE PAYLOAD'S, at the pipeline's own one decimal.
+    expect(body[0].value).toBe(TOP.area_acres.toFixed(1))
+    expect(body[1].value).toBe(TOP.score.toFixed(1))
+    expect(body[5].value).toBe(TOP.slope_median_pct.toFixed(1))
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `PANEL[${tab.name}]  ` +
+        body
+          .map((row) => (row.panelBreak ? '│' : `${row.value} ${row.label}`))
+          .join('  ')
+    )
+  })
+
+  /**
+   * [3] `aspect_available` FALSE RENDERS AN EM DASH, NOT A VALUE.
+   *
+   * The reference parcel has relief, so every captured block reports an aspect
+   * -- which is why the false case is asked of aspectPhrase() directly, on the
+   * captured row with the flag turned off. An aspect_factor of 100.0 cannot be
+   * told from "not measured" without the flag, and printing the token anyway
+   * would state a fact about the land nobody established.
+   */
+  it('renders an em dash for an aspect the pipeline did not measure', () => {
+    expect(TOP.aspect_available).toBe(true)
+    expect(aspectPhrase(TOP)).toBe(`${TOP.dominant_aspect} facing`)
+
+    // A PHRASE, NOT A COMPOUND -- a space, never the hyphen this used to print.
+    expect(aspectPhrase(TOP)).not.toContain('-facing')
+    expect(aspectPhrase(TOP)).toMatch(/^[a-z]+ facing$/)
+
+    // FLAG FALSE: an em dash, whatever the token beside it says.
+    expect(aspectPhrase({ ...TOP, aspect_available: false })).toBe(EM_DASH)
+    // AND A MISSING TOKEN IS THE SAME ANSWER on ground with no downhill.
+    expect(aspectPhrase({ ...TOP, dominant_aspect: null })).toBe(EM_DASH)
+
+    // ...through the panel, which is where it has to be true.
+    const flat = { ...captured.payload, zones: [{ ...TOP, aspect_available: false }] }
+    const ctx = { proposals: flat, draft: { selectedFeatureIds: [], drawnFeatures: [] } }
+    const rows = LANDFORM_STEP.detail(ctx, TOP.feature_id).rows
+    expect(rows.find((row) => row.label === 'aspect').value).toBe(EM_DASH)
+  })
+
+  /**
+   * [4] `elevation_position` NULL RENDERS AN EM DASH, NEVER A DEFAULT WORD.
+   */
+  it('renders the backend’s position word, and an em dash when it sent none', () => {
+    const { body } = bodyFor(TOP.feature_id)
+    const position = body.find((row) => row.label === 'position')
+    expect(position.value).toBe(TOP.elevation_position)
+    // THE BACKEND'S OWN WORD, checked against its own published bands rather
+    // than against a string typed here. The payload ships them under
+    // scales.elevation_position precisely so a consumer can do this.
+    const bands = captured.payload.scales.elevation_position.bands
+    expect(Object.keys(bands)).toContain(position.value)
+    const [low, high] = bands[position.value]
+    expect(TOP.elevation_percentile_of_parcel).toBeGreaterThanOrEqual(low)
+    expect(TOP.elevation_percentile_of_parcel).toBeLessThanOrEqual(high)
+
+    // NULL -- a parcel with no relief at all, where "upper" and "lower"
+    // describe nothing. An em dash, never the band a percentile would have
+    // fallen in, because there is no percentile.
+    const flat = {
+      ...captured.payload,
+      zones: [{ ...TOP, elevation_position: null, elevation_percentile_of_parcel: null }],
+    }
+    const ctx = { proposals: flat, draft: { selectedFeatureIds: [], drawnFeatures: [] } }
+    const rows = LANDFORM_STEP.detail(ctx, TOP.feature_id).rows
+    expect(rows.find((row) => row.label === 'position').value).toBe(EM_DASH)
+  })
+
+  /**
+   * [5] SOIL AND DRAINAGE CLASS RENDER EM DASHES, AND THE WIRE IS WHY.
+   */
+  it('renders soil and drainage class as em dashes, because the wire sends null', () => {
+    // THE PAYLOAD'S OWN STATE FIRST. If the backend branch lands and these stop
+    // being null, this fails here -- which is the notice that the rows now have
+    // values and the panel should be checked against them.
+    for (const zone of captured.payload.zones) {
+      expect(zone).toHaveProperty('soil_components')
+      expect(zone).toHaveProperty('drainage_class')
+      expect(zone.soil_components).toBeNull()
+      expect(zone.drainage_class).toBeNull()
+    }
+
+    const { body } = bodyFor(TOP.feature_id)
+    expect(body.find((row) => row.label === 'soil').value).toBe(EM_DASH)
+    expect(body.find((row) => row.label === 'drainage class').value).toBe(EM_DASH)
+
+    // CATEGORICAL, WHICH IS WHAT THEY WILL STILL BE WHEN THE VALUES LAND. A
+    // drainage class is "moderately well drained"; declaring these measured
+    // while they are one narrow character wide would put a long phrase in the
+    // number track the day the branch lands. The shape is stable or it is not.
+    for (const label of ['soil', 'drainage class']) {
+      expect(body.find((row) => row.label === label).kind).toBe('categorical')
+    }
+
+    // AND IT IS A PENDING FIELD IN THE SOURCE, not a silent gap -- the next
+    // reader has to be able to tell this from a bug.
+    const source = readFileSync(path.join(HERE, 'wizard', 'stepDefinitions.js'), 'utf8')
+    expect(source).toContain('SOIL AND DRAINAGE CLASS ARE PENDING FIELDS, NOT A BUG')
+  })
+
+  /**
+   * [6] NO THRESHOLD AND NO BAND IS WRITTEN CLIENT-SIDE.
+   *
+   * The bands live on the backend so the tool and the report agree, and the one
+   * failure mode that matters is a copy of them over here going stale silently
+   * the first time they are retuned -- which no test of behaviour can catch,
+   * because a stale copy still renders a word. So this reads the source.
+   */
+  it('writes no elevation band on this side, and reads the backend’s word', () => {
+    const source = readFileSync(path.join(HERE, 'wizard', 'stepDefinitions.js'), 'utf8')
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+
+    // THE BAND WORDS APPEAR NOWHERE IN THE CODE. Not in a table, not in a
+    // ternary, not as a default.
+    for (const word of Object.keys(captured.payload.scales.elevation_position.bands)) {
+      expect(code, `"${word}" must not be written client-side`).not.toContain(word)
+    }
+    // NOR THE CUTS THEY ARE DRAWN AT.
+    for (const [low, high] of Object.values(captured.payload.scales.elevation_position.bands)) {
+      for (const edge of [low, high]) {
+        if (edge === 0 || edge === 100) continue
+        expect(code, `the cut ${edge} must not be written client-side`).not.toContain(String(edge))
+      }
+    }
+    // AND THE PERCENTILE IS NOT READ AT ALL: the word is the wire's, and a
+    // panel deriving it from the number would be the second source of truth.
+    expect(code).toContain('zone.elevation_position')
+    expect(code).not.toContain('elevation_percentile_of_parcel')
+  })
+
+  /**
+   * [7] "BLOCK" ON THE TAB AND THE PANEL HEADER, AND NO "Zone" LEFT IN
+   * PRODUCTION'S DISPLAY PROSE.
+   *
+   * THE INTERNAL IDS ARE UNTOUCHED and that is asserted alongside, because the
+   * rename would be a real bug if it had reached them: the commit contract, the
+   * layer filters and the payload join all spell a block "production-area-N".
+   */
+  it('calls a block a Block on the tab and in the header, and keeps the ids', () => {
+    const ctx = context()
+    const tabs = LANDFORM_STEP.tabs(ctx)
+    expect(tabs.map((t) => t.name)).toEqual(
+      captured.payload.zones.map((zone) => `Block ${zone.rank}`)
+    )
+    // THE HEADER IS THE TAB'S NAME, through the panel's own rule.
+    for (const tab of tabs) {
+      expect(bodyFor(tab.id).tab.name).toBe(tab.name)
+      expect(LANDFORM_STEP.detail(ctx, tab.id).name).toBe(tab.name)
+    }
+
+    // THE IDS ARE THE PAYLOAD'S, UNRENAMED.
+    for (const tab of tabs) expect(tab.id).toMatch(/^production-area-\d+$/)
+
+    // NO "Zone" ANYWHERE THE STEP SPEAKS. Every string this definition renders
+    // -- tab names, the panel header and its labels, the buttons, the
+    // instructions, the notices -- collected and swept. Lower-case "zone" in a
+    // sentence ("Draw a zone") is NOT in scope: the rename is of the identity
+    // the strip and the panel print, and the wider copy edit is its own change.
+    const prose = [
+      ...tabs.map((t) => t.name),
+      ...tabs.flatMap((t) => t.rows.map((r) => r.label)),
+      ...tabs.flatMap((t) => LANDFORM_STEP.detail(ctx, t.id).rows.map((r) => `${r.value} ${r.label}`)),
+      ...tabs.map((t) => LANDFORM_STEP.detail(ctx, t.id).name),
+      ...Object.values(LANDFORM_STEP.instructions),
+      ...Object.values(LANDFORM_STEP.buttons).flat().map((button) => button.label),
+      ...LANDFORM_STEP.notices(ctx).map((notice) =>
+        Array.isArray(notice.text) ? notice.text.map((p) => (typeof p === 'string' ? p : '')).join('') : notice.text
+      ),
+    ]
+    for (const line of prose) {
+      expect(String(line), `"${line}" still says Zone`).not.toMatch(/Zone/)
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(`BLOCK PROSE  ${tabs.map((t) => `${t.name} (${t.id})`).join(', ')}`)
+  })
+
+  /**
+   * A DRAWN BLOCK TAKES THE SAME FORMAT, with fewer rows because nothing
+   * measured it. The header is its tab's -- "Drawn 1", which says WHICH one --
+   * rather than the detail's own fallback.
+   */
+  it('gives a drawn block the same shape, and names it from its tab', () => {
+    const drawn = {
+      type: 'Feature',
+      id: 'drawn-1',
+      geometry: { type: 'MultiPolygon', coordinates: [] },
+      properties: { acres: 1.25, confidence: 'low', cautions: [] },
+    }
+    const { tab, body } = bodyFor('drawn-1', [drawn])
+    expect(tab.name).toBe('Drawn 1')
+    expect(body.map((row) => (row.panelBreak ? '——' : row.label))).toEqual([
+      'acres',
+      '/100 score',
+      '——',
+      'confidence',
+      'source',
+    ])
+    // NEVER SCORED, so an em dash rather than a 0.0 that reads as "scored, and
+    // badly" -- above the break, in the tab's own row.
+    expect(body[0].value).toBe((1.25).toFixed(1))
+    expect(body[1].value).toBe(EM_DASH)
   })
 })

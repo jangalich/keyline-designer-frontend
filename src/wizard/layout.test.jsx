@@ -1040,6 +1040,234 @@ describeIf('the detail panel, measured', () => {
 })
 
 /* ===========================================================================
+   THE SHARED PANEL FORMAT, IN A REAL ENGINE
+   ===========================================================================
+   THE RULE EVERY OTHER STEP WILL INHERIT, AND THE ONE THAT CANNOT BE CHECKED
+   IN jsdom. A measured value is the data face with tabular figures, right
+   against a track a long word cannot widen; a categorical is the prose face,
+   in the value position, OUT of that track. jsdom applies no stylesheet, so
+   asserting a class name there says the component asked for a treatment -- not
+   that the treatment exists, and not that the cascade delivered it. These read
+   getComputedStyle and the rendered boxes.
+
+   IF CATEGORICALS GET FORCED INTO THE NUMBER TRACK HERE, ALL SIX PANELS
+   INHERIT THE COLUMN-WIDENING PROBLEM, which is why this is measured on the
+   step that carries the format rather than on each step that adopts it.
+   =========================================================================== */
+
+describeIf('the shared panel format, in a real engine', () => {
+  /** Open one block's panel the way a user does. */
+  async function openBlock(ui, id) {
+    await ui.page.click(`[data-testid="tab-${id}"]`)
+    await ui.page.waitForSelector('.chrome-detail__rows')
+  }
+
+  /** One row's two spans, with the styles the browser actually resolved. */
+  async function rowsOf(page) {
+    return page.evaluate(() => {
+      const face = (el) => getComputedStyle(el).fontFamily.split(',')[0].replace(/["']/g, '').trim()
+      return [...document.querySelectorAll('.chrome-detail__rows > *')].map((node) => {
+        if (node.tagName === 'HR') return { break: true }
+        const [value, label] = node.children
+        const style = getComputedStyle(value)
+        return {
+          label: label.textContent,
+          text: value.textContent,
+          kind: node.dataset.row,
+          face: face(value),
+          numeric: style.fontVariantNumeric,
+          align: style.textAlign,
+          // The rendered left edge of the value, and of its label -- the
+          // column, asked of the pixels rather than of the grid declaration.
+          left: value.getBoundingClientRect().left,
+          right: value.getBoundingClientRect().right,
+          labelLeft: label.getBoundingClientRect().left,
+        }
+      })
+    })
+  }
+
+  /**
+   * TEST 1. THE ORDER IS THE STEP'S, AND THE BREAK IS THE PANEL'S.
+   *
+   * The tab's own two rows come first, verbatim, then a rule, then the step's
+   * five -- and the step declared only the five. Both of the first two facts
+   * are the panel's doing (panelFormat.js rules 1 and 2), which is the whole
+   * reason a step cannot get them wrong.
+   */
+  it('renders the tab’s rows, then a break, then the step’s, in declared order', async () => {
+    const ui = await openHarness({ format: 1 })
+    await openBlock(ui, 'production-area-1')
+
+    const rows = await rowsOf(ui.page)
+    expect(rows.map((row) => (row.break ? '—— break ——' : row.label))).toEqual([
+      'acres',
+      '/100 score',
+      '—— break ——',
+      'aspect',
+      'position',
+      'median slope %',
+      'soil',
+      'drainage class',
+    ])
+
+    // THE HEADER IS THE TAB'S NAME, NOT THE DETAIL'S. The harness step returns
+    // "not the header" as its `name` precisely so this cannot pass by accident.
+    expect(await ui.page.locator('.chrome-detail__name').textContent()).toBe('Block 1')
+
+    // AND THE TAB ROWS ARE THE TAB'S, VERBATIM -- same figures, same labels,
+    // same order as the strip is showing at this moment.
+    const tabRows = await ui.page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="tab-production-area-1"] .chrome-tab__body > span')]
+        .slice(1)
+        .map((span) => span.textContent)
+    )
+    expect(tabRows).toEqual(['4.0', 'acres', '42.9', '/100 score'])
+    expect(rows.slice(0, 2).map((row) => [row.text, row.label])).toEqual([
+      ['4.0', 'acres'],
+      ['42.9', '/100 score'],
+    ])
+
+    // ONE RULE, AND IT IS BETWEEN THE TWO HALVES rather than at either end.
+    const breaks = rows.map((row, index) => (row.break ? index : null)).filter((i) => i != null)
+    expect(breaks).toEqual([2])
+
+    await ui.close()
+  }, SLOW)
+
+  /**
+   * TEST 2. THE RULE EVERY OTHER STEP INHERITS. Computed styles, not classes.
+   */
+  it('sets measured values in the data face and categoricals as prose, out of the number track', async () => {
+    const ui = await openHarness({ format: 1 })
+    await openBlock(ui, 'production-area-1')
+    const rows = (await rowsOf(ui.page)).filter((row) => !row.break)
+
+    const measured = rows.filter((row) => row.kind === 'measured')
+    const categorical = rows.filter((row) => row.kind === 'categorical')
+    expect(measured.map((row) => row.label)).toEqual(['acres', '/100 score', 'median slope %'])
+    expect(categorical.map((row) => row.label)).toEqual([
+      'aspect',
+      'position',
+      'soil',
+      'drainage class',
+    ])
+
+    // eslint-disable-next-line no-console
+    for (const row of rows) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `    panel  ${String(row.label).padEnd(15)} ${String(row.kind).padEnd(11)} ` +
+          `"${row.text}"  face ${row.face}  ${row.numeric}  ${row.align}  ` +
+          `left ${row.left.toFixed(1)} right ${row.right.toFixed(1)} label ${row.labelLeft.toFixed(1)}`
+      )
+    }
+
+    // MEASURED: IBM Plex Mono, tabular figures, right-aligned. The face is the
+    // design system's signature and the tabular figures are what actually hold
+    // a decimal point still -- a proportional face gives 1 and 4 different
+    // widths and no amount of right-alignment recovers from that.
+    for (const row of measured) {
+      expect(row.face, `${row.label} is the data face`).toBe('IBM Plex Mono')
+      expect(row.numeric, `${row.label} is tabular`).toContain('tabular-nums')
+      expect(row.align, `${row.label} is right-aligned`).toBe('right')
+    }
+
+    // CATEGORICAL: the prose face, and NOT right-aligned -- a word right-aligned
+    // against nothing is the treatment this format replaced.
+    for (const row of categorical) {
+      expect(row.face, `${row.label} is the prose face`).not.toBe('IBM Plex Mono')
+      expect(row.align, `${row.label} is not in the number track`).not.toBe('right')
+    }
+
+    // THE VALUE POSITION IS ONE POSITION. "south facing" starts where the
+    // figures' track starts -- the categorical is in the value column, not
+    // indented out of it and not pushed after its label.
+    const trackLeft = Math.min(...measured.map((row) => row.left))
+    for (const row of categorical) {
+      expect(row.left, `${row.label} starts at the value column`).toBeCloseTo(trackLeft, 0)
+      expect(row.left, `${row.label} comes before its label`).toBeLessThan(row.labelLeft)
+    }
+
+    // THE FIGURES SHARE ONE RIGHT EDGE, ACROSS THE BREAK. This is what the
+    // single grid buys and what a second grid under the rule would lose.
+    const edges = measured.map((row) => row.right)
+    for (const edge of edges) expect(edge).toBeCloseTo(edges[0], 0)
+
+    await ui.close()
+  }, SLOW)
+
+  /**
+   * AND A LONG CATEGORICAL DOES NOT MOVE THE LABELS. The failure the trees
+   * branch measured, asked directly: block 2's aspect is "northeast facing",
+   * five characters longer than block 1's, and every label in the panel must
+   * be in exactly the same place.
+   */
+  it('lets a long categorical grow without widening the number track', async () => {
+    const ui = await openHarness({ format: 1 })
+
+    await openBlock(ui, 'production-area-1')
+    const short = await rowsOf(ui.page)
+    await openBlock(ui, 'production-area-2')
+    const long = await rowsOf(ui.page)
+
+    expect(short.find((row) => row.label === 'aspect').text).toBe('south facing')
+    expect(long.find((row) => row.label === 'aspect').text).toBe('northeast facing')
+
+    const labelColumn = (rows) => Math.min(...rows.filter((r) => !r.break).map((r) => r.labelLeft))
+    const valueTrack = (rows) =>
+      Math.max(...rows.filter((r) => r.kind === 'measured').map((r) => r.right))
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `    panel  long categorical: labels ${labelColumn(short).toFixed(1)} -> ` +
+        `${labelColumn(long).toFixed(1)}  figures ${valueTrack(short).toFixed(1)} -> ` +
+        `${valueTrack(long).toFixed(1)}`
+    )
+
+    expect(labelColumn(long), 'a longer word must not move the labels').toBeCloseTo(
+      labelColumn(short),
+      0
+    )
+    expect(valueTrack(long), 'a longer word must not move the figures').toBeCloseTo(
+      valueTrack(short),
+      0
+    )
+
+    await ui.close()
+  }, SLOW)
+
+  /**
+   * EVERYTHING BELOW THE HEADER IS LOWER CASE, AND THE HEADER IS NOT. Asserted
+   * on what the browser RENDERS, not on the strings -- the rule is a
+   * text-transform precisely so that a backend label is never reworded.
+   */
+  it('renders the header as the only capitalised line', async () => {
+    const ui = await openHarness({ format: 1 })
+    await openBlock(ui, 'production-area-1')
+
+    const rendered = await ui.page.evaluate(() => {
+      const shown = (el) =>
+        getComputedStyle(el).textTransform === 'lowercase'
+          ? el.textContent.toLowerCase()
+          : el.textContent
+      return {
+        header: shown(document.querySelector('.chrome-detail__name')),
+        body: [...document.querySelectorAll('.chrome-detail__rows > p > span')].map(shown),
+      }
+    })
+
+    expect(rendered.header).toBe('Block 1')
+    expect(rendered.header).toMatch(/[A-Z]/)
+    for (const text of rendered.body) {
+      expect(text, `"${text}" is set lower case`).toBe(text.toLowerCase())
+    }
+
+    await ui.close()
+  }, SLOW)
+})
+
+/* ===========================================================================
    THE ATTRIBUTION, IN THE TOP-LEFT GAP, AT THREE VIEWPORT HEIGHTS
    ===========================================================================
    THIS ONE OPENS THE APP, NOT THE HARNESS, and it is the only test in this
@@ -1448,18 +1676,38 @@ describeIf('the zone patterns, rendered', () => {
   }, 60_000)
 
   /**
-   * THE FENCE'S OWN FLOOR, ON THIS SWATCH ONLY. A fence is a PALE line (--rule)
-   * on a --halo casing: against mid-grey the casing is most of the ink and
-   * the line adds little over it, so the focused state cannot swing against
-   * grey the way the road's dark core does (2.64x). Measured at 1.41x for
-   * --rule, and 1.22x for the rejected --ink-muted (a mid-grey line on a
-   * mid-grey ground, which is the mid-value trap in one number). On IMAGERY
-   * the fence's committed-to-active step is the road's own -- 1.28x over
-   * canopy, 1.26x over soil, against the road's 1.23x -- and the ground
-   * tests below hold it there like every other mark. Every other treatment
-   * keeps the 1.5x floor. See the --fence note in index.css.
+   * THE FLOOR WAS 1.5x AND IS 1.25x, AND THE SCALE SHIFT IS WHY.
+   *
+   * --pattern-* went 0.4/0.55/1 to 0.55/0.75/1 (see index.css, which carries
+   * the reasoning and the numbers). Focus was already at the ceiling, so
+   * raising everything under it for legibility on imagery COMPRESSED THE TOP
+   * OF THE SCALE: the focused/active step was 1.82x in alpha and is 1.33x.
+   * Measured on this swatch it lands at 1.31-1.35x for every mark on the
+   * pattern scale, and the embankment wash -- whose fill is on the --tint-*
+   * scale, which did not move -- still reports 1.69x.
+   *
+   * THIS IS A WEAKENED ASSERTION AND IT IS RECORDED AS ONE. 1.25x is set below
+   * what the shipped scale measures, with the usual headroom, and not a
+   * millimetre lower: it is a floor under the CURRENT scheme, not a licence to
+   * keep compressing. The next change that pushes any of these under it is
+   * making the same trade again, and should have to say so here.
+   *
+   * THE FENCE'S OWN FLOOR, ON THIS SWATCH ONLY, AND IT TOOK THE WORST OF IT. A
+   * fence is a PALE line (--rule) on a --halo casing: against mid-grey the
+   * casing is most of the ink and the line adds little over it, so the focused
+   * state cannot swing against grey the way the road's dark core does (2.64x).
+   * It measured 1.41x before the shift -- already the weakest case, which is
+   * why it already had a floor of its own -- and measures 1.13x after, 1.16x
+   * over canopy and 1.13x over soil. That is the thinnest state step in the
+   * build and it is the one number in this change worth watching: a fence at
+   * focus is now told from a fence in the commit by an eighth more ink.
+   * Nothing else moves it back short of unpinning --pattern-focused, which is
+   * pinned for a reason (see index.css). On IMAGERY the fence's
+   * committed-to-active step is the road's own -- 1.25x over canopy, 1.25x over
+   * soil -- and the ground tests below hold it there like every other mark.
+   * See the --fence note in index.css.
    */
-  const STATE_STEP_FLOOR = { fence: 1.3 }
+  const STATE_STEP_FLOOR = { fence: 1.1 }
 
   it('tells the focused state from the active one at whole-parcel size', async () => {
     for (const treatment of SWATCH_TREATMENTS) {
@@ -1479,9 +1727,10 @@ describeIf('the zone patterns, rendered', () => {
 
       // AND BY ENOUGH TO SEE. A pattern is mostly unfilled, so a small step in
       // opacity vanishes at this size; the fix is a wide gap between levels
-      // rather than a hope about perception. Half again as much ink is the
-      // floor this asserts against.
-      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThan(STATE_STEP_FLOOR[treatment] ?? 1.5)
+      // rather than a hope about perception. A quarter again as much ink is the
+      // floor this asserts against -- it was half again, and STATE_STEP_FLOOR
+      // above says what moved it and what that cost.
+      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThan(STATE_STEP_FLOOR[treatment] ?? 1.25)
     }
   }, SLOW)
 
@@ -1768,11 +2017,18 @@ describeIf('the zone patterns, rendered', () => {
       for (const treatment of SWATCH_TREATMENTS) {
         const committed = await addedInkOver(page, ground, treatment, 'committed')
         const active = await addedInkOver(page, ground, treatment, 'active')
+        // ALL THREE LEVELS, NOT TWO. The scale was last retuned by shifting
+        // every level (0.4/0.55/1 -> 0.55/0.75/1), and a report that stops at
+        // active cannot say what the top of the scale is worth on imagery --
+        // which is exactly where the shift spends what it buys. See index.css.
+        const focused = await addedInkOver(page, ground, treatment, 'focused')
         // eslint-disable-next-line no-console
         console.log(
           `    ink  ${ground.padEnd(6)} ${treatment.padEnd(18)} ` +
             `committed ${committed.toFixed(4)}  active ${active.toFixed(4)}  ` +
-            `(committed/active ${(committed / active).toFixed(2)}x)`
+            `focused ${focused.toFixed(4)}  ` +
+            `(committed/active ${(committed / active).toFixed(2)}x  ` +
+            `focused/active ${(focused / active).toFixed(2)}x)`
         )
         expect(
           committed,
@@ -1782,6 +2038,10 @@ describeIf('the zone patterns, rendered', () => {
           committed,
           `${treatment} committed must stay quieter than active over ${ground}`
         ).toBeLessThan(active)
+        expect(
+          focused,
+          `${treatment} focused must stay above active over ${ground}`
+        ).toBeGreaterThan(active)
       }
     }
   }, SLOW)

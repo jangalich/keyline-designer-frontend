@@ -419,15 +419,33 @@ describe('2. measured values', () => {
     await ui.run((a) => a.loadLayers('landform'))
 
     // NO BARE DIGIT ANYWHERE IN A TAB. Every numeral the strip renders is
-    // either in a .chrome-tab__value (a measurement) or in the .chrome-tab__name
-    // (the rank), and both are the data face. A figure that escaped into a
-    // prose span is what this catches.
+    // either in a .chrome-tab__value (a measurement), in the .chrome-tab__name
+    // (the rank), or a DENOMINATOR in a .chrome-tab__label. A figure that
+    // escaped into a prose span is what this catches.
+    //
+    // THE DENOMINATOR IS THE CARVE-OUT AND IT IS A NARROW ONE. "/100 score"
+    // puts a numeral in the label on purpose -- panelFormat.js's rule, because
+    // "42.9/100" in the value position is four non-numeric characters inside
+    // the number track and the acreage above it stops lining up. A "/100" is a
+    // UNIT, the same kind of thing as the "%" in "median slope %"; it names the
+    // scale and never changes with the feature. So a label may carry `/N` and
+    // may carry nothing else numeric -- a measurement that drifted into a label
+    // still fails here, which is the failure the rule is about. (The whole tab
+    // is the data face -- see .chrome-tab -- so this is about WHICH SPAN owns a
+    // figure, not about which face it is set in.)
+    const DENOMINATOR_ONLY = /^\/\d+(\D|$)/
     for (const tab of ui.container.querySelectorAll('.chrome-tab__body')) {
       for (const child of tab.children) {
         if (!/\d/.test(child.textContent)) continue
+        const denominator =
+          child.classList.contains('chrome-tab__label') &&
+          DENOMINATOR_ONLY.test(child.textContent) &&
+          !/\d/.test(child.textContent.replace(/^\/\d+/, ''))
         expect(
           child.classList.contains('chrome-tab__value') ||
-            child.classList.contains('chrome-tab__name')
+            child.classList.contains('chrome-tab__name') ||
+            denominator,
+          `a figure in ${child.className}: "${child.textContent}"`
         ).toBe(true)
       }
     }

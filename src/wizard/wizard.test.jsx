@@ -557,12 +557,12 @@ describe('3. a generate hydrates both halves', () => {
     expect(selectStepStatus(ui.state, 'landform')).toBe(GENERATED)
     expect(ui.stepState('landform')).toBe('reviewing')
     // THE TAB STRIP IS THE STEP'S OWN READOUT NOW, and it opens on the
-    // recommendation: three zones, all selected. That is the seeded draft
+    // recommendation: three blocks, all selected. That is the seeded draft
     // (SessionStore's DRAFT_SEEDED) showing through -- the payload IS the
     // recommendation, so the opening gesture is to take things out.
     expect(ui.find('tabs-landform').getAttribute('data-tab-count')).toBe('3')
     expect(ui.text('tab-zone-1')).toContain('2.5acres')
-    expect(ui.text('tab-zone-1')).toContain('81.0score')
+    expect(ui.text('tab-zone-1')).toContain('81.0/100 score')
     expect(new Set(ui.state.drafts.landform.selectedFeatureIds)).toEqual(
       new Set(['zone-1', 'zone-2', 'zone-3'])
     )

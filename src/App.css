@@ -1084,6 +1084,93 @@
   margin-top: 0;
 }
 
+/* ---------------------------------------------------------------------------
+   THE SHARED PANEL FORMAT -- .chrome-detail__rows and what sits in it
+   ---------------------------------------------------------------------------
+   THE FORMAT ALL SIX STEPS ARE GOING TO. src/wizard/shell/panelFormat.js holds
+   the rules and says why each one is a rule; this is the typography half.
+
+   ONE GRID FOR THE WHOLE BODY, tab rows and step rows together, because the
+   claim the column makes is that `42.9` in the tab's own rows and `3.2` four
+   lines below it share a decimal point. A second grid under the break would
+   size its own columns and that claim would quietly stop being true.
+
+   THREE TRACKS, AND THE MIDDLE ONE IS THE WHOLE TRICK:
+
+     1  minmax(6ch, max-content)  THE NUMBER TRACK. Right-aligned, mono,
+                                  tabular. 6ch is the floor the tab strip and
+                                  the old panel both use, so a figure here
+                                  lines up with the same figure in the tab that
+                                  opened the panel.
+     2  minmax(0, 1fr)            SLACK, for a categorical to run into.
+     3  max-content               THE LABELS, and they never move.
+
+   A CATEGORICAL SPANS 1 AND 2 and is left-aligned in them -- "south facing"
+   starts exactly where "4.0" starts, which is rule 4 of the format, WITHOUT
+   joining the number track. That is not a convention here, it is CSS Grid
+   §12.5: an item spanning a flexible track contributes nothing to the intrinsic
+   sizing of the fixed tracks it also spans, so track 1 is sized by the figures
+   alone and a long word cannot widen it. The trees branch measured what happens
+   without that -- "north-facing" in the figure column shoved every label in the
+   panel sideways -- and the old treatment avoided it by leaving the value
+   column entirely, which cost the alignment the format is about.
+
+   EVERYTHING HERE IS LOWER CASE, and it is text-transform rather than a
+   .toLowerCase() in the component for a reason the panel already lives by: a
+   label is never reworded. This changes how the backend's words are SET and
+   leaves the words alone.
+
+   THE HEADER IS THE ONLY CAPITALISED LINE, which this rule is what makes true
+   -- .chrome-detail__name sits outside .chrome-detail__rows and is untouched. */
+.chrome-detail__rows {
+  display: grid;
+  grid-template-columns: minmax(6ch, max-content) minmax(0, 1fr) max-content;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  text-transform: lowercase;
+}
+
+.chrome-detail__row {
+  display: contents;
+  margin: 0;
+}
+
+/* The figure. `.measure` beside this carries the face and the tabular figures;
+   this places it and holds the decimal point against the track's right edge. */
+.chrome-detail__figure {
+  grid-column: 1;
+  text-align: right;
+}
+
+/* The categorical, in the value position and out of the number track. */
+.chrome-detail__phrase {
+  grid-column: 1 / 3;
+  font-family: var(--font-prose);
+  font-size: var(--text-xs);
+  color: var(--ink);
+}
+
+.chrome-detail__row-label {
+  grid-column: 3;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+/* THE BREAK. Above it is identity and comparison -- the rows the scan tab
+   already showed -- and below it is explanation. A hairline across every track,
+   which is what keeps it a division of ONE grid rather than a gap between two.
+   Its margin is on top of the grid's own row gap, so the rule sits in a band
+   rather than crowding the line under it. */
+.chrome-detail__break {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 0;
+  margin: var(--space-1) 0;
+  border: 0;
+  border-top: var(--hairline);
+}
+
 /* A CATEGORICAL READING -- a band name, an aspect, whether a pond site can
    reach production by gravity. Pipeline-derived, but not a MEASUREMENT: there
    is no decimal point to hold still and nothing above or below it to line up

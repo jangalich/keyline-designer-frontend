@@ -37,6 +37,9 @@
  *   ?buttons=N     how many buttons the action card has (default 2)
  *   ?detail=N      give the step a detail of N rows over four groups
  *                  (default 0). NOTHING IS FOCUSED -- click a tab for that.
+ *   ?format=1      the SHARED PANEL FORMAT, with production's own tabs and
+ *                  rows, for the typographic claims jsdom cannot read. See
+ *                  SHARED_FORMAT. Overrides ?tabs= and ?detail=.
  *   ?reopen=1      the SHIPPED steps over a hydrated document, with landform
  *                  committed and three steps below it holding work -- the
  *                  page the reopen confirmation is read on. See REOPEN below.
@@ -61,6 +64,7 @@ import {
   registryProposalFeatures,
   stepButton,
 } from './stepDefinitions'
+import { EM_DASH, categoricalRow, measuredRow } from './shell/panelFormat.js'
 import { PIN_GLYPH_PATH, injectZonePatterns, marksItsOwnEdge, zoneMark } from '../ProductionHatchPattern.jsx'
 import { CASING_WEIGHT, LINE_WEIGHT, SITE_PIN_HALO_WIDTH, SITE_PIN_SIZE } from '../map/layers.jsx'
 import { readToken } from '../geo.js'
@@ -349,6 +353,69 @@ const DETAIL_ROW_CYCLE = [
   { label: 'canopy overlap (%)', value: measure(4.2), measured: true },
   { label: 'confidence', value: 'moderate', measured: false },
 ]
+
+/**
+ * ?format=1  THE SHARED PANEL FORMAT, with production's own rows.
+ *
+ * WHY IT IS A CASE HERE AND NOT A jsdom TEST. The format's central claim is
+ * TYPOGRAPHIC -- a measured value is set in the data face with tabular figures
+ * and right-aligned in a track a long word cannot widen; a categorical is set
+ * in the prose face, in the value position, out of that track. jsdom applies no
+ * stylesheet, so every one of those is unreadable there: a class name asserted
+ * in jsdom says the component asked for a treatment, not that the treatment
+ * exists or that the cascade delivered it. It is the same split style.test.jsx
+ * already documents, and this is the half that needs a browser.
+ *
+ * PRODUCTION'S OWN ROWS, VERBATIM. A synthetic row would measure a panel
+ * nobody ships; these are LANDFORM_STEP's, including the two em-dashed pending
+ * rows, and one categorical long enough to have widened the old column
+ * ("northeast facing") so the track's independence is measured rather than
+ * assumed.
+ */
+const SHARED_FORMAT = params.get('format') === '1'
+
+const FORMAT_TABS = [
+  {
+    id: 'production-area-1',
+    name: 'Block 1',
+    checkbox: true,
+    selected: true,
+    rows: [
+      { value: measure(4.0), label: 'acres' },
+      { value: measure(42.9), label: '/100 score' },
+    ],
+  },
+  {
+    id: 'production-area-2',
+    name: 'Block 2',
+    checkbox: true,
+    selected: true,
+    rows: [
+      { value: measure(11.7), label: 'acres' },
+      { value: measure(100), label: '/100 score' },
+    ],
+  },
+]
+
+const FORMAT_ROWS = {
+  // Block 1: everything measured that can be, and the two pending rows.
+  'production-area-1': [
+    categoricalRow('south facing', 'aspect'),
+    categoricalRow('upper field', 'position'),
+    measuredRow(measure(3.2), 'median slope %'),
+    categoricalRow(EM_DASH, 'soil'),
+    categoricalRow(EM_DASH, 'drainage class'),
+  ],
+  // Block 2: the long categorical, and both flags absent -- the two em dashes
+  // that are NOT the pending rows.
+  'production-area-2': [
+    categoricalRow('northeast facing', 'aspect'),
+    categoricalRow(EM_DASH, 'position'),
+    measuredRow(measure(12.75), 'median slope %'),
+    categoricalRow(EM_DASH, 'soil'),
+    categoricalRow(EM_DASH, 'drainage class'),
+  ],
+}
 
 function detailGroups(rows) {
   const groups = DETAIL_GROUP_LABELS.map((label) => ({ label, fields: [] }))
@@ -967,11 +1034,22 @@ const HARNESS_STEP = documentStep({
   // documentStep's own commit in place and never presses it.
   commit: WAITING ? { run: () => new Promise(() => {}) } : undefined,
   notices: () => noticesFor(NOTICE_KIND),
-  tabs: () => Array.from({ length: TAB_COUNT }, (_, i) => tab(i)),
-  detail: () =>
-    DETAIL_ROWS > 0
+  tabs: () =>
+    SHARED_FORMAT ? FORMAT_TABS : Array.from({ length: TAB_COUNT }, (_, i) => tab(i)),
+  detail: (_context, featureId) => {
+    // THE SHARED FORMAT DECLARES ROWS AND NOTHING ELSE -- no name and no tab
+    // rows, because the panel reads both off tabs(). `name` is the fallback
+    // for a feature with no tab and is deliberately WRONG here, so a test can
+    // tell the tab's header from the detail's.
+    if (SHARED_FORMAT) {
+      return FORMAT_ROWS[featureId]
+        ? { name: 'not the header', rows: FORMAT_ROWS[featureId], cautions: [] }
+        : null
+    }
+    return DETAIL_ROWS > 0
       ? { name: 'Embankment 1', groups: detailGroups(DETAIL_ROWS), cautions: [] }
-      : null,
+      : null
+  },
 })
 
 /**
