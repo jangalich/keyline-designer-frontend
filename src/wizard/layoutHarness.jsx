@@ -37,6 +37,9 @@
  *   ?buttons=N     how many buttons the action card has (default 2)
  *   ?detail=N      give the step a detail of N rows over four groups
  *                  (default 0). NOTHING IS FOCUSED -- click a tab for that.
+ *   ?format=1      the SHARED PANEL FORMAT, with production's own tabs and
+ *                  rows, for the typographic claims jsdom cannot read. See
+ *                  SHARED_FORMAT. Overrides ?tabs= and ?detail=.
  *   ?reopen=1      the SHIPPED steps over a hydrated document, with landform
  *                  committed and three steps below it holding work -- the
  *                  page the reopen confirmation is read on. See REOPEN below.
@@ -61,8 +64,15 @@ import {
   registryProposalFeatures,
   stepButton,
 } from './stepDefinitions'
+import { EM_DASH, categoricalRow, measuredRow } from './shell/panelFormat.js'
 import { PIN_GLYPH_PATH, injectZonePatterns, marksItsOwnEdge, zoneMark } from '../ProductionHatchPattern.jsx'
-import { CASING_WEIGHT, LINE_WEIGHT, SITE_PIN_HALO_WIDTH, SITE_PIN_SIZE } from '../map/layers.jsx'
+import {
+  CASING_WEIGHT,
+  ELIGIBLE_OPACITY,
+  LINE_WEIGHT,
+  SITE_PIN_HALO_WIDTH,
+  SITE_PIN_SIZE,
+} from '../map/layers.jsx'
 import { readToken } from '../geo.js'
 
 const params = new URLSearchParams(window.location.search)
@@ -350,6 +360,71 @@ const DETAIL_ROW_CYCLE = [
   { label: 'confidence', value: 'moderate', measured: false },
 ]
 
+/**
+ * ?format=1  THE SHARED PANEL FORMAT, with production's own rows.
+ *
+ * WHY IT IS A CASE HERE AND NOT A jsdom TEST. The format's central claim is
+ * TYPOGRAPHIC -- a measured value is set in the data face with tabular figures
+ * and right-aligned in a track a long word cannot widen; a categorical is set
+ * in the prose face, in the value position, out of that track. jsdom applies no
+ * stylesheet, so every one of those is unreadable there: a class name asserted
+ * in jsdom says the component asked for a treatment, not that the treatment
+ * exists or that the cascade delivered it. It is the same split style.test.jsx
+ * already documents, and this is the half that needs a browser.
+ *
+ * PRODUCTION'S OWN ROWS, VERBATIM. A synthetic row would measure a panel
+ * nobody ships; these are LANDFORM_STEP's, including the two em-dashed pending
+ * rows, and one categorical long enough to have widened the old column
+ * ("northeast facing") so the track's independence is measured rather than
+ * assumed.
+ */
+const SHARED_FORMAT = params.get('format') === '1'
+
+const FORMAT_TABS = [
+  {
+    id: 'production-area-1',
+    name: 'Block 1',
+    checkbox: true,
+    selected: true,
+    rows: [
+      { value: measure(4.0), label: 'acres' },
+      // DECLARED, NOT PRINTED. The strip renders "score" and the panel renders
+      // "/100 score" off this one row -- panelFormat.denominated().
+      { value: measure(42.9), label: 'score', denominator: 100 },
+    ],
+  },
+  {
+    id: 'production-area-2',
+    name: 'Block 2',
+    checkbox: true,
+    selected: true,
+    rows: [
+      { value: measure(11.7), label: 'acres' },
+      { value: measure(100), label: 'score', denominator: 100 },
+    ],
+  },
+]
+
+const FORMAT_ROWS = {
+  // Block 1: everything measured that can be, and the two pending rows.
+  'production-area-1': [
+    categoricalRow('south facing', 'aspect'),
+    categoricalRow('upper field', 'position'),
+    measuredRow(measure(3.2), 'median slope %'),
+    categoricalRow(EM_DASH, 'soil'),
+    categoricalRow(EM_DASH, 'drainage class'),
+  ],
+  // Block 2: the long categorical, and both flags absent -- the two em dashes
+  // that are NOT the pending rows.
+  'production-area-2': [
+    categoricalRow('northeast facing', 'aspect'),
+    categoricalRow(EM_DASH, 'position'),
+    measuredRow(measure(12.75), 'median slope %'),
+    categoricalRow(EM_DASH, 'soil'),
+    categoricalRow(EM_DASH, 'drainage class'),
+  ],
+}
+
 function detailGroups(rows) {
   const groups = DETAIL_GROUP_LABELS.map((label) => ({ label, fields: [] }))
   for (let i = 0; i < rows; i += 1) {
@@ -417,6 +492,107 @@ const UNCASED = [
  * still measured above under its own name, so whichever token it resolves
  * to is held to the floor like every other mark.
  */
+/**
+ * THE OPAQUE REFERENCE: --oxide laid solid, over each ground.
+ *
+ * WHAT A MARK IS A FRACTION OF. "Is this still a hatch or is it a fill" is only
+ * answerable against the fill it would be -- the same colour, the same ground,
+ * covering all of it. The water tests already ask this of a tint and compute
+ * the reference arithmetically against a flat mid-grey; that shortcut does not
+ * work over canopy or soil, where the ground is nowhere near grey, so the
+ * opaque case is RENDERED here and differenced like every other cell.
+ *
+ * NOT A STATE. It is deliberately not `--pattern-focused`, which is also 1:
+ * focused is a hatch at full strength and this is paint. The point of the pair
+ * is the distance between them.
+ */
+const OPAQUE = [{ id: 'oxide', opaque: '--oxide' }]
+
+/**
+ * THE LANDFORM CASE: production's mark ON THE ELIGIBLE HIGHLIGHT.
+ *
+ * EVERY OTHER GROUND CELL HERE IS A DOWNSTREAM CELL, and that asymmetry is the
+ * bug the casing was added to fix. From water onward the hatch sits on bare
+ * imagery; during LANDFORM it sits on --eligible at ELIGIBLE_OPACITY, and that
+ * tint is most of what the mark reads against. The levels were tuned on the
+ * downstream case, which is why they looked right and the result did not.
+ *
+ * A CASING BUILT TO LIFT A MARK OFF IMAGERY MAY BE REDUNDANT OR HEAVY OVER A
+ * TINT, so the combination is measured rather than assumed -- the highlight
+ * alone, then the mark on it at each level. The first cell is the highlight by
+ * itself, which is what the other three are differenced against: what is being
+ * asked is what the MARK adds over the ground it actually has during landform.
+ */
+const ELIGIBLE = [
+  { id: 'eligible', eligible: true },
+  { treatment: 'production', state: 'committed', eligible: true },
+  { treatment: 'production', state: 'active', eligible: true },
+  { treatment: 'production', state: 'focused', eligible: true },
+]
+
+/**
+ * THE SCREEN UNDER PRODUCTION'S HATCH: the candidates, swept.
+ *
+ * WHY THERE IS A SCREEN AT ALL. A committed production block is barely visible
+ * from the water step onward, and the cause is the GROUND rather than the mark.
+ * During landform the hatch sits on the eligible highlight and reads against
+ * that tint; downstream the highlight is gone and the same ruling sits on bare
+ * imagery, where a mid-tone oxide diagonal over closed canopy measures 0.0089
+ * against a 0.004 floor. The screen puts the ground back. See
+ * ProductionHatchPattern's screenNode().
+ *
+ * NOT --eligible, WHICH IS THE ONE OBVIOUS ANSWER AND IS WRONG. Reusing the
+ * highlight's token downstream would say "this ground is eligible" about a
+ * committed block on the water step, which is a claim about a gate that is no
+ * longer being run. The screen has to be NEUTRAL: a ground, not a reading.
+ *
+ * SO THE TWO NEUTRALS THE SYSTEM HAS ARE MEASURED AGAINST EACH OTHER, at three
+ * alphas each, the way the fence's two colour candidates were. --stock is the
+ * page background and --rule is the hairline; both are warm light neutrals and
+ * they differ by about a third of a step in lightness, which is exactly the
+ * kind of difference an ink measure can settle and an eye cannot.
+ *
+ * EACH CANDIDATE GETS TWO CELLS PER LEVEL: the hatch ON the screen, and the
+ * SCREEN ALONE. The second is the one that decides it -- a screen heavy enough
+ * to read as a layer of its own has stopped being a ground and started being a
+ * wash over the block, which is a mark nobody declared.
+ */
+const HATCH_SCREEN_CANDIDATES = []
+for (const token of ['--stock', '--rule']) {
+  for (const alpha of [0.06, 0.12, 0.2, 0.3]) {
+    const id = `screen${token.replace('--', '-')}-${String(alpha).replace('0.', '')}`
+    for (const state of ['committed', 'active', 'focused']) {
+      HATCH_SCREEN_CANDIDATES.push({
+        treatment: 'production',
+        id,
+        screenToken: token,
+        screenAlpha: alpha,
+        state,
+      })
+      HATCH_SCREEN_CANDIDATES.push({
+        treatment: 'production',
+        id,
+        screenToken: token,
+        screenAlpha: alpha,
+        state,
+        screenOnly: true,
+      })
+    }
+  }
+}
+
+/**
+ * PRODUCTION'S SHIPPED HATCH WITH ITS SCREEN LIFTED OFF, at all three levels --
+ * the bare ruling, which is what the screen is worth measured against. The
+ * cloning pass removes the screen pass from the local <pattern> clone, so this
+ * is the same tile minus one rect.
+ */
+const UNSCREENED = ['committed', 'active', 'focused'].map((state) => ({
+  treatment: 'production',
+  state,
+  unscreened: true,
+}))
+
 const FENCE_CANDIDATES = []
 for (const [id, lineToken] of [
   ['fence-rule', '--rule'],
@@ -536,8 +712,24 @@ function moireGround(period) {
 function cellId(cell) {
   if (!cell) return 'bare'
   if (cell.overlap) return `overlap-${cell.state}`
-  const suffix = cell.uncased ? '-uncased' : cell.unoutlined ? '-unoutlined' : ''
-  return `${cell.id ?? cell.treatment}-${cell.state}${suffix}`
+  const suffix = cell.uncased
+    ? '-uncased'
+    : cell.unoutlined
+      ? '-unoutlined'
+      : cell.unscreened
+        ? '-unscreened'
+        : cell.screenOnly
+          ? '-alone'
+          : ''
+  // A CELL MAY HAVE NO STATE, AND MAY HAVE NO MARK. The opaque reference is one
+  // colour laid solid -- not a state of a mark, but the thing every state is a
+  // fraction of -- and the eligible-only cell is a GROUND rather than a mark at
+  // all, so it takes its id alone: "eligible", which is what the three marks on
+  // it are differenced against.
+  if (!cell.treatment) return `${cell.id}${suffix}`
+  const state = cell.state ? `-${cell.state}` : ''
+  const ground = cell.eligible ? '-eligible' : ''
+  return `${cell.id ?? cell.treatment}${state}${ground}${suffix}`
 }
 
 /**
@@ -575,8 +767,48 @@ const GROUND_TOP = SWATCH_PX * TREATMENTS.length + 20
 /** A ground's cells wrap at this many columns, to stay inside a 1280px frame. */
 const GROUND_COLUMNS = 14
 
-/** Clear of both ground rows above. Their height is computed the same way. */
-const MOIRE_TOP = GROUND_TOP + SWATCH_PX * 12
+/**
+ * EVERY CELL ONE GROUND CARRIES, in the order they are laid out. Named once
+ * because THREE things need it and they must agree: the layout below, the row
+ * height each ground block takes, and where the moire sweep starts under them.
+ *
+ * IT WAS A LITERAL 12 AND THAT WAS A TRAP. `MOIRE_TOP` was `GROUND_TOP +
+ * SWATCH_PX * 12` -- the row count as it happened to be, with a comment saying
+ * the height "is computed the same way" when it was not computed at all. Adding
+ * cells silently slid the ground block down OVER the moire swatches, and what
+ * failed was the moire assertion: the dot field appeared to have gained coarse
+ * structure (0.0044 against a 0.004 ceiling) because a production swatch was
+ * sitting on top of the cell being screenshotted. A layout fixture that
+ * overlaps is not a fixture, and the failure it produces accuses the wrong
+ * thing. Derived now, so a cell added anywhere below cannot do it again.
+ */
+const GROUND_CELLS = () => [
+  null,
+  ...cellsFor(),
+  ...UNCASED,
+  ...UNOUTLINED,
+  ...OVERLAP,
+  ...FENCE_CANDIDATES,
+  ...HATCH_SCREEN_CANDIDATES,
+  ...UNSCREENED,
+  ...OPAQUE,
+  ...ELIGIBLE,
+]
+
+/** The three states of every treatment -- the block the ground rows open with. */
+function cellsFor() {
+  const cells = []
+  for (const treatment of TREATMENTS) {
+    for (const state of ['committed', 'active', 'focused']) cells.push({ treatment, state })
+  }
+  return cells
+}
+
+/** How many rows ONE ground's block of cells takes. */
+const GROUND_ROWS = Math.ceil(GROUND_CELLS().length / GROUND_COLUMNS)
+
+/** Clear of both ground blocks above, at whatever height they actually are. */
+const MOIRE_TOP = GROUND_TOP + GROUND_ROWS * GROUNDS.length * SWATCH_PX + 20
 
 /** Clear of the moire sweep above, whose own height is two rows per wrap. */
 const CROP_OVERLAP_TOP =
@@ -658,6 +890,36 @@ function ZoneSwatches() {
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
         const clone = source.cloneNode(true)
         clone.setAttribute('id', `local-${svg.dataset.testid}`)
+        // THE SCREEN IS THE THING UNDER TEST ON SOME OF THESE CELLS, so the
+        // clone is dressed three ways. Every pass is found BY NAME (the tile
+        // builders tag it) rather than by position, so a row with no screen
+        // yields nothing to remove instead of losing its marks.
+        //
+        //   data-unscreened     the shipped tile with its screen lifted off --
+        //                       the bare mark, which is what the screen is
+        //                       worth measured against.
+        //   data-screen-token   a CANDIDATE screen: a full-tile rect in that
+        //                       token at that alpha, pushed under the marks.
+        //                       This is how a colour that is not shipped gets
+        //                       measured, the way the fence's two candidates
+        //                       are measured through data-line-token.
+        //   data-screen-only    the candidate screen with the marks removed --
+        //                       the tint on its own.
+        if (svg.dataset.unscreened === 'true' || svg.dataset.screenToken) {
+          for (const pass of clone.querySelectorAll('[data-pass="screen"]')) pass.remove()
+        }
+        if (svg.dataset.screenToken) {
+          if (svg.dataset.screenOnly === 'true') {
+            while (clone.firstChild) clone.removeChild(clone.firstChild)
+          }
+          const size = Number(clone.getAttribute('width'))
+          const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+          rect.setAttribute('width', String(size))
+          rect.setAttribute('height', String(size))
+          rect.setAttribute('fill', readToken(svg.dataset.screenToken))
+          rect.setAttribute('fill-opacity', svg.dataset.screenAlpha)
+          clone.insertBefore(rect, clone.firstChild)
+        }
         defs.appendChild(clone)
         svg.insertBefore(defs, svg.firstChild)
         swatchRect(svg).setAttribute('fill', `url(#local-${svg.dataset.testid})`)
@@ -757,10 +1019,7 @@ function ZoneSwatches() {
   const fillLevel = (treatment, state) =>
     zoneMark(treatment)?.kind === 'tint' ? tintLevel(state) : patternLevel(state)
 
-  const cells = []
-  for (const treatment of TREATMENTS) {
-    for (const state of ['committed', 'active', 'focused']) cells.push({ treatment, state })
-  }
+  const cells = cellsFor()
 
   return (
     <div
@@ -875,7 +1134,7 @@ function ZoneSwatches() {
         )
       )}
       {GROUNDS.map((ground, row) =>
-        [null, ...cells, ...UNCASED, ...UNOUTLINED, ...OVERLAP, ...FENCE_CANDIDATES].map((cell, index) => (
+        GROUND_CELLS().map((cell, index) => (
           <div
             key={`${ground.id}-${cellId(cell)}`}
             data-testid={`ground-${ground.id}-${cellId(cell)}`}
@@ -884,28 +1143,42 @@ function ZoneSwatches() {
               left: (index % GROUND_COLUMNS) * SWATCH_PX,
               top:
                 GROUND_TOP +
-                (row *
-                  Math.ceil(
-                    (cells.length +
-                      UNCASED.length +
-                      UNOUTLINED.length +
-                      OVERLAP.length +
-                      FENCE_CANDIDATES.length +
-                      1) /
-                      GROUND_COLUMNS
-                  ) +
-                  Math.floor(index / GROUND_COLUMNS)) *
-                  SWATCH_PX,
+                (row * GROUND_ROWS + Math.floor(index / GROUND_COLUMNS)) * SWATCH_PX,
               width: SWATCH_PX,
               height: SWATCH_PX,
               background: ground.color,
             }}
           >
+            {/* THE ELIGIBLE HIGHLIGHT, UNDER THE MARK, at the alpha layers.jsx
+                draws it at. A plain tinted layer rather than a Leaflet path:
+                what is being measured is the ground the hatch sits on during
+                landform, and a tint over a colour is a tint over a colour. */}
+            {cell?.eligible ? (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'var(--eligible)',
+                  opacity: ELIGIBLE_OPACITY,
+                }}
+              />
+            ) : null}
+            {/* THE OPAQUE REFERENCE: the mark's own colour, covering the cell.
+                No pattern, no level -- see OPAQUE. */}
+            {cell?.opaque ? (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: `var(${cell.opaque})`,
+                }}
+              />
+            ) : null}
             {/* THE OVERLAP CELL IS TWO MARKS IN ONE CELL, stacked in the
                 order the map's panes stack them. Each is an ordinary
                 data-treatment svg, so the cloning pass above dresses both
                 without knowing this cell exists. */}
-            {(cell?.overlap ?? (cell ? [cell.treatment] : [])).map((treatment, depth) => (
+            {(cell?.overlap ?? (cell?.treatment ? [cell.treatment] : [])).map((treatment, depth) => (
               <svg
                 key={treatment}
                 data-testid={`ground-mark-${ground.id}-${cellId(cell)}${cell?.overlap ? `-${treatment}` : ''}`}
@@ -914,9 +1187,17 @@ function ZoneSwatches() {
                 data-uncased={cell.uncased ? 'true' : undefined}
                 data-unoutlined={cell.unoutlined ? 'true' : undefined}
                 data-line-token={cell.lineToken ?? undefined}
+                data-unscreened={cell.unscreened ? 'true' : undefined}
+                data-screen-token={cell.screenToken ?? undefined}
+                data-screen-alpha={cell.screenAlpha ?? undefined}
+                data-screen-only={cell.screenOnly ? 'true' : undefined}
                 width={SWATCH_PX}
                 height={SWATCH_PX}
-                style={cell?.overlap ? { position: 'absolute', left: 0, top: 0, zIndex: depth } : undefined}
+                style={
+                  cell?.overlap || cell?.eligible
+                    ? { position: 'absolute', left: 0, top: 0, zIndex: depth + 1 }
+                    : undefined
+                }
               >
                 <rect
                   width={SWATCH_PX}
@@ -967,11 +1248,22 @@ const HARNESS_STEP = documentStep({
   // documentStep's own commit in place and never presses it.
   commit: WAITING ? { run: () => new Promise(() => {}) } : undefined,
   notices: () => noticesFor(NOTICE_KIND),
-  tabs: () => Array.from({ length: TAB_COUNT }, (_, i) => tab(i)),
-  detail: () =>
-    DETAIL_ROWS > 0
+  tabs: () =>
+    SHARED_FORMAT ? FORMAT_TABS : Array.from({ length: TAB_COUNT }, (_, i) => tab(i)),
+  detail: (_context, featureId) => {
+    // THE SHARED FORMAT DECLARES ROWS AND NOTHING ELSE -- no name and no tab
+    // rows, because the panel reads both off tabs(). `name` is the fallback
+    // for a feature with no tab and is deliberately WRONG here, so a test can
+    // tell the tab's header from the detail's.
+    if (SHARED_FORMAT) {
+      return FORMAT_ROWS[featureId]
+        ? { name: 'not the header', rows: FORMAT_ROWS[featureId], cautions: [] }
+        : null
+    }
+    return DETAIL_ROWS > 0
       ? { name: 'Embankment 1', groups: detailGroups(DETAIL_ROWS), cautions: [] }
-      : null,
+      : null
+  },
 })
 
 /**

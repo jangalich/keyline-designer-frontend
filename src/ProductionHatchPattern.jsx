@@ -151,7 +151,24 @@ const TREATMENT_MARKS = [
   // small zone caught two or three strokes and read as stray lines. 8px with a
   // 1px stroke is an eighth of the area inked: enough to register as worked
   // ground, open enough that the eligible tint and the imagery read through.
-  { treatment: 'production', kind: 'hatch', token: '--oxide', spacing: 8, weight: 1, rise: 'up' },
+  //
+  // ON A SCREEN, AND THE SCREEN IS A GROUND RATHER THAN A MARK. --rule at 0.12,
+  // which the path's own fill-opacity then scales by the level like everything
+  // else in the tile. It exists because from the water step onward this hatch
+  // sits on BARE IMAGERY: during landform it sits on the eligible highlight and
+  // reads against that tint, and downstream the highlight is gone. See
+  // the note below hatchTile() for the measurements, the two candidates, and the one
+  // thing the screen costs.
+  {
+    treatment: 'production',
+    kind: 'hatch',
+    token: '--oxide',
+    spacing: 8,
+    weight: 1,
+    screen: 0.12,
+    screenToken: '--rule',
+    rise: 'up',
+  },
   // WATER, EMBANKMENT: a screened tint with an outline.
   //
   // A TINT HAS NO SPACING AND NO RADIUS. Its whole description is its colour;
@@ -309,7 +326,16 @@ const TREATMENT_MARKS = [
      is where the ruling stops, which is legible on its own -- and an outline
      on a candidate would read as a surveyed line, which is what the no-edge
      rule has always been about. Trees gains that rule by becoming a hatch;
-     production has always had it. */
+     production has always had it.
+
+     AND IT CARRIES NO SCREEN, WHILE PRODUCTION'S DOES -- a DELIBERATE GAP in
+     this branch, recorded rather than left to be noticed. Trees has
+     production's problem and has it worse: it declares NO eligible highlight
+     at all, so its hatch sits on bare imagery from its own step onward rather
+     than only downstream, and --tree is a mid-tone green over canopy that is
+     also green. The reason it is bare here is scope -- a screen changes what a
+     mark covers and this branch is production's. layout.test.jsx has the
+     measurements a trees branch would take the decision on. See hatchScreen(). */
   { treatment: 'tree', kind: 'hatch', token: '--tree', spacing: 8, weight: 1, rise: 'down' },
   /* THE STRUCTURE MARK: A PIN, in --ochre.
 
@@ -450,7 +476,77 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
  * clips at the tile edge, so the main diagonal alone would break at every
  * repeat; the stubs complete the two corners the diagonal misses, and the
  * strokes then join across tile edges into continuous rules.
+ *
+ *
+ * ONE STROKE PER RULE, AND THE CASING THAT ISN'T HERE
+ *
+ * A --halo casing under each rule was tried and removed, and it is written down
+ * because the reasoning that produced it is sound and will produce it again.
+ *
+ * THE PROBLEM IS REAL. From the water step onward a committed production block
+ * sits DIRECTLY ON AERIAL IMAGERY; during landform it sits on the eligible
+ * highlight, and that tint is most of what the mark reads against. Bare over
+ * closed canopy the committed hatch measures 0.0089 added ink against a 0.004
+ * floor -- the road line's own failure point, which the road solves with a
+ * --halo casing.
+ *
+ * THE CASING SOLVED IT AND LOOKED WRONG. Measured, it was worth 9.7x over
+ * canopy. What it produced was a CANDY CANE: a 2px white stroke beside a 1px
+ * oxide one at a 5.66px perpendicular pitch is alternating bands of white and
+ * rust with about a third of the ground left showing, which reads as a striped
+ * ribbon rather than as ruled ground. The ink measure could not see it -- more
+ * ink and more texture spread are exactly what it reported -- and that is the
+ * measure's limit, not a case for keeping the mark.
+ *
+ * IT ALSO SAYS THE WRONG THING ABOUT THE FAMILY. A casing is for a LINE, which
+ * has to survive imagery on its own; a hatch is a FIELD, and the same argument
+ * is already written down two ways in this file -- the previous stipple died of
+ * a per-dot casing ("a ring around every dot is a second mark at the same
+ * frequency as the first"), and water's mark opts out of the halo rule for a
+ * related reason. The hatch is the third case of it.
+ *
+ * SO THE CONTRAST IS PUT BACK WHERE IT WAS LOST: under the mark, not on it.
+ * `screen` on this row's spec lays a screened neutral fill beneath the ruling,
+ * restoring the ground the hatch was designed against. See SCREEN_TOKEN and
+ * hatchScreen() below, and index.css's --pattern-* note for the measurements.
  */
+/**
+ * THE SCREEN UNDER A PAINT SERVER'S MARK: a full-tile rect, at `spec.screen`.
+ *
+ * WHY IT IS INSIDE THE TILE RATHER THAN A SECOND PATH UNDER THE ZONE. A second
+ * path would be a second layer with its own opacity, its own state scale and
+ * its own edge to keep in step -- three things to hold in agreement for one
+ * mark. In the tile it is part of the paint server, so the path's own
+ * fill-opacity scales the screen and the marks on it TOGETHER and the three
+ * states stay three opacities of ONE mark, which is the property the whole
+ * level language rests on. It also tiles for free: the rect is exactly the
+ * tile, so the screen is seamless where the tiles meet.
+ *
+ * `screenToken` IS WHAT THE TWO USERS DIFFER ON, and the difference is what
+ * each screen is FOR. The excavated dot field screens in ITS OWN COLOUR --
+ * there the screen is part of the mark, a wash the dots sit on, and the whole
+ * cell is one blue. Production's hatch screens in a NEUTRAL: there the screen
+ * is not a mark at all, it is the GROUND the mark was designed against, put
+ * back. A screen in --oxide under an oxide hatch would make the block a rust
+ * wash, which is a different statement about the ground and a much louder one.
+ * Omit the token to take the mark's own colour.
+ */
+function screenNode(spec, colour) {
+  if (!spec.screen) return null
+  const screen = document.createElementNS(SVG_NS, 'rect')
+  const size = tileSizeOf(spec)
+  screen.setAttribute('width', String(size))
+  screen.setAttribute('height', String(size))
+  screen.setAttribute('fill', spec.screenToken ? readToken(spec.screenToken) : colour)
+  screen.setAttribute('fill-opacity', String(spec.screen))
+  // Named on the node so the layout harness can lift the screen back off and
+  // measure what it is worth -- the same question `data-uncased` asks of every
+  // cased mark. Identified by name rather than by position, so a row without a
+  // screen yields nothing to remove instead of losing its marks.
+  screen.dataset.pass = 'screen'
+  return screen
+}
+
 function hatchTile(spec, colour) {
   const size = spec.spacing
   const line = document.createElementNS(SVG_NS, 'path')
@@ -467,8 +563,121 @@ function hatchTile(spec, colour) {
   line.setAttribute('stroke-width', String(spec.weight))
   line.setAttribute('stroke-linecap', 'square')
   line.setAttribute('fill', 'none')
-  return [line]
+  // THE SCREEN FIRST, SO THE RULING SITS ON IT. See screenNode().
+  const screen = screenNode(spec, colour)
+  return screen ? [screen, line] : [line]
 }
+
+/**
+ * WHY PRODUCTION'S HATCH SITS ON A SCREEN, WHICH TWO NEUTRAL IT IS, AND WHAT
+ * THE SCREEN COSTS.
+ *
+ * Not a function -- a place to put the argument, next to the tile it is about,
+ * so the row above can be six lines and this can be as long as it needs to be.
+ *
+ *
+ * THE PROBLEM IS THE GROUND, NOT THE MARK
+ *
+ * A committed production block is barely visible from the water step onward.
+ * The hatch has not changed: during LANDFORM it sits on the eligible highlight
+ * (--eligible at ELIGIBLE_OPACITY) and that tint is most of what it reads
+ * against, and from water onward the highlight is gone and the same ruling sits
+ * directly on aerial imagery. Over closed canopy the bare committed hatch adds
+ * 0.0088 ink against a 0.004 visibility floor -- twice the floor, and the road
+ * line's own failure point.
+ *
+ * TWO WRONG LEVERS WERE PULLED FIRST, both recorded rather than quietly
+ * dropped, because the reasoning behind each is sound and will come back:
+ *
+ *   RAISING THE --pattern-* SCALE (0.4/0.55/1 -> 0.55/0.75/1). Treats a
+ *   contrast problem as an opacity problem, and charges the top of the scale
+ *   for it: focus is pinned at 1, so everything under it coming up compressed
+ *   focused/active from 1.82x to 1.33x and took the fence's state step to
+ *   1.13x. See index.css.
+ *
+ *   CASING EACH RULE IN --halo, the road's own fix. Measured well -- 9.7x over
+ *   canopy -- and read as a CANDY CANE: a 2px white stroke beside a 1px oxide
+ *   one at a 5.66px perpendicular pitch is alternating bands of white and rust,
+ *   a striped ribbon rather than ruled ground. See hatchTile().
+ *
+ * SO THE GROUND IS PUT BACK INSTEAD. A screened neutral under the ruling,
+ * inside the tile, scaled by the level with everything else in it.
+ *
+ *
+ * NOT --eligible, AND THAT IS THE FIRST DECISION
+ *
+ * The obvious answer is to reuse the highlight's own token, since the
+ * highlight is the ground the mark was designed against. It is wrong: on the
+ * water step --eligible under a committed block would say "this ground is
+ * eligible", which is a claim about a gate that is no longer being run and was
+ * never run for this step. The screen has to be a GROUND, not a reading -- so
+ * it is one of the system's neutrals.
+ *
+ *
+ * --rule AT 0.12, MEASURED AGAINST --stock, AT FOUR ALPHAS, OVER BOTH GROUNDS
+ *
+ * layout.test.jsx sweeps both; this is the committed row of it, which is the
+ * hardest case (the lowest level on the hardest ground):
+ *
+ *                        screen alone      hatch on it    block total
+ *   over canopy   bare       --            0.0088         0.0088
+ *     --rule 0.06          0.0157          0.0069         0.0225
+ *     --rule 0.12          0.0327          0.0067         0.0374
+ *     --rule 0.2           0.0523          0.0075         0.0546
+ *     --rule 0.3           0.0784          0.0085         0.0775
+ *     --stock 0.12         0.0353          0.0070         0.0397
+ *   over bare soil  bare      --           0.0170         0.0170
+ *     --rule 0.12          0.0052          0.0176         0.0216
+ *     --stock 0.12         0.0118          0.0185         0.0273
+ *
+ * THE BLOCK CLEARS THE FLOOR WITH ROOM: 0.0374 over canopy at the committed
+ * level, against 0.004 -- nine times it, where the bare mark was twice it.
+ *
+ * --rule RATHER THAN --stock, on three counts. It is QUIETER as a layer at
+ * every alpha on both grounds (0.0327 against 0.0353 over canopy, and 0.0052
+ * against 0.0118 over soil -- half). It costs the ruling marginally less (see
+ * below). And it is the right token to be borrowing: --stock is the PAGE, and a
+ * screen of the page colour laid over aerial imagery is a claim about the
+ * document rather than about the land, while --rule is already the system's
+ * "quiet neutral that separates things without being a thing".
+ *
+ * 0.12 RATHER THAN 0.06 OR 0.2. 0.06 costs the ruling exactly as much and lifts
+ * the block half as far (0.0225). 0.2 collapses the ruling (below) and puts the
+ * screen at 0.0523 -- 83% of water's committed embankment wash, which is a
+ * DECLARED layer, so at that weight the screen has stopped being a ground.
+ * 0.12 is 52% of it, and the knee of the curve.
+ *
+ *
+ * WHAT THE SCREEN COSTS, AND IT IS NOT NOTHING
+ *
+ * THE BLOCK GETS MORE VISIBLE AND THE RULING GETS LESS. Over canopy the same
+ * ruling reads for 0.0067 on the screen against 0.0088 on bare imagery -- 0.76x
+ * -- and the swatch's texture spread falls from 0.0154 to 0.0083, about half.
+ *
+ * THAT IS THE MID-VALUE TRAP, arriving from the other direction. --oxide is a
+ * mid-dark rust and canopy is dark; a light screen lifts the ground TOWARDS
+ * oxide's own value before it goes past it, so the rules lose contrast against
+ * their own ground before they gain it. The bottom of that curve is around
+ * --stock 0.2, where the spread reads 0.0020 and the ruling has very nearly
+ * disappeared into its screen. index.css records the same trap for the rejected
+ * --ink-muted fence colour; this is the same failure with the ground moving
+ * instead of the line.
+ *
+ * IT IS ACCEPTED, AND THE REASON IS WHAT THE COMPLAINT WAS. "A committed block
+ * is barely visible" is about the BLOCK -- whether there is something there at
+ * all, on a map where the block is context for a decision being taken about
+ * other ground. Which way its rules run is a second question, and it is
+ * answered at the zoom someone actually inspects a block at, not at the
+ * whole-parcel zoom this is measured at. A visible block whose ruling is
+ * quieter beats an invisible block whose ruling would be crisp.
+ *
+ * THE LEVER IF THAT JUDGEMENT IS EVER REVERSED is the screen's colour, not its
+ * alpha: a DARKER neutral would move the ground away from oxide instead of
+ * towards it and gain contrast in both directions at once. There is no dark
+ * neutral in the palette that is not --ink, and a screen of --ink under a
+ * committed block reads as a shadow. That is why it is not the answer here, and
+ * it is where to start if it has to be revisited.
+ */
 
 /**
  * A HALFTONE FIELD: many ~1px dots on a REGULAR LATTICE, one per cell,
@@ -519,26 +728,12 @@ function hatchTile(spec, colour) {
 function stippleTile(spec, colour) {
   const cell = spec.tile / spec.grid
   const nodes = []
-  if (spec.screen) {
-    // THE SCREEN, FIRST IN THE TILE SO THE DOTS SIT ON IT. A full-tile rect
-    // in the mark's own colour at spec.screen, which makes this the one row
-    // in the table that is a screen AND a texture.
-    //
-    // WHY IT IS INSIDE THE TILE RATHER THAN A SECOND PATH UNDER THE ZONE.
-    // A second path would be a second layer with its own opacity, its own
-    // state scale and its own edge to keep in step -- three things to keep
-    // in agreement for one mark. In the tile it is part of the paint server,
-    // so the path's own fill-opacity scales screen and dots TOGETHER and the
-    // three states stay three opacities of ONE mark, which is the property
-    // the whole level language rests on. It also tiles for free: the rect is
-    // exactly the tile, so the screen is seamless where the tiles meet.
-    const screen = document.createElementNS(SVG_NS, 'rect')
-    screen.setAttribute('width', String(spec.tile))
-    screen.setAttribute('height', String(spec.tile))
-    screen.setAttribute('fill', colour)
-    screen.setAttribute('fill-opacity', String(spec.screen))
-    nodes.push(screen)
-  }
+  // THE SCREEN, FIRST IN THE TILE SO THE DOTS SIT ON IT -- in the mark's own
+  // colour here, which makes this the one row in the table that is a screen AND
+  // a texture. screenNode() owns the mechanism and says why it is in the tile;
+  // production's hatch is the other user and screens in a neutral instead.
+  const screen = screenNode(spec, colour)
+  if (screen) nodes.push(screen)
   for (let row = 0; row < spec.grid; row += 1) {
     for (let col = 0; col < spec.grid; col += 1) {
       const dot = document.createElementNS(SVG_NS, 'circle')

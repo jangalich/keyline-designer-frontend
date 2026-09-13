@@ -467,6 +467,42 @@
      imagery, and moving every level up moves the problem rather than the
      mark.
 
+     AND THE SCALE WAS BRIEFLY 0.55 / 0.75 / 1, WHICH IS THE WRONG LEVER AND IS
+     RECORDED HERE SO IT IS NOT REACHED FOR AGAIN.
+
+     The complaint that produced it was real: a committed production block is
+     barely visible on the LATER steps. The diagnosis was not. The hatch is not
+     fainter downstream -- it is on a different ground. During landform it sits
+     on the ELIGIBLE HIGHLIGHT (--eligible at 0.32), and that tint is what the
+     mark reads against; from water onward the highlight is gone and the same
+     hatch sits directly on imagery, where a mid-tone diagonal over closed
+     canopy has almost nothing to work with. Raising the whole scale treats a
+     contrast problem as an opacity problem, and it charges the top of the
+     scale for it: focus is pinned at 1, so every level coming up compressed
+     focused/active from 1.82x to 1.33x, dragged the mid-grey state floor from
+     1.5x to 1.25x, and took the fence -- a pale line over its own casing,
+     already the weakest case at 1.41x -- down to 1.13x. Reverted.
+
+     A --halo CASING ON EACH HATCH LINE WAS THE SECOND WRONG LEVER, and the
+     road's own fix, and it measured well -- 9.7x over canopy. It read as a
+     CANDY CANE: white and rust in alternating bands with a third of the ground
+     showing through. Reverted too, and the ink measure's inability to see it is
+     recorded at ProductionHatchPattern.js's hatchTile().
+
+     THE GROUND IS PUT BACK INSTEAD. Production's hatch now sits on a SCREEN --
+     --rule at 0.12, inside the pattern tile, so the path's own fill-opacity
+     scales it with the ruling and the three levels keep meaning one thing.
+     A committed block over canopy goes from 0.0088 added ink to 0.0374, against
+     a 0.004 floor, and the screen itself stays at about half the weight of the
+     quietest DECLARED wash in the build. It is a ground, not a layer. The
+     candidates, the alphas, the choice and the one thing the screen costs are
+     all at ProductionHatchPattern.js, beside the row; layout.test.jsx sweeps
+     them so the choice can be re-run rather than re-derived.
+
+     NOTHING ABOUT THIS SCALE MOVED FOR IT, which is the point of fixing the
+     ground: the levels are the same three numbers they were tuned to, and the
+     mark they scale now has something to be seen against.
+
      IT ALSO MOVES A TINTED ZONE'S OUTLINE, which is correct and is the reason
      the outline is on this scale at all -- a committed survey area's boundary
      gets the same lift its neighbouring hatch does, while its wash stays on

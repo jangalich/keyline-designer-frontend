@@ -1040,6 +1040,242 @@ describeIf('the detail panel, measured', () => {
 })
 
 /* ===========================================================================
+   THE SHARED PANEL FORMAT, IN A REAL ENGINE
+   ===========================================================================
+   THE RULE EVERY OTHER STEP WILL INHERIT, AND THE ONE THAT CANNOT BE CHECKED
+   IN jsdom. A measured value is the data face with tabular figures, right
+   against a track a long word cannot widen; a categorical is the prose face,
+   in the value position, OUT of that track. jsdom applies no stylesheet, so
+   asserting a class name there says the component asked for a treatment -- not
+   that the treatment exists, and not that the cascade delivered it. These read
+   getComputedStyle and the rendered boxes.
+
+   IF CATEGORICALS GET FORCED INTO THE NUMBER TRACK HERE, ALL SIX PANELS
+   INHERIT THE COLUMN-WIDENING PROBLEM, which is why this is measured on the
+   step that carries the format rather than on each step that adopts it.
+   =========================================================================== */
+
+describeIf('the shared panel format, in a real engine', () => {
+  /** Open one block's panel the way a user does. */
+  async function openBlock(ui, id) {
+    await ui.page.click(`[data-testid="tab-${id}"]`)
+    await ui.page.waitForSelector('.chrome-detail__rows')
+  }
+
+  /** One row's two spans, with the styles the browser actually resolved. */
+  async function rowsOf(page) {
+    return page.evaluate(() => {
+      const face = (el) => getComputedStyle(el).fontFamily.split(',')[0].replace(/["']/g, '').trim()
+      return [...document.querySelectorAll('.chrome-detail__rows > *')].map((node) => {
+        if (node.tagName === 'HR') return { break: true }
+        const [value, label] = node.children
+        const style = getComputedStyle(value)
+        return {
+          label: label.textContent,
+          text: value.textContent,
+          kind: node.dataset.row,
+          face: face(value),
+          numeric: style.fontVariantNumeric,
+          align: style.textAlign,
+          // The rendered left edge of the value, and of its label -- the
+          // column, asked of the pixels rather than of the grid declaration.
+          left: value.getBoundingClientRect().left,
+          right: value.getBoundingClientRect().right,
+          labelLeft: label.getBoundingClientRect().left,
+        }
+      })
+    })
+  }
+
+  /**
+   * TEST 1. THE ORDER IS THE STEP'S, AND THE BREAK IS THE PANEL'S.
+   *
+   * The tab's own two rows come first, verbatim, then a rule, then the step's
+   * five -- and the step declared only the five. Both of the first two facts
+   * are the panel's doing (panelFormat.js rules 1 and 2), which is the whole
+   * reason a step cannot get them wrong.
+   */
+  it('renders the tab’s rows, then a break, then the step’s, in declared order', async () => {
+    const ui = await openHarness({ format: 1 })
+    await openBlock(ui, 'production-area-1')
+
+    const rows = await rowsOf(ui.page)
+    expect(rows.map((row) => (row.break ? '—— break ——' : row.label))).toEqual([
+      'acres',
+      '/100 score',
+      '—— break ——',
+      'aspect',
+      'position',
+      'median slope %',
+      'soil',
+      'drainage class',
+    ])
+
+    // THE HEADER IS THE TAB'S NAME, NOT THE DETAIL'S. The harness step returns
+    // "not the header" as its `name` precisely so this cannot pass by accident.
+    expect(await ui.page.locator('.chrome-detail__name').textContent()).toBe('Block 1')
+
+    // AND THE TAB ROWS ARE THE TAB'S, VERBATIM -- same figures, same order as
+    // the strip is showing at this moment, in the DOM of both at once.
+    const tabRows = await ui.page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="tab-production-area-1"] .chrome-tab__body > span')]
+        .slice(1)
+        .map((span) => span.textContent)
+    )
+
+    // THE ONE DIFFERENCE IS THE DENOMINATOR, AND IT IS ON THE PANEL ONLY.
+    // BOTH SURFACES ASSERTED SIDE BY SIDE, because "the panel adds it" is a
+    // claim about the pair and neither half of it can be checked alone: the
+    // strip says "score" and the panel says "/100 score", off one declared row
+    // carrying `denominator: 100`. See panelFormat.denominated().
+    expect(tabRows, 'the strip shows no denominator').toEqual(['4.0', 'acres', '42.9', 'score'])
+    expect(rows.slice(0, 2).map((row) => [row.text, row.label])).toEqual([
+      ['4.0', 'acres'],
+      ['42.9', '/100 score'],
+    ])
+    // The FIGURES are untouched in both -- the denominator rode the label.
+    expect([tabRows[0], tabRows[2]]).toEqual(rows.slice(0, 2).map((row) => row.text))
+
+    // ONE RULE, AND IT IS BETWEEN THE TWO HALVES rather than at either end.
+    const breaks = rows.map((row, index) => (row.break ? index : null)).filter((i) => i != null)
+    expect(breaks).toEqual([2])
+
+    await ui.close()
+  }, SLOW)
+
+  /**
+   * TEST 2. THE RULE EVERY OTHER STEP INHERITS. Computed styles, not classes.
+   */
+  it('sets measured values in the data face and categoricals as prose, out of the number track', async () => {
+    const ui = await openHarness({ format: 1 })
+    await openBlock(ui, 'production-area-1')
+    const rows = (await rowsOf(ui.page)).filter((row) => !row.break)
+
+    const measured = rows.filter((row) => row.kind === 'measured')
+    const categorical = rows.filter((row) => row.kind === 'categorical')
+    expect(measured.map((row) => row.label)).toEqual(['acres', '/100 score', 'median slope %'])
+    expect(categorical.map((row) => row.label)).toEqual([
+      'aspect',
+      'position',
+      'soil',
+      'drainage class',
+    ])
+
+    // eslint-disable-next-line no-console
+    for (const row of rows) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `    panel  ${String(row.label).padEnd(15)} ${String(row.kind).padEnd(11)} ` +
+          `"${row.text}"  face ${row.face}  ${row.numeric}  ${row.align}  ` +
+          `left ${row.left.toFixed(1)} right ${row.right.toFixed(1)} label ${row.labelLeft.toFixed(1)}`
+      )
+    }
+
+    // MEASURED: IBM Plex Mono, tabular figures, right-aligned. The face is the
+    // design system's signature and the tabular figures are what actually hold
+    // a decimal point still -- a proportional face gives 1 and 4 different
+    // widths and no amount of right-alignment recovers from that.
+    for (const row of measured) {
+      expect(row.face, `${row.label} is the data face`).toBe('IBM Plex Mono')
+      expect(row.numeric, `${row.label} is tabular`).toContain('tabular-nums')
+      expect(row.align, `${row.label} is right-aligned`).toBe('right')
+    }
+
+    // CATEGORICAL: the prose face, and NOT right-aligned -- a word right-aligned
+    // against nothing is the treatment this format replaced.
+    for (const row of categorical) {
+      expect(row.face, `${row.label} is the prose face`).not.toBe('IBM Plex Mono')
+      expect(row.align, `${row.label} is not in the number track`).not.toBe('right')
+    }
+
+    // THE VALUE POSITION IS ONE POSITION. "south facing" starts where the
+    // figures' track starts -- the categorical is in the value column, not
+    // indented out of it and not pushed after its label.
+    const trackLeft = Math.min(...measured.map((row) => row.left))
+    for (const row of categorical) {
+      expect(row.left, `${row.label} starts at the value column`).toBeCloseTo(trackLeft, 0)
+      expect(row.left, `${row.label} comes before its label`).toBeLessThan(row.labelLeft)
+    }
+
+    // THE FIGURES SHARE ONE RIGHT EDGE, ACROSS THE BREAK. This is what the
+    // single grid buys and what a second grid under the rule would lose.
+    const edges = measured.map((row) => row.right)
+    for (const edge of edges) expect(edge).toBeCloseTo(edges[0], 0)
+
+    await ui.close()
+  }, SLOW)
+
+  /**
+   * AND A LONG CATEGORICAL DOES NOT MOVE THE LABELS. The failure the trees
+   * branch measured, asked directly: block 2's aspect is "northeast facing",
+   * five characters longer than block 1's, and every label in the panel must
+   * be in exactly the same place.
+   */
+  it('lets a long categorical grow without widening the number track', async () => {
+    const ui = await openHarness({ format: 1 })
+
+    await openBlock(ui, 'production-area-1')
+    const short = await rowsOf(ui.page)
+    await openBlock(ui, 'production-area-2')
+    const long = await rowsOf(ui.page)
+
+    expect(short.find((row) => row.label === 'aspect').text).toBe('south facing')
+    expect(long.find((row) => row.label === 'aspect').text).toBe('northeast facing')
+
+    const labelColumn = (rows) => Math.min(...rows.filter((r) => !r.break).map((r) => r.labelLeft))
+    const valueTrack = (rows) =>
+      Math.max(...rows.filter((r) => r.kind === 'measured').map((r) => r.right))
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `    panel  long categorical: labels ${labelColumn(short).toFixed(1)} -> ` +
+        `${labelColumn(long).toFixed(1)}  figures ${valueTrack(short).toFixed(1)} -> ` +
+        `${valueTrack(long).toFixed(1)}`
+    )
+
+    expect(labelColumn(long), 'a longer word must not move the labels').toBeCloseTo(
+      labelColumn(short),
+      0
+    )
+    expect(valueTrack(long), 'a longer word must not move the figures').toBeCloseTo(
+      valueTrack(short),
+      0
+    )
+
+    await ui.close()
+  }, SLOW)
+
+  /**
+   * EVERYTHING BELOW THE HEADER IS LOWER CASE, AND THE HEADER IS NOT. Asserted
+   * on what the browser RENDERS, not on the strings -- the rule is a
+   * text-transform precisely so that a backend label is never reworded.
+   */
+  it('renders the header as the only capitalised line', async () => {
+    const ui = await openHarness({ format: 1 })
+    await openBlock(ui, 'production-area-1')
+
+    const rendered = await ui.page.evaluate(() => {
+      const shown = (el) =>
+        getComputedStyle(el).textTransform === 'lowercase'
+          ? el.textContent.toLowerCase()
+          : el.textContent
+      return {
+        header: shown(document.querySelector('.chrome-detail__name')),
+        body: [...document.querySelectorAll('.chrome-detail__rows > p > span')].map(shown),
+      }
+    })
+
+    expect(rendered.header).toBe('Block 1')
+    expect(rendered.header).toMatch(/[A-Z]/)
+    for (const text of rendered.body) {
+      expect(text, `"${text}" is set lower case`).toBe(text.toLowerCase())
+    }
+
+    await ui.close()
+  }, SLOW)
+})
+
+/* ===========================================================================
    THE ATTRIBUTION, IN THE TOP-LEFT GAP, AT THREE VIEWPORT HEIGHTS
    ===========================================================================
    THIS ONE OPENS THE APP, NOT THE HARNESS, and it is the only test in this
@@ -1510,8 +1746,24 @@ describeIf('the zone patterns, rendered', () => {
           .querySelector(`[data-testid="swatch-${t}-active"]`)
           .querySelector(':scope > rect')
           .getAttribute('fill')
+      const productionDef = defOf('production')
+      const productionRects = [...productionDef.children].filter((n) => n.tagName === 'rect')
       return {
-        production: { shapes: shapesOf('production'), fill: fillOf('production') },
+        production: {
+          shapes: shapesOf('production'),
+          fill: fillOf('production'),
+          // THE SCREEN: one full-tile rect, FIRST, so the ruling sits on it --
+          // the same construction the excavated dot field uses below, and the
+          // same three checks.
+          screens: productionRects.length,
+          screenFirst: productionDef.children[0]?.tagName,
+          screenOpacity: Number(productionRects[0]?.getAttribute('fill-opacity')),
+          screenCoversTile: productionRects[0]
+            ? Number(productionRects[0].getAttribute('width')) === 8 &&
+              Number(productionRects[0].getAttribute('height')) === 8
+            : false,
+          strokedRects: productionRects.filter((n) => n.hasAttribute('stroke')).length,
+        },
         embankment: { shapes: shapesOf('survey-embankment'), fill: fillOf('survey-embankment') },
         excavated: (() => {
           const children = [...defOf('survey-excavated').children]
@@ -1536,8 +1788,23 @@ describeIf('the zone patterns, rendered', () => {
       }
     })
 
-    // PRODUCTION: ruled paths in a paint server, and NO outline anywhere.
-    expect(marks.production.shapes).toEqual(['path'])
+    // PRODUCTION: A SCREEN AND RULED PATHS in a paint server, in that order in
+    // the tile -- the ruling is still what the mark IS, and the screen is the
+    // ground it reads against, put back because from water onward there is none
+    // (see ProductionHatchPattern.jsx).
+    expect(marks.production.shapes).toEqual(['rect', 'path'])
+    expect(marks.production.screens).toBe(1)
+    expect(marks.production.screenFirst).toBe('rect')
+    expect(marks.production.screenCoversTile).toBe(true)
+
+    // AND STILL NO OUTLINE ANYWHERE. A full-tile rect INSIDE the paint server
+    // is a ground, not an edge: it is filled and never stroked, it repeats with
+    // the tile, and it stops where the mark stops. The no-stroke rule is about
+    // a line at the ZONE'S boundary, and there is still none -- zoneMark()
+    // returns `stroke: null` for every pattern row, and marksItsOwnEdge() is
+    // false for a hatch. This is the assertion that says the screen did not
+    // quietly become one.
+    expect(marks.production.strokedRects, 'the screen is filled, never stroked').toBe(0)
 
     // EMBANKMENT: no paint server at all. A wash's fill is a colour, and an
     // empty def nothing references would be the smell.
@@ -1733,11 +2000,11 @@ describeIf('the zone patterns, rendered', () => {
   }
 
   async function addedInkOver(page, ground, treatment, state) {
-    const marked = decodePng(
-      await (await page.$(`[data-testid="ground-${ground}-${treatment}-${state}"]`)).screenshot({
-        type: 'png',
-      })
-    )
+    // A STATELESS CELL IS A REAL CELL. The opaque reference is one colour laid
+    // solid -- not a state of a mark, but the thing every state is a fraction
+    // of -- and it is addressed by its id alone. See the harness's cellId().
+    const id = state == null ? `ground-${ground}-${treatment}` : `ground-${ground}-${treatment}-${state}`
+    const marked = decodePng(await (await page.$(`[data-testid="${id}"]`)).screenshot({ type: 'png' }))
     const bare = decodePng(
       await (await page.$(`[data-testid="ground-${ground}-bare"]`)).screenshot({ type: 'png' })
     )
@@ -1768,11 +2035,18 @@ describeIf('the zone patterns, rendered', () => {
       for (const treatment of SWATCH_TREATMENTS) {
         const committed = await addedInkOver(page, ground, treatment, 'committed')
         const active = await addedInkOver(page, ground, treatment, 'active')
+        // ALL THREE LEVELS, NOT TWO. The scale was last retuned by shifting
+        // every level (0.4/0.55/1 -> 0.55/0.75/1), and a report that stops at
+        // active cannot say what the top of the scale is worth on imagery --
+        // which is exactly where the shift spends what it buys. See index.css.
+        const focused = await addedInkOver(page, ground, treatment, 'focused')
         // eslint-disable-next-line no-console
         console.log(
           `    ink  ${ground.padEnd(6)} ${treatment.padEnd(18)} ` +
             `committed ${committed.toFixed(4)}  active ${active.toFixed(4)}  ` +
-            `(committed/active ${(committed / active).toFixed(2)}x)`
+            `focused ${focused.toFixed(4)}  ` +
+            `(committed/active ${(committed / active).toFixed(2)}x  ` +
+            `focused/active ${(focused / active).toFixed(2)}x)`
         )
         expect(
           committed,
@@ -1782,6 +2056,10 @@ describeIf('the zone patterns, rendered', () => {
           committed,
           `${treatment} committed must stay quieter than active over ${ground}`
         ).toBeLessThan(active)
+        expect(
+          focused,
+          `${treatment} focused must stay above active over ${ground}`
+        ).toBeGreaterThan(active)
       }
     }
   }, SLOW)
@@ -1855,6 +2133,211 @@ describeIf('the zone patterns, rendered', () => {
       expect(committed, `site pin: committed quieter than active over ${ground}`).toBeLessThan(active)
       const bare = await addedInkOver(page, ground, 'structure', 'active-uncased')
       expect(active, `the halo adds ink over ${ground}`).toBeGreaterThan(bare)
+    }
+  }, SLOW)
+
+  /**
+   * THE SCREEN UNDER PRODUCTION'S HATCH: BOTH NEUTRALS, THREE ALPHAS, SWEPT.
+   *
+   * THE PROBLEM IS THE GROUND, NOT THE MARK. During landform the hatch sits on
+   * the eligible highlight and reads against that tint; from water onward the
+   * highlight is gone and the same ruling sits on bare imagery, where over
+   * closed canopy the bare committed hatch measures 0.0089 against a 0.004
+   * floor -- the road line's own failure point. The screen puts the ground
+   * back, in a NEUTRAL rather than in --eligible, which downstream would claim
+   * a gate that is no longer being run.
+   *
+   * A CASING WAS TRIED FIRST AND IS NOT WHAT THIS IS. It measured well (9.7x
+   * over canopy) and looked like a candy cane -- white and rust in alternating
+   * bands with a third of the ground showing. See hatchTile()'s note. The ink
+   * measure could not see that, which is why the screen is chosen on TWO
+   * numbers rather than one: how much the combination lifts, AND whether the
+   * screen alone stays under the floor. A screen that clears the floor on its
+   * own has stopped being a ground and become a wash over the block.
+   *
+   * REPORTED, ALL THREE, AT EVERY LEVEL: the screen alone, the hatch alone, and
+   * the two together, over both grounds. The choice -- --rule at 0.12 -- and
+   * the reasoning are in ProductionHatchPattern.jsx beside the row.
+   *
+   * THE SWEEP STAYS IN THE BUILD, like the fence's two colour candidates, so
+   * the next person to doubt the choice re-runs it rather than re-deriving it.
+   */
+  it('sweeps the screen candidates under the hatch and reports all three readings', async () => {
+    const TOKENS = ['stock', 'rule']
+    const ALPHAS = ['06', '12', '2', '3']
+    for (const ground of ['canopy', 'soil']) {
+      for (const state of ['committed', 'active', 'focused']) {
+        const hatch = await addedInkOver(page, ground, 'production', `${state}-unscreened`)
+        const bareSwatch = await swatchOf(page, `ground-${ground}-bare`)
+        const hatchSwatch = await swatchOf(page, `ground-${ground}-production-${state}-unscreened`)
+        const hatchSpread = textureSpread(crop(hatchSwatch, 8))
+        for (const token of TOKENS) {
+          for (const alpha of ALPHAS) {
+            const id = `screen-${token}-${alpha}`
+            const bothSwatch = await swatchOf(page, `ground-${ground}-${id}-${state}`)
+            const aloneSwatch = await swatchOf(page, `ground-${ground}-${id}-${state}-alone`)
+            const both = meanAbsDifference(bothSwatch, bareSwatch)
+            const alone = meanAbsDifference(aloneSwatch, bareSwatch)
+            // WHAT THE RULING ADDS OVER THE GROUND IT NOW HAS. addedInkOver
+            // differences against BARE ground, which on a screened mark is
+            // mostly a reading of the screen -- a wash covers all of the cell
+            // and a hatch an eighth of it, so the screen dominates the number
+            // whatever it is doing for the mark. Differencing against the
+            // SCREEN instead isolates the rules, and is directly comparable
+            // with the bare hatch's own figure: the screen works if the same
+            // ruling reads for more on it than it did on imagery.
+            const overScreen = meanAbsDifference(bothSwatch, aloneSwatch)
+            // eslint-disable-next-line no-console
+            console.log(
+              `    screen  ${ground.padEnd(6)} ${state.padEnd(9)} ` +
+                `--${token.padEnd(5)} 0.${alpha.padEnd(2)}  ` +
+                `alone ${alone.toFixed(4)}  hatch ${hatch.toFixed(4)}  ` +
+                `both ${both.toFixed(4)}  |  rules-on-screen ${overScreen.toFixed(4)} ` +
+                `(${(overScreen / hatch).toFixed(2)}x the bare rules)  ` +
+                `spread ${textureSpread(crop(bothSwatch, 8)).toFixed(4)} vs ${hatchSpread.toFixed(4)}`
+            )
+          }
+        }
+      }
+    }
+  }, SLOW)
+
+  /**
+   * THE SHIPPED SCREEN: THE BLOCK CLEARS THE FLOOR, AND THE SCREEN IS NOT A
+   * LAYER OF ITS OWN.
+   *
+   * THE FLOOR IS THE WRONG TOOL FOR THE SECOND HALF, and that is worth stating
+   * because it was the bar this change was set. "The screen alone must not
+   * clear 0.004" cannot be met by any screen that does its job, and not because
+   * the screens are too loud: `addedInkOver` is a MEAN over the whole 90px
+   * square, a wash covers all of it and a hatch about an eighth, so a wash that
+   * is even faintly present out-measures a sparse mark by construction. The
+   * quietest candidate in the whole sweep (--rule 0.06 over soil) is the only
+   * one under the floor at 0.0026, and its canopy figure is 0.0157 -- four
+   * times the floor, on the ground the screen exists for. The 0.004 floor was
+   * set for sparse marks; index.css has a SEPARATE --tint-* scale for exactly
+   * this reason ("a wash and a line are not legible at the same alphas").
+   *
+   * SO THE SECOND HALF IS ASSERTED AGAINST A DECLARED LAYER INSTEAD. Water's
+   * committed embankment wash is the quietest thing in this build that is MEANT
+   * to read as a layer of its own; a screen well under it is a ground, and one
+   * at or above it has become a wash over the block. The shipped screen is 52%
+   * of it over canopy.
+   */
+  it('lifts the committed block clear of the floor without becoming a layer', async () => {
+    // The quietest DECLARED wash in the build -- what "reads as a layer" costs.
+    const declaredWash = await addedInkOver(page, 'canopy', 'survey-embankment', 'committed')
+
+    for (const ground of ['canopy', 'soil']) {
+      for (const state of ['committed', 'active', 'focused']) {
+        const block = await addedInkOver(page, ground, 'production', state)
+        const bare = await addedInkOver(page, ground, 'production', `${state}-unscreened`)
+        // eslint-disable-next-line no-console
+        console.log(
+          `    shipped  ${ground.padEnd(6)} ${state.padEnd(9)} ` +
+            `block ${block.toFixed(4)}  bare ${bare.toFixed(4)}  ` +
+            `(screen ${(block / bare).toFixed(2)}x)  ` +
+            `floor 0.004  declared wash ${declaredWash.toFixed(4)}`
+        )
+
+        // THE BLOCK IS THERE, and comfortably -- the committed level over
+        // canopy is the hardest case and is the one the complaint was about.
+        expect(block, `${ground}/${state}: the block clears the floor`).toBeGreaterThan(0.004)
+        expect(block, `${ground}/${state}: and the screen is what does it`).toBeGreaterThan(bare)
+      }
+
+      // THE SCREEN IS STILL A GROUND, AT EVERY LEVEL. Compared STATE FOR STATE
+      // with the declared wash: production's screen at focused against water's
+      // wash at focused, not against its committed one. The screen rides the
+      // level and so does the wash, so comparing across states would report the
+      // scale rather than the two marks.
+      for (const state of ['committed', 'active', 'focused']) {
+        const screen = await addedInkOver(page, ground, 'screen-rule-12', `${state}-alone`)
+        const wash = await addedInkOver(page, ground, 'survey-embankment', state)
+        // eslint-disable-next-line no-console
+        console.log(
+          `    shipped  ${ground.padEnd(6)} ${state.padEnd(9)} screen alone ${screen.toFixed(4)}  ` +
+            `declared wash ${wash.toFixed(4)}  (${((screen / wash) * 100).toFixed(0)}% of a layer)`
+        )
+        expect(
+          screen / wash,
+          `${ground}/${state}: the screen stays well under a declared wash`
+        ).toBeLessThan(0.7)
+      }
+    }
+
+    // THE THREE LEVELS STILL MEAN ONE THING. The screen is inside the tile, so
+    // the path's own fill-opacity scales it with the ruling -- which is the
+    // property a screen drawn as a second layer would have cost.
+    for (const ground of ['canopy', 'soil']) {
+      const at = (state) => addedInkOver(page, ground, 'production', state)
+      const [committed, active, focused] = [await at('committed'), await at('active'), await at('focused')]
+      expect(committed / active, `${ground}: committed stays under three quarters`).toBeLessThan(0.75)
+      expect(focused / active, `${ground}: the top gap is the scale's`).toBeGreaterThan(1.5)
+    }
+  }, SLOW)
+
+  /**
+   * THE LANDFORM CASE: THE SCREENED HATCH ON THE ELIGIBLE HIGHLIGHT.
+   *
+   * THE GROUND EVERY OTHER CELL HERE IS NOT, AND THE ONE THE SCREEN WAS NOT
+   * BUILT FOR. The screen exists because the hatch sits on bare imagery from
+   * water onward. During LANDFORM it sits on --eligible at ELIGIBLE_OPACITY,
+   * where the mark already had a ground -- so the screen is a SECOND tint over
+   * a first one there, and either could be the loser: the mark could vanish
+   * into a doubled wash, or the screen could paint out the highlight, whose
+   * whole job is to say which ground cleared the gates.
+   *
+   * SO BOTH READINGS ARE TAKEN: what the mark adds OVER THE HIGHLIGHT (is it
+   * still there), and whether the highlight is still legible UNDER IT (is it
+   * still there). Neither is a substitute for the other.
+   */
+  it('keeps the screened hatch and the eligible highlight both readable during landform', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      const highlight = await swatchOf(page, `ground-${ground}-eligible`)
+      // THE HIGHLIGHT'S OWN CONTRIBUTION, which is what it is worth with
+      // nothing on it -- the number the combination has to be read against.
+      const highlightAlone = meanAbsDifference(highlight, bare)
+
+      for (const state of ['committed', 'active', 'focused']) {
+        const onHighlight = await swatchOf(
+          page,
+          `ground-${ground}-production-${state}-eligible`
+        )
+        // THE MARK'S OWN CONTRIBUTION OVER THE HIGHLIGHT -- differenced
+        // against the highlight, not against the ground, so what is measured
+        // is the hatch and not the tint under it.
+        const markOverHighlight = meanAbsDifference(onHighlight, highlight)
+        // AND THE HIGHLIGHT UNDER THE MARK -- the whole combination against
+        // bare ground. If the mark had erased the tint this would collapse
+        // toward the mark's own downstream figure.
+        const combination = meanAbsDifference(onHighlight, bare)
+        const downstream = await addedInkOver(page, ground, 'production', state)
+
+        // eslint-disable-next-line no-console
+        console.log(
+          `    eligible  ${ground.padEnd(6)} ${state.padEnd(9)} ` +
+            `highlight ${highlightAlone.toFixed(4)}  mark-over-highlight ${markOverHighlight.toFixed(4)}  ` +
+            `combination ${combination.toFixed(4)}  (downstream ${downstream.toFixed(4)})`
+        )
+
+        // THE MARK IS STILL THERE ON THE HIGHLIGHT, above the same floor every
+        // other mark is held to. A screen that had drowned the mark in a
+        // doubled wash would show up as the mark adding nothing.
+        expect(
+          markOverHighlight,
+          `${ground}/${state}: the screened hatch reads on the eligible highlight`
+        ).toBeGreaterThan(0.004)
+
+        // AND THE HIGHLIGHT IS STILL THERE UNDER THE MARK. The combination has
+        // to carry more than the mark does on bare ground -- if the screen had
+        // painted the tint out, the two would converge.
+        expect(
+          combination,
+          `${ground}/${state}: the highlight still reads under the screened hatch`
+        ).toBeGreaterThan(downstream)
+      }
     }
   }, SLOW)
 
@@ -2504,6 +2987,34 @@ function textureSpread({ pixels, channels, width, height }) {
   }
   const mean = values.reduce((a, b) => a + b, 0) / values.length
   return values.reduce((a, b) => a + Math.abs(b - mean), 0) / values.length / 255
+}
+
+/**
+ * THE FRACTION OF PIXELS A MARK LEFT ALONE, 0..1.
+ *
+ * THE DIRECT ANSWER TO "IS IT STILL A HATCH". textureSpread says whether the
+ * swatch is flat and meanAbsDifference says how much ink is on it; neither
+ * says whether the GAPS are still gaps, which is the whole property that makes
+ * a pattern a pattern -- the imagery reads through it. This counts the pixels
+ * that are still the bare ground, within a tolerance that absorbs the
+ * antialiasing along every stroke edge without absorbing a stroke.
+ *
+ * 6/255 PER CHANNEL is that tolerance, arrived at from the control: a solid
+ * fill of the mark's own colour measures under 1% untouched with it, so it is
+ * not quietly counting covered ground as open.
+ */
+function untouchedFraction({ pixels, channels, width, height }, bare) {
+  let untouched = 0
+  let count = 0
+  for (let i = 0; i < width * height * channels; i += channels) {
+    const same =
+      Math.abs(pixels[i] - bare.pixels[i]) <= 6 &&
+      Math.abs(pixels[i + 1] - bare.pixels[i + 1]) <= 6 &&
+      Math.abs(pixels[i + 2] - bare.pixels[i + 2]) <= 6
+    if (same) untouched += 1
+    count += 1
+  }
+  return untouched / count
 }
 
 function localVariation({ pixels, channels, width, height }) {

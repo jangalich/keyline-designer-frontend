@@ -101,11 +101,22 @@ const PAYLOAD = {
       geometry,
     })),
   },
+  // THE PANEL'S OWN ROWS, IN THE WIRE'S SHAPE. `soil_components` and
+  // `drainage_class` are hardcoded None on the real wire today and are spelled
+  // out here rather than omitted, because the panel's claim is that it renders
+  // an em dash for a field the pipeline SENT as null -- which is a different
+  // fact from a key that is missing, and the fixture has to be able to tell
+  // them apart. `elevation_position` is the backend's own word, never a band
+  // this side computed; zone-2 carries null for it, which is what a parcel with
+  // no relief ships.
   zones: [
-    { id: 0, feature_id: 'zone-1', rank: 1, area_acres: 2.5, score: 81, slope_min_pct: 2.4, slope_max_pct: 8.1, aspect_available: true, dominant_aspect: 'south' },
-    { id: 1, feature_id: 'zone-2', rank: 2, area_acres: 1.2, score: 64, slope_min_pct: 3, slope_max_pct: 11, aspect_available: false, dominant_aspect: null },
+    { id: 0, feature_id: 'zone-1', rank: 1, area_acres: 2.5, score: 81, slope_min_pct: 2.4, slope_max_pct: 8.1, slope_median_pct: 3.2, aspect_available: true, dominant_aspect: 'south', elevation_position: 'upper field', soil_components: null, drainage_class: null },
+    { id: 1, feature_id: 'zone-2', rank: 2, area_acres: 1.2, score: 64, slope_min_pct: 3, slope_max_pct: 11, slope_median_pct: 6, aspect_available: false, dominant_aspect: null, elevation_position: null, soil_components: null, drainage_class: null },
   ],
   scales: {
+    // `range` is what a score is OUT OF, and it is the panel's denominator --
+    // read off the payload rather than written client-side, like the bands.
+    range: [0, 100],
     bands: { poor: [0, 40], fair: [40, 60], good: [60, 80], excellent: [80, 100] },
     band_bounds: 'lower_inclusive_upper_exclusive_last_band_inclusive',
   },
@@ -337,7 +348,7 @@ describe('1. selection sync', () => {
     expect(ui.cursor.focusedFeatureId).toBe('zone-1')
     expect(ui.find('tab-zone-1').dataset.focused).toBe('true')
     expect(ui.find('detail-landform')).not.toBeNull()
-    expect(ui.text('detail-name-landform')).toBe('Zone 1')
+    expect(ui.text('detail-name-landform')).toBe('Block 1')
 
     // TAB -> MAP. A click on another tab moves the focus, and the shape is
     // marked -- the SAME state, read by two renderers.
@@ -345,7 +356,7 @@ describe('1. selection sync', () => {
     expect(ui.cursor.focusedFeatureId).toBe('zone-2')
     expect(ui.find('tab-zone-1').dataset.focused).toBe('false')
     expect(ui.find('tab-zone-2').dataset.focused).toBe('true')
-    expect(ui.text('detail-name-landform')).toBe('Zone 2')
+    expect(ui.text('detail-name-landform')).toBe('Block 2')
 
     // ONE AT A TIME. The slot holds one value, so selecting another replaces
     // it rather than adding to it.
@@ -434,21 +445,71 @@ describe('2. the detail panel', () => {
     await ui.click('tab-focus-zone-1')
 
     const value = (label) => ui.text(`detail-value-${label}`)
-    // The tab carries acres and score -- what you compare zones BY. These are
-    // what you read once you have picked one out, and they are the columns the
-    // deleted panel column's zone list carried.
-    expect(value('slope %')).toBe('2.4–8.1')
-    expect(value('aspect')).toBe('south-facing')
-    expect(value('band')).toBe('excellent')
+    // The tab carries acres and the score -- what you compare blocks BY -- and
+    // the panel repeats those two rows above the break before saying anything
+    // else. What follows the break is what you read once you have picked one
+    // out.
+    expect(value('acres')).toBe('2.5')
+    expect(value('/100 score')).toBe('81.0')
+    expect(value('aspect')).toBe('south facing')
+    expect(value('position')).toBe('upper field')
+    expect(value('median slope %')).toBe('3.2')
+    expect(value('soil')).toBe('—')
+    expect(value('drainage class')).toBe('—')
 
-    // THE BAND COMES OFF THE PAYLOAD'S OWN `scales`. 81 is in [80, 100], and
-    // no threshold is written down on this side to go stale.
-    await ui.click('tab-focus-zone-2')
-    expect(value('band')).toBe('good')
     // aspect_available false: the ground is too flat for a downhill direction,
     // so the pipeline's figure is a default rather than a measurement and
-    // nothing is printed.
+    // nothing is printed. `elevation_position` null is the same statement about
+    // a parcel with no relief -- an em dash, never a default word.
+    await ui.click('tab-focus-zone-2')
     expect(value('aspect')).toBe('—')
+    expect(value('position')).toBe('—')
+
+    await ui.unmount()
+  })
+
+  it('puts the tab’s own rows first, then a break, then the step’s', async () => {
+    installFetch(standardRoutes())
+    const ui = await renderSurface()
+    await throughGenerate(ui)
+    await ui.click('tab-focus-zone-1')
+
+    // THE PANEL'S BODY AS THE DOM HAS IT -- one grid, a rule in the middle of
+    // it. `<hr>` rather than a border on a row, because the break belongs to
+    // the panel and not to whichever row happens to sit under it.
+    const rendered = [...ui.find('detail-rows-landform').children].map((node) =>
+      node.tagName === 'HR' ? '——' : node.lastElementChild.textContent
+    )
+    expect(rendered).toEqual([
+      'acres',
+      '/100 score',
+      '——',
+      'aspect',
+      'position',
+      'median slope %',
+      'soil',
+      'drainage class',
+    ])
+
+    // THE HEADER IS THE TAB'S NAME, not a second string the step minted.
+    expect(ui.text('detail-name-landform')).toBe(ui.find('tab-zone-1').querySelector('.chrome-tab__name').textContent)
+
+    // AND THE ROWS DECLARE WHICH KIND THEY ARE, which is what the stylesheet
+    // sets them on. The treatment itself is unreadable in jsdom and is
+    // measured in layout.test.jsx's "the shared panel format, in a real
+    // engine"; what is asked here is that the panel LABELLED them correctly.
+    const kinds = [...ui.find('detail-rows-landform').children]
+      .filter((node) => node.tagName !== 'HR')
+      .map((node) => node.dataset.row)
+    expect(kinds).toEqual([
+      'measured',
+      'measured',
+      'categorical',
+      'categorical',
+      'measured',
+      'categorical',
+      'categorical',
+    ])
 
     await ui.unmount()
   })
@@ -490,7 +551,7 @@ describe('3. a gesture in flight', () => {
     // Focused on something else first: the gesture has to WIN, because a ring
     // going down is the most current thing on screen.
     await ui.click('tab-focus-zone-1')
-    expect(ui.text('detail-name-landform')).toBe('Zone 1')
+    expect(ui.text('detail-name-landform')).toBe('Block 1')
 
     await ui.run((_a, cursor) => cursor.arm('draw'))
     const drawing = ui.container.querySelector('.leaflet-container')

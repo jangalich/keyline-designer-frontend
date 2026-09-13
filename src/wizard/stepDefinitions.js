@@ -464,6 +464,7 @@ import {
 import { pointInRing, polygonAreaAcres, pointFromGeoJSON, pointToGeoJSON } from '../geo.js'
 import { commitInputsFor, commitValueOf, requiredInputsMissing } from './stepInputs.js'
 import { cautionsFor, clampToBoundary, exclusionGrounds } from '../zoneGeometry.js'
+import { EM_DASH, categoricalRow, measuredRow } from './shell/panelFormat.js'
 import {
   COMMITTING,
   EDITING,
@@ -535,7 +536,10 @@ export function measured(value, dp = MEASURE_DP) {
  * nothing that renders a grade reads them.
  */
 export function measure(value, dp = MEASURE_DP) {
-  return value == null ? '—' : Number(value).toFixed(dp)
+  // THE DASH IS THE PANEL FORMAT'S, not a literal repeated here. Every "not
+  // known" in the app -- a figure through this, a categorical through a step's
+  // own `?? EM_DASH` -- prints the same character because there is one of it.
+  return value == null ? EM_DASH : Number(value).toFixed(dp)
 }
 
 /* ---------------------------------------------------------------------------
@@ -1711,6 +1715,22 @@ export const CEILING_ADVISORY_PCT = 80
  * `band_bounds` is honoured rather than assumed: the contract's value is
  * lower-inclusive / upper-exclusive with the last band closed at the top, so
  * a perfect 100 lands in the top band instead of falling out of every one.
+ *
+ * NO PANEL CALLS THIS TODAY, AND IT STAYS. Production's panel carried a `band`
+ * row until the shared format, which drops it for the reason the format drops
+ * the factor breakdown: the panel answers "what is this block like", not "how
+ * was this number computed", and a band is a reading OF the score sitting two
+ * lines under the score itself. The score and its scale are still on screen --
+ * "42.9" against a "/100 score" label -- and the bands are still on the wire
+ * for the report.
+ *
+ * WHAT WOULD BE LOST BY DELETING IT is the only implementation of the
+ * band_bounds contract on this side. The next step that wants to name a band
+ * would read `scales.bands` and write the loop again, get the closed top band
+ * wrong for a perfect 100, and there would be two answers to one question --
+ * which is the failure this function's own note is about. It is cheaper to
+ * keep than to re-derive, and water.test.jsx already cites it as where the
+ * rule is written down.
  */
 export function scoreBandName(score, scales) {
   if (score == null || !scales?.bands) return null
@@ -1764,6 +1784,55 @@ export function totalsFor(payload, selectedIds, drawnFeatures) {
     pctOfParcel: parcelAcres > 0 ? (total / parcelAcres) * 100 : null,
     zoneCount: rows.filter((zone) => selectedIds.has(zone.feature_id)).length + drawnFeatures.length,
   }
+}
+
+/**
+ * THE SCORE'S DENOMINATOR: the top of the backend's own published scale.
+ *
+ * DECLARED ON THE TAB ROW, RENDERED ONLY BY THE PANEL. panelFormat.denominated()
+ * is what turns "score" into "/100 score", and it does it for the panel's copy
+ * of the row and not for the strip's -- the strip is scanned across candidates
+ * that are all on one scale, the panel is read about one. One declaration, two
+ * renderings; see that function for the argument.
+ *
+ * READ OFF `scales.range`, NOT WRITTEN DOWN. narrative_data['scales'] ships
+ * `range: [0.0, 100.0]` with `score` in its `applies_to`, and that is the
+ * statement of what a score is out of. A 100 typed here is a second copy of it,
+ * and the day the backend rescales, the panel keeps confidently printing the
+ * old denominator against the new figure -- which is exactly the failure
+ * scoreBandName()'s own note is about, in the one place a reader would never
+ * think to check.
+ *
+ * AN INTEGER, because 100.0 is a number the pipeline rounded and "/100.0 score"
+ * reads as a measurement rather than as a scale. NOTHING AT ALL when the
+ * payload carries no scale: a denominator this side cannot back is worse than
+ * no denominator, and the label falls back to plain "score".
+ */
+function scoreDenominator(proposals) {
+  const top = proposals?.scales?.range?.[1]
+  return top == null ? undefined : Math.round(Number(top))
+}
+
+/**
+ * THE ASPECT AS A PHRASE: "south facing", "northeast facing".
+ *
+ * A PHRASE, NOT A COMPOUND. The payload ships a bare compass token --
+ * production_area_ceiling._COMPASS_WORDS, whole words rather than "SE" -- and
+ * the panel says what a person standing on the land would say. "south-facing"
+ * is a hyphenated adjective waiting for a noun it never gets; the panel's value
+ * position holds a reading, and the reading is "south facing".
+ *
+ * THE FLAG IS WHY THIS IS A FUNCTION. `aspect_available` false means the ground
+ * is too flat for a well-defined downhill direction, and STEP 4's aspect_factor
+ * is then the neutral 1.0 it defaults to rather than a measurement. Without the
+ * flag an aspect_factor of 100.0 cannot be told from "not measured" -- the
+ * backend says exactly that at the key -- so a token printed here without
+ * checking it would state a fact about the land that was never established.
+ * Em dash, which is what every unmeasured value in this app prints.
+ */
+export function aspectPhrase(zone) {
+  if (!zone?.aspect_available || !zone.dominant_aspect) return EM_DASH
+  return `${zone.dominant_aspect} facing`
 }
 
 /** Start drawing a zone of your own. */
@@ -1966,18 +2035,35 @@ export const LANDFORM_STEP = documentStep({
   },
 
   /**
-   * ONE TAB PER ZONE -- the payload's suggestions first, in the rank order it
+   * ONE TAB PER BLOCK -- the payload's suggestions first, in the rank order it
    * shipped them in, then whatever the user drew.
    *
-   * ACRES AND SCORE, which is what a zone is measured by. A drawn zone has no
+   * ACRES AND SCORE, which is what a block is measured by. A drawn block has no
    * score and prints an em dash rather than a zero: it was never scored, and a
    * 0.0 there would read as "scored, and badly".
+   *
+   * "BLOCK N", NOT "ZONE N", AND THE RENAME LIVES EXACTLY HERE. The internal id
+   * is untouched -- it is the payload's own `feature_id`, "production-area-N",
+   * and every commit, every layer filter and every join still spells it that
+   * way. This is the one place the display prose is minted, and the panel reads
+   * ITS OUTPUT rather than minting a second copy (panelFormat.headerFor), so
+   * the strip and the panel cannot come to disagree about what a block is
+   * called. The report still says "production zone"; that divergence is
+   * accepted and belongs to the report revamp.
+   *
+   * THE SCORE ROW DECLARES A DENOMINATOR AND DOES NOT PRINT ONE. The strip
+   * shows "score"; the panel, repeating this same row below its header, shows
+   * "/100 score". Both come off this one declaration -- panelFormat's
+   * denominated() adds the `/N`, and only for the panel's copy. See that
+   * function for why the two surfaces want different labels, and
+   * scoreDenominator() for where the 100 comes from.
    *
    * `selected` is carried so the strip can show what a commit would take, and
    * it is what the tab's CHECKBOX reads.
    */
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
+    const denominator = scoreDenominator(proposals)
 
     // THE SUGGESTIONS. Every one carries a checkbox and none carries an ×: a
     // suggestion cannot be destroyed, because the server made it and will make
@@ -1986,17 +2072,17 @@ export const LANDFORM_STEP = documentStep({
     // about what the button does.
     const tabs = (proposals?.zones ?? []).map((zone) => ({
       id: zone.feature_id,
-      name: `Zone ${zone.rank}`,
+      name: `Block ${zone.rank}`,
       checkbox: true,
       selected: selected.has(zone.feature_id),
       rows: [
         { value: measure(zone.area_acres), label: 'acres' },
-        { value: measure(zone.score), label: 'score' },
+        { value: measure(zone.score), label: 'score', denominator },
       ],
     }))
 
-    // THE DRAWN ZONES. A checkbox AND an ×, and the two mean different
-    // things: un-checking takes the zone out of the commit and leaves it to be
+    // THE DRAWN BLOCKS. A checkbox AND an ×, and the two mean different
+    // things: un-checking takes the block out of the commit and leaves it to be
     // put back, the × destroys it. Nothing else in this app can be destroyed
     // by the user, which is why only these carry one.
     draft.drawnFeatures.forEach((feature, index) => {
@@ -2009,7 +2095,7 @@ export const LANDFORM_STEP = documentStep({
         selected: selected.has(feature.id),
         rows: [
           { value: measure(feature.properties?.acres), label: 'acres' },
-          { value: measure(null), label: 'score' },
+          { value: measure(null), label: 'score', denominator },
         ],
       })
     })
@@ -2018,16 +2104,34 @@ export const LANDFORM_STEP = documentStep({
   },
 
   /**
-   * WHAT THE DETAIL PANEL SAYS ABOUT ONE ZONE.
+   * WHAT THE DETAIL PANEL SAYS ABOUT ONE BLOCK.
    *
-   * THE FIELDS ARE THE ONES THE TAB HAD NO ROOM FOR. A tab is a name and two
-   * figures -- acres and score, which is what you compare zones BY. The slope
-   * range, the aspect and the score's band are what you read once you have
-   * picked one out, and they are exactly the columns the panel column's zone
-   * list carried before it was deleted.
+   * DECLARED AGAINST THE SHARED FORMAT -- `rows`, not `fields`. panelFormat.js
+   * owns the arrangement and this owns the fields; between them there is no
+   * production-specific rendering anywhere. The five steps still on
+   * `fields`/`groups` migrate onto this same list on their own branches, which
+   * is the whole reason the format is a module and not a block of JSX in here.
+   *
+   * WHAT THIS LIST DOES *NOT* CARRY, AND THAT IS THE FORMAT WORKING:
+   *
+   *   THE TAB'S OWN ROWS. Acres and the score are the FIRST rows of the panel,
+   *   above the break, and the panel takes them off `tabs()` verbatim. Restating
+   *   them here would be two copies of one pair of figures.
+   *
+   *   THE HEADER. Also the tab's -- "Block 3" on the strip and "Block 3" over
+   *   the panel are one string, read once.
+   *
+   *   THE FACTOR BREAKDOWN, and `score floor` with it. Deliberate, and the same
+   *   posture the other five take: the panel answers "what is this block like",
+   *   not "how was this number computed". slope_factor, size_factor and
+   *   aspect_factor stay on the wire for the report, which has room for the
+   *   sentence that makes them mean something.
+   *
+   * CATEGORICALS FIRST, THEN MEASURED -- the format's rule 4 -- and then the two
+   * PENDING rows, which depart from it on purpose. See the soil note below.
    *
    * TWO KINDS OF FEATURE, ONE SHAPE OF ANSWER. A suggestion's measurements are
-   * in the payload's `zones` table, joined on `feature_id`; a drawn zone's are
+   * in the payload's `zones` table, joined on `feature_id`; a drawn block's are
    * its own properties, and there are fewer of them because nothing measured
    * it -- it was traced by hand, which is what `confidence: 'low'` on it says.
    * An em dash where a figure does not exist, never a zero.
@@ -2036,14 +2140,15 @@ export const LANDFORM_STEP = documentStep({
     const drawn = draft.drawnFeatures.find((feature) => feature.id === featureId)
     if (drawn) {
       return {
-        name: `Drawn zone`,
-        fields: [
-          { label: 'acres', value: measure(drawn.properties?.acres), measured: true },
+        // The fallback only; the panel prefers the tab's own name, which is
+        // "Drawn 1" and carries which one of several it is.
+        name: 'Drawn block',
+        rows: [
           // Traced by hand: the pipeline never scored it, never measured its
           // slope and never read its aspect. Said as an absence rather than
-          // omitted, so the panel reads the same for both kinds of zone.
-          { label: 'confidence', value: drawn.properties?.confidence ?? '—' },
-          { label: 'source', value: 'drawn by hand' },
+          // omitted, so the panel reads the same for both kinds of block.
+          categoricalRow(drawn.properties?.confidence ?? EM_DASH, 'confidence'),
+          categoricalRow('drawn by hand', 'source'),
         ],
         cautions: drawn.properties?.cautions ?? [],
       }
@@ -2053,35 +2158,53 @@ export const LANDFORM_STEP = documentStep({
     if (!zone) return null
 
     return {
-      name: `Zone ${zone.rank}`,
-      fields: [
-        { label: 'acres', value: measure(zone.area_acres), measured: true },
-        { label: 'score', value: measure(zone.score), measured: true },
-        // THE BAND COMES OFF THE PAYLOAD'S OWN `scales`, never off a threshold
-        // written here -- a copy of those numbers on this side goes stale
-        // silently the first time the backend retunes them.
-        { label: 'band', value: scoreBandName(zone.score, proposals?.scales) ?? '—' },
-        // TWO FIGURES WITH THE DASH BETWEEN THEM, not one cell holding
-        // "5.7-19.8". A range has two decimal points and a single cell can
-        // only ever align one of them.
-        {
-          label: 'slope %',
-          value: `${measure(zone.slope_min_pct)}–${measure(zone.slope_max_pct)}`,
-          measured: true,
-        },
-        {
-          label: 'aspect',
-          // aspect_available false means the ground is too flat for a
-          // well-defined downhill direction, and the pipeline's aspect figure
-          // is then a neutral default rather than a measurement. Printing it
-          // would state a fact about the land that was never measured.
-          value:
-            zone.aspect_available && zone.dominant_aspect
-              ? `${zone.dominant_aspect}-facing`
-              : '—',
-        },
+      name: `Block ${zone.rank}`,
+      rows: [
+        categoricalRow(aspectPhrase(zone), 'aspect'),
+        // THE BACKEND'S OWN WORD, RENDERED. `elevation_position` ships as
+        // "lower field" / "mid field" / "upper field", or null on a parcel with
+        // no relief at all, where "upper" and "lower" describe nothing.
+        //
+        // NOT COMPUTED FROM `elevation_percentile_of_parcel`. The bands are
+        // production_area_ceiling.ELEVATION_POSITION_BANDS and they are public
+        // there precisely so the tool and the report say the same word about
+        // the same ground -- the tree and structure steps import them for the
+        // same reason. A copy of those cuts on this side is a second source of
+        // truth that goes stale silently the first time they are retuned, and
+        // the reader has no way to detect the day it does.
+        categoricalRow(zone.elevation_position ?? EM_DASH, 'position'),
+        // THE MEDIAN, NOT THE RANGE. The panel says what the ground is like and
+        // one figure does that; the min/max pair was two decimal points in one
+        // cell, which is a cell that can align neither.
+        measuredRow(measure(zone.slope_median_pct), 'median slope %'),
+        // SOIL AND DRAINAGE CLASS ARE PENDING FIELDS, NOT A BUG.
+        //
+        // `soil_components` and `drainage_class` are hardcoded None on the wire
+        // today -- see production_area_ceiling._patch_narrative_data(), which
+        // says so at the keys. Wiring them is real work the backend
+        // investigation scoped and queued as its own branch: two new consumed
+        // edges on step_registry.LANDFORM, a contract change across five
+        // production modules, and one open question about what "dominant
+        // component" means per patch. Until that lands they are null and these
+        // rows render em dashes.
+        //
+        // THE ROWS EXIST SO THE SHAPE IS STABLE AND THE GAP IS VISIBLE. A panel
+        // that simply omits them looks complete and is not; a reader cannot
+        // tell "this ground has no soil survey" from "nobody asked".
+        //
+        // CATEGORICAL, WHICH IS WHAT THEY WILL STILL BE WHEN THE VALUES LAND. A
+        // drainage class is "moderately well drained" and a soil component is a
+        // series name -- exactly the long phrases that must not be in the
+        // number track. Declaring them measured now because an em dash is
+        // narrow would put them there and move them later, which is the one
+        // thing "the shape is stable" is supposed to prevent.
+        //
+        // They are LAST rather than with the other categoricals: rule 4 orders
+        // what the panel knows, and a row waiting on a branch belongs under it.
+        categoricalRow(zone.soil_components ?? EM_DASH, 'soil'),
+        categoricalRow(zone.drainage_class ?? EM_DASH, 'drainage class'),
       ],
-      // A suggested zone is a strict subset of ground that already cleared
+      // A suggested block is a strict subset of ground that already cleared
       // every gate, so it cannot cross an exclusion. Empty, and asserted so in
       // DEV by assertSuggestedZonesAreClean.
       cautions: [],

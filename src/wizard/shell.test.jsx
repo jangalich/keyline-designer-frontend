@@ -430,8 +430,12 @@ describe('2. landform in the new shell', () => {
     // treatment, generalised.
     const strip = ui.find('tabs-landform')
     expect(strip.dataset.tabCount).toBe('3')
-    expect(ui.text('tab-zone-1')).toBe('Zone 12.5acres81.0score')
-    expect(ui.text('tab-zone-3')).toBe('Zone 32.5acres79.0score')
+    // "score", NOT "/100 score". The denominator is declared on this row and
+    // rendered only by the PANEL -- see panelFormat.denominated(). The strip is
+    // scanned across candidates that are all on one scale, where the same four
+    // characters on every tab are noise in a 6ch column.
+    expect(ui.text('tab-zone-1')).toBe('Block 12.5acres81.0score')
+    expect(ui.text('tab-zone-3')).toBe('Block 32.5acres79.0score')
     // No "+N more": three is under the cap.
     expect(ui.find('tabs-more-landform')).toBeNull()
 

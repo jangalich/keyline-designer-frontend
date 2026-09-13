@@ -534,6 +534,74 @@ describeIf('the checkbox takes a real click in both directions', () => {
       await resize(ROOMY)
     })
   }
+
+  /**
+   * ...AND WITH THE DETAIL PANEL OPEN, WHICH IS A STATE THE BOX NOW HAS.
+   *
+   * The panel is a floating card in the map's top-right corner and the strip
+   * is in the bottom row, so on paper they never meet -- layout.test.jsx
+   * measures exactly that and does it at four viewport heights. What layout
+   * cannot answer is the question this file exists for: whether the browser
+   * agrees about which element is at a coordinate. The panel is a positioned
+   * card over the same overlay; "they do not overlap" and "the box still takes
+   * the press" are two different claims and only one of them has been made.
+   *
+   * IT IS ALSO A NEW STATE. The panel used to open on a click and say the same
+   * kind of thing at any width; it now repeats the tab's OWN ROWS above its
+   * break, so it grows with the strip's content rather than independently of
+   * it, and the squeezed stage is where a growing card finds a control.
+   *
+   * AND THE PANEL ITSELF OFFERS NOTHING TO PRESS, which is asserted rather
+   * than assumed -- "any panel control" has an answer, and the answer is that
+   * under the shared format there are none. A step that adds one joins this
+   * case by failing it.
+   */
+  liveIt('keeps the box pressable with the detail panel open, at both widths', async () => {
+    const [first] = await shownBoxes()
+    expect(first, 'landform has a tab to focus').toBeDefined()
+
+    for (const [where, viewport] of STAGES) {
+      await resize(viewport)
+      // THE PANEL OPENS ON A REAL PRESS of the tab body, which is the gesture.
+      await press(`tab-focus-${first}`)
+      const open = await evaluate(() => document.querySelector('.chrome-detail') !== null)
+      expect(open, `${where}: the panel opened`).toBe(true)
+
+      // IT IS THE SHARED FORMAT that is on screen -- the rows grid, with the
+      // tab's own rows repeated above a break.
+      expect(
+        await evaluate(() => document.querySelectorAll('.chrome-detail__rows hr').length),
+        `${where}: the panel shows the format's break`
+      ).toBe(1)
+
+      // NOTHING IN THE PANEL IS A CONTROL. No button, no input, no link, and
+      // nothing given a role or a tabindex that makes it one.
+      expect(
+        await evaluate(() =>
+          [
+            ...document.querySelectorAll(
+              '.chrome-detail button, .chrome-detail input, .chrome-detail select, ' +
+                '.chrome-detail textarea, .chrome-detail a[href], .chrome-detail [tabindex], ' +
+                '.chrome-detail [role="button"], .chrome-detail [onclick]'
+            ),
+          ].map((el) => el.tagName)
+        ),
+        `${where}: the detail panel offers nothing to press`
+      ).toEqual([])
+
+      // AND THE BOX IS STILL THE ELEMENT AT ITS OWN CENTRE, both ways, with
+      // the panel on screen the whole time.
+      await pressableBothWays('landform', first, `${where} with the panel open`)
+      expect(
+        await evaluate(() => document.querySelector('.chrome-detail') !== null),
+        `${where}: the panel is still open after the presses`
+      ).toBe(true)
+
+      // Let go of the focus, so the next width starts from the same place.
+      await press(`tab-focus-${first}`)
+    }
+    await resize(ROOMY)
+  })
 })
 
 /* ===========================================================================

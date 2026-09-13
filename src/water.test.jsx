@@ -1352,6 +1352,10 @@ describe('one pattern per step, three levels per pattern', () => {
       expect(committed, `${treatment}: committed < active`).toBeLessThan(active)
       expect(active, `${treatment}: active < focused`).toBeLessThan(focused)
       expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThanOrEqual(1.7)
+      // AND THE BOTTOM GAP: settled stays under three quarters of working,
+      // which is what stops a committed block and a candidate zone carrying
+      // equal weight during the step in hand.
+      expect(committed / active, `${treatment}: committed vs active`).toBeLessThan(0.75)
     }
   })
 
