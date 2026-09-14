@@ -1763,6 +1763,7 @@ describeIf('the zone patterns, rendered', () => {
               Number(productionRects[0].getAttribute('height')) === 8
             : false,
           strokedRects: productionRects.filter((n) => n.hasAttribute('stroke')).length,
+          screenToken: productionRects[0]?.getAttribute('fill') ?? null,
         },
         embankment: { shapes: shapesOf('survey-embankment'), fill: fillOf('survey-embankment') },
         excavated: (() => {
@@ -1777,6 +1778,8 @@ describeIf('the zone patterns, rendered', () => {
             strokes: children.filter((n) => n.hasAttribute('stroke')).length,
             // THE SCREEN: one full-tile rect, FIRST, so the dots sit on it.
             screens: rects.length,
+            screenToken: rects[0]?.getAttribute('fill') ?? null,
+            strokedRects: rects.filter((n) => n.hasAttribute('stroke')).length,
             screenFirst: children[0]?.tagName,
             screenOpacity: Number(rects[0]?.getAttribute('fill-opacity')),
             screenCoversTile: rects[0]
@@ -1829,6 +1832,26 @@ describeIf('the zone patterns, rendered', () => {
     expect(marks.excavated.screenFirst).toBe('rect')
     expect(marks.excavated.screenCoversTile).toBe(true)
 
+    // AND IT IS FILLED AND NEVER STROKED, the same assertion production's
+    // screen carries. A full-tile rect INSIDE the paint server is a GROUND,
+    // not an edge: it repeats with the tile and it stops where the mark stops.
+    // The no-stroke rule is about a line at the ZONE'S boundary -- the dot
+    // field does draw one of those, in its own colour, and it is the outline
+    // marksItsOwnEdge() grants a mark whose extent cannot be inferred from it.
+    // What may never happen is the SCREEN quietly becoming a second one.
+    expect(marks.excavated.strokedRects, 'the screen is filled, never stroked').toBe(0)
+
+    // AND IT IS IN THE BUILD'S ONE SCREEN COLOUR, not in the mark's own. This
+    // is read off the def rather than inferred from a measurement because it
+    // is the whole of what changed: a screen in --survey-excavated made the
+    // cell one blue, which is the reading a dot field on a wash exists to
+    // avoid. Compared with PRODUCTION'S screen rather than with a literal --
+    // the token's value belongs to index.css and this file holds no copy of
+    // it -- so "one screen treatment across the build" is asserted as the
+    // identity it actually is.
+    expect(marks.excavated.screenToken).toBe(marks.production.screenToken)
+    expect(marks.excavated.screenToken).not.toBe(marks.excavated.fill)
+
     // AND IT IS A SCREEN RATHER THAN PAINT. The dots are opaque ink at the
     // pattern levels; the rect under them has to stay well below that or the
     // imagery stops reading through and the mark becomes a fill with specks
@@ -1842,17 +1865,29 @@ describeIf('the zone patterns, rendered', () => {
     //
     // The band is here rather than in the ink measures below because the ink
     // measures cannot hold it: a bound tight enough to catch a step back down
-    // to 0.2 would sit within a rounding of the shipped reading, and its own
+    // one notch would sit within a rounding of the shipped reading, and its own
     // comment says why that is the wrong kind of bound. This reads the value
     // out of the def instead, where a change to it is exact.
     //
-    // 0.32 IS WHERE THE OVERLAP BREAKS -- the dot field's surviving texture
-    // measures 0.0035 there against the 0.004 floor asserted at the bottom of
-    // this file. So the upper end is the last value below the cliff, and the
-    // lower end is high enough that a revert to the 0.2 this shipped with
-    // fails here. See the sweep in ProductionHatchPattern.jsx.
-    expect(marks.excavated.screenOpacity).toBeGreaterThanOrEqual(0.25)
-    expect(marks.excavated.screenOpacity).toBeLessThanOrEqual(0.3)
+    // 0.04 IS WHERE THE OVERLAP BREAKS, and the cliff moved when the screen
+    // stopped being blue. In the mark's own colour the ceiling was 0.32; in
+    // --rule, the neutral every screen on this map is now in, it is between
+    // 0.03 and 0.04 -- the dot field's surviving texture where the two survey
+    // types coincide measures 0.0045 at 0.03 and 0.0037 at 0.04, against the
+    // 0.004 floor asserted at the bottom of this file.
+    //
+    // WHY A LIGHT SCREEN RUNS OUT SOONER THAN A BLUE ONE. Over canopy the
+    // excavated dot reads LIGHTER than its ground, and on the embankment wash
+    // the ground is already lifted most of the way to the dot's own value --
+    // so a light screen closes the last of that gap fast while a screen near
+    // the dots' own value barely moves it. The trade is priced in the table
+    // beside the row in ProductionHatchPattern.jsx.
+    //
+    // The upper end is the last value below the cliff; the lower end is high
+    // enough that a drift back toward nothing fails here rather than leaving
+    // a tile that still carries a rect doing nothing.
+    expect(marks.excavated.screenOpacity).toBeGreaterThanOrEqual(0.02)
+    expect(marks.excavated.screenOpacity).toBeLessThanOrEqual(0.03)
 
     // A HALFTONE: MANY DOTS, EACH ONE ACTUALLY DRAWABLE, GROUND BETWEEN THEM.
     //
@@ -2524,19 +2559,28 @@ describeIf('the zone patterns, rendered', () => {
        * while the tile still carried a rect, which is the failure that looks
        * like a working mark.
        *
-       * 0.03 OVER CANOPY, WHICH IS THE HARDER GROUND. Measured at 0.0365
-       * with the 0.28 screen, against 0.0165 for the bare field, so this
-       * holds the gain at roughly half of what was won rather than at the
-       * exact reading -- a bound that pins the measurement to four decimals
-       * is a bound that fails on a renderer's rounding. WHICH VALUE the
-       * screen carries is asserted where it can be read exactly, off the
+       * 0.02 OVER CANOPY, WHICH IS THE HARDER GROUND, and the bound came DOWN
+       * when the screen became --rule. This is worth stating rather than
+       * quietly re-basing: the shipped mark now measures 0.0255 here against
+       * 0.0165 for the bare field, where the 0.28 screen in the mark's own
+       * colour measured 0.0365. The screen is ceilinged by the OVERLAP now
+       * (see the band asserted off the def above), and --rule is dominated on
+       * that trade -- at equal overlap cost a blue screen buys more presence,
+       * for the tonal reason set out beside the row. What the build bought
+       * instead is one screen treatment across every mark that carries one.
+       *
+       * SO THE BOUND HOLDS THE GAIN AT ROUGHLY HALF OF WHAT IS STILL WON --
+       * the bare field plus half the screen's contribution -- rather than at
+       * the exact reading, because a bound that pins a measurement to four
+       * decimals is a bound that fails on a renderer's rounding. WHICH VALUE
+       * the screen carries is asserted where it can be read exactly, off the
        * pattern def above.
        */
       if (ground === 'canopy') {
         expect(
           active,
           'the screen has to keep the excavated zone visible over canopy'
-        ).toBeGreaterThan(0.03)
+        ).toBeGreaterThan(0.02)
       }
     }
   }, SLOW)
@@ -2772,12 +2816,46 @@ describeIf('the zone patterns, rendered', () => {
     )
   }, SLOW)
 
+  /**
+   * THE OVERLAP, SWEPT ACROSS THE SCREEN'S ALPHA.
+   *
+   * THE TWO CONSTRAINTS PULL OPPOSITE WAYS and this is the sweep that reports
+   * both at once. On bare imagery a heavier screen makes the excavated zone
+   * findable; on the embankment wash the same screen lifts the ground to the
+   * dots' own value and the field stops being a texture. See the harness's
+   * OVERLAP_SCREEN_CANDIDATES for the mechanism.
+   *
+   * REPORTED AGAINST THE SAME TWO INSTRUMENTS the shipped overlap test uses --
+   * tone for the wash, texture for the dots -- so the sweep and the assertion
+   * are reading the same thing. The control at 0 is the dot field with no
+   * screen under it at all, which is what the overlap read before any of this.
+   */
+  it('sweeps the screen under the overlap and reports what each alpha costs the dots', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      const wash = await swatchOf(page, `ground-${ground}-survey-embankment-active`)
+      for (const alpha of ['0', '02', '03', '04', '06', '09', '12']) {
+        const both = await swatchOf(page, `ground-${ground}-overlapscreen-${alpha}`)
+        // eslint-disable-next-line no-console
+        console.log(
+          `    ovscreen ${ground.padEnd(6)} --rule 0.${alpha.padEnd(2)}  ` +
+            `tone ${meanAbsDifference(both, bare).toFixed(4)} (wash alone ${meanAbsDifference(wash, bare).toFixed(4)})  ` +
+            `texture ${textureSpread(crop(both, 8)).toFixed(4)} (floor 0.004)`
+        )
+      }
+    }
+  }, SLOW)
+
   it('keeps BOTH marks present where the two survey types coincide', async () => {
     for (const ground of ['canopy', 'soil']) {
       const bare = await swatchOf(page, `ground-${ground}-bare`)
       const wash = await swatchOf(page, `ground-${ground}-survey-embankment-active`)
       const dots = await swatchOf(page, `ground-${ground}-survey-excavated-active`)
       const both = await swatchOf(page, `ground-${ground}-overlap-active`)
+      // THE SAME OVERLAP WITH NO SCREEN UNDER THE DOTS -- the fixed reference
+      // the screen's cost is measured against. See the assertion at the bottom
+      // for why the dot field's own reading is the wrong denominator for it.
+      const unscreened = await swatchOf(page, `ground-${ground}-overlapscreen-0`)
 
       const tone = (png) => meanAbsDifference(png, bare)
       // TEXTURE IS MEASURED IN THE INTERIOR, away from the outline. Every one
@@ -2793,7 +2871,8 @@ describeIf('the zone patterns, rendered', () => {
         `    overlap ${ground.padEnd(6)} tone  wash ${tone(wash).toFixed(4)} ` +
           `dots ${tone(dots).toFixed(4)} both ${tone(both).toFixed(4)}   ` +
           `texture wash ${texture(wash).toFixed(4)} dots ${texture(dots).toFixed(4)} ` +
-          `both ${texture(both).toFixed(4)}   ` +
+          `both ${texture(both).toFixed(4)} unscreened ${texture(unscreened).toFixed(4)} ` +
+          `(the screen keeps ${(texture(both) / texture(unscreened)).toFixed(2)} of it)   ` +
           `edges wash ${edges(wash).toFixed(4)} dots ${edges(dots).toFixed(4)} ` +
           `both ${edges(both).toFixed(4)}`
       )
@@ -2821,14 +2900,334 @@ describeIf('the zone patterns, rendered', () => {
       // MOST OF IT, NOT ALL OF IT, AND THE SHORTFALL IS HONEST PHYSICS. The
       // two survey values are one tonal pair, so the embankment wash moves the
       // ground TOWARD the excavated dots' own colour and the dot-to-ground
-      // delta shrinks. Over canopy that costs about half the field's local
-      // contrast -- which is a cost, not a failure: the dots are still four
-      // times the wash's own reading, so the overlap still reads as a texture
-      // on a wash rather than as one darker fill.
+      // delta shrinks. That is a cost, not a failure -- the overlap still reads
+      // as a texture on a wash rather than as one darker fill.
+      //
+      // MEASURED AGAINST THE UNSCREENED OVERLAP, NOT AGAINST THE DOT FIELD'S
+      // OWN READING, and the change of denominator is the point. This was
+      // `texture(both) / texture(dots) > 0.4`, and that ratio FALLS WHEN THINGS
+      // GET BETTER: a lighter screen leaves the dots more of their contrast on
+      // bare ground, which lifts the denominator while the overlap's own
+      // reading is unchanged. Swapping the blue screen for --rule at 0.03 took
+      // it from 0.41 to 0.35 with texture(both) sitting at exactly the 0.0045
+      // it read before -- a bound failing on an improvement is a broken
+      // instrument, not a regression.
+      //
+      // SO THE REFERENCE IS FIXED: the same overlap with no screen under the
+      // dots at all, which is what the overlap read before any of this and
+      // does not move when the mark on bare ground changes. What it bounds is
+      // exactly the thing this branch touched -- what the SCREEN costs the
+      // overlap -- and at 0.03 that cost is about a quarter.
       expect(
-        texture(both) / texture(dots),
-        `the overlap keeps the dot field's texture over ${ground}`
-      ).toBeGreaterThan(0.4)
+        texture(both) / texture(unscreened),
+        `the screen keeps most of the overlap's texture over ${ground}`
+      ).toBeGreaterThan(0.6)
+    }
+  }, SLOW)
+
+  /**
+   * THE SCREEN UNDER THE DOT FIELD: --rule, FOUR ALPHAS, SWEPT FOR A LATTICE.
+   *
+   * WHAT THIS REPLACED. The excavated mark carried a screen in ITS OWN COLOUR
+   * at 0.28, and the zone was still reported as hard to find over imagery --
+   * which is the failure a screen in a mid-dark blue produces over dark
+   * canopy: every point of it moves the ground TOWARD the mark, buying tone
+   * and spending contrast, until the overlap's texture falls through the
+   * floor (the old sweep's ceiling was 0.32 for exactly that reason).
+   *
+   * THE COLOUR IS SETTLED AND THE ALPHA IS THE QUESTION. --rule was chosen on
+   * production's branch against --stock at four alphas over both grounds, and
+   * the reasons are not about the hatch: quieter as a layer everywhere, and a
+   * screen of the page colour over aerial imagery is a claim about the
+   * document rather than the land. What this sweep asks is whether the 0.12
+   * production landed on holds for a LATTICE, which is a different mark from
+   * a ruling at the same ink coverage.
+   *
+   * REPORTED, ALL FOUR, AT EVERY LEVEL, exactly as production's is: the screen
+   * alone, the bare lattice, the two together, the DOTS ISOLATED ON THE SCREEN
+   * (differenced against the screen rather than against bare ground, because
+   * addedInkOver on a screened mark is mostly a reading of the screen), and
+   * the texture spread on the screen against the spread on bare ground.
+   *
+   * THE SWEEP STAYS IN THE BUILD, like production's and like the fence's two
+   * colour candidates, so the next person to doubt the choice re-runs it.
+   */
+  it('sweeps the screen candidates under the dot field and reports all three readings', async () => {
+    // THE REJECTED SCREEN IS THE LAST ROW OF EVERY BLOCK, so the swap it
+    // justifies is a comparison a reader can make by looking down one column.
+    const CANDIDATES = [
+      ['rule', '02'],
+      ['rule', '03'],
+      ['rule', '04'],
+      ['rule', '06'],
+      ['rule', '12'],
+      ['rule', '2'],
+      ['rule', '3'],
+      ['survey-excavated', '28'],
+    ]
+    for (const ground of ['canopy', 'soil']) {
+      const bareSwatch = await swatchOf(page, `ground-${ground}-bare`)
+      for (const state of ['committed', 'active', 'focused']) {
+        const dotsSwatch = await swatchOf(
+          page,
+          `ground-${ground}-survey-excavated-${state}-unoutlined-unscreened`
+        )
+        const dots = meanAbsDifference(dotsSwatch, bareSwatch)
+        const dotsSpread = textureSpread(crop(dotsSwatch, 8))
+        for (const [token, alpha] of CANDIDATES) {
+          const id = `dotscreen-${token}-${alpha}`
+          const bothSwatch = await swatchOf(page, `ground-${ground}-${id}-${state}-unoutlined`)
+          const aloneSwatch = await swatchOf(
+            page,
+            `ground-${ground}-${id}-${state}-unoutlined-alone`
+          )
+          const both = meanAbsDifference(bothSwatch, bareSwatch)
+          const alone = meanAbsDifference(aloneSwatch, bareSwatch)
+          const overScreen = meanAbsDifference(bothSwatch, aloneSwatch)
+          // eslint-disable-next-line no-console
+          console.log(
+            `    dotscreen ${ground.padEnd(6)} ${state.padEnd(9)} ` +
+              `--${token.padEnd(16)} 0.${alpha.padEnd(2)}  ` +
+              `alone ${alone.toFixed(4)}  dots ${dots.toFixed(4)}  ` +
+              `both ${both.toFixed(4)}  |  dots-on-screen ${overScreen.toFixed(4)} ` +
+              `(${(overScreen / dots).toFixed(2)}x the bare dots)  ` +
+              `spread ${textureSpread(crop(bothSwatch, 8)).toFixed(4)} vs ${dotsSpread.toFixed(4)}`
+          )
+        }
+      }
+    }
+  }, SLOW)
+
+  /**
+   * THE SCREEN IS PART OF THE MARK, AND THE THREE LEVELS SAY SO.
+   *
+   * WHY THIS IS A TEST AND NOT AN INFERENCE. The screen lives INSIDE the
+   * pattern tile, so the path's own fill-opacity scales the screen and the dots
+   * TOGETHER and the three states stay three opacities of ONE mark -- which is
+   * the property the whole level language rests on. A screen drawn as a
+   * separate layer under the pattern would look identical at one level and
+   * would not move with the other two: a committed zone would carry an active
+   * zone's ground, and the level would have stopped meaning one thing.
+   *
+   * MEASURED ON THE SCREEN ALONE, which is the only way to see it. On the whole
+   * mark the dots move too and an ordering would not say which half did it.
+   */
+  it('scales the excavated screen with all three pattern levels', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      const levels = []
+      for (const state of ['committed', 'active', 'focused']) {
+        const screen = await swatchOf(
+          page,
+          `ground-${ground}-survey-excavated-${state}-unoutlined-screen`
+        )
+        levels.push({ state, ink: meanAbsDifference(screen, bare) })
+      }
+      // eslint-disable-next-line no-console
+      console.log(
+        `    dotscreen-levels ${ground.padEnd(6)} ` +
+          levels.map((l) => `${l.state} ${l.ink.toFixed(4)}`).join('  ')
+      )
+
+      // ON THE PAGE AT EVERY LEVEL, including the quietest. A screen that
+      // measured nothing at committed would be a tile still carrying a rect
+      // and doing nothing with it.
+      for (const level of levels) {
+        expect(level.ink, `the screen is on the page at ${level.state} over ${ground}`).toBeGreaterThan(0)
+      }
+
+      // AND ORDERED, which is what "it scales with the levels" means.
+      //
+      // STRICTLY OVER CANOPY, NON-DECREASING OVER SOIL, and the difference is
+      // the INSTRUMENT's rather than the mark's. --rule is very close to bare
+      // soil's own colour, and at 0.03 scaled by the committed and active
+      // levels the two land within one 8-bit step of each other -- the
+      // renderer quantises them to the same pixel values and the difference is
+      // not there to measure. That the screen scales AT ALL is structural and
+      // is asserted where it is exact: the screen is a child of the pattern
+      // tile (screens === 1, screenFirst === 'rect' above), so the path's own
+      // fill-opacity scales it with the dots and there is no second layer that
+      // could fail to move. This measurement is the confirmation over a ground
+      // that can carry one.
+      const ordering = ground === 'canopy' ? 'toBeGreaterThan' : 'toBeGreaterThanOrEqual'
+      expect(levels[1].ink, `active is at least committed over ${ground}`)[ordering](
+        levels[0].ink
+      )
+      expect(levels[2].ink, `focused is above active over ${ground}`).toBeGreaterThan(
+        levels[1].ink
+      )
+    }
+  }, SLOW)
+
+  /**
+   * THE MID-VALUE TRAP, ASKED OF THE SHIPPED MARK.
+   *
+   * PRODUCTION'S RULES LOST CONTRAST UNDER ITS SCREEN and the cause is tonal
+   * arithmetic rather than anything about the screen's strength: --oxide is
+   * mid-dark and closed canopy is dark, so a light screen lifts the ground
+   * TOWARD oxide's own value before it goes past it. The ruling ended up
+   * reading 0.76x what it read on bare imagery, with its texture spread about
+   * halved -- a real cost, accepted there because the block as a whole lifted.
+   *
+   * --survey-excavated IS ALSO MID-DARK, so the same trap is there to walk
+   * into. What is NOT known in advance is whether a lattice behaves like a
+   * ruling: a hatch is continuous ink at one angle and a dot field is
+   * isolated discs with ground between them, and the two need not lose their
+   * local contrast at the same rate. So it is measured.
+   *
+   * TWO READINGS, BOTH WAYS ROUND:
+   *
+   *   THE FIGURE   what the dots add over the ground they actually have --
+   *                the shipped mark differenced against its own screen --
+   *                against what they add on bare imagery. Under 1.0 is the
+   *                trap; over 1.0 is the screen helping the mark rather than
+   *                only the block.
+   *   THE SPREAD   textureSpread on the screened mark against the bare one.
+   *                This is the one that says whether it is still a TEXTURE,
+   *                and it is the reading production's hatch halved.
+   *
+   * UNOUTLINED ON BOTH SIDES. A 2px edge is two hard steps in every scanline
+   * and would sit inside every number here; what is being asked about is the
+   * field.
+   */
+  it('reports what the screen costs the dots, against the ruling it costs most', async () => {
+    const rows = []
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      for (const state of ['committed', 'active', 'focused']) {
+        const shipped = await swatchOf(
+          page,
+          `ground-${ground}-survey-excavated-${state}-unoutlined`
+        )
+        const unscreened = await swatchOf(
+          page,
+          `ground-${ground}-survey-excavated-${state}-unoutlined-unscreened`
+        )
+        const screen = await swatchOf(
+          page,
+          `ground-${ground}-survey-excavated-${state}-unoutlined-screen`
+        )
+
+        const dotsOnBare = meanAbsDifference(unscreened, bare)
+        const dotsOnScreen = meanAbsDifference(shipped, screen)
+        const spreadOnBare = textureSpread(crop(unscreened, 8))
+        const spreadOnScreen = textureSpread(crop(shipped, 8))
+        const whole = meanAbsDifference(shipped, bare)
+
+        rows.push({ ground, state, dotsOnBare, dotsOnScreen, spreadOnBare, spreadOnScreen, whole })
+        // eslint-disable-next-line no-console
+        console.log(
+          `    midvalue ${ground.padEnd(6)} ${state.padEnd(9)} ` +
+            `dots bare ${dotsOnBare.toFixed(4)} on-screen ${dotsOnScreen.toFixed(4)} ` +
+            `(${(dotsOnScreen / dotsOnBare).toFixed(2)}x)   ` +
+            `spread bare ${spreadOnBare.toFixed(4)} on-screen ${spreadOnScreen.toFixed(4)} ` +
+            `(${(spreadOnScreen / spreadOnBare).toFixed(2)}x)   ` +
+            `whole mark ${whole.toFixed(4)}`
+        )
+      }
+    }
+
+    for (const row of rows) {
+      // IT IS STILL A TEXTURE. The spread may be paid down -- production's was
+      // halved -- but a field whose local variation has fallen through the
+      // visibility floor has stopped being a dot field and become a wash,
+      // which is the one thing this mark may not become: the two survey types
+      // are told apart by KIND first.
+      expect(
+        row.spreadOnScreen,
+        `the dot field stays a texture over ${row.ground} at ${row.state}`
+      ).toBeGreaterThan(0.004)
+
+      // AND THE WHOLE MARK CLEARS THE FLOOR, which is what the screen was
+      // added for. Asserted at every level, including the quietest.
+      expect(
+        row.whole,
+        `the excavated mark clears the floor over ${row.ground} at ${row.state}`
+      ).toBeGreaterThan(0.004)
+    }
+  }, SLOW)
+
+  /**
+   * SCREENS STACKED: ONE, TWO AND THREE, OVER BOTH GROUNDS.
+   *
+   * THE QUESTION THE BUILD IS WALKING INTO, and it is not this branch's alone.
+   * Production carries a screen, the excavated survey type now carries the
+   * same one, and by fencing there could be five committed layers on a parcel.
+   * A screen is a GROUND rather than a mark, and grounds add: two of them are
+   * not twice as quiet as one, they are a second wash over the imagery.
+   *
+   * WHAT WOULD BE A FINDING RATHER THAN A DETAIL. Aerial imagery is the thing
+   * every mark on this map is a statement ABOUT -- a zone that cannot be read
+   * against the ground it sits on is a zone nobody can act on -- so the number
+   * that matters is how much of the frame each additional screen takes. The
+   * bound below is the one the tint tests use for the same claim: a screen is
+   * a screen for as long as the stack stays well under an opaque cover, and a
+   * stack that approached one would have stopped being a treatment and become
+   * a lid.
+   *
+   * AT THE COMMITTED LEVEL, because a stack IS settled layers -- the step in
+   * hand is one layer and everything under it is committed.
+   */
+  it('reports what two and three stacked screens do to the imagery', async () => {
+    const readings = []
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      // WHAT THE STACK IS A FRACTION OF: --rule laid solid over this ground.
+      // Every screen on this map is --rule, so an opaque cover of it is the
+      // thing every additional layer moves toward, and "how much of the frame
+      // is gone" is that ratio rather than a bare ink figure.
+      const cover = meanAbsDifference(await swatchOf(page, `ground-${ground}-rule`), bare)
+      let previous = 0
+      for (const count of [1, 2, 3]) {
+        const stacked = await swatchOf(page, `ground-${ground}-screens-${count}`)
+        const added = meanAbsDifference(stacked, bare)
+        readings.push({ ground, count, added, step: added - previous, share: added / cover })
+        // eslint-disable-next-line no-console
+        console.log(
+          `    stack ${ground.padEnd(6)} ${count} screen${count === 1 ? ' ' : 's'}  ` +
+            `added ${added.toFixed(4)}  (+${(added - previous).toFixed(4)} for this one)  ` +
+            `${(100 * (added / cover)).toFixed(1)}% of an opaque --rule cover`
+        )
+        previous = added
+      }
+    }
+
+    for (const ground of ['canopy', 'soil']) {
+      const steps = readings.filter((r) => r.ground === ground).map((r) => r.step)
+      const one = readings.find((r) => r.ground === ground && r.count === 1)
+      const three = readings.find((r) => r.ground === ground && r.count === 3)
+
+      // THE STACK IS ESSENTIALLY LINEAR AT THESE ALPHAS, and that is the
+      // finding rather than the expectation. A stack of translucent washes is
+      // sub-linear IN THE LIMIT -- each layer covers a ground the one before it
+      // already moved, so it has less distance left -- but at 0.4 x 0.12 the
+      // effective alpha is under a twentieth, the ground is still nowhere near
+      // the screen's colour after three of them, and the curve has not bent
+      // yet: over canopy the steps are 0.0327 then 0.0288 twice, and over soil
+      // they are equal to four decimal places. So the honest bound is that no
+      // later screen costs MORE than the first, and the safety comes from the
+      // share below rather than from a curve that flattens.
+      for (const [index, step] of steps.entries()) {
+        expect(
+          step,
+          `screen ${index + 1} costs no more than the first over ${ground}`
+        ).toBeLessThanOrEqual(steps[0] + 1e-6)
+      }
+
+      // AND THREE OF THEM ARE STILL A SCREEN RATHER THAN A COVER. The same
+      // bound the shipped tints are held to -- under half of an opaque fill --
+      // applied to the worst case the build can currently reach. THIS is what
+      // says the imagery survives the stack: three screens take about an
+      // eighth of the frame, so even the five committed layers fencing could
+      // put on one parcel land around a fifth.
+      expect(three.share, `three screens stay a screen over ${ground}`).toBeLessThan(0.5)
+      // NOT NOTHING, EITHER: if the stack measured as nothing the instrument
+      // would be reading a cell with no screens in it, which is the failure
+      // mode a fixture that silently renders the wrong thing produces.
+      expect(one.added, `one screen is on the page over ${ground}`).toBeGreaterThan(0)
+      expect(three.added, `three screens read as more than one over ${ground}`).toBeGreaterThan(
+        one.added
+      )
     }
   }, SLOW)
 })

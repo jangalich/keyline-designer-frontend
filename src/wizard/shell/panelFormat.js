@@ -48,14 +48,26 @@
  *   4. CATEGORICALS FIRST, THEN MEASURED VALUES. This one is a CONVENTION a
  *      step declares to, not a sort the panel performs, and the difference is
  *      deliberate: the panel renders rows in DECLARED order. Sorting by type
- *      was tried (see DetailPanel.jsx's GROUPS note) and it interleaved four
- *      groups of water's panel that meant four different things. Production
- *      itself departs from the convention at the bottom -- soil and drainage
- *      class are categorical and sit under a measured row -- because they are
- *      the PENDING rows and pending rows belong last. See LANDFORM_STEP.detail.
+ *      was tried (see DetailPanel.jsx's GROUPS note) and it interleaved the
+ *      four groups water's panel then had, which meant four different things.
+ *      Water declares against this format now and its four groups came out as
+ *      TWO UNLABELLED RUNS -- one break, and the convention applied to each
+ *      run, `water delivery` leading a run of figures. Production itself
+ *      departs from the convention at the bottom -- soil and drainage class
+ *      are categorical and sit under a measured row -- because they are the
+ *      PENDING rows and pending rows belong last. See LANDFORM_STEP.detail and
+ *      WATER_STEP.detail.
  *
  *   5. A SECOND BREAK WHERE A STEP HAS ONE. `PANEL_BREAK` anywhere in a step's
- *      rows. Production has none.
+ *      rows. Production has none; water has one, between what a survey area IS
+ *      and what it TOUCHES.
+ *
+ *      AND A BREAK CARRIES NO LABEL. Water was the step that would have needed
+ *      one -- four labelled groups going into the format -- and it came out as
+ *      two runs that label themselves. So an optional break label is not a
+ *      field this format has, on the evidence of the step most likely to want
+ *      it. Trees is where the question returns: its MARGINAL BENEFITS heading
+ *      is a claim about the rows under it that the rows do not make.
  *
  *   6. CAUTIONS OR BENEFITS LAST, APPEARING ONLY WHEN PRESENT. The panel's,
  *      not the step's: DetailPanel renders `detail.cautions` under its own rule
@@ -168,6 +180,16 @@ export function categoricalRow(value, label) {
  * test at each call site: `value || null` drops both.
  */
 export function dropsAtZero(value, row) {
+  // NULL IS TESTED FOR BEFORE THE NUMBER IS, and that is not defensive
+  // tidiness -- it is the whole rule. `Number(null)` IS 0 in JavaScript, so
+  // the bare numeric test dropped the never-checked row along with the
+  // measured-zero one and this function quietly did the `value || null` it
+  // exists to refuse. It shipped that way because production declares no row
+  // that drops at zero; water is the first caller, its three overlaps are the
+  // one payload shape that can state all three answers, and the case surfaced
+  // the moment a null reached here. `undefined` goes with it: a row the
+  // payload never carried is not a measured absence either.
+  if (value == null) return row
   return Number(value) === 0 ? null : row
 }
 

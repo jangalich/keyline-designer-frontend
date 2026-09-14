@@ -464,7 +464,13 @@ import {
 import { pointInRing, polygonAreaAcres, pointFromGeoJSON, pointToGeoJSON } from '../geo.js'
 import { commitInputsFor, commitValueOf, requiredInputsMissing } from './stepInputs.js'
 import { cautionsFor, clampToBoundary, exclusionGrounds } from '../zoneGeometry.js'
-import { EM_DASH, categoricalRow, measuredRow } from './shell/panelFormat.js'
+import {
+  EM_DASH,
+  PANEL_BREAK,
+  categoricalRow,
+  dropsAtZero,
+  measuredRow,
+} from './shell/panelFormat.js'
 import {
   COMMITTING,
   EDITING,
@@ -1795,13 +1801,37 @@ export function totalsFor(payload, selectedIds, drawnFeatures) {
  * that are all on one scale, the panel is read about one. One declaration, two
  * renderings; see that function for the argument.
  *
- * READ OFF `scales.range`, NOT WRITTEN DOWN. narrative_data['scales'] ships
- * `range: [0.0, 100.0]` with `score` in its `applies_to`, and that is the
- * statement of what a score is out of. A 100 typed here is a second copy of it,
- * and the day the backend rescales, the panel keeps confidently printing the
- * old denominator against the new figure -- which is exactly the failure
- * scoreBandName()'s own note is about, in the one place a reader would never
- * think to check.
+ * READ OFF THE PAYLOAD, NOT WRITTEN DOWN. A 100 typed here is a second copy of
+ * the backend's own published scale, and the day the backend rescales, the
+ * panel keeps confidently printing the old denominator against the new figure
+ * -- which is exactly the failure scoreBandName()'s own note is about, in the
+ * one place a reader would never think to check.
+ *
+ * TWO SPELLINGS OF ONE STATEMENT, AND BOTH ARE THE BACKEND'S. The payloads do
+ * not agree on where the top of the scale is written:
+ *
+ *   scales.range[1]         landform, roads, solar. narrative_data['scales']
+ *                           ships `range: [0.0, 100.0]` with `score` in its
+ *                           `applies_to`.
+ *   scales.suitability.max  water. Its scales block is keyed BY THE SCORED
+ *                           QUANTITY -- {suitability, rank, overlap_pct,
+ *                           boundary_adjacency_pct, pinch_drainage_score} --
+ *                           because five different things on that payload are
+ *                           scored and each carries its own endpoints. There is
+ *                           no `range` to read; `suitability` IS water's score
+ *                           and `max` is its top (water_survey_areas.
+ *                           build_scales(), DISPLAY_SCALE_MAX).
+ *
+ * ONE READER RATHER THAN A DENOMINATOR PER STEP, and the argument is
+ * suitabilityCeiling()'s: a figure two surfaces show has to be reached by one
+ * path, or the second spelling of it is a second answer waiting to disagree
+ * with the first. The divergence is the WIRE's and it is named here rather
+ * than worked around in a step -- a step that read its own key would put the
+ * `/N` rule in six places and this function's whole point is that it is in one.
+ *
+ * RANGE FIRST, because it is the shape more of the payloads carry; a payload
+ * shipping both would be saying one thing twice and either answer is that
+ * thing.
  *
  * AN INTEGER, because 100.0 is a number the pipeline rounded and "/100.0 score"
  * reads as a measurement rather than as a scale. NOTHING AT ALL when the
@@ -1809,7 +1839,8 @@ export function totalsFor(payload, selectedIds, drawnFeatures) {
  * no denominator, and the label falls back to plain "score".
  */
 function scoreDenominator(proposals) {
-  const top = proposals?.scales?.range?.[1]
+  const scales = proposals?.scales
+  const top = scales?.range?.[1] ?? scales?.suitability?.max
   return top == null ? undefined : Math.round(Number(top))
 }
 
@@ -2223,6 +2254,13 @@ export const LANDFORM_STEP = documentStep({
    are named in four places: LAYER SCHEMA items 4 and 5 (`filter`,
    `treatment`), measure()'s `dp`, DetailPanel.jsx's GROUPS note, and
    registryProposalFeatures() below.
+
+   ONE OF THE FIVE HAS SINCE BEEN ANSWERED RATHER THAN WORKED AROUND. The
+   GROUPS gap -- "there was no field that could say these three go together
+   and come first" -- was water's, and the shared format answers it with
+   declared order plus PANEL_BREAK. This step declares `rows` now; the note in
+   DetailPanel stays as the record of what the gap was and what closing it
+   showed, which is that the group LABELS were never the load-bearing half.
    --------------------------------------------------------------------------- */
 
 /**
@@ -2385,120 +2423,204 @@ export function surveyZonePanel(proposals, featureId) {
 }
 
 /**
- * ONE PANEL ROW, rendered.
+ * ONE OF THE BACKEND'S OWN PANEL ROWS, BY ITS STABLE KEY.
  *
- * NULL IS AN EM DASH AND IS NEVER A ZERO. The backend puts a never-checked
- * overlap on the panel as its own row with a null value precisely so it can be
- * told apart from a measured 0.0 -- which it omits entirely, having nothing to
- * caution anyone about. A `?? 0` anywhere on this path would print an
- * unmeasured thing as a measured absence, which is the one coercion this whole
- * contract exists to prevent.
+ * WHAT THE SHARED FORMAT LEFT OF THE SERVER'S ROW LIST. The panel used to
+ * render `panel` WHOLE -- the backend chose the rows, this side chose the
+ * typography, and panelFields() walked the list. The shared format is a
+ * DECLARED list of rows in a declared order (panelFormat.js), so a step that
+ * rendered whatever arrived could not declare against it, and the two survey
+ * types' panels would be however many rows the payload happened to fire.
  *
- * A BOOLEAN ROW IS PRESENT ONLY WHEN IT FIRES, so `true` is the only value one
- * can carry and "yes" is what it says. There is no "no" case to render.
+ * SO THE LIST IS THIS FILE'S AGAIN AND THE ROW IS STILL THE BACKEND'S, which
+ * is the split that survived. Two of the panel's values are EDITORIAL
+ * DECISIONS the backend makes and this side must not re-make:
  *
- * TWO ROWS READ AGAINST THE `scales` BLOCK, which is the whole reason that
- * block is on the wire:
+ *   suitability     converted to the 0-100 display scale at the backend's one
+ *                   conversion point. The FEATURE keeps `mean_suitability` on
+ *                   0-1 as the diagnostic record, so a renderer reaching for
+ *                   the feature would print 0.79 under a "/100" label.
+ *   water_delivery  the three-way answer (gravity / pump / nothing in range),
+ *                   decided in _zone_production_area_relationships() off the
+ *                   zone's high point against the block's. The feature carries
+ *                   the RELATIONSHIP; the answer is the backend's reading of
+ *                   it, and recomputing it here would be a second reading to
+ *                   keep in step.
  *
- *   rank         `2` alone is not a reading. `scales.rank[type].count` is the
- *                denominator and rank is PER TYPE, so it renders "2 of 3".
- *   suitability  `53` against a theoretical 100 says "barely half". The
- *                soil criterion's parcel range caps the blend, so the honest
- *                denominator is the parcel's own attainable ceiling --
- *                `scales.suitability.parcel_observed_max[type]`, measured by
- *                the backend off its own surface.
+ * Everything else the new panel shows is a MEASUREMENT, and a measurement is
+ * read off the feature where it has always lived -- see WATER_STEP.detail.
  *
- * Both fall back to the bare number when the scale is absent: a payload
- * without scales is older, not wrong, and a missing denominator must not blank
- * a measurement.
- *
- * THE SUITABILITY PAIR ARRIVES ALREADY CONVERTED, AND THIS IS A READING RATHER
- * THAN A CONVERSION. The row's value and the ceiling are both whole numbers on
- * the backend's 0-100 display scale, converted there by one helper, so joining
- * them here is the same arithmetic-free join `rank` gets -- the numerator and
- * the denominator cannot be on two different scales because neither of them
- * was computed on this side. The row's `unit` ("/100") is what the field label
- * carries, so the pair reads as "53 of 82" under "suitability (/100)".
- *
- * EVERY OTHER NUMBER IS PRINTED AS THE BACKEND SENT IT -- no toFixed, no
- * rescale. The pipeline rounds at its own documented boundary and those values
- * are contractually FINAL; a second rounding pass here would be a second
- * boundary for numbers that already have one.
+ * NULL WHEN THE ROW DID NOT FIRE, and every caller prints an em dash for it.
  */
-export function panelValue(row, scales, surveyType) {
-  if (row.value == null) return '\u2014'
-  if (row.value === true) return 'yes'
-  if (row.key === 'rank') {
-    const count = scales?.rank?.[surveyType]?.count
-    return count == null ? String(row.value) : `${row.value} of ${count}`
-  }
-  if (row.key === 'suitability') {
-    const ceiling = suitabilityCeiling(scales, surveyType)
-    return ceiling == null ? String(row.value) : `${row.value} of ${ceiling}`
-  }
-  return String(row.value)
+function surveyZoneRow(proposals, featureId, key) {
+  return surveyZonePanel(proposals, featureId).find((row) => row.key === key) ?? null
+}
+
+/**
+ * THE WATER-DELIVERY ANSWER, AS A PHRASE: "gravity feed", "pump required",
+ * "no service relationship".
+ *
+ * THE ROW'S LABEL IS `water delivery` AND ITS VALUE IS THE ANSWER, which is
+ * the correction this branch makes. The panel used to show the backend's
+ * `water_delivery_differential` row -- "elevation above production area", a
+ * figure in feet -- and a differential is the INPUT to the answer rather than
+ * the answer: a reader looking for "can I get water to the block without a
+ * pump" had to know that a positive differential meant yes. It means yes less
+ * often than it used to, too: the backend now compares the zone's MAXIMUM
+ * elevation against the block's MAXIMUM, so a zone that could only ever reach
+ * a block's bottom no longer reads gravity feed. The differential stays on the
+ * wire and in the report, which has room for the sentence.
+ *
+ * THE BACKEND'S OWN TOKEN, SPACED. `gravity_feed` is a wire constant
+ * (WATER_DELIVERY_GRAVITY and its two siblings) and the underscores are the
+ * wire's, not a word. Spacing them is a change of TYPESETTING and not of
+ * vocabulary -- the same posture the panel's lower-casing takes -- so a
+ * backend that adds a fourth state gets a phrase here without a deploy, where
+ * a lookup table on this side would print the raw token or nothing at all.
+ *
+ * THE THIRD STATE IS A REAL ANSWER. "Nothing is in range" is something the
+ * pipeline COMPUTED, which is why the backend makes it a value of this row
+ * rather than the row's absence, and why this prints it rather than an em
+ * dash. An em dash is for a question nobody asked.
+ */
+export function waterDeliveryPhrase(proposals, featureId) {
+  const row = surveyZoneRow(proposals, featureId, 'water_delivery')
+  return typeof row?.value === 'string' ? row.value.replace(/_/g, ' ') : EM_DASH
 }
 
 /**
  * THE PARCEL'S OWN ATTAINABLE SUITABILITY, for one survey type, or null.
  *
- * ONE READER FOR THE ONE FIGURE TWO SURFACES SHOW. The detail panel and the
- * tab both print `mean_suitability`, and a fraction is only readable against
- * a denominator -- so both have to reach the same one, off the same key, and
- * a second spelling of that path is a second answer waiting to disagree with
- * the first.
+ * NO PANEL CALLS THIS TODAY, AND IT STAYS -- the same posture, and the same
+ * argument, as scoreBandName() two hundred lines up.
  *
- * WHY THIS DENOMINATOR RATHER THAN 100. `scales.suitability` says min 0,
- * max 100 -- and reading 53 against 100 says "barely half" when the honest
- * reading is "53 of an attainable 68". The soil criterion's own parcel
- * range caps the blend: on a parcel whose best soil scores 0.6, no cell can
- * reach the top however good its slope, catchment and wetness. The backend
- * measures the ceiling off its own gate-masked surface, converts it through
- * the same helper the row value goes through, and ships it PER TYPE, because
- * the two surfaces are kept apart end to end and are never comparable on one
- * scale.
+ * WHY IT STOPPED BEING RENDERED. `parcel_observed_max` is the maximum of a
+ * PER-CELL surface and a zone's score is a MEAN over its cells, so no zone can
+ * reach it: on the reference parcel the best embankment zone read 0.57 against
+ * a displayed 0.87. "57 of 87" invites the reading "two thirds of what this
+ * parcel can do" and the honest reading is "the best mean against the best
+ * single cell", which is not a fraction anyone can act on. The score's
+ * denominator is the SCALE now -- "52" against "/100 score" -- which is a
+ * denominator the number is actually out of. The ceiling stays on the wire for
+ * the report, which has room to explain what it is the max OF.
  *
- * IT IS A DENOMINATOR, NOT A NORMALIZER. The parcel's best cell reads 82, not
+ * WHAT WOULD BE LOST BY DELETING IT is the only implementation of the
+ * `parcel_observed_max` contract on this side: per type, never divided into
+ * the value, absent on an older payload rather than defaulted. The next step
+ * that wants the figure would write the path again, and there would be two
+ * answers to one question. It is cheaper to keep than to re-derive, and
+ * water.test.jsx cites it as where the rule is written down.
+ *
+ * IT IS A DENOMINATOR, NOT A NORMALIZER, and that is what kept it off the
+ * panel rather than rescaled into it. The parcel's best cell reads 82, not
  * 100. Rescaling so it read 100 was rejected on the backend for reasons that
  * apply just as hard here: the reference moves when the boundary moves, and a
- * 100 on poor ground would look like a 100 on excellent ground. So the
- * ceiling is shown BESIDE the value and never divided into it.
- *
- * NULL WHEN THE PAYLOAD DOES NOT CARRY IT, and every caller falls back to the
- * bare number. A payload without `scales` is OLDER, not wrong, and a missing
- * denominator must not blank a measurement.
- *
- * NO THRESHOLD AND NO DEFAULT CEILING IS WRITTEN HERE. That is the same rule
- * scoreBandName() states for landform's bands: a copy of the backend's own
- * numbers on this side is a second source of truth that goes stale silently
- * the first time they are retuned.
+ * 100 on poor ground would look like a 100 on excellent ground.
  */
 export function suitabilityCeiling(scales, surveyType) {
   return scales?.suitability?.parcel_observed_max?.[surveyType] ?? null
 }
 
 /**
- * The backend's rows as detail-panel fields, in the backend's order.
+ * A PERCENTAGE ROW THAT DROPS AT ZERO, which is every crossing on this panel.
  *
- * MEASURED IFF THE VALUE IS A NUMBER, which is what puts figures in the fixed
- * width first column and leaves categorical readings -- the survey type, the
- * water-delivery answer, which terminator a dam reach sits against -- as prose
- * spanning both. The panel's own two-column rule, applied to a row set this
- * side did not choose.
+ * THE FORMAT'S RULE, APPLIED TO THE ONE PAYLOAD SHAPE THAT CAN STATE ALL
+ * THREE ANSWERS. panelFormat's dropsAtZero() is the rule; what makes it worth
+ * a helper here is that water's overlaps are the place the three answers are
+ * actually distinguishable:
  *
- * THE UNIT RIDES THE LABEL, not the figure. "20 feet" in the figure column
- * widens the column for every other row with a word, which is the exact
- * failure the measured/prose split was introduced to fix; the backend's labels
- * deliberately never spell their own unit, so appending it here adds the
- * backend's own word rather than one of ours.
+ *   0.0   checked, and genuinely none. The row carries nothing and costs a
+ *         line, so it goes.
+ *   null  never checked. Still renders, as an em dash -- "not known" is not
+ *         "none", and a 0.0 in its place is the one falsehood in a data panel
+ *         a reader cannot detect.
+ *   n     a crossing worth reading.
+ *
+ * IN PRACTICE THE NULL CANNOT OCCUR, AND THE PATH STAYS ANYWAY. Production is
+ * committed upstream of water, and canopy and farm roads are hard-fail layers
+ * -- an outage stops the run rather than degrading it -- so all three
+ * measurements are present by the time water generates. The em-dash path is
+ * here because the CONTRACT says null means never-checked, not because it
+ * fires; a contract only honoured where it is exercised is a contract that
+ * breaks the first time the backend's fetch posture changes.
  */
-export function panelFields(rows, scales) {
-  const surveyType = rows.find((row) => row.key === 'survey_type')?.value
-  return rows.map((row) => ({
-    label: row.unit ? `${row.label} (${row.unit})` : row.label,
-    value: panelValue(row, scales, surveyType),
-    measured: typeof row.value === 'number',
-  }))
+function overlapRow(value, label) {
+  return dropsAtZero(value, measuredRow(measure(value), label))
+}
+
+/**
+ * THE AGREEMENT REPORT, AS PANEL ROWS: "60" against "also excavated 2".
+ *
+ * A DIFFERENT KIND OF STATEMENT FROM THE THREE CROSSINGS ABOVE IT, and the
+ * row is shaped to say so. The crossings mean "this zone touches something you
+ * may not want" -- canopy, a farm road, ground already given to production.
+ * This means "the two survey instruments independently identified the same
+ * ground", and the module treats a high-overlap area as a candidate for EITHER
+ * pond type, worth evaluating both approaches during the survey. That is a
+ * finding, not a warning.
+ *
+ * SO THE LABEL NAMES THE OTHER ZONE RATHER THAN STATING A BARE PERCENTAGE.
+ * "cross-type overlap %" would be a fourth crossing with a longer name; "also
+ * excavated 2" is the sentence the finding actually makes, and the reader can
+ * go and look at that tab. LAST POSITION AND A NAMING LABEL TOGETHER are what
+ * keep it out of the run above it -- either alone would leave it reading as
+ * one more thing wrong with the zone.
+ *
+ * WHICH IS ALSO WHY THE `%` IS NOT ON THIS LABEL. It sits directly under rows
+ * whose labels end in `%`, in one run, so the column says what the unit is;
+ * spelling it here would cost the label the zone's name, which is the whole
+ * reason the row is shaped this way.
+ *
+ * THE NAME IS MINTED ONCE, BY surveyZoneName(). `cross_type_overlaps` names
+ * zones by INTERNAL `zone_id` -- not the wire feature id, and meaningless to a
+ * reader -- so the other zone's FEATURE is found by that id and named the way
+ * the tab and the map name it. A second spelling of "Excavated 2" here is how
+ * the panel comes to disagree with the strip it is sitting under.
+ *
+ * AND SOMETIMES THERE IS NO TAB TO NAME, WHICH IS NOT A BUG AND DOES HAPPEN.
+ * The overlaps are computed against every SURVIVING zone; the payload then
+ * ships only the presented ones (`presentation.rule_applied`, e.g. "2
+ * embankment + 2 excavated"), and the rest are withheld --
+ * `presentation.withheld_zone_ids` is the payload's own record of which. On
+ * the reference parcel one excavated zone agrees 23.9% with a withheld
+ * embankment zone, so the reference resolves to nothing on this side.
+ *
+ * THAT ROW SAYS SO RATHER THAN PRINTING AN INTERNAL ID. "also zone 8" sends a
+ * reader looking down the strip for a tab that is not there, which is worse
+ * than the finding is worth; "also an area not shown" is the true sentence,
+ * and the step's own withheld NOTICE is where "not shown" is explained (they
+ * passed every test and are in the report). The row is NOT dropped: the two
+ * instruments did agree about that ground, and which of them is on screen is a
+ * fact about the presentation rule rather than about the land.
+ *
+ * A FRACTION ON THE WIRE, A PERCENTAGE ON THE PANEL. The backend ships
+ * `fraction` (the intersected share of THIS zone's envelope, 0-1, rounded to
+ * three places) and the row prints 100x it. That is a UNIT READING and not a
+ * rescale: the three rows above are already `_pct` on the wire and a run that
+ * mixed 0.6 with 6.4 would be two scales in one column. The suitability
+ * figure's no-multiplier rule is about a SCORE with one conversion point on
+ * the backend, and this is not one.
+ *
+ * COMPUTED AT GENERATE TIME AGAINST SURVIVING ZONES, AND NOT RECOMPUTED
+ * AGAINST THE COMMIT SET. Un-checking the other zone does not make the other
+ * instrument stop agreeing with it: the panel is a reading of the GROUND and
+ * the commit set is not one of its inputs.
+ *
+ * NO THRESHOLD APPLIED HERE. The backend has one (CROSS_TYPE_OVERLAP_NOTE_
+ * FRACTION) for its own narrative line; copying that constant onto this side
+ * is the second source of truth every note in this file is about, and the
+ * payload only carries an entry when the two envelopes actually intersect --
+ * so the list is already the findings.
+ */
+function crossTypeRows(proposals, feature) {
+  const byZoneId = new Map(
+    surveyZoneFeatures(proposals).map((entry) => [entry.properties?.zone_id, entry])
+  )
+  return (feature?.properties?.cross_type_overlaps ?? []).map((entry) => {
+    const other = byZoneId.get(entry.zone_id)
+    const name = other ? surveyZoneName(other.properties) : 'an area not shown'
+    return overlapRow(entry.fraction * 100, `also ${name}`)
+  })
 }
 
 /**
@@ -2517,12 +2639,16 @@ export function panelFields(rows, scales) {
  * already been converted by the backend and is already a whole number; this
  * side has no multiplier anywhere (see measure()).
  *
- * TWO OF THE THREE WENT WITH THE PANEL. METRIC_DP existed for the depth and
- * catchment figures the detail panel printed, and those are not on the panel
- * any more (they are on the feature, and the export reads them); the
- * PANEL's own numbers are printed as the backend sent them, at the backend's
- * own rounding boundary -- see panelValue(). What is left is the TAB's
- * suitability figure and the dropped-count in the step notice.
+ * IT IS THE ONE FIGURE ON THIS STEP THAT IS NOT AT MEASURE_DP, and the panel
+ * is why the rest are. METRIC_DP was deleted when the panel became the
+ * backend's own row list and its numbers were printed as sent; the depth and
+ * catchment figures are back on the panel now, and they go through measure()
+ * at its default like every other measured row in this app -- one decimal
+ * place, which is what holds a decimal point still down a column that also
+ * carries an acreage and a slope. A second width for two of those rows would
+ * put two decimal points in one grid, which is the whole thing the column is
+ * for. Suitability keeps its own width because it is a WHOLE NUMBER on a 0-100
+ * scale and ".0" after every grade is a decimal point the value does not have.
  */
 const SUITABILITY_DP = 0
 const COUNT_DP = 0
@@ -2818,141 +2944,205 @@ export const WATER_STEP = documentStep({
    * backend and the two mean different things: member_acres is the ANCHORING
    * SIGNAL (the cells that actually cleared the suitability threshold) and
    * zone_acres is the clipped envelope the backend's own comment calls "the
-   * ground to walk". The walkable one belongs in the tab; the other one leads
-   * the panel, where there is room to say which is which.
+   * ground to walk". The walkable one is what a survey area IS, and the panel
+   * says the other thing about acreage two rows down -- see `contributing
+   * acres` in detail() below.
+   *
+   * "SURVEY ACRES", NOT "ACRES", AND THE PANEL IS WHY. These two rows are the
+   * panel's first two, repeated verbatim (panelFormat rule 2), and the panel
+   * carries a SECOND acreage below the break. "acres" over "contributing
+   * acres" is two rows a reader has to hold apart by position; "survey acres"
+   * over "contributing acres" is two rows that say which is which. The strip
+   * pays a word for it, and a word is what the strip has -- production's tab
+   * says "acres" because production has one acreage and nothing to tell it
+   * from.
+   *
+   * THE SCORE ROW DECLARES A DENOMINATOR AND DOES NOT PRINT ONE. The strip
+   * shows "score"; the panel, repeating this same row below its header, shows
+   * "/100 score". Both come off this one declaration -- panelFormat's
+   * denominated() adds the `/N`, and only for the panel's copy -- which is
+   * the whole of what replaced this tab's hand-built "of 68 suitability".
+   *
+   * WHAT WENT WITH IT WAS A DENOMINATOR THIS ROW MINTED FOR ITSELF, and three
+   * things were wrong with it. It said `of N` where the format says `/N`. It
+   * put the parcel's observed ceiling there, which is a figure no zone can
+   * reach (see suitabilityCeiling) rather than the scale the number is on. And
+   * it printed on the STRIP, where every candidate is on one scale and the
+   * denominator is the same four characters on every tab -- noise in a cell
+   * 6ch wide that is trying to hold a column of figures.
    */
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
-    const scales = proposals?.scales
+    // WATER'S SCALES SPELL THE TOP OF THE SCALE `suitability.max` AND NOT
+    // `range[1]`, and scoreDenominator() reads both -- see its note. It is the
+    // payload's 0-100 display scale either way, and never a 100 typed here.
+    const denominator = scoreDenominator(proposals)
 
     // EVERY TAB CARRIES A CHECKBOX AND NO TAB CARRIES AN ×. Nothing here is
     // user-authored, so nothing here can be destroyed -- see `tools` above.
     // `removable` is simply not declared, which is how the strip is told.
     return surveyZoneFeatures(proposals).map((feature) => {
-      const ceiling = suitabilityCeiling(scales, feature.properties?.survey_type)
-      // THE TAB'S FIGURE COMES OFF THE PANEL ROW, NOT OFF THE FEATURE, and
-      // that is the change the display scale forced. See the row below.
-      const suitability = surveyZonePanel(proposals, feature.id).find(
-        (row) => row.key === 'suitability'
-      )
+      /**
+       * THE FIGURE COMES OFF THE PANEL ROW, NOT OFF THE FEATURE, and that is
+       * the one thing the display scale settled that this branch must not
+       * undo. `feature.properties.mean_suitability` is the DIAGNOSTIC RECORD
+       * and is still 0-1, deliberately; the backend's `suitability` row is the
+       * same measurement converted once, at its one conversion point, as a
+       * whole number on the 0-100 scale the denominator beside it names. A tab
+       * reading the feature would print "0.79" under "/100 score".
+       *
+       * AND THE EM DASH SURVIVES. A payload whose row set does not carry a
+       * suitability row leaves this undefined, measure() prints the dash, and
+       * nothing here coerces it to a 0 -- the same rule the never-checked
+       * overlaps are held to.
+       */
+      const suitability = surveyZoneRow(proposals, feature.id, 'suitability')
       return {
         id: feature.id,
         name: surveyZoneName(feature.properties),
         checkbox: true,
         selected: selected.has(feature.id),
         rows: [
-          { value: measure(feature.properties?.zone_acres), label: 'acres' },
-          {
-            /**
-             * THE SUITABILITY, AGAINST THE SCALE THE PAYLOAD SHIPPED FOR IT.
-             *
-             * READ OFF THE PANEL ROW, WHICH IS THE ONE CONVERTED FIGURE ON
-             * THE WIRE, and this is the whole of what the display scale
-             * changed on this side. The tab used to print
-             * `feature.properties.mean_suitability`, and that property is the
-             * DIAGNOSTIC RECORD: it is still 0-1 and was deliberately left
-             * that way. The ceiling beside it is on the 0-100 display scale
-             * now, so a tab reading the feature would have printed "0.56 of
-             * 68" -- a numerator and a denominator on two different scales,
-             * which is exactly the double-scaling the backend's single
-             * conversion point exists to prevent. Both halves of this reading
-             * now come from the same converted source and nothing here
-             * multiplies anything.
-             *
-             * A BARE "56" IS NOT A READING. It was the last figure on this
-             * step still printed with nothing to read it against -- the detail
-             * panel has read `scales` since the panel became the server's own
-             * rows, and the tab had not caught up. A grade with no denominator
-             * is a number nobody can act on, and this tab exists to be acted
-             * on: it is the two figures someone scans to decide which area to
-             * walk.
-             *
-             * THE DENOMINATOR RIDES THE LABEL, NOT THE FIGURE, which is the
-             * rule the panel's own units follow (see panelFields). The value
-             * column is a fixed-width monospace column whose whole job is to
-             * hold the figures aligned down a strip of tabs; "56 of 68" in it
-             * widens that column for every tab and turns a column of figures
-             * into a column of phrases. The label is the prose half, and "of
-             * 68 suitability" is prose -- and it is also where this reading
-             * says which scale it is on, since a bare "56" beside "2.6 acres"
-             * must not be mistakable for a fraction.
-             *
-             * NO BAND NAME, AND THAT IS THE PAYLOAD'S SHAPE RATHER THAN A
-             * CHOICE. Landform's `scales` carries `bands` and `band_bounds`,
-             * so scoreBandName() can name 74 "good" without this side knowing
-             * where good starts. WATER'S CARRIES NEITHER -- its scales block
-             * is {suitability, rank, overlap_pct, boundary_adjacency_pct,
-             * pinch_drainage_score, compartment_rank_score} -- so there is no
-             * band to look up, and inventing one here would mean writing this
-             * pipeline's thresholds down on the client, which is the one thing
-             * the block exists to prevent. What water DOES ship is the
-             * parcel's own measured ceiling, and that is what is rendered.
-             *
-             * BOTH FIGURES AT THE TAB'S OWN PRECISION, which is now no
-             * decimals at all because the backend ships whole numbers (see
-             * SUITABILITY_DP). The panel shows the same pair through
-             * panelValue(); the two cannot disagree, because both read the
-             * same two converted numbers.
-             *
-             * AND THE EM DASH SURVIVES. A payload whose row set does not carry
-             * a suitability row leaves `suitability` undefined, measure()
-             * prints the dash, and nothing here coerces it to a 0 -- the same
-             * rule the never-checked overlaps are held to.
-             */
-            value: measure(suitability?.value, SUITABILITY_DP),
-            label:
-              ceiling == null
-                ? 'suitability'
-                : `of ${measure(ceiling, SUITABILITY_DP)} suitability`,
-          },
+          { value: measure(feature.properties?.zone_acres), label: 'survey acres' },
+          { value: measure(suitability?.value, SUITABILITY_DP), label: 'score', denominator },
         ],
       }
     })
   },
 
   /**
-   * WHAT THE DETAIL PANEL SAYS ABOUT ONE SURVEY AREA: THE SERVER'S ROWS, IN
-   * THE SERVER'S ORDER.
+   * WHAT THE DETAIL PANEL SAYS ABOUT ONE SURVEY AREA.
    *
-   * ONE UNLABELLED GROUP, WHICH IS THE HONEST SHAPE NOW. The four labelled
-   * groups this replaces existed because the ORDER was this file's argument
-   * and the groups were how it was made. The order is the backend's argument
-   * now -- build_zone_panel() ships the rows already sequenced, the five
-   * always-rows first and every caution after them, present only when it
-   * fires -- so grouping them again over here would be this side re-asserting
-   * a structure it no longer decides.
+   * DECLARED AGAINST THE SHARED FORMAT -- `rows`, not `fields`. panelFormat.js
+   * owns the arrangement and this owns the fields, the same way landform's
+   * does, and between them there is no water-specific rendering anywhere. The
+   * panel this replaces rendered the backend's `panel` list WHOLE, through a
+   * panelFields()/panelValue() pair that were water's own two-column renderer
+   * in miniature; both are gone, and with them the last copy of the panel's
+   * typography outside panelFormat and DetailPanel.
    *
-   * IT READS THE TABULAR ROW, NOT THE FEATURE, AND THAT IS THE REVERSAL. The
-   * old note here argued for reading the feature because it was "the only
-   * complete source" -- slope, elevation, soil coverage and the rest are on
-   * the feature and not in the digest. All of that is still true and none of
-   * it is on this panel any more: those are the DIAGNOSTIC record, the
-   * feature keeps every one of them, and the export is where they are read.
-   * What this panel needs is the curated subset, and that is on the row.
    *
-   * THE NAME STILL COMES FROM THE FEATURE. surveyZoneName() is this app's
-   * vocabulary for an identity the tabs and the map use too, and it must be
-   * the same words in all three places.
+   * NO GROUP LABELS, AND TWO RUNS RATHER THAN FOUR GROUPS.
    *
-   * THE SENTINELS SURVIVE BECAUSE NOTHING COERCES THEM, still. The backend
-   * omits a measured 0.0 overlap (nothing to caution about) and KEEPS a
-   * never-checked one as a row with a null value; panelValue() prints an em
-   * dash for that null and nothing on this path can turn it into a zero.
+   * This panel has had four labelled groups and then one unlabelled one, and
+   * neither shape was the format's. It is two runs now, separated by the one
+   * break this list declares:
+   *
+   *     Embankment 1
+   *      0.6                        survey acres
+   *       52                        /100 score
+   *     ────────────────────────────────
+   *     gravity feed                water delivery
+   *      2.4                        contributing acres
+   *      3.1                        median slope %
+   *      4.1                        max depth ft
+   *     ────────────────────────────────
+   *      0.09                       production overlap %
+   *       60                        also excavated 2
+   *
+   * THE FIRST RULE IS THE FORMAT'S OWN, drawn between the tab's rows and this
+   * list without being asked (panelBody). The second is the one PANEL_BREAK
+   * below. Above it: what the zone IS -- how the water gets out of it, how much
+   * ground feeds it, what the ground is like, how deep it goes. Below it: what
+   * it TOUCHES.
+   *
+   * AND NEITHER RUN IS LABELLED, which answers the question the production
+   * branch left open: optional break labels are NOT needed here. "terrain" over
+   * three terrain rows is a word that says what the reader can already see,
+   * and the panel's whole argument is that a rule between two runs is cheaper
+   * than a heading over each. TREES IS WHERE THE QUESTION RETURNS -- its
+   * MARGINAL BENEFITS group is a claim about the rows under it that the rows
+   * do not make themselves, which is the case a label would have to earn.
+   *
+   * CATEGORICALS FIRST, THEN MEASURED VALUES -- the format's rule 4, applied to
+   * each run. `water delivery` leads the first; the second is all figures.
+   *
+   *
+   * WHERE EACH VALUE COMES FROM, because this panel reads two sources and the
+   * split is not arbitrary. Two values are the backend's EDITORIAL DECISIONS
+   * and are read off its own panel rows (surveyZoneRow): the score, converted
+   * at the backend's one conversion point, and the water-delivery answer. Every
+   * other row is a MEASUREMENT and is read off the FEATURE, where the
+   * diagnostic record has always lived.
+   *
+   * THREE OF THOSE MEASUREMENTS ARE ON PANEL_EXCLUDED_KEYS, and that is not a
+   * contradiction. The backend excluded them from ITS five-row budget, which is
+   * type-generic by construction and had no room; they were never withdrawn
+   * from the wire, and the feature carries every one. The reasoning that kept
+   * them off -- "these are how a zone got its score, not whether to walk it" --
+   * is exactly wrong for these three: contributing acreage, slope and depth are
+   * what you would want to know BEFORE walking a pond site, and the scores they
+   * feed are still off this panel.
+   *
+   * WHAT IS STILL NOT ON IT: the per-criterion contributions, the TWI scores,
+   * the seed and pinch geometry, the boundary adjacency, the representative
+   * elevation, the soil coverage fraction, `rank`, and the differential the
+   * gravity answer was computed from. They are the DIAGNOSTIC record, they are
+   * all still on the feature, and the export is where they are read. The panel
+   * answers "should I walk this".
+   *
+   * AND `parcel_observed_max` IS NOT ON IT EITHER, which is the one removal
+   * worth naming twice: see suitabilityCeiling() for why a ceiling no zone can
+   * reach is not a denominator.
    *
    * NO cautions CHANNEL. That channel carries the exclusion layers' own
-   * `{type, label, acres}` and a survey zone crosses none of them; the
-   * cautions that DO apply to a zone are rows the backend chose, in the run
-   * of rows above.
+   * `{type, label, acres}` and a survey zone crosses none of them; what a zone
+   * touches is the second run of rows.
    */
   detail: ({ proposals }, featureId) => {
     const feature = zoneFeature(proposals, featureId)
     if (!feature) return null
-    const rows = surveyZonePanel(proposals, featureId)
-    if (!rows.length) return null
+    const properties = feature.properties ?? {}
 
     return {
-      name: surveyZoneName(feature.properties),
-      fields: panelFields(rows, proposals?.scales),
+      // The fallback only; the panel prefers the tab's own name, and they are
+      // minted by one function so the two cannot disagree.
+      name: surveyZoneName(properties),
+      rows: [
+        // THE ANSWER, NOT THE DIFFERENTIAL. See waterDeliveryPhrase().
+        categoricalRow(waterDeliveryPhrase(proposals, featureId), 'water delivery'),
+        // THE OTHER ACREAGE, AND THE ONE THE TAB'S "survey acres" IS NOT. This
+        // is the catchment at the wettest cell -- the ground that DRAINS into
+        // the site, which is what fills a pond, where the survey acreage is
+        // the ground you walk. Two acreages that mean different things, said
+        // as two labels rather than left to position.
+        measuredRow(
+          measure(properties.contributing_area_acres_at_wettest_cell),
+          'contributing acres'
+        ),
+        // THE MEDIAN, NOT THE RANGE -- production's row, and its argument: the
+        // panel says what the ground is like and one figure does that.
+        measuredRow(measure(properties.slope_median_pct), 'median slope %'),
+        // FEET, AND THE BACKEND'S CONVERSION. `depression_depth_max_ft` is
+        // shipped already converted beside the metric measurement it came from
+        // (the zone keeps depression_depth_max_m under its own name), because
+        // two consumers converting one metre value is two chances to forget.
+        // The unit rides the LABEL: "4.1 feet" in the figure column widens it
+        // for every row that has a word in it.
+        measuredRow(measure(properties.depression_depth_max_ft), 'max depth ft'),
+        PANEL_BREAK,
+        // THE THREE CROSSINGS, IN THE BACKEND'S OWN ORDER rather than in an
+        // order this side has an opinion about. Each drops at zero and renders
+        // an em dash for null -- see overlapRow().
+        //
+        // THREE, AND THERE IS NO HYDRIC ROW, which is worth saying because
+        // landform has one and a reader moving between the two panels will
+        // look for it. A WATER ZONE HAS NO HYDRIC OVERLAP TO SHOW: hydric soil
+        // is not an exclusion on this step, it is a SCORING INPUT -- the soil
+        // criterion blends ksat, hydrologic group and hydric share
+        // (water_survey_areas.soil_score_for_mukey), and wet ground is a
+        // reason to put a pond somewhere rather than a reason not to. So the
+        // pipeline measures no `hydric_overlap_pct` on a survey zone, and a
+        // row for one here would be an em dash forever against a question this
+        // step does not ask.
+        overlapRow(properties.production_overlap_pct, 'production overlap %'),
+        overlapRow(properties.canopy_overlap_pct, 'canopy overlap %'),
+        overlapRow(properties.road_overlap_pct, 'road overlap %'),
+        // AND THE AGREEMENT REPORT, LAST. A different kind of statement from
+        // the three above it, and last position plus a naming label is what
+        // says so -- see crossTypeRows().
+        ...crossTypeRows(proposals, feature),
+      ],
       cautions: [],
     }
   },

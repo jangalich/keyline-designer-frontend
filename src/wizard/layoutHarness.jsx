@@ -506,7 +506,15 @@ const UNCASED = [
  * focused is a hatch at full strength and this is paint. The point of the pair
  * is the distance between them.
  */
-const OPAQUE = [{ id: 'oxide', opaque: '--oxide' }]
+const OPAQUE = [
+  { id: 'oxide', opaque: '--oxide' },
+  // AND --rule LAID SOLID, which is what a STACK of screens is a fraction of.
+  // Every screen on this map is --rule (see screenNode), so "how much of the
+  // frame do two or three of them take" is only answerable against the cover
+  // they are all approaching. Added with the stacking measurement; the same
+  // argument as the row above it, asked of a ground rather than of a mark.
+  { id: 'rule', opaque: '--rule' },
+]
 
 /**
  * THE LANDFORM CASE: production's mark ON THE ELIGIBLE HIGHLIGHT.
@@ -593,6 +601,122 @@ const UNSCREENED = ['committed', 'active', 'focused'].map((state) => ({
   unscreened: true,
 }))
 
+/**
+ * THE SCREEN UNDER THE EXCAVATED DOT FIELD: --rule, SWEPT.
+ *
+ * THE SAME PROBLEM AS PRODUCTION'S AND A DIFFERENT MARK. An excavated zone is
+ * a lattice of dots that inks about an eighth of what it covers; the other
+ * seven eighths are bare frame, which is why it has always been the quietest
+ * mark on this map over imagery. The screen is the other seven eighths.
+ *
+ * WHAT THIS SWEEP REPLACED WAS A SCREEN IN THE MARK'S OWN COLOUR, at 0.28,
+ * and the report that sent this branch looking is that the zone was STILL hard
+ * to find. --survey-excavated is a mid-dark blue and closed canopy is dark, so
+ * a screen in that colour moves the ground toward the mark instead of away
+ * from it: every point of it bought tone and spent contrast, and the ceiling
+ * the old sweep found (0.32, where the overlap's texture fell through the
+ * floor) was that trade running out rather than a preference.
+ *
+ * --rule, WHICH IS WHAT PRODUCTION LANDED ON. Measured against --stock at four
+ * alphas over both grounds on production's own branch, and chosen there for
+ * reasons that are not about the hatch: it is quieter as a layer at every
+ * alpha on both grounds, and a screen of the PAGE COLOUR laid over aerial
+ * imagery is a claim about the document rather than about the land, where
+ * --rule already means a quiet neutral that separates without being a thing.
+ * Reusing it keeps ONE screen treatment across the build. The colour is
+ * settled; what this sweep asks is whether the ALPHA holds for a lattice.
+ *
+ * UNOUTLINED, ALL OF THEM. The question is what the screen does for and to the
+ * DOTS, and the outline is a 2px edge that would sit inside every reading --
+ * it is measured on its own by the shipped-mark cells beside these.
+ */
+const STIPPLE_SCREEN_CANDIDATES = []
+for (const [token, alphas] of [
+  ['--rule', [0.02, 0.03, 0.04, 0.06, 0.12, 0.2, 0.3]],
+  // THE REJECTED SCREEN, KEPT AS A CELL. --survey-excavated at 0.28 is what
+  // this mark shipped with, and "the user tried a blue tint and it did not
+  // work" is worth a NUMBER from the same instrument as its replacement rather
+  // than a comparison across two branches' differently-dressed swatches. One
+  // alpha, because 0.28 was that sweep's own chosen ceiling.
+  ['--survey-excavated', [0.28]],
+]) {
+  for (const alpha of alphas) {
+    const id = `dotscreen-${token.replace('--', '')}-${String(alpha).replace('0.', '')}`
+    for (const state of ['committed', 'active', 'focused']) {
+      const base = {
+        treatment: 'survey-excavated',
+        id,
+        screenToken: token,
+        screenAlpha: alpha,
+        state,
+        unoutlined: true,
+      }
+      STIPPLE_SCREEN_CANDIDATES.push(base)
+      STIPPLE_SCREEN_CANDIDATES.push({ ...base, screenOnly: true })
+    }
+  }
+}
+
+/**
+ * THE DOT FIELD WITH ITS SCREEN LIFTED OFF, and the SHIPPED SCREEN with its
+ * dots lifted off -- the two halves of the shipped mark, separately.
+ *
+ * THE MID-VALUE QUESTION NEEDS BOTH. Production's rules LOST contrast under
+ * its screen: oxide is mid-dark and canopy is dark, so a light screen lifts
+ * the ground toward the mark's own value before it goes past it, and the
+ * ruling ended up reading 0.76x what it read on bare imagery with its texture
+ * spread about halved. --survey-excavated is also mid-dark, so the same trap
+ * is there to walk into -- but a lattice is not a ruling and its texture may
+ * survive differently. So it is measured rather than assumed, and the two
+ * cells below are what the shipped mark is differenced against:
+ *
+ *   -unscreened   the lattice on bare ground, which is what the screen is
+ *                 worth measured against.
+ *   -screen       the shipped screen alone, which the shipped mark is
+ *                 differenced against to isolate the DOTS on the ground they
+ *                 now have. (addedInkOver differences against bare ground,
+ *                 which on a screened mark is mostly a reading of the screen:
+ *                 a wash covers all of the cell and a dot field an eighth.)
+ *
+ * Both unoutlined, for the reason the sweep above is.
+ */
+const EXCAVATED_HALVES = ['committed', 'active', 'focused'].flatMap((state) => [
+  { treatment: 'survey-excavated', state, unscreened: true, unoutlined: true },
+  { treatment: 'survey-excavated', state, screenPassOnly: true, unoutlined: true },
+])
+
+/**
+ * SCREENS STACKED: ONE, TWO AND THREE, AT THE COMMITTED LEVEL.
+ *
+ * THE QUESTION THE BUILD IS WALKING INTO. Production carries a screen and the
+ * excavated survey type now carries the same one, which makes this the first
+ * real instance of two screened layers on one piece of ground -- and by
+ * fencing there could be five committed layers on a parcel. A screen is a
+ * ground rather than a mark, and grounds ADD: two of them are not twice as
+ * quiet as one, they are a second wash over the imagery. If the imagery stops
+ * reading through, that is a finding about the approach rather than a detail,
+ * and it belongs in the build before a third layer adopts the treatment.
+ *
+ * AT COMMITTED, WHICH IS WHERE IT HAPPENS. A stack is settled layers: the step
+ * in hand is one layer and everything under it is committed, which is the
+ * quietest level and the one a screen is scaled by. Stacking at `focused`
+ * would measure a state no parcel can be in.
+ *
+ * THE SHIPPED SCREENS, NOT A RECONSTRUCTION. Each layer is a real treatment
+ * dressed with `screenPassOnly`, so the alphas are TREATMENT_MARKS' own and
+ * this file holds no copy of them. THE THIRD LAYER IS PRODUCTION'S SCREEN
+ * AGAIN, because only two treatments carry one today -- which is exactly what
+ * a third adopter would add, since the whole argument for --rule is that every
+ * screen on this map is the same screen.
+ */
+const STACKED_SCREENS = [1, 2, 3].map((count) => ({
+  id: `screens-${count}`,
+  overlap: ['production', 'survey-excavated', 'production'].slice(0, count),
+  state: 'committed',
+  screenPassOnly: true,
+  unoutlined: true,
+}))
+
 const FENCE_CANDIDATES = []
 for (const [id, lineToken] of [
   ['fence-rule', '--rule'],
@@ -625,20 +749,64 @@ for (const [id, lineToken] of [
 const OVERLAP = [{ overlap: ['survey-embankment', 'survey-excavated'], state: 'active' }]
 
 /**
+ * THE OVERLAP, AT EVERY CANDIDATE SCREEN -- the sweep the cell above could not
+ * answer on its own.
+ *
+ * WHY THE OVERLAP GETS ITS OWN SWEEP. The screen under the dot field is chosen
+ * on bare imagery, where a zone has to be findable; the overlap is the one
+ * place the SAME screen can destroy the reading it was added to help. Both are
+ * real constraints and they pull opposite ways, so the alpha has to be chosen
+ * against both at once rather than picked on one and checked against the other.
+ *
+ * THE MECHANISM, WHICH IS WHY THIS IS NOT OBVIOUS. Over canopy the excavated
+ * dot is LIGHTER than its ground -- --survey-excavated at the pattern level
+ * over a dark green reads up, not down -- so a light screen lifts the ground
+ * TOWARD the
+ * dot rather than away from it. On bare canopy that is a cost worth paying,
+ * because the screen itself is what makes the block findable. On the
+ * EMBANKMENT WASH the ground is already lifted, and the screen carries it the
+ * rest of the way to the dot's own value: the two cross over and the field
+ * stops being a texture.
+ *
+ * A `tint` ROW IGNORES A SCREEN CANDIDATE, which is what makes one cell-level
+ * override enough here: the cloning pass only dresses paint-server marks, so
+ * the embankment wash under these is the shipped wash and only the excavated
+ * lattice is swept.
+ *
+ * 0 IS IN THE SWEEP AS THE CONTROL -- a candidate rect at zero opacity is the
+ * shipped screen removed and nothing put back, which is the reading every
+ * other row is a cost against.
+ */
+const OVERLAP_SCREEN_CANDIDATES = [0, 0.02, 0.03, 0.04, 0.06, 0.09, 0.12].map((alpha) => ({
+  id: `overlapscreen-${String(alpha).replace('0.', '')}`,
+  overlap: ['survey-embankment', 'survey-excavated'],
+  state: 'active',
+  screenToken: '--rule',
+  screenAlpha: alpha,
+}))
+
+/**
  * THE DOT FIELD ON ITS OWN, WITHOUT ITS OUTLINE.
  *
  * The road's cased/uncased pair asks what a line's casing is worth. This asks
  * the same question of the one mark that CANNOT take a casing: a per-dot halo
  * is what killed the previous stipple (a ring at the dot's own frequency is a
  * second texture, not a support for the first), so the only levers a dot field
- * has are DENSITY and OPACITY. These two cells are the field alone, over both
+ * has are DENSITY and OPACITY. These cells are the field alone, over both
  * grounds, so "the density carries it over canopy" is a number rather than an
  * inference from a measurement the outline is also inside.
+ *
+ * ALL THREE LEVELS, NOT TWO. The mid-value measurement differences the shipped
+ * mark against its own screen to isolate the dots, and it has to do that
+ * without an outline inside either half of the difference -- so the shipped
+ * mark needs an unoutlined cell wherever that measurement is taken, which is
+ * at every level the screen is scaled by.
  */
-const UNOUTLINED = [
-  { treatment: 'survey-excavated', state: 'committed', unoutlined: true },
-  { treatment: 'survey-excavated', state: 'active', unoutlined: true },
-]
+const UNOUTLINED = ['committed', 'active', 'focused'].map((state) => ({
+  treatment: 'survey-excavated',
+  state,
+  unoutlined: true,
+}))
 
 /**
  * THE MOIRE ROW: the dot field over ground that HAS STRUCTURE, at a range of
@@ -711,16 +879,23 @@ function moireGround(period) {
 /** The test-id suffix one ground cell answers to. */
 function cellId(cell) {
   if (!cell) return 'bare'
-  if (cell.overlap) return `overlap-${cell.state}`
-  const suffix = cell.uncased
-    ? '-uncased'
-    : cell.unoutlined
-      ? '-unoutlined'
-      : cell.unscreened
-        ? '-unscreened'
-        : cell.screenOnly
-          ? '-alone'
-          : ''
+  // A STACK MAY NAME ITSELF. The survey pair's overlap cell does not and takes
+  // the derived name it always had; the stacked-screen cells do, because what
+  // tells them apart is HOW MANY screens are in them and not their state.
+  if (cell.overlap) return cell.id ?? `overlap-${cell.state}`
+  // COMPOSED RATHER THAN CHOSEN, and the difference is the stipple sweep's.
+  // These were mutually exclusive while each cell dropped exactly one pass;
+  // the dot field's screen candidates drop TWO (the outline, so what is
+  // measured is the lattice alone, and the marks, for the screen-alone cell),
+  // and a chain of ternaries silently named both of those the same thing. Each
+  // flag that is set contributes its own suffix, in a fixed order, so every
+  // combination has its own id and every single-flag cell keeps the id it had.
+  const suffix =
+    (cell.uncased ? '-uncased' : '') +
+    (cell.unoutlined ? '-unoutlined' : '') +
+    (cell.unscreened ? '-unscreened' : '') +
+    (cell.screenPassOnly ? '-screen' : '') +
+    (cell.screenOnly ? '-alone' : '')
   // A CELL MAY HAVE NO STATE, AND MAY HAVE NO MARK. The opaque reference is one
   // colour laid solid -- not a state of a mark, but the thing every state is a
   // fraction of -- and the eligible-only cell is a GROUND rather than a mark at
@@ -788,9 +963,13 @@ const GROUND_CELLS = () => [
   ...UNCASED,
   ...UNOUTLINED,
   ...OVERLAP,
+  ...OVERLAP_SCREEN_CANDIDATES,
   ...FENCE_CANDIDATES,
   ...HATCH_SCREEN_CANDIDATES,
   ...UNSCREENED,
+  ...STIPPLE_SCREEN_CANDIDATES,
+  ...EXCAVATED_HALVES,
+  ...STACKED_SCREENS,
   ...OPAQUE,
   ...ELIGIBLE,
 ]
@@ -907,6 +1086,21 @@ function ZoneSwatches() {
         //                       the tint on its own.
         if (svg.dataset.unscreened === 'true' || svg.dataset.screenToken) {
           for (const pass of clone.querySelectorAll('[data-pass="screen"]')) pass.remove()
+        }
+        // data-screen-pass-only     THE SHIPPED SCREEN AND NOTHING ELSE: every
+        //                          child that is not the screen pass removed,
+        //                          which leaves the tile the map actually draws
+        //                          minus its marks. The inverse of
+        //                          data-unscreened, and it exists because the
+        //                          stacking measurement has to stack the
+        //                          SHIPPED screen -- a candidate rect at an
+        //                          alpha typed into this file would be a second
+        //                          copy of a number that lives in
+        //                          TREATMENT_MARKS, and would go stale there.
+        if (svg.dataset.screenPassOnly === 'true') {
+          for (const node of [...clone.children]) {
+            if (node.dataset?.pass !== 'screen') node.remove()
+          }
         }
         if (svg.dataset.screenToken) {
           if (svg.dataset.screenOnly === 'true') {
@@ -1180,14 +1374,21 @@ function ZoneSwatches() {
                 without knowing this cell exists. */}
             {(cell?.overlap ?? (cell?.treatment ? [cell.treatment] : [])).map((treatment, depth) => (
               <svg
-                key={treatment}
-                data-testid={`ground-mark-${ground.id}-${cellId(cell)}${cell?.overlap ? `-${treatment}` : ''}`}
+                /* THE DEPTH IS IN THE KEY AND IN THE ID, and it has to be: a
+                   stack may carry the SAME treatment twice (three screens, and
+                   only two treatments ship one), and without the index both
+                   copies would mint one `local-` pattern id -- the second
+                   clone overwriting the first, leaving a measurement of one
+                   layer wearing a stack's name. */
+                key={`${treatment}-${depth}`}
+                data-testid={`ground-mark-${ground.id}-${cellId(cell)}${cell?.overlap ? `-${treatment}-${depth}` : ''}`}
                 data-treatment={treatment}
                 data-state={cell.state}
                 data-uncased={cell.uncased ? 'true' : undefined}
                 data-unoutlined={cell.unoutlined ? 'true' : undefined}
                 data-line-token={cell.lineToken ?? undefined}
                 data-unscreened={cell.unscreened ? 'true' : undefined}
+                data-screen-pass-only={cell.screenPassOnly ? 'true' : undefined}
                 data-screen-token={cell.screenToken ?? undefined}
                 data-screen-alpha={cell.screenAlpha ?? undefined}
                 data-screen-only={cell.screenOnly ? 'true' : undefined}
