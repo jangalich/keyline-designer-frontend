@@ -369,6 +369,22 @@ const tokenColour = (token) =>
     return colour
   }, token)
 
+/**
+ * A NUMERIC TOKEN'S VALUE, off the page, the way tokenColour reads a colour.
+ *
+ * BECAUSE A LEVEL IS index.css's TO CHOOSE. The committed opacity was asserted
+ * here as the literal 0.4, which is a second copy of --pattern-committed, and
+ * it broke the day the scale was raised to 0.55 -- with nothing about the
+ * access point having changed. What this file has to say about a committed
+ * point is that it is drawn at the COMMITTED LEVEL, whatever that is; the
+ * number is the stylesheet's business and is asserted there.
+ */
+const tokenNumber = (token) =>
+  evaluate(
+    (name) => Number(getComputedStyle(document.documentElement).getPropertyValue(name).trim()),
+    token
+  )
+
 /* ---------------------------------------------------------------------------
    ORDER, AND WHY THERE IS ONLY ONE PAGE
    ---------------------------------------------------------------------------
@@ -937,7 +953,7 @@ describeIf('the trees checkbox and ×', () => {
     expect(committedAccess, 'the committed access point is still on the map').toBeDefined()
     expect(committedAccess.colour).toBe(await tokenColour('--ink'))
     expect(committedAccess.colour).toBe(await tokenColour('--road'))
-    expect(committedAccess.opacity).toBeCloseTo(0.4, 5)
+    expect(committedAccess.opacity).toBeCloseTo(await tokenNumber('--pattern-committed'), 5)
     const ochre = await tokenColour('--ochre')
     expect(atTrees.some((m) => m.colour === ochre)).toBe(false)
   })
@@ -1100,7 +1116,7 @@ describeIf('the structures checkbox and ×', () => {
     expect(livePin.opacity).toBe(1)
     const committedAccess = atStructures.find((m) => m.kind === 'access point (committed)')
     expect(committedAccess.colour).toBe(await tokenColour('--ink'))
-    expect(committedAccess.opacity).toBeCloseTo(0.4, 5)
+    expect(committedAccess.opacity).toBeCloseTo(await tokenNumber('--pattern-committed'), 5)
     expect(committedAccess.colour).not.toBe(livePin.colour)
   })
 

@@ -48,14 +48,26 @@
  *   4. CATEGORICALS FIRST, THEN MEASURED VALUES. This one is a CONVENTION a
  *      step declares to, not a sort the panel performs, and the difference is
  *      deliberate: the panel renders rows in DECLARED order. Sorting by type
- *      was tried (see DetailPanel.jsx's GROUPS note) and it interleaved four
- *      groups of water's panel that meant four different things. Production
- *      itself departs from the convention at the bottom -- soil and drainage
- *      class are categorical and sit under a measured row -- because they are
- *      the PENDING rows and pending rows belong last. See LANDFORM_STEP.detail.
+ *      was tried (see DetailPanel.jsx's GROUPS note) and it interleaved the
+ *      four groups water's panel then had, which meant four different things.
+ *      Water declares against this format now and its four groups came out as
+ *      TWO UNLABELLED RUNS -- one break, and the convention applied to each
+ *      run, `water delivery` leading a run of figures. Production itself
+ *      departs from the convention at the bottom -- soil and drainage class
+ *      are categorical and sit under a measured row -- because they are the
+ *      PENDING rows and pending rows belong last. See LANDFORM_STEP.detail and
+ *      WATER_STEP.detail.
  *
  *   5. A SECOND BREAK WHERE A STEP HAS ONE. `PANEL_BREAK` anywhere in a step's
- *      rows. Production has none.
+ *      rows. Production has none; water has one, between what a survey area IS
+ *      and what it TOUCHES.
+ *
+ *      AND A BREAK CARRIES NO LABEL. Water was the step that would have needed
+ *      one -- four labelled groups going into the format -- and it came out as
+ *      two runs that label themselves. So an optional break label is not a
+ *      field this format has, on the evidence of the step most likely to want
+ *      it. Trees is where the question returns: its MARGINAL BENEFITS heading
+ *      is a claim about the rows under it that the rows do not make.
  *
  *   6. CAUTIONS OR BENEFITS LAST, APPEARING ONLY WHEN PRESENT. The panel's,
  *      not the step's: DetailPanel renders `detail.cautions` under its own rule
@@ -168,6 +180,16 @@ export function categoricalRow(value, label) {
  * test at each call site: `value || null` drops both.
  */
 export function dropsAtZero(value, row) {
+  // NULL IS TESTED FOR BEFORE THE NUMBER IS, and that is not defensive
+  // tidiness -- it is the whole rule. `Number(null)` IS 0 in JavaScript, so
+  // the bare numeric test dropped the never-checked row along with the
+  // measured-zero one and this function quietly did the `value || null` it
+  // exists to refuse. It shipped that way because production declares no row
+  // that drops at zero; water is the first caller, its three overlaps are the
+  // one payload shape that can state all three answers, and the case surfaced
+  // the moment a null reached here. `undefined` goes with it: a row the
+  // payload never carried is not a measured absence either.
+  if (value == null) return row
   return Number(value) === 0 ? null : row
 }
 
@@ -188,6 +210,37 @@ export function denominated(label, denominator) {
 }
 
 /**
+ * A LABEL WITH ITS QUALIFIER ON IT -- "acres" becomes "survey acres".
+ *
+ * THE SECOND THING THE PANEL ADDS, and it is denominated()'s argument applied
+ * to a different kind of word. A row with no `qualifier` passes through
+ * untouched, which is most of them.
+ *
+ * WHY A STEP WOULD WANT ONE. Water's tab carries an acreage and so does its
+ * panel -- but the PANEL carries a second acreage four rows down
+ * ("contributing acres"), and two rows reading "acres" and "contributing
+ * acres" are two a reader has to tell apart by position. The strip has no such
+ * problem: it shows one acreage per tab, is read ACROSS candidates, and every
+ * character in a cell 6ch wide is competing with the figures. So the word that
+ * disambiguates belongs in the panel and nowhere else.
+ *
+ * ONE DECLARATION, TWO RENDERINGS, which is the whole reason this is here and
+ * not a second label on the step. A tab row declaring `label: 'acres',
+ * qualifier: 'survey'` renders "acres" on the strip and "survey acres" in the
+ * panel; a step that wrote both strings would have two to keep in step and
+ * nothing to notice when they part. Exactly the split denominated() makes, and
+ * for the same reason -- see that function.
+ *
+ * IT IS A PREFIX, NOT A REWORDING. The label's own words survive intact and in
+ * order, so "verbatim" stays true of the row in the sense that matters: the
+ * strip's label is a suffix of the panel's, and a reader moving between them
+ * is reading the same noun.
+ */
+export function qualified(label, qualifier) {
+  return qualifier == null ? label : `${qualifier} ${label}`
+}
+
+/**
  * THE SCAN TAB'S ROWS, AS PANEL ROWS. A tab row is `{value, label}` and is
  * MEASURED unless it says otherwise -- a tab is a name and figures. `measured:
  * false` on a tab row carries a categorical across unchanged.
@@ -198,13 +251,17 @@ export function denominated(label, denominator) {
  * when it stops.
  *
  * "VERBATIM" IS ABOUT THE FIGURES AND WHICH ROWS, NOT ABOUT THE LABEL'S EXACT
- * CHARACTERS. The one thing the panel adds is the denominator -- see
- * denominated() for why the strip does not carry it. The value is never
- * touched.
+ * CHARACTERS. The panel adds two things and both are PREFIXES the strip has no
+ * room for: the denominator (denominated()) and the qualifier (qualified()).
+ * The label's own words survive intact and in order under both, so the strip's
+ * label is always a suffix of the panel's. The value is never touched.
  */
 export function tabRowsOf(tab) {
   return (tab?.rows ?? []).map((row) => {
-    const label = denominated(row.label, row.denominator)
+    // BOTH ADDITIONS, QUALIFIER FIRST, so "acres" + survey + /100 would read
+    // "/100 survey acres" -- the denominator outermost, because it qualifies
+    // the whole reading rather than the noun.
+    const label = denominated(qualified(row.label, row.qualifier), row.denominator)
     return row.measured === false
       ? categoricalRow(row.value, label)
       : measuredRow(row.value, label)

@@ -213,12 +213,67 @@ const TREATMENT_MARKS = [
   // measurement of added ink sees -- which is why every number this field
   // was tuned against looked healthy while it did not read as dots.
   //
-  // 8 PER SIDE AT r=1.6: 8.00px apart, 3.2px across. A dot is now several
-  // pixels wide and is drawn as a disc, and the spacing carries the same
-  // ratio of ink to ground it had -- 12.6% covered, still within a point of
-  // the hatch's eighth, so the two are neighbours on one map and neither
-  // shouts. 64 divides by 8 exactly, so the lattice still tiles with no seam
-  // and no clamp (see stippleTile).
+  // 16 PER SIDE AT r=1.2: 4.00px apart, 2.4px across, 28% covered. A dot is
+  // still several pixels wide and is drawn as a disc, and 64 divides by 16
+  // exactly, so the lattice tiles with no seam and no clamp (see stippleTile).
+  //
+  // IT WAS 8 PER SIDE AT r=1.6 AND 12.6% COVERED, chosen to sit within a point
+  // of the hatch's own eighth so the two marks were neighbours and neither
+  // shouted. THAT IS WHAT THE DENSITY BOUGHT AND WHAT IT SPENT: the excavated
+  // zone was still the quietest thing on this map over canopy, and density is
+  // the one lever that adds ink WITHOUT touching per-dot contrast -- so unlike
+  // every screen lever it makes the overlap BETTER rather than worse. The cost
+  // is that excavated is no longer a quiet neighbour of the hatch; it is a
+  // heavier mark than production, deliberately.
+  //
+  // AND THE DOT CAME DOWN AS THE GRID WENT UP, which is not the same change
+  // twice. Coverage is pi*r^2*grid^2/tile^2, so 16-at-r-1.2 and 12-at-r-1.6
+  // ink the SAME 28% at the SAME 0.60 closure -- the difference between them
+  // is purely GRAIN. Finer grain wins on every instrument at once, because a
+  // smaller dot at the same coverage puts more dot EDGE into the same area and
+  // local contrast is what a texture is made of: 0.0475 of block ink against
+  // grid 12's 0.0464, texture 0.0331 against 0.0313, and overlap texture
+  // 0.0106 against 0.0098. That is the rare move on this mark that costs
+  // nothing anywhere.
+  //
+  // 0.60 CLOSURE IS THE CEILING AND IT IS MEASURED. Closure is dot diameter
+  // over spacing, and a lattice that closes is a WASH arrived at by another
+  // route -- which would collapse the whole two-treatment design, since what
+  // makes the overlap read as two marks is that one is a texture and the other
+  // is a wash. layout.test.jsx sweeps the GRID at a fixed r=1.6, which is the
+  // clean way to see where the turnover is:
+  //
+  //                  closure  cover   texture   ground still showing
+  //     grid 8        0.40     13%    0.0203    82%
+  //     grid 10       0.50     20%    0.0324    71%
+  //     grid 12       0.60     28%    0.0375    59%   <- the peak
+  //     grid 16       0.80     50%    0.0317    25%
+  //     the wash         -    100%    0.0000     0%
+  //
+  // TEXTURE PEAKS AT 0.60 AND HAS TURNED OVER BY 0.80, and the ground showing
+  // falls off a cliff across the same step. The bound in the test is 0.7,
+  // between the two measured points rather than at a round number, and the
+  // shipped lattice sits at 0.60 -- reached by a smaller dot on a tighter grid
+  // rather than by grid 12's fatter dot on a looser one.
+  //
+  // AND A BIGGER DOT AT THE OLD 8px PITCH WAS THE OTHER WAY TO REACH THE SAME
+  // COVERAGE AND IS RULED OUT. It reads better on ink, texture,
+  // ground-showing and the overlap -- and loses on MOIRE by a factor of five
+  // (r 2.4 beats against a 5px ground at 0.0085 against a 0.004 bound, where
+  // the shipped lattice reads 0.0016). A denser lattice moves its pitch away
+  // from the ground frequencies it beats with; a fatter dot leaves the pitch
+  // where it is and gives the beat more to work with. THE TWO AXES ARE NOT
+  // INTERCHANGEABLE AT EQUAL INK, and moire is the instrument that says so.
+  //
+  // WHICH IS ALSO HOW THIS DENSITY PAID FOR A REGRESSION IT DID NOT CAUSE.
+  // Raising --pattern-active to 0.75 took the old lattice's worst beat from
+  // 0.0038 to 0.0046, over the bound, because a beat scales with the opacity
+  // of the mark making it. The three generations read 0.0037 (grid 8), 0.0024
+  // (grid 12) and 0.0016 (shipped) in the asserted band, and the shipped one
+  // is under the bound even in the sub-Nyquist band that raise pushed over.
+  // The density change did not set out to fix the moire and fixing it is not
+  // why it was chosen; it is recorded because the next person to move the grid
+  // needs to know the margin they are spending.
   //
   // NO `jitter` FIELD, and its absence is what lets the lattice tile. It
   // displaced each dot within its cell, which cost the tile its clean repeat.
@@ -229,63 +284,120 @@ const TREATMENT_MARKS = [
   // texture rather than a support for the first. A 3.2px dot does not need
   // one; it is legible because it is a dot.
   //
-  // AND A SCREEN UNDER THE DOTS. The dots alone were the quietest mark on
-  // this map over imagery -- 0.0165 added ink over canopy at active, against
-  // the embankment wash's 0.1089 -- because a dot field inks an eighth of
-  // what it covers by design and the other seven eighths were bare frame. The
-  // screen is the other seven eighths, at a little over a quarter of the
-  // colour's strength.
+  // AND A SCREEN UNDER THE DOTS, IN --halo, AT 0.16 -- WHICH IS PAST THE POINT
+  // WHERE THIS MARK IS STILL A SCREEN. Read the whole of this before moving it.
   //
-  // 0.28, AND THE NUMBER IS THE CEILING RATHER THAN A PREFERENCE. It shipped
-  // at 0.2 and the zone was still reported as hard to find over imagery, so
-  // the screen was swept again against layout.test.jsx's own instruments, at
-  // active, over both grounds an aerial frame carries:
+  // WHY THERE IS A SCREEN. A dot field inks a quarter of what it covers and
+  // the rest is bare frame, so the screen is the rest: it is the GROUND the
+  // mark was designed against, put back, and it is why this mark can be found
+  // over closed canopy at all.
   //
-  //                   canopy   soil    overlap texture (canopy)
-  //     no screen     0.0165   0.0390  0.0061
-  //     0.20          0.0319   0.0722  0.0050
-  //     0.28          0.0365   0.0853  0.0045
-  //     0.32          0.0409   0.0930  0.0035   <- below the 0.004 floor
+  // THE SCREEN COLOUR HAS BEEN THREE THINGS AND THE HISTORY IS THE ARGUMENT.
+  // It was --survey-excavated at 0.28 -- the mark's own colour, which makes
+  // the whole cell one blue and is exactly the reading a dot field on a wash
+  // exists to avoid. It was then --rule at 0.03, the neutral production's
+  // hatch sits on. IT IS --halo NOW, the white end of the same neutral ladder
+  // -- --rule is the hairline colour, --stock the page background and --halo
+  // the casing white, in that order of lightness. index.css holds the values;
+  // this file holds none.
   //
-  // WHAT STOPS IT GOING FURTHER IS THE OVERLAP, NOT TASTE. The right-hand
-  // column is the dot field's surviving local contrast where the two survey
-  // types coincide -- `cross_type_overlaps`, the reading this pair of marks
-  // exists to support. The screen is the excavated type's own colour, so
-  // every point of it moves the ground toward the dots and takes contrast off
-  // them; past 0.3 the field stops being a texture on a wash and the overlap
-  // collapses toward one darker fill, which is the failure the dot field
-  // replaced a second wash to avoid.
+  // AND THAT RETIRES "ONE SCREEN COLOUR ACROSS THE BUILD", which an earlier
+  // revision of this row claimed. Production sits on --rule and this mark sits
+  // on --halo. The rule that survived is the one that was always doing the
+  // work: A SCREEN IS NEVER IN ITS OWN MARK'S COLOUR. See screenNode().
   //
-  // 0.28 RATHER THAN 0.30, WHICH READ MARGINALLY BETTER. The measurements are
-  // not monotone through the last few hundredths -- 0.30 returns 0.0046 where
-  // 0.28 returns 0.0045, which is the renderer's rounding of one blend and
-  // not a property of the mark -- and the cliff is at 0.32. The value is the
-  // last one with a clear step of headroom to it rather than the best single
-  // reading beside it.
   //
-  // AND IT IS STILL THE LIGHTER SCREEN OF THE TWO. Measured against an opaque
-  // fill of the same colour, the whole focused mark -- screen and dots
-  // together -- lands at 0.36 of opaque, against the embankment wash's 0.40.
-  // It was 0.29 before this and the gap has narrowed, which is the cost of
-  // the change worth naming: the type that IS a wash is still the heavier
-  // one, and the margin that says so is now a twentieth rather than a tenth.
-  // The pair is told apart by KIND first and by weight second, and the second
-  // has no room left in it.
+  // 0.16, AND IT IS ON THE FAR SIDE OF A TROUGH. This is the part that is not
+  // obvious from the number, and reaching for a value between 0.04 and 0.12
+  // because it "looks safer" would land in the worst part of the range.
   //
-  // WHAT THIS DOES NOT DO IS CLOSE THE GAP WITH EMBANKMENT. At the ceiling
-  // the excavated zone adds 0.0365 over canopy against that wash's 0.1089 --
-  // still a third of it, because --survey-excavated sits close to closed
-  // canopy in luminance and a screen in the mark's own colour cannot outrun
-  // that. If this zone has to read as loudly as its sibling, the lever is the
-  // colour or the state levels, and both are index.css's to move.
+  // OVER CANOPY THE DOT READS LIGHTER THAN ITS GROUND. So a white screen lifts
+  // the ground TOWARD the dot, the two converge, and the mark loses contrast --
+  // until the screen carries the ground PAST the dot, after which the dot is
+  // the dark thing on a light ground and contrast climbs again. There are two
+  // such crossings, at different alphas, because the EMBANKMENT WASH has
+  // already lifted the ground where the two types coincide: the overlap
+  // crosses over near 0.08 and bare canopy not until about 0.20.
+  //
+  // MEASURED, over canopy at active, against a 0.004 floor:
+  //
+  //                 overlap texture   texture on BARE canopy   block ink
+  //     0.03           0.0106               0.0331              0.0475
+  //     0.05           0.0066               0.0288              0.0562
+  //     0.08           0.0011  <floor       0.0232              0.0686
+  //     0.12           0.0067               0.0144              0.0876
+  //     0.16           0.0136               0.0066              0.1044
+  //     0.20           0.0214               0.0020  <floor      0.1217
+  //
+  // 0.16 IS CHOSEN FOR THE OVERLAP, which is the reading this pair of marks
+  // exists to support: 0.0136 against the 0.0106 it had at 0.03, keeping 0.82
+  // of what the lattice carries unscreened. That is the best the overlap has
+  // ever measured, and every alpha that keeps the mark under the screen line
+  // is on the near side, in the trough.
+  //
+  // WHAT IT COSTS IS THE MARK ON BARE CANOPY -- 0.0066 against 0.0331, a fifth
+  // of the texture, still over the visibility floor and not by much. The field
+  // is nearly flat there; what carries the zone instead is sheer presence,
+  // 0.1044 of added ink against 0.0475. IT READS AS A PALE PANEL WITH A FAINT
+  // GRID RATHER THAN AS A SCREEN DOOR ON IMAGERY, and that is the trade.
+  //
+  //
+  // AND IT IS NO LONGER A SCREEN, WHICH IS A DECISION AND NOT A DRIFT.
+  //
+  // Measured against an opaque fill of the same colour at the focused level,
+  // the mark reads 0.54 -- the aerial frame is a little under half of what you
+  // see. The bound every survey mark used to keep was "the frame is MORE than
+  // half"; the embankment wash still keeps it, at 0.40. This one was let past
+  // deliberately, because the overlap and the half line could not both be had.
+  // layout.test.jsx now carries one ceiling per mark and says so at length.
+  //
+  // THE WEAKER CLAIM THAT REPLACED IT is that the frame must still be at least
+  // 40% of what is seen. 0.20 would read about 0.62 and fail that, so the band
+  // asserted off the def is 0.12 to 0.16: far enough past the trough, not far
+  // enough to become paint.
+  //
+  // WHAT IS NOT NEGOTIABLE is that this stays a TEXTURE. A mark that stopped
+  // having dots in it would be a wash, and the two survey types would have
+  // collapsed into one kind -- which is the whole thing the pair is built to
+  // avoid. The overlap's texture floor and the mid-value test hold that, and
+  // neither moved.
+  //
+  // TWO THINGS THE HEAVIER SCREEN QUIETLY IMPROVED, both recorded so the next
+  // person knows what they are spending if they take it back down:
+  //
+  //   MOIRE fell to 0.0013 from 0.0016, because a beat scales with the dots'
+  //   own contrast and the screen has taken that away.
+  //
+  //   THE OVERLAP'S RETENTION rose to 0.82 from 0.64 -- see the table.
+  //
+  // AND ONE IT MADE WORSE. STACKED SCREENS: three committed layers now take
+  // 22.8% of an opaque cover over canopy and 30.6% over soil, against 14.9%
+  // and 16.3% before. The bound is half, so there is room, but the margin is
+  // no longer generous and by fencing there may be five layers. See the
+  // stacking test.
+  //
+  //
+  // AND THE PAIR IS NOW THE SAME WEIGHT ON ONE GROUND AND INVERTED ON THE
+  // OTHER, which is the last thing to know before either survey mark moves.
+  // Over canopy at active the wash reads 0.1149 and this mark 0.1076 -- within
+  // a twentieth of each other, where at 0.03 it was less than half. Over bare
+  // soil this mark reads 0.1014 against the wash's 0.0576, nearly twice it.
+  //
+  // SO WEIGHT NO LONGER TELLS THE TWO TYPES APART ANYWHERE, and KIND is the
+  // whole of what does: one is a wash and one is a texture. That is what the
+  // texture floors are protecting and why they are the assertions that may not
+  // be traded away. If this mark ever stops reading as dots, the two survey
+  // types become one mark in two values, which is the failure the dot field
+  // was introduced to fix.
   {
     treatment: 'survey-excavated',
     kind: 'stipple',
     token: '--survey-excavated',
     tile: 64,
-    grid: 8,
-    radius: 1.6,
-    screen: 0.28,
+    grid: 16,
+    radius: 1.2,
+    screen: 0.16,
+    screenToken: '--halo',
   },
   // ROADS: a cased LINE. The first mark here that is not ground. Its whole
   // description is its colour -- the weights are layers.jsx's LINE_WEIGHT and
@@ -522,14 +634,38 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
  * level language rests on. It also tiles for free: the rect is exactly the
  * tile, so the screen is seamless where the tiles meet.
  *
- * `screenToken` IS WHAT THE TWO USERS DIFFER ON, and the difference is what
- * each screen is FOR. The excavated dot field screens in ITS OWN COLOUR --
- * there the screen is part of the mark, a wash the dots sit on, and the whole
- * cell is one blue. Production's hatch screens in a NEUTRAL: there the screen
- * is not a mark at all, it is the GROUND the mark was designed against, put
- * back. A screen in --oxide under an oxide hatch would make the block a rust
- * wash, which is a different statement about the ground and a much louder one.
- * Omit the token to take the mark's own colour.
+ * `screenToken` IS WHAT THE TWO USERS DIFFER ON, AND THE RULE IS NOT WHICH
+ * TOKEN -- IT IS THAT A SCREEN IS NEVER IN ITS OWN MARK'S COLOUR.
+ *
+ * A screen is not a mark. It is the GROUND a mark was designed against, put
+ * back, and a ground in the mark's own colour stops being a ground: a screen
+ * in --oxide under an oxide hatch makes a block a rust wash, which is a
+ * different statement about the land and a much louder one. A screen in
+ * --survey-excavated under a blue dot field made the same mistake more
+ * quietly -- the whole cell became one blue, which is exactly the reading a
+ * dot field on a wash exists to avoid -- and the excavated row is the record
+ * of it. THAT is the rule this field exists to enforce, and it is what
+ * layout.test.jsx asserts off the def.
+ *
+ * ONE SCREEN COLOUR ACROSS THE BUILD WAS A TIDIER CLAIM THAN THE MARKS COULD
+ * SUPPORT, and it was made here for one revision. Production sits on --rule
+ * and the excavated lattice on --halo, two rungs of one neutral ladder
+ * (--rule, --stock, --halo), because the two marks are trying to buy different
+ * things: production's ruling wants its ground separated and nothing more,
+ * and the dot field wants absolute presence over closed canopy, where a whiter
+ * screen lifts faster per unit alpha. Both alphas are ceilinged by what the
+ * screen costs the survey pair's OVERLAP; neither is a preference.
+ *
+ * SO STACKED SCREENS ARE NOT TWO OF ONE WASH, which is worth knowing because
+ * by fencing there may be five committed layers on a parcel. They are measured
+ * as they actually stack rather than assumed -- see the stacking test, which
+ * puts the shipped screens on top of each other and reports what is left of
+ * the frame.
+ *
+ * Omit the token and the screen takes the mark's own colour, which is the
+ * thing this build measured and rejected. It stays parameterised rather than
+ * collapsing to a constant because the choice is a per-mark one and the next
+ * mark should have to state it.
  */
 function screenNode(spec, colour) {
   if (!spec.screen) return null
@@ -728,10 +864,11 @@ function hatchTile(spec, colour) {
 function stippleTile(spec, colour) {
   const cell = spec.tile / spec.grid
   const nodes = []
-  // THE SCREEN, FIRST IN THE TILE SO THE DOTS SIT ON IT -- in the mark's own
-  // colour here, which makes this the one row in the table that is a screen AND
-  // a texture. screenNode() owns the mechanism and says why it is in the tile;
-  // production's hatch is the other user and screens in a neutral instead.
+  // THE SCREEN, FIRST IN THE TILE SO THE DOTS SIT ON IT -- in --halo, the white
+  // end of the same neutral ladder production's hatch sits on. screenNode()
+  // owns the mechanism and says why it is in the tile; the row itself says why
+  // a neutral replaced a screen in the mark's own colour, and what the white
+  // end buys over the quiet one.
   const screen = screenNode(spec, colour)
   if (screen) nodes.push(screen)
   for (let row = 0; row < spec.grid; row += 1) {
@@ -778,6 +915,49 @@ function tileSizeOf(spec) {
  * they are actually tellable apart -- see layout.test.jsx -- without standing
  * up Leaflet and a tile server to ask.
  */
+/**
+ * ONE <pattern> ELEMENT FROM ONE SPEC, under the id you give it.
+ *
+ * SPLIT OUT OF injectZonePatterns SO A CANDIDATE CAN BE BUILT, and that is the
+ * only reason it is separate: the map injects the shipped table and the layout
+ * harness injects tiles that are NOT in the table -- a denser lattice, a bigger
+ * dot, a different screen -- to measure what moving each lever would cost. A
+ * harness that hand-rolled those tiles would be measuring its own idea of a
+ * stipple rather than this file's, and the day stippleTile() changed, the sweep
+ * would quietly stop describing the mark it is meant to be sweeping.
+ *
+ * THE SPEC IS THE TABLE'S OWN SHAPE -- see TREATMENT_MARKS -- and `token` is
+ * read here rather than written by the caller, so a candidate cannot introduce
+ * a colour literal either.
+ */
+export function buildZonePattern(spec, id) {
+  const buildTile = TILE_BUILDERS[spec.kind]
+  if (!buildTile) return null
+  const size = tileSizeOf(spec)
+  const pattern = document.createElementNS(SVG_NS, 'pattern')
+  pattern.setAttribute('id', id)
+  pattern.setAttribute('patternUnits', 'userSpaceOnUse')
+  pattern.setAttribute('width', String(size))
+  pattern.setAttribute('height', String(size))
+  // The colours on this surface are the only ones not set from a stylesheet,
+  // so they are read from their tokens rather than written as literals.
+  for (const mark of buildTile(spec, readToken(spec.token))) pattern.appendChild(mark)
+  return pattern
+}
+
+/**
+ * ONE TREATMENT'S SPEC, COPIED.
+ *
+ * FOR CANDIDATES ONLY, and copied rather than handed out so a sweep cannot
+ * mutate the shipped table out from under the map. A candidate is this spread
+ * with one field changed, which is what makes "the same mark with a denser
+ * lattice" true rather than approximate.
+ */
+export function zoneTreatmentSpec(treatment) {
+  const spec = TREATMENT_MARKS.find((entry) => entry.treatment === treatment)
+  return spec ? { ...spec } : null
+}
+
 export function injectZonePatterns(container) {
   const host = document.createElementNS(SVG_NS, 'svg')
   // Present in the document so the paint servers resolve, and occupying no
@@ -793,19 +973,8 @@ export function injectZonePatterns(container) {
   host.appendChild(defs)
 
   for (const spec of TREATMENT_MARKS) {
-    const buildTile = TILE_BUILDERS[spec.kind]
-    if (!buildTile) continue
-    const size = tileSizeOf(spec)
-    const pattern = document.createElementNS(SVG_NS, 'pattern')
-    pattern.setAttribute('id', patternIdFor(spec.treatment))
-    pattern.setAttribute('patternUnits', 'userSpaceOnUse')
-    pattern.setAttribute('width', String(size))
-    pattern.setAttribute('height', String(size))
-    // The colours on this surface are the only ones not set from a
-    // stylesheet, so they are read from their tokens rather than written
-    // as literals.
-    for (const mark of buildTile(spec, readToken(spec.token))) pattern.appendChild(mark)
-    defs.appendChild(pattern)
+    const pattern = buildZonePattern(spec, patternIdFor(spec.treatment))
+    if (pattern) defs.appendChild(pattern)
   }
 
   container.appendChild(host)

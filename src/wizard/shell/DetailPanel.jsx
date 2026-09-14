@@ -39,13 +39,14 @@
  * nothing else. Production declares it. See panelFormat.js for every rule and
  * for why each one is a rule.
  *
- * `fields`/`groups` IS WHAT THE OTHER FIVE STILL DECLARE, and the paragraphs
- * below are its notes. It is not a second format so much as the format before
- * it was one: each of the five arrived with its own arrangement of the same
- * facts, which is the drift this branch exists to stop. Each migrates on its
- * own branch, against the format production now carries; a group is exactly one
- * run of rows between two breaks, so nothing in the five loses a distinction
- * when it moves.
+ * `fields`/`groups` IS WHAT THE REMAINING FOUR STILL DECLARE, and the
+ * paragraphs below are its notes. It is not a second format so much as the
+ * format before it was one: each of them arrived with its own arrangement of
+ * the same facts, which is the drift this branch exists to stop. Each migrates
+ * on its own branch, against the format production now carries; a group is
+ * exactly one run of rows between two breaks, so nothing loses a distinction
+ * when it moves. Production declared the format and WATER IS THE SECOND, which
+ * is the one that mattered -- see below.
  *
  * ONE PANEL RENDERS BOTH, which is the point -- a step that has not migrated
  * yet is still rendered by this file and not by itself.
@@ -64,12 +65,24 @@
  * every categorical reading as prose. That sort was a typographic rule with an
  * ordering side effect nobody had to notice.
  *
- * Water's is four groups that mean different things -- the acreage the tab had
- * no room for, the terrain, the agreement between two survey instruments, and
- * the cautions -- and the order is the argument. A sort by type interleaves
+ * Water's was four groups that mean different things -- the acreage the tab
+ * had no room for, the terrain, the agreement between two survey instruments,
+ * and the cautions -- and the order is the argument. A sort by type interleaves
  * all four and the reader is left to work out which figure belongs to which
  * question. There was no field that could say "these three go together and
  * come first".
+ *
+ * WATER HAS MIGRATED, AND ITS FOUR GROUPS BECAME TWO UNLABELLED RUNS -- which
+ * is the finding this note should be read with. What the groups were carrying
+ * was ORDER and a RULE BETWEEN THE RUNS, and the format carries both: rows
+ * render in declared order and PANEL_BREAK draws the rule. The LABELS turned
+ * out to be the part that was not load-bearing, because the runs say what they
+ * are ("water delivery", "median slope %" / "production overlap %", "also
+ * excavated 2"). So the schema gap this note records was real and the fix was
+ * not a labelled group; it was declared order plus a break, which is what
+ * panelFormat gives every step. Trees is where an optional break LABEL may
+ * still be earned -- its MARGINAL BENEFITS heading is a claim the rows under
+ * it do not make themselves.
  *
  * WHAT THE GROUP DOES NOT DO IS RE-SORT. Inside a group the fields render in
  * DECLARED order, and a measured field and a prose one may sit next to each
