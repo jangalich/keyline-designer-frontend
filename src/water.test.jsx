@@ -60,11 +60,8 @@ import {
   isBreak,
   panelBody,
 } from './wizard/shell/panelFormat.js'
-import TabStrip, {
-  COLLAPSED_TAB_CAP,
-  collapsedTabs,
-  selectionAfterCheck,
-} from './wizard/shell/TabStrip.jsx'
+import TabStrip, { COLLAPSED_TAB_CAP, collapsedTabs } from './wizard/shell/TabStrip.jsx'
+import { selectionAfterCheck, selectionFollowingFocus } from './wizard/tabs.js'
 import { LANDFORM_STEP } from './wizard/stepDefinitions'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
@@ -3145,9 +3142,13 @@ describe('the scales block', () => {
       expect(context).not.toMatch(/score|suitability/i)
     }
 
-    // AND EVERY SCALE READ IS AN INDEX INTO THE PAYLOAD'S OWN BLOCK.
+    // AND EVERY SCALE READ IS AN INDEX INTO THE PAYLOAD'S OWN BLOCK. The
+    // denominator reads THREE spellings now -- landform's top-level `range`,
+    // water's `<quantity>.max`, roads' `<quantity>.range[1]` -- and the step
+    // names its own scored quantity rather than the reader knowing water's.
     expect(code).toContain('scales?.suitability?.parcel_observed_max?.[surveyType]')
-    expect(code).toContain('scales?.range?.[1] ?? scales?.suitability?.max')
+    expect(code).toContain("scales?.range?.[1] ?? entry?.range?.[1] ?? entry?.max")
+    expect(code).toContain("scoreDenominator(proposals, 'suitability')")
     expect(code).toMatch(/if \(score == null \|\| !scales\?\.bands\) return null/)
   })
 })
@@ -3725,7 +3726,22 @@ describe('the tab body focuses without choosing, unless the step says otherwise'
     })
   }
 
-  it('is the roads step that declares otherwise, and only it', async () => {
+  /**
+   * AND THE ONE STEP THAT DECLARES OTHERWISE DECLARES IT ON THE STEP, NOT IN
+   * THE STRIP -- which is the correction this branch makes and the reason
+   * this case can no longer be asked of a strip on its own.
+   *
+   * The strip used to implement the collapse in its own click handler, so a
+   * TabStrip over roads' payload was enough to see it. It was also the reason
+   * the other two paths that move a focus -- an access-point marker, the
+   * generate that focuses the network it has just routed -- moved the map and
+   * the panel while leaving the tick behind. The rule is the CURSOR's now
+   * (WizardCursor's focusFeature), so what this harness can still see is the
+   * half that is the strip's: the body FOCUSES, on every step alike, and
+   * writes no selection of its own. roads.test.jsx section 5b is where the
+   * other half is asked, of all three paths at once and over a real store.
+   */
+  it('is the roads step that declares otherwise, and the strip still only focuses', async () => {
     const roads = STEP_DEFINITIONS.filter((d) => d.selection.follows === 'focus')
     expect(roads.map((d) => d.id)).toEqual(['roads'])
 
@@ -3733,16 +3749,45 @@ describe('the tab body focuses without choosing, unless the step says otherwise'
     const proposals = CHECKBOX_PAYLOADS.roads
     const ui = await renderStrip(definition, proposals, ['a-trunk', 'a-spur'])
 
+    // THE BODY FOCUSES, AND THAT IS ALL IT DOES HERE. This harness has no
+    // document behind it, so the cursor sits on a step that declares
+    // `follows: null` and applies nothing -- which is exactly what makes the
+    // absence of a strip-level write visible.
     await ui.click('tab-focus-net-b')
     expect(ui.focused).toBe('net-b')
-    expect([...ui.selection].sort()).toEqual(['b-trunk'])
-    expect(ui.find('tab-net-a').getAttribute('data-checked')).toBe('false')
-    expect(ui.find('tab-net-b').getAttribute('data-checked')).toBe('true')
+    expect([...ui.selection].sort()).toEqual(['a-spur', 'a-trunk'])
 
+    // AND CLICKING THE FOCUSED TAB LETS GO OF IT -- one rule, the same one
+    // every other step's body follows.
     await ui.click('tab-focus-net-b')
     expect(ui.focused).toBeNull()
-    expect(ui.selection).toEqual([])
 
     await ui.unmount()
+  })
+
+  /**
+   * THE RULE ITSELF, AS A FUNCTION, WHICH IS WHERE `follows: 'focus'` NOW
+   * LIVES IN FULL. Three cases, and they are the three the strip used to
+   * branch on -- reached here by arithmetic rather than by a handler.
+   */
+  it('turns a focus into a whole radio selection, with no un-tick step', () => {
+    const tabs = STEP_DEFINITIONS.find((d) => d.id === 'roads').tabs({
+      proposals: CHECKBOX_PAYLOADS.roads,
+      draft: { selectedFeatureIds: ['a-trunk', 'a-spur'], drawnFeatures: [], inputs: {} },
+    })
+
+    // FOCUSED -> THAT TAB'S FEATURES, AND NOTHING ELSE. The others are out by
+    // absence; there is no step that removes them.
+    expect(selectionFollowingFocus(tabs, 'net-a').sort()).toEqual(['a-spur', 'a-trunk'])
+    expect(selectionFollowingFocus(tabs, 'net-b')).toEqual(['b-trunk'])
+    // A BRANCH FOCUSES ITS NETWORK, so clicking a line on the map and
+    // clicking its tab are one act.
+    expect(selectionFollowingFocus(tabs, 'b-trunk')).toEqual(['b-trunk'])
+    // NOTHING FOCUSED -> THE LEGAL EMPTY COMMIT.
+    expect(selectionFollowingFocus(tabs, null)).toEqual([])
+    // AND A TAB WITH NO CHECKBOX SELECTS NOTHING -- never its own id, which
+    // is a network id and not a feature the commit could carry.
+    const boxless = [{ id: 'net-c', name: 'Road Network 3', featureIds: [], rows: [] }]
+    expect(selectionFollowingFocus(boxless, 'net-c')).toEqual([])
   })
 })

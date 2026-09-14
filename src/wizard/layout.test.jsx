@@ -1262,10 +1262,21 @@ describeIf('the shared panel format, in a real engine', () => {
    * WRAPPING, on more than one line. A panel that clipped its labels, or
    * shrank the font, or truncated with an ellipsis would pass the first and
    * fail the reader.
+   *
+   * ASKED OF TWO PANELS, because the claim is about the FORMAT and not about
+   * water. Block 3 carries water's rows; Road Network 1 carries roads', whose
+   * "crosses production block ft" is its own longest and does not fit beside a
+   * 6ch figure either. A track that wrapped one and scrolled under the other
+   * would be one step's luck rather than a rule, and the next step to ship a
+   * long label would find out the hard way.
    */
-  it('wraps a long label instead of scrolling the panel sideways', async () => {
+  for (const [tabId, of] of [
+    ['production-area-3', "water's rows"],
+    ['road-network-1', "roads' rows"],
+  ])
+  it(`wraps a long label instead of scrolling the panel sideways: ${of}`, async () => {
     const ui = await openHarness({ format: 1 })
-    await openBlock(ui, 'production-area-3')
+    await openBlock(ui, tabId)
 
     const measured = await ui.page.evaluate(() => {
       const rows = document.querySelector('[data-testid^="detail-rows-"]')
@@ -1291,7 +1302,7 @@ describeIf('the shared panel format, in a real engine', () => {
 
     // eslint-disable-next-line no-console
     console.log(
-      `    panel  wrap: rows ${measured.rowsScroll}/${measured.rowsClient}  ` +
+      `    panel  wrap (${of}): rows ${measured.rowsScroll}/${measured.rowsClient}  ` +
         `panel ${measured.panelScroll}/${measured.panelClient}  ` +
         `"${measured.longestText}" ${measured.longestHeight.toFixed(1)}px ` +
         `against a single line of ${measured.oneLine.toFixed(1)}px`

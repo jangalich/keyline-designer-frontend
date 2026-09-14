@@ -423,6 +423,21 @@ const FORMAT_TABS = [
       { value: measure(100), label: 'score', denominator: 100 },
     ],
   },
+  {
+    // ROADS' OWN TAB, and it is here for its LABELS rather than for its step.
+    // "crosses production block ft" is the longest label the shipped panels
+    // carry after water's, and the label track has to wrap it the same way.
+    // Four tabs is still one row (TAB_COLUMNS), so nothing about the strip's
+    // geometry changes by its being here.
+    id: 'road-network-1',
+    name: 'Road Network 1',
+    checkbox: true,
+    selected: true,
+    rows: [
+      { value: measure(3.4), label: 'acres served' },
+      { value: measure(61, 0), label: 'score', denominator: 100 },
+    ],
+  },
 ]
 
 const FORMAT_ROWS = {
@@ -447,6 +462,21 @@ const FORMAT_ROWS = {
     PANEL_BREAK,
     measuredRow(measure(0.1), 'production overlap %'),
     measuredRow(measure(60.0), 'shared ground w/ Excavated 2 %'),
+  ],
+  /* Road Network 1: ROADS' PANEL, VERBATIM -- ROADS_STEP.detail's rows over
+     the fixture figures. Its own long label is "crosses production block ft",
+     which does not fit beside a 6ch figure in a 15rem panel either, so it is
+     held to the same wrap as water's. TWO STEPS' WORTH OF LONG LABELS IN THE
+     HARNESS, because the claim the track makes is about the FORMAT: a panel
+     that wrapped water's rows and scrolled under roads' would be one step's
+     luck rather than a rule. */
+  'road-network-1': [
+    measuredRow(measure(1340, 0), 'length ft'),
+    measuredRow(measure(4.2), 'avg grade %'),
+    measuredRow(measure(9.8), 'max grade %'),
+    PANEL_BREAK,
+    measuredRow(measure(85, 0), 'crosses production block ft'),
+    measuredRow(measure(120, 0), 'crosses canopy ft'),
   ],
   // Block 2: the long categorical, and both flags absent -- the two em dashes
   // that are NOT the pending rows.

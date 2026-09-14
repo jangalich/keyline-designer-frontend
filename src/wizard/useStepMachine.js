@@ -254,6 +254,51 @@ function seedSelection(definition, proposalFeatures) {
  * machine state, what it may do next, the per-feature rejections, and the
  * three actions. The definition is the only thing that differs between calls.
  */
+/**
+ * A STEP'S CONTEXT, BUILT FROM THE STORE ALONE.
+ *
+ * WHAT A CONTEXT IS: everything a step's own declarations are evaluated
+ * against -- `tabs()`, `detail()`, `notices()`, a button's `enabled`, a
+ * commit's `canCommit`. The machine below builds one per render and hands it
+ * to the chrome, and for a long time that was the only caller, so the object
+ * was simply an inline literal in there.
+ *
+ * IT HAS A SECOND CALLER NOW, AND THAT IS WHY IT IS A FUNCTION. WizardCursor
+ * applies `selection: { follows: 'focus' }` to every focus move, which means
+ * asking the cursor step's own `tabs()` which features the focused one stands
+ * for -- and the answer has to be computed against the state the STORE has
+ * when the write lands, not the state the cursor rendered with. A second
+ * literal over there would be a second spelling of "what a step is evaluated
+ * against", and the first thing a step added to one and not the other would
+ * be an undefined read in whichever half was forgotten.
+ *
+ * PURE, AND DERIVED FROM (state, definition) AND NOTHING ELSE. No hooks, no
+ * memo, no ref: every field is a selector over the state handed in, so the
+ * same pair gives the same context wherever it is called from.
+ */
+export function stepContextFor(state, definition) {
+  const stepId = definition.id
+  const draft = selectDraft(state, stepId)
+  const proposals = selectStepProposals(state, stepId)
+  const selectedCount = draft.selectedFeatureIds.length
+  return {
+    stepId,
+    // THE DEFINITION RIDES THE CONTEXT, so a commit assembled from the
+    // declared inputs (stepDefinitions' commitInputsFor) can read them
+    // without the definition's own closure -- the factory's default run()
+    // is written once for every document-backed step.
+    definition,
+    state,
+    draft,
+    proposals,
+    proposalFeatures: definition.proposalFeatures(proposals),
+    selectedCount,
+    drawnCount: draft.drawnFeatures.length,
+    committableCount: selectedCount,
+    baseRevision: selectBaseRevision(state, stepId),
+  }
+}
+
 export function useStepMachine(definition) {
   const { state, actions } = useSession()
   const stepId = definition.id
@@ -402,22 +447,12 @@ export function useStepMachine(definition) {
   const drawnCount = draft.drawnFeatures.length
 
   const context = useMemo(
-    () => ({
-      stepId,
-      // THE DEFINITION RIDES THE CONTEXT, so a commit assembled from the
-      // declared inputs (stepDefinitions' commitInputsFor) can read them
-      // without the definition's own closure -- the factory's default run()
-      // is written once for every document-backed step.
-      definition,
-      state,
-      draft,
-      proposals,
-      proposalFeatures,
-      selectedCount,
-      drawnCount,
-      committableCount: selectedCount,
-      baseRevision: selectBaseRevision(state, stepId),
-    }),
+    () => stepContextFor(state, definition),
+    // The fields rather than the built object: every one of them is derived
+    // from this pair, and depending on the pair alone is what stepContextFor
+    // says out loud. Listed so the memo still skips a store write that
+    // changed nothing this step reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [stepId, definition, state, draft, proposals, proposalFeatures, selectedCount, drawnCount]
   )
 
