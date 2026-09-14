@@ -2963,14 +2963,20 @@ export const WATER_STEP = documentStep({
    * says the other thing about acreage two rows down -- see `contributing
    * acres` in detail() below.
    *
-   * "SURVEY ACRES", NOT "ACRES", AND THE PANEL IS WHY. These two rows are the
-   * panel's first two, repeated verbatim (panelFormat rule 2), and the panel
-   * carries a SECOND acreage below the break. "acres" over "contributing
-   * acres" is two rows a reader has to hold apart by position; "survey acres"
-   * over "contributing acres" is two rows that say which is which. The strip
-   * pays a word for it, and a word is what the strip has -- production's tab
-   * says "acres" because production has one acreage and nothing to tell it
-   * from.
+   * "ACRES" ON THE STRIP AND "SURVEY ACRES" IN THE PANEL, off this one row.
+   * `qualifier: 'survey'` is the second thing panelFormat adds to a tab row's
+   * label, beside the denominator, and for the same reason -- see qualified().
+   *
+   * THE PANEL NEEDS THE WORD AND THE STRIP DOES NOT. These two rows are the
+   * panel's first two, repeated verbatim (rule 2), and the panel carries a
+   * SECOND acreage below the break: "acres" over "contributing acres" is two
+   * rows a reader has to hold apart by position. The strip shows ONE acreage
+   * per tab, is read across candidates rather than down a panel, and has a
+   * cell 6ch wide in which every character competes with the figures. So the
+   * disambiguating word lives where the ambiguity is.
+   *
+   * IT WAS "survey acres" IN BOTH PLACES for a revision, which is what having
+   * only one label to declare bought. The qualifier is what buys two.
    *
    * THE SCORE ROW DECLARES A DENOMINATOR AND DOES NOT PRINT ONE. The strip
    * shows "score"; the panel, repeating this same row below its header, shows
@@ -3018,7 +3024,7 @@ export const WATER_STEP = documentStep({
         checkbox: true,
         selected: selected.has(feature.id),
         rows: [
-          { value: measure(feature.properties?.zone_acres), label: 'survey acres' },
+          { value: measure(feature.properties?.zone_acres), label: 'acres', qualifier: 'survey' },
           { value: measure(suitability?.value, SUITABILITY_DP), label: 'score', denominator },
         ],
       }

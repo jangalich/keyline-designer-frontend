@@ -1246,6 +1246,117 @@ describeIf('the shared panel format, in a real engine', () => {
   }, SLOW)
 
   /**
+   * THE PANEL WRAPS ITS LABELS RATHER THAN SCROLLING SIDEWAYS.
+   *
+   * THE FAILURE THIS GUARDS. The label track was `max-content`, on the
+   * reasoning that the labels should never move; a max-content track cannot
+   * shrink, so a label wider than the room beside the number track pushed the
+   * GRID wider than the card. The panel is a fixed 15rem, so what the reader
+   * got was a horizontal scrollbar under a column of figures. Water's own rows
+   * are where it showed -- "contributing acres at dam site" and "shared ground
+   * w/ Excavated 2 %" are both too wide -- and Block 3 in the harness carries
+   * exactly those.
+   *
+   * TWO THINGS ARE ASSERTED AND THE SECOND IS WHY THE FIRST IS NOT ENOUGH.
+   * The body must not overflow horizontally; and a long label must actually be
+   * WRAPPING, on more than one line. A panel that clipped its labels, or
+   * shrank the font, or truncated with an ellipsis would pass the first and
+   * fail the reader.
+   */
+  it('wraps a long label instead of scrolling the panel sideways', async () => {
+    const ui = await openHarness({ format: 1 })
+    await openBlock(ui, 'production-area-3')
+
+    const measured = await ui.page.evaluate(() => {
+      const rows = document.querySelector('[data-testid^="detail-rows-"]')
+      const panel = document.querySelector('[data-testid^="detail-"]').closest('.chrome-detail')
+      const labels = [...rows.querySelectorAll('.chrome-detail__row-label')]
+      const oneLine = Math.min(...labels.map((el) => el.getBoundingClientRect().height))
+      const longest = labels.reduce((a, b) =>
+        b.textContent.length > a.textContent.length ? b : a
+      )
+      return {
+        rowsScroll: rows.scrollWidth,
+        rowsClient: rows.clientWidth,
+        panelScroll: panel.scrollWidth,
+        panelClient: panel.clientWidth,
+        longestText: longest.textContent,
+        longestHeight: longest.getBoundingClientRect().height,
+        oneLine,
+        // The figure a wrapped label belongs to must still sit on the first
+        // line of it, which is what `align-items: baseline` is for.
+        figureTop: rows.querySelector('.chrome-detail__figure')?.getBoundingClientRect().top,
+      }
+    })
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `    panel  wrap: rows ${measured.rowsScroll}/${measured.rowsClient}  ` +
+        `panel ${measured.panelScroll}/${measured.panelClient}  ` +
+        `"${measured.longestText}" ${measured.longestHeight.toFixed(1)}px ` +
+        `against a single line of ${measured.oneLine.toFixed(1)}px`
+    )
+
+    // NO HORIZONTAL OVERFLOW, on the grid or on the card around it. A pixel of
+    // tolerance for the browser's own subpixel rounding, not for a label.
+    expect(
+      measured.rowsScroll,
+      'the row grid must not be wider than the panel it sits in'
+    ).toBeLessThanOrEqual(measured.rowsClient + 1)
+    expect(
+      measured.panelScroll,
+      'the panel must not scroll sideways'
+    ).toBeLessThanOrEqual(measured.panelClient + 1)
+
+    // AND THE LONG LABEL IS ON MORE THAN ONE LINE, which is what says it
+    // wrapped rather than being clipped or shrunk to fit.
+    expect(measured.longestHeight, `"${measured.longestText}" wraps`).toBeGreaterThan(
+      measured.oneLine * 1.5
+    )
+
+    await ui.close()
+  }, SLOW)
+
+  /**
+   * THE STRIP SAYS "acres" AND THE PANEL SAYS "survey acres", off ONE row.
+   *
+   * The same split the denominator makes, on a different kind of word -- see
+   * panelFormat's qualified(). What is asserted here is the pair, RENDERED,
+   * because the whole point of declaring it once is that the two surfaces
+   * cannot come to disagree, and only a rendered check can see both.
+   */
+  it('adds the qualifier in the panel and leaves the strip without it', async () => {
+    const ui = await openHarness({ format: 1 })
+    await openBlock(ui, 'production-area-3')
+
+    const rendered = await ui.page.evaluate(() => {
+      const tab = document.querySelector('[data-testid="tab-production-area-3"]')
+      const rows = document.querySelector('[data-testid^="detail-rows-"]')
+      return {
+        tabLabels: [...tab.querySelectorAll('.chrome-tab__label')].map((n) => n.textContent.trim()),
+        panelLabels: [...rows.querySelectorAll('.chrome-detail__row-label')].map((n) =>
+          n.textContent.trim()
+        ),
+      }
+    })
+
+    // eslint-disable-next-line no-console
+    console.log(`    panel  qualifier: tab ${JSON.stringify(rendered.tabLabels)}`)
+
+    expect(rendered.tabLabels).toContain('acres')
+    expect(rendered.tabLabels).not.toContain('survey acres')
+    expect(rendered.panelLabels).toContain('survey acres')
+    expect(rendered.panelLabels).not.toContain('acres')
+
+    // AND THE STRIP'S LABEL IS A SUFFIX OF THE PANEL'S, which is the property
+    // that keeps "verbatim" true of the row: the panel prefixes, it never
+    // rewords.
+    expect('survey acres'.endsWith('acres')).toBe(true)
+
+    await ui.close()
+  }, SLOW)
+
+  /**
    * EVERYTHING BELOW THE HEADER IS LOWER CASE, AND THE HEADER IS NOT. Asserted
    * on what the browser RENDERS, not on the strings -- the rule is a
    * text-transform precisely so that a backend label is never reworded.

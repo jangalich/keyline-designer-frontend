@@ -64,7 +64,7 @@ import {
   registryProposalFeatures,
   stepButton,
 } from './stepDefinitions'
-import { EM_DASH, categoricalRow, measuredRow } from './shell/panelFormat.js'
+import { EM_DASH, PANEL_BREAK, categoricalRow, measuredRow } from './shell/panelFormat.js'
 import {
   PIN_GLYPH_PATH,
   buildZonePattern,
@@ -401,6 +401,19 @@ const FORMAT_TABS = [
     ],
   },
   {
+    id: 'production-area-3',
+    name: 'Block 3',
+    checkbox: true,
+    selected: true,
+    rows: [
+      // THE STRIP SAYS "acres" AND THE PANEL SAYS "survey acres", off this one
+      // row -- panelFormat.qualified(), the same one-declaration-two-renderings
+      // the denominator below uses. Water's own tab is where this came from.
+      { value: measure(0.6), label: 'acres', qualifier: 'survey' },
+      { value: measure(52), label: 'score', denominator: 100 },
+    ],
+  },
+  {
     id: 'production-area-2',
     name: 'Block 2',
     checkbox: true,
@@ -420,6 +433,20 @@ const FORMAT_ROWS = {
     measuredRow(measure(3.2), 'median slope %'),
     categoricalRow(EM_DASH, 'soil'),
     categoricalRow(EM_DASH, 'drainage class'),
+  ],
+  /* Block 3: THE LONG LABELS, which are water's own and are the case the label
+     track has to wrap for. "contributing acres at dam site" and "shared ground
+     w/ Excavated 2 %" do not fit a 15rem panel beside a 6ch number track, and
+     a label track that refuses to wrap pushes the grid wider than the card and
+     makes the panel scroll sideways. */
+  'production-area-3': [
+    categoricalRow('gravity feed', 'water delivery'),
+    measuredRow(measure(2.4), 'contributing acres'),
+    measuredRow(measure(31.2), 'contributing acres at dam site'),
+    measuredRow(measure(4.0), 'median slope %'),
+    PANEL_BREAK,
+    measuredRow(measure(0.1), 'production overlap %'),
+    measuredRow(measure(60.0), 'shared ground w/ Excavated 2 %'),
   ],
   // Block 2: the long categorical, and both flags absent -- the two em dashes
   // that are NOT the pending rows.

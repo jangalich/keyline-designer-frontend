@@ -1103,7 +1103,10 @@
                                   lines up with the same figure in the tab that
                                   opened the panel.
      2  minmax(0, 1fr)            SLACK, for a categorical to run into.
-     3  max-content               THE LABELS, and they never move.
+     3  minmax(0, max-content)    THE LABELS. They never move LEFT -- the
+                                  track still sizes to the longest label when
+                                  there is room -- but they WRAP when there is
+                                  not, which is what the 0 floor buys.
 
    A CATEGORICAL SPANS 1 AND 2 and is left-aligned in them -- "south facing"
    starts exactly where "4.0" starts, which is rule 4 of the format, WITHOUT
@@ -1121,10 +1124,29 @@
    leaves the words alone.
 
    THE HEADER IS THE ONLY CAPITALISED LINE, which this rule is what makes true
-   -- .chrome-detail__name sits outside .chrome-detail__rows and is untouched. */
+   -- .chrome-detail__name sits outside .chrome-detail__rows and is untouched.
+
+   WHY TRACK 3 HAS A ZERO FLOOR, AND WHAT IT WAS BEFORE. It was a bare
+   `max-content`, on the reasoning that the labels should never move. A
+   max-content track cannot shrink, so a label longer than the space left beside
+   the number track pushed the whole GRID wider than the card -- and the panel
+   is a fixed 15rem, so what the reader got was a horizontal scrollbar under a
+   column of figures. Water's own panel is where it showed: "contributing acres
+   at dam site" and "shared ground w/ Excavated 2 %" are both wider than the
+   room beside a 6ch figure.
+
+   THE ZERO FLOOR LETS THE TRACK SHRINK AND THE LABEL WRAP, which is the right
+   trade: a label on two lines is still read left to right in its own column,
+   and the figures it belongs to stay on the baseline of its first line
+   (`align-items: baseline`). A panel that scrolls sideways is not.
+
+   NOTHING ELSE MOVED. The track still takes max-content when there is room, so
+   a short-labelled panel is laid out exactly as before, and the number track's
+   6ch floor is untouched -- the figures still line up with the tab that opened
+   the panel. */
 .chrome-detail__rows {
   display: grid;
-  grid-template-columns: minmax(6ch, max-content) minmax(0, 1fr) max-content;
+  grid-template-columns: minmax(6ch, max-content) minmax(0, 1fr) minmax(0, max-content);
   align-items: baseline;
   gap: var(--space-1) var(--space-2);
   text-transform: lowercase;

@@ -210,6 +210,37 @@ export function denominated(label, denominator) {
 }
 
 /**
+ * A LABEL WITH ITS QUALIFIER ON IT -- "acres" becomes "survey acres".
+ *
+ * THE SECOND THING THE PANEL ADDS, and it is denominated()'s argument applied
+ * to a different kind of word. A row with no `qualifier` passes through
+ * untouched, which is most of them.
+ *
+ * WHY A STEP WOULD WANT ONE. Water's tab carries an acreage and so does its
+ * panel -- but the PANEL carries a second acreage four rows down
+ * ("contributing acres"), and two rows reading "acres" and "contributing
+ * acres" are two a reader has to tell apart by position. The strip has no such
+ * problem: it shows one acreage per tab, is read ACROSS candidates, and every
+ * character in a cell 6ch wide is competing with the figures. So the word that
+ * disambiguates belongs in the panel and nowhere else.
+ *
+ * ONE DECLARATION, TWO RENDERINGS, which is the whole reason this is here and
+ * not a second label on the step. A tab row declaring `label: 'acres',
+ * qualifier: 'survey'` renders "acres" on the strip and "survey acres" in the
+ * panel; a step that wrote both strings would have two to keep in step and
+ * nothing to notice when they part. Exactly the split denominated() makes, and
+ * for the same reason -- see that function.
+ *
+ * IT IS A PREFIX, NOT A REWORDING. The label's own words survive intact and in
+ * order, so "verbatim" stays true of the row in the sense that matters: the
+ * strip's label is a suffix of the panel's, and a reader moving between them
+ * is reading the same noun.
+ */
+export function qualified(label, qualifier) {
+  return qualifier == null ? label : `${qualifier} ${label}`
+}
+
+/**
  * THE SCAN TAB'S ROWS, AS PANEL ROWS. A tab row is `{value, label}` and is
  * MEASURED unless it says otherwise -- a tab is a name and figures. `measured:
  * false` on a tab row carries a categorical across unchanged.
@@ -220,13 +251,17 @@ export function denominated(label, denominator) {
  * when it stops.
  *
  * "VERBATIM" IS ABOUT THE FIGURES AND WHICH ROWS, NOT ABOUT THE LABEL'S EXACT
- * CHARACTERS. The one thing the panel adds is the denominator -- see
- * denominated() for why the strip does not carry it. The value is never
- * touched.
+ * CHARACTERS. The panel adds two things and both are PREFIXES the strip has no
+ * room for: the denominator (denominated()) and the qualifier (qualified()).
+ * The label's own words survive intact and in order under both, so the strip's
+ * label is always a suffix of the panel's. The value is never touched.
  */
 export function tabRowsOf(tab) {
   return (tab?.rows ?? []).map((row) => {
-    const label = denominated(row.label, row.denominator)
+    // BOTH ADDITIONS, QUALIFIER FIRST, so "acres" + survey + /100 would read
+    // "/100 survey acres" -- the denominator outermost, because it qualifies
+    // the whole reading rather than the noun.
+    const label = denominated(qualified(row.label, row.qualifier), row.denominator)
     return row.measured === false
       ? categoricalRow(row.value, label)
       : measuredRow(row.value, label)
