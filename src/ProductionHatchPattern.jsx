@@ -121,19 +121,27 @@ import { readToken } from './geo.js'
  */
 
 /**
- * The pattern id for a declared treatment. ONE PLACE, because layers.jsx
- * builds the same string to point a fill at it and a second spelling would be
- * a fill pointing at nothing -- which SVG renders as no fill at all, silently.
+ * The pattern id for a declared treatment, and for the ONE VARIANT a treatment
+ * can have. ONE PLACE, because layers.jsx builds the same string to point a
+ * fill at it and a second spelling would be a fill pointing at nothing --
+ * which SVG renders as no fill at all, silently.
+ *
+ * `focused` ASKS FOR THE HALOED TILE AND IS ANSWERED ONLY IF THE ROW HAS ONE.
+ * A mark that says focus with opacity has a single def and one id in every
+ * state, so asking for its focused variant hands back the id it always had
+ * rather than a second def nothing injected. See the `halo` field.
  */
-export function patternIdFor(treatment) {
-  return `zone-pattern-${treatment}`
+export function patternIdFor(treatment, focused = false) {
+  return `zone-pattern-${treatment}${focused && haloOf(treatment) ? FOCUS_SUFFIX : ''}`
 }
 
-/**
- * Kept for the drawn-zone rule in App.css, which is the one fill still set
- * from a stylesheet. Production's own pattern, by its id.
- */
-export const HATCH_PATTERN_ID = patternIdFor('production')
+/** What the haloed variant's id is spelled with. */
+const FOCUS_SUFFIX = '--focused'
+
+/** A treatment's halo description, or nothing if its focus is an opacity. */
+function haloOf(treatment) {
+  return TREATMENT_MARKS.find((entry) => entry.treatment === treatment)?.halo ?? null
+}
 
 /**
  * EVERY TREATMENT THIS BUILD DRAWS, and the mark each one gets.
@@ -159,6 +167,18 @@ const TREATMENT_MARKS = [
   // reads against that tint, and downstream the highlight is gone. See
   // the note below hatchTile() for the measurements, the two candidates, and the one
   // thing the screen costs.
+  //
+  // AND A HALO ON EACH RULE AT FOCUS, WHICH IS THE ONLY STATE THAT CHANGES THE
+  // MARK RATHER THAN ITS LEVEL. Read haloTile()'s note before moving any of the
+  // three numbers; the short version is that focus USED to be said by opacity
+  // alone (--pattern-focused against --pattern-active) and that step had been
+  // compressed to 1.33x by the scale raise, with no room left above it. The
+  // halo says it with a second kind of ink instead: the same oxide, spread and
+  // blurred around each individual rule, so the block glows at its own ruling
+  // rather than getting darker as a whole. The CORE comes back down to the
+  // active level with it -- a focused block inks exactly what an active one
+  // does and the glow is the whole of the difference, which is what takes
+  // --pattern-focused off its pin at 1. See index.css and fillLevelFor().
   {
     treatment: 'production',
     kind: 'hatch',
@@ -168,6 +188,7 @@ const TREATMENT_MARKS = [
     screen: 0.12,
     screenToken: '--rule',
     rise: 'up',
+    halo: { spread: 1, width: 1.8, alpha: 0.55 },
   },
   // WATER, EMBANKMENT: a screened tint with an outline.
   //
@@ -488,6 +509,14 @@ const TREATMENT_MARKS = [
 ]
 
 /**
+ * Kept for the drawn-zone rule in App.css, which is the one fill still set
+ * from a stylesheet. Production's own pattern, by its id -- the UNHALOED one,
+ * which is what a stylesheet can name: the variant is a state, and states are
+ * resolved in layers.jsx where the state is known.
+ */
+export const HATCH_PATTERN_ID = patternIdFor('production')
+
+/**
  * THE PIN SILHOUETTE, as an SVG path in a 24x24 viewBox: the classic
  * teardrop the printed map's asset draws (assets/icons/farm_location_pin.svg
  * in the backend repo, whose <path d> this is, verbatim).
@@ -528,7 +557,7 @@ export const PIN_GLYPH_TIP = Object.freeze([12, 22])
  * when the style is built is what keeps a token change one edit rather than
  * one edit plus a reload.
  */
-export function zoneMark(treatment) {
+export function zoneMark(treatment, { focused = false } = {}) {
   const spec = TREATMENT_MARKS.find((entry) => entry.treatment === treatment)
   if (!spec) return null
   if (spec.kind === 'tint') {
@@ -555,7 +584,29 @@ export function zoneMark(treatment) {
       stroke: readToken(spec.token),
     }
   }
-  return { kind: 'pattern', fill: `url(#${patternIdFor(treatment)})`, stroke: null }
+  // A PAINT SERVER, AND WHICH OF ITS TWO THE STATE ASKS FOR. `focused` is the
+  // only thing on this surface that changes a mark rather than its level, and
+  // it changes exactly one row -- see the `halo` field and focusIsAHalo().
+  return {
+    kind: 'pattern',
+    fill: `url(#${patternIdFor(treatment, focused)})`,
+    stroke: null,
+    focus: spec.halo ? 'halo' : 'level',
+  }
+}
+
+/**
+ * DOES THIS MARK SAY FOCUS WITH A HALO RATHER THAN WITH MORE INK?
+ *
+ * A PREDICATE ON THE MARK, like marksItsOwnEdge(), and for the same reason:
+ * layers.jsx asks the mark what it is rather than carrying a list of which
+ * treatments are special. Two things follow from a true answer, and they are
+ * one decision -- the fill points at the haloed tile, and the fill's LEVEL
+ * comes down to the active one, because a halo that arrived on top of a raised
+ * opacity would be saying focus twice and spending the scale anyway.
+ */
+export function focusIsAHalo(mark) {
+  return mark?.focus === 'halo'
 }
 
 /**
@@ -683,25 +734,137 @@ function screenNode(spec, colour) {
   return screen
 }
 
-function hatchTile(spec, colour) {
+/**
+ * THE RULING'S PATH, AND HOW FAR PAST THE TILE'S CORNERS IT RUNS.
+ *
+ * `reach` is the length of the two corner stubs. A <pattern> clips at the tile
+ * edge, so the stubs exist to complete the two corners the main diagonal
+ * misses and the strokes then join across tile edges into continuous rules. A
+ * 1px stub is enough for a 1px rule and NOT enough for a blurred one: a halo
+ * spilling past a corner is clipped with it, and what the eye sees is a rule
+ * that beads -- lit along each tile and dark at every 8px join. The haloed tile
+ * asks for a longer stub so each tile draws the glow its neighbour's clipped
+ * line would have contributed; see haloTile().
+ */
+function rulingPath(spec, reach) {
   const size = spec.spacing
-  const line = document.createElementNS(SVG_NS, 'path')
   // Written for 'up' and reflected in y for 'down' -- the mirror is the whole
   // of the difference between the two marks, so it is one expression.
   const y = (value) => (spec.rise === 'down' ? size - value : value)
-  line.setAttribute(
-    'd',
+  return (
     `M0,${y(size)} L${size},${y(0)} ` +
-      `M-1,${y(1)} L1,${y(-1)} ` +
-      `M${size - 1},${y(size + 1)} L${size + 1},${y(size - 1)}`
+    `M${-reach},${y(reach)} L${reach},${y(-reach)} ` +
+    `M${size - reach},${y(size + reach)} L${size + reach},${y(size - reach)}`
   )
+}
+
+function hatchTile(spec, colour, options = {}) {
+  const halo = options.focused ? spec.halo : null
+  const line = document.createElementNS(SVG_NS, 'path')
+  line.setAttribute('d', rulingPath(spec, halo ? HALO_STUB_REACH : 1))
   line.setAttribute('stroke', colour)
   line.setAttribute('stroke-width', String(spec.weight))
   line.setAttribute('stroke-linecap', 'square')
   line.setAttribute('fill', 'none')
-  // THE SCREEN FIRST, SO THE RULING SITS ON IT. See screenNode().
+  // THE SCREEN FIRST, SO THE RULING SITS ON IT. See screenNode(). The halo
+  // goes between the two: it is a light around the ruling, not a wash under
+  // the block, so it belongs over the ground and under the ink it lights.
   const screen = screenNode(spec, colour)
-  return screen ? [screen, line] : [line]
+  return [screen, ...haloTile(spec, colour, halo, options.id), line].filter(Boolean)
+}
+
+/** How far past a corner a haloed rule runs. Three sigma of the widest halo
+ *  this file carries, rounded up: past it the glow has nothing left to clip. */
+const HALO_STUB_REACH = 3
+
+/**
+ * THE HALO: THE SAME RULE, WIDER, SOFTER, AND UNDER THE ONE THE READER SEES.
+ *
+ * WHAT IT IS FOR. Focus used to be said by opacity alone, and index.css has
+ * the arithmetic: --pattern-focused is pinned at 1, so raising the rest of the
+ * scale to 0.55/0.75/1 left focused/active at 1.33x, down from 1.82x, with
+ * nothing above it to spend. A halo says focus with a SECOND KIND OF INK
+ * instead of more of the first, so the step does not come out of the scale at
+ * all -- and the core can come back down to the active level, which is what
+ * takes --pattern-focused off its pin. fillLevelFor() in layers.jsx is where
+ * that drop happens; this is only the mark.
+ *
+ * THE THREE NUMBERS, AND THE TWO THAT BOUND THEM.
+ *
+ *   spread  the blur's sigma, in tile units. The glow's softness.
+ *   width   the stroke the blur is applied to, against the rule's own 1px.
+ *   alpha   how strong that stroke is before it is blurred.
+ *
+ * The rules are 5.66px apart perpendicular (8 / sqrt 2), and everything the
+ * halo can get wrong is a consequence of that one number. Two measures bound
+ * it, both swept in layout.test.jsx:
+ *
+ *   GLOW INK, alpha * width / 5.66 -- the halo averaged over the whole block.
+ *   Blur conserves ink, so this is exact rather than measured, and past about
+ *   0.12 the halo has become a WASH in its own right: production's neutral
+ *   screen sits at 0.12, and a rust wash at the same weight over a block is a
+ *   different statement about the land than ruled ground is.
+ *
+ *   CLOSURE, how much of the halo's peak is still lit midway between two
+ *   rules. 0 is open ground and 1 is a closed wash; past about 0.2 the gaps
+ *   have filled in and the hatch has stopped being a hatch.
+ *
+ *                       glow ink   closure
+ *   0.5 / 1.2 / 0.35      0.074      0.00     barely a halo
+ *   1.0 / 1.8 / 0.55      0.175      0.08     SHIPPED
+ *   1.6 / 2.8 / 0.70      0.346      0.58     closes to a rust wash
+ *
+ * THE SHIPPED ROW IS OVER THE 0.12 WASH BOUND AND WELL UNDER THE CLOSURE ONE,
+ * and that is the trade, made by looking: at 0.074 the halo is present in a
+ * measurement and absent to a reader at whole-parcel size, which is the same
+ * failure the opacity step had. What keeps 0.175 from reading as a wash is
+ * that it is not laid flat -- it is concentrated on the ruling, with the
+ * ground between rules still at a twelfth of the peak, so the block reads as
+ * lit ruling rather than as tinted ground. The closure number is the one that
+ * says so, and it is the one to watch when moving any of the three.
+ *
+ * AND IT IS NOT THE CASING THAT WAS REVERTED. See hatchTile()'s note above:
+ * that was a 2px WHITE stroke beside a 1px oxide one at the same pitch, which
+ * is alternating bands of white and rust -- a candy cane. This is oxide on
+ * oxide with no hard edge of its own, so there is no second colour to
+ * alternate with, and it is on ONE zone at a time rather than on every block
+ * the map carries.
+ *
+ * THE FILTER LIVES INSIDE THE PATTERN, and its id is the pattern's own. A
+ * <filter> is never rendered where it sits, only referenced, so putting it in
+ * the tile costs nothing and buys the one thing the layout harness needs: it
+ * clones a <pattern> into a swatch's own <defs> to measure it, and a filter
+ * left behind in the map's host would leave that clone pointing at nothing --
+ * an unblurred 1.8px stroke wearing the halo's name, measured and reported.
+ */
+function haloTile(spec, colour, halo, id) {
+  if (!halo) return []
+  const filter = document.createElementNS(SVG_NS, 'filter')
+  filter.setAttribute('id', `${id}-glow`)
+  // The glow reaches well past the stroke it is applied to, and a filter
+  // region is a fraction of the filtered object's box -- so it is opened up
+  // rather than left at the -10% default, which would clip the halo square.
+  filter.setAttribute('x', '-100%')
+  filter.setAttribute('y', '-100%')
+  filter.setAttribute('width', '300%')
+  filter.setAttribute('height', '300%')
+  const blur = document.createElementNS(SVG_NS, 'feGaussianBlur')
+  blur.setAttribute('stdDeviation', String(halo.spread))
+  filter.appendChild(blur)
+
+  const glow = document.createElementNS(SVG_NS, 'path')
+  glow.setAttribute('d', rulingPath(spec, HALO_STUB_REACH))
+  glow.setAttribute('stroke', colour)
+  glow.setAttribute('stroke-width', String(halo.width))
+  glow.setAttribute('stroke-opacity', String(halo.alpha))
+  glow.setAttribute('stroke-linecap', 'square')
+  glow.setAttribute('fill', 'none')
+  glow.setAttribute('filter', `url(#${id}-glow)`)
+  // Named on the node for the same reason the screen is: the harness lifts it
+  // back off to measure what the halo is worth, and finds it by name rather
+  // than by position.
+  glow.dataset.pass = 'halo'
+  return [filter, glow]
 }
 
 /**
@@ -861,7 +1024,11 @@ function hatchTile(spec, colour) {
  * NO PER-DOT CASING, which is the whole reason the previous stipple is gone.
  * See the docblock.
  */
-function stippleTile(spec, colour) {
+// `options` is hatchTile's -- the variant and the id it is being built under.
+// A stipple has no variant: its focus is an opacity like every other mark's,
+// so it takes the argument and ignores it rather than having a second shape.
+// eslint-disable-next-line no-unused-vars
+function stippleTile(spec, colour, options = {}) {
   const cell = spec.tile / spec.grid
   const nodes = []
   // THE SCREEN, FIRST IN THE TILE SO THE DOTS SIT ON IT -- in --halo, the white
@@ -930,7 +1097,7 @@ function tileSizeOf(spec) {
  * read here rather than written by the caller, so a candidate cannot introduce
  * a colour literal either.
  */
-export function buildZonePattern(spec, id) {
+export function buildZonePattern(spec, id, { focused = false } = {}) {
   const buildTile = TILE_BUILDERS[spec.kind]
   if (!buildTile) return null
   const size = tileSizeOf(spec)
@@ -941,7 +1108,7 @@ export function buildZonePattern(spec, id) {
   pattern.setAttribute('height', String(size))
   // The colours on this surface are the only ones not set from a stylesheet,
   // so they are read from their tokens rather than written as literals.
-  for (const mark of buildTile(spec, readToken(spec.token))) pattern.appendChild(mark)
+  for (const mark of buildTile(spec, readToken(spec.token), { id, focused })) pattern.appendChild(mark)
   return pattern
 }
 
@@ -975,6 +1142,15 @@ export function injectZonePatterns(container) {
   for (const spec of TREATMENT_MARKS) {
     const pattern = buildZonePattern(spec, patternIdFor(spec.treatment))
     if (pattern) defs.appendChild(pattern)
+    // A SECOND DEF ONLY FOR A ROW THAT SAYS FOCUS WITH A HALO, and it is a
+    // whole tile rather than a modifier on the first: a paint server is
+    // pointed at, not adjusted, so the focused zone's fill names the haloed
+    // tile and every other state keeps the one above. A row without a halo
+    // injects nothing here and its focused zones point at the tile they
+    // always did.
+    if (!spec.halo) continue
+    const haloed = buildZonePattern(spec, patternIdFor(spec.treatment, true), { focused: true })
+    if (haloed) defs.appendChild(haloed)
   }
 
   container.appendChild(host)

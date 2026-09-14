@@ -1537,6 +1537,95 @@ describe('one pattern per step, three levels per pattern', () => {
     }
   })
 
+  it('injects the haloed tile whole, with its blur inside it', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const teardown = injectZonePatterns(host)
+
+    const plain = host.querySelector(`#${patternIdFor('production')}`)
+    const haloed = host.querySelector(`#${patternIdFor('production', true)}`)
+    expect(plain, 'the hatch every other state points at').not.toBeNull()
+    expect(haloed, 'and the one a focused zone points at').not.toBeNull()
+
+    // THE HALO IS A PASS OF ITS OWN, NAMED, in the mark's own colour and under
+    // the ruling it lights -- a casing in a SECOND colour is what read as a
+    // candy cane, and the ruling on top is what keeps the rule crisp.
+    const passes = [...haloed.children].map((node) => node.tagName.toLowerCase())
+    expect(passes).toEqual(['rect', 'filter', 'path', 'path'])
+    const glow = haloed.querySelector('[data-pass="halo"]')
+    const ruling = [...haloed.querySelectorAll('path')].at(-1)
+    expect(glow.getAttribute('stroke')).toBe(ruling.getAttribute('stroke'))
+    expect(Number(glow.getAttribute('stroke-width'))).toBeGreaterThan(
+      Number(ruling.getAttribute('stroke-width'))
+    )
+    expect(Number(glow.getAttribute('stroke-opacity'))).toBeLessThan(1)
+    // AND THE PLAIN TILE CARRIES NO GLOW: the halo is the focused state, not
+    // the mark, so a committed block is the hatch it always was.
+    expect(plain.querySelector('[data-pass="halo"]')).toBeNull()
+
+    // THE BLUR LIVES INSIDE THE TILE, AND THAT IS LOAD-BEARING RATHER THAN
+    // TIDY. The layout harness measures a pattern by CLONING it into a
+    // swatch's own defs; a filter left behind in the map's host would leave
+    // that clone pointing at nothing, and SVG draws a filtered element with an
+    // unresolvable filter as NOTHING AT ALL -- a halo that measured as absent
+    // while looking right on the map, or the reverse. Cloning the tile has to
+    // carry the blur with it.
+    const filterId = glow.getAttribute('filter').match(/^url\(#(.+)\)$/)[1]
+    expect(haloed.querySelector(`#${CSS.escape(filterId)}`)).not.toBeNull()
+    expect(haloed.querySelector('filter feGaussianBlur')).not.toBeNull()
+
+    teardown()
+    expect(document.querySelector(`#${patternIdFor('production', true)}`)).toBeNull()
+  })
+
+  it('says a focused production zone with a halo, at the active level', () => {
+    const active = styleFor({ treatment: 'production', colors: COLORS })
+    const focused = styleFor({ treatment: 'production', isFocused: true, colors: COLORS })
+    const committedFocused = styleFor({
+      treatment: 'production',
+      isCommitted: true,
+      isFocused: true,
+      colors: COLORS,
+    })
+
+    // A DIFFERENT TILE, WHICH IS THE ONLY PLACE ON THIS SURFACE A STATE
+    // CHANGES THE MARK ITSELF. The focused zone's fill points at the haloed
+    // def -- a glow in the mark's own colour around each rule -- rather than
+    // at the same tile turned up.
+    expect(focused.fillColor).toBe(`url(#${patternIdFor('production', true)})`)
+    expect(focused.fillColor).not.toBe(active.fillColor)
+    expect(patternIdFor('production', true)).not.toBe(patternIdFor('production'))
+
+    // AND AT THE ACTIVE LEVEL, which is what the halo bought: a focused block
+    // inks exactly what an active one does, so --pattern-focused is no longer
+    // pinned at the top of the scale by this mark. See index.css's halo
+    // exception and ProductionHatchPattern's haloTile.
+    expect(focused.fillOpacity).toBe(active.fillOpacity)
+
+    // FOCUS STILL BEATS COMMITTED, and by the same two facts: a committed zone
+    // being read is the haloed tile at the active level, not the quiet one.
+    expect(committedFocused.fillColor).toBe(focused.fillColor)
+    expect(committedFocused.fillOpacity).toBe(active.fillOpacity)
+
+    // AND IT ADDS NO EDGE. A hatch carries no stroke in any state; focus was
+    // never allowed to be the exception and is not one now.
+    expect(focused.stroke).toBe(false)
+  })
+
+  it('leaves every other treatment saying focus with its level', () => {
+    // THE HALO IS ONE ROW'S, NOT A NEW RULE FOR THE SURFACE. A treatment
+    // without one keeps a single def in every state and steps its opacity, so
+    // a step added later inherits the scheme it always had.
+    for (const treatment of ['survey-excavated', 'tree']) {
+      const active = styleFor({ treatment, colors: COLORS })
+      const focused = styleFor({ treatment, isFocused: true, colors: COLORS })
+      expect(focused.fillColor, `${treatment} keeps one mark`).toBe(active.fillColor)
+      expect(focused.fillOpacity, `${treatment} steps its level`).toBeGreaterThan(
+        active.fillOpacity
+      )
+    }
+  })
+
   it('mutes a committed zone and keeps its pattern', () => {
     const active = styleFor({ treatment: 'production', colors: COLORS })
     const committed = styleFor({ treatment: 'production', isCommitted: true, colors: COLORS })

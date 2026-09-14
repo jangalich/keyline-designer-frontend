@@ -455,7 +455,28 @@
        --pattern-active     an uncommitted zone that is in the commit.
        --pattern-focused    the one the detail panel is describing. FULL, so
                             the mark you are reading is the most present thing
-                            on the map.
+                            on the map -- for every mark that still takes this
+                            level. PRODUCTION'S HATCH NO LONGER DOES; see the
+                            halo exception below.
+
+     THE HALO EXCEPTION, AND IT IS THE ONE PLACE A STATE CHANGES THE MARK.
+     Production's hatch says focus with a GLOW AROUND EACH RULE rather than
+     with this scale: the focused zone's fill points at a second tile whose
+     every rule carries a blurred casing in the mark's own colour, and its
+     level comes back DOWN to --pattern-active, so a focused block inks exactly
+     what an active one does and the glow is the whole of the difference.
+     (ProductionHatchPattern's haloTile has the three numbers and the two
+     measures that bound them; layers.jsx's fillLevelFor is where the level
+     drops; every other mark reads this scale unchanged.)
+
+     WHICH IS WHY --pattern-focused IS STILL 1 AND IS NO LONGER A CEILING.
+     The price list below records focused/active compressed to 1.33x with
+     nothing above it, because focus was pinned at the top of an opacity scale.
+     A second KIND of ink is not on that scale at all: the hatch's focused
+     state measures further from its active one than the pin ever allowed,
+     while the pin itself stayed where it was for the marks that still use it.
+     A step that wants the same escape adds a halo to its row rather than
+     asking this token to go past 1, which is not a number that exists.
 
      FOCUSED GOES UP RATHER THAN OTHERS GOING DOWN. Both express the same
      relationship; this one changes ONE mark instead of every other one, and
@@ -570,6 +591,14 @@
      CANDY CANE: white and rust in alternating bands with a third of the ground
      showing through. Reverted too, and the ink measure's inability to see it is
      recorded at ProductionHatchPattern.js's hatchTile().
+
+     AND A CASING IN THE MARK'S OWN COLOUR IS WHAT FOCUS IS NOW, which is not
+     that lever coming back. What failed was WHITE beside rust at a 5.66px
+     pitch -- two colours alternating, a striped ribbon -- and what ships is
+     oxide blurred around oxide, on ONE zone at a time rather than on every
+     committed block the map carries. The candy cane was a contrast fix applied
+     to every state; this is a focus mark, and the contrast fix is still the
+     screen below.
 
      THE GROUND IS PUT BACK INSTEAD. Production's hatch now sits on a SCREEN --
      --rule at 0.12, inside the pattern tile, so the path's own fill-opacity

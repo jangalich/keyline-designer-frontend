@@ -49,6 +49,7 @@ import {
   PIN_GLYPH_PATH,
   PIN_GLYPH_TIP,
   PIN_GLYPH_VIEWBOX,
+  focusIsAHalo,
   marksItsOwnEdge,
   zoneMark,
 } from '../ProductionHatchPattern.jsx'
@@ -905,7 +906,15 @@ function patternLevelFor(state) {
  * for it in the same proportions they hold for a hatch.
  */
 function fillLevelFor(mark, state) {
-  return mark?.kind === 'tint' ? tintLevel(stateName(state)) : patternLevel(stateName(state))
+  if (mark?.kind === 'tint') return tintLevel(stateName(state))
+  // A MARK WHOSE FOCUS IS A HALO KEEPS ITS ACTIVE INK AT FOCUS, and that is
+  // the whole of what the halo bought. The mark itself changed -- the fill
+  // points at a tile whose every rule is lit (see ProductionHatchPattern's
+  // haloTile) -- so raising the level on top of it would be saying focus
+  // twice and spending the top of the scale to do it. A focused block inks
+  // exactly what an active one does; the glow is the difference.
+  if (focusIsAHalo(mark) && state.isFocused) return patternLevel('active')
+  return patternLevel(stateName(state))
 }
 
 function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, colors }) {
@@ -928,7 +937,10 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
   }
 
   const state = { isFocused, isCommitted }
-  const mark = treatment ? zoneMark(treatment) : null
+  // THE STATE REACHES THE MARK, for the one mark that has two tiles. Every
+  // other treatment hands back the same mark in every state and this argument
+  // changes nothing for it.
+  const mark = treatment ? zoneMark(treatment, { focused: isFocused }) : null
   const fillOpacity = fillLevelFor(mark, state)
 
   if (isDrawn) {

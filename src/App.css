@@ -2027,13 +2027,15 @@
    reading this one" made the mark for reading and the mark for certainty the
    same mark.
 
-   The focus is a change in the MARK'S OPACITY now (--pattern-focused against
-   --pattern-active for ink at full strength, --tint-focused against
-   --tint-active for a screened wash; set in layers.jsx from the tokens), so
-   the zone you are reading is the most present thing on the map without focus
-   itself adding an edge. `.zone--focused` survives as the class, because the
-   class is what the tests and the DOM inspector address; it adds no stroke of
-   its own.
+   The focus is a change in the MARK'S PRESENCE now, not an edge -- an opacity
+   for most marks (--pattern-focused against --pattern-active for ink at full
+   strength, --tint-focused against --tint-active for a screened wash), and for
+   production's hatch a HALO around each rule at the active level instead
+   (index.css's halo exception). Both are set in layers.jsx from the tokens and
+   the mark table, so the zone you are reading is the most present thing on the
+   map without focus itself adding an edge. `.zone--focused` survives as the
+   class, because the class is what the tests and the DOM inspector address; it
+   adds no stroke of its own.
 
    A TINTED ZONE DOES CARRY AN OUTLINE, and it is not the focus mark -- it is
    the mark, in every state. A wash has no gaps for an extent to be inferred
