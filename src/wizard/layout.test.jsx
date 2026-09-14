@@ -1871,16 +1871,28 @@ describeIf('the zone patterns, rendered', () => {
     // What may never happen is the SCREEN quietly becoming a second one.
     expect(marks.excavated.strokedRects, 'the screen is filled, never stroked').toBe(0)
 
-    // AND IT IS IN THE BUILD'S ONE SCREEN COLOUR, not in the mark's own. This
-    // is read off the def rather than inferred from a measurement because it
-    // is the whole of what changed: a screen in --survey-excavated made the
-    // cell one blue, which is the reading a dot field on a wash exists to
-    // avoid. Compared with PRODUCTION'S screen rather than with a literal --
-    // the token's value belongs to index.css and this file holds no copy of
-    // it -- so "one screen treatment across the build" is asserted as the
-    // identity it actually is.
-    expect(marks.excavated.screenToken).toBe(marks.production.screenToken)
+    // AND IT IS A NEUTRAL, NOT THE MARK'S OWN COLOUR. This is the rule that
+    // survived, and it is the one that matters: a screen in --survey-excavated
+    // made the whole cell one blue, which is exactly the reading a dot field on
+    // a wash exists to avoid. A screen is the GROUND a mark was designed
+    // against, put back.
+    //
+    // THE TWO SCREENS ARE NO LONGER ONE TOKEN, and this assertion used to say
+    // they were. Production sits on --rule and the excavated lattice sits on
+    // --halo, because the two marks need different things from their ground:
+    // production's oxide ruling reads DARKER than canopy and a light neutral
+    // separates it, while the excavated dot reads LIGHTER than canopy and needs
+    // its ground carried further to keep a gap. One token was a tidier
+    // statement than the marks could support -- see the excavated row's own
+    // table for what each screen costs where.
+    //
+    // WHAT IS STILL ASSERTED is the part that is a rule rather than a
+    // coincidence: neither screen is in its own mark's colour, and neither is
+    // a literal -- both are read from tokens this file holds no copy of.
     expect(marks.excavated.screenToken).not.toBe(marks.excavated.fill)
+    expect(marks.excavated.screenToken).not.toBe(marks.production.screenToken)
+    expect(marks.production.screenToken).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(marks.excavated.screenToken).toMatch(/^#[0-9a-f]{6}$/i)
 
     // AND IT IS A SCREEN RATHER THAN PAINT. The dots are opaque ink at the
     // pattern levels; the rect under them has to stay well below that or the
@@ -1899,25 +1911,30 @@ describeIf('the zone patterns, rendered', () => {
     // comment says why that is the wrong kind of bound. This reads the value
     // out of the def instead, where a change to it is exact.
     //
-    // 0.04 IS WHERE THE OVERLAP BREAKS, and the cliff moved when the screen
-    // stopped being blue. In the mark's own colour the ceiling was 0.32; in
-    // --rule, the neutral every screen on this map is now in, it is between
-    // 0.03 and 0.04 -- the dot field's surviving texture where the two survey
-    // types coincide measures 0.0045 at 0.03 and 0.0037 at 0.04, against the
-    // 0.004 floor asserted at the bottom of this file.
+    // THE CLIFF IS AT 0.08 AND THE SHIPPED VALUE IS 0.03, so this band is
+    // deliberately NOT "everything below the cliff". The overlap's absolute
+    // floor is met all the way to 0.06; what picks 0.03 is the RELATIVE bound
+    // the overlap test states -- the screen may not eat most of the overlap's
+    // texture -- and at 0.05 it eats 57% of what the lattice carries
+    // unscreened. The table beside the row in ProductionHatchPattern.jsx has
+    // every rung.
     //
-    // WHY A LIGHT SCREEN RUNS OUT SOONER THAN A BLUE ONE. Over canopy the
-    // excavated dot reads LIGHTER than its ground, and on the embankment wash
-    // the ground is already lifted most of the way to the dot's own value --
-    // so a light screen closes the last of that gap fast while a screen near
-    // the dots' own value barely moves it. The trade is priced in the table
-    // beside the row in ProductionHatchPattern.jsx.
+    // THE CLIFF MOVED TWICE, WHICH IS WHY IT IS NOT A FIXED PROPERTY OF THE
+    // SCREEN. In the mark's own colour it was 0.32; in --rule on the sparse
+    // grid-8 lattice it was 0.04; in --halo on the shipped grid-12 lattice it
+    // is 0.08, because a denser lattice carries more overlap texture to spend.
+    // A ceiling read off one lattice does not transfer to another.
     //
-    // The upper end is the last value below the cliff; the lower end is high
-    // enough that a drift back toward nothing fails here rather than leaving
-    // a tile that still carries a rect doing nothing.
+    // WHY A LIGHT SCREEN RUNS OUT AT ALL. Over canopy the excavated dot reads
+    // LIGHTER than its ground, and on the embankment wash the ground is
+    // already lifted most of the way to the dot's own value -- so a light
+    // screen closes the last of that gap, and a whiter one closes it faster.
+    //
+    // The upper end leaves one rung of room above the shipped value; the lower
+    // end is high enough that a drift back toward nothing fails here rather
+    // than leaving a tile that still carries a rect doing nothing.
     expect(marks.excavated.screenOpacity).toBeGreaterThanOrEqual(0.02)
-    expect(marks.excavated.screenOpacity).toBeLessThanOrEqual(0.03)
+    expect(marks.excavated.screenOpacity).toBeLessThanOrEqual(0.05)
 
     // A HALFTONE: MANY DOTS, EACH ONE ACTUALLY DRAWABLE, GROUND BETWEEN THEM.
     //
@@ -1938,16 +1955,26 @@ describeIf('the zone patterns, rendered', () => {
     //
     // SO WHAT IS ASKED FOR NOW IS THE HALFTONE'S OWN SHAPE. Enough dots
     // across a zone that it reads as tone rather than as countable objects --
-    // a 90px zone at this spacing carries about 11 to a side, near 130 in
+    // a 90px zone at this spacing carries about 17 to a side, near 280 in
     // view. Each dot at least 2px across, so it is drawn as a disc. And a
-    // diameter well under its spacing, so ground shows between the dots and
-    // the field stays a texture rather than closing into a fill.
+    // diameter under its spacing, so ground shows between the dots and the
+    // field stays a texture rather than closing into a fill.
+    //
+    // CLOSURE UNDER 0.7, AND THE NUMBER IS MEASURED RATHER THAN ROUND. It was
+    // 0.5, which was the shipped field's own 0.40 with room above it and no
+    // measurement behind it. The density sweep below now finds the boundary
+    // directly: textureSpread rises with coverage to a PEAK at closure 0.60
+    // and has fallen again by 0.80, and the share of ground still showing goes
+    // 82% -> 59% -> 25% across the same three steps, against a wash control
+    // that leaves 0%. So the field begins closing between 0.6 and 0.8, and the
+    // bound sits between them. The shipped lattice is at 0.60 -- the last
+    // geometry before the turnover, which is where it was chosen.
     const tileSide = 64
     const spacing = tileSide / Math.sqrt(marks.excavated.dots)
     const diameter = 2 * Number(marks.excavated.radii[0])
     expect(marks.excavated.dots).toBeGreaterThanOrEqual(36)
     expect(diameter, 'a dot has to be big enough to be drawn as one').toBeGreaterThanOrEqual(2)
-    expect(diameter / spacing, 'ground has to show between the dots').toBeLessThan(0.5)
+    expect(diameter / spacing, 'ground has to show between the dots').toBeLessThan(0.7)
     // ONE RADIUS, so it is a lattice and not a scatter of sizes.
     expect(marks.excavated.radii).toHaveLength(1)
 
@@ -2722,7 +2749,7 @@ describeIf('the zone patterns, rendered', () => {
      */
     const LATTICES = [
       ['shipped', ''],
-      ['g12', '-g12'],
+      ['g8', '-g8'],
       ['g16', '-g16'],
       ['r24', '-r24'],
       ['r32', '-r32'],
@@ -3367,10 +3394,14 @@ describeIf('the zone patterns, rendered', () => {
    */
   it('sweeps the lattice density and dot size, and finds where it stops being a lattice', async () => {
     const TILE = 64
+    // THE SHIPPED LATTICE IS grid 12 AND IS READ THROUGH ITS OWN CELLS, so it
+    // is measured as the mark the map draws rather than as a candidate that
+    // happens to match it. Every other row names both fields -- see the
+    // harness's STIPPLE_GEOMETRIES for why a partial override is a trap.
     const GEOMETRY = {
-      shipped: { grid: 8, radius: 1.6 },
+      'shipped-g8': { grid: 8, radius: 1.6 },
       g10: { grid: 10, radius: 1.6 },
-      g12: { grid: 12, radius: 1.6 },
+      shipped: { grid: 12, radius: 1.6 },
       g16: { grid: 16, radius: 1.6 },
       r20: { grid: 8, radius: 2.0 },
       r24: { grid: 8, radius: 2.4 },
@@ -3390,12 +3421,16 @@ describeIf('the zone patterns, rendered', () => {
           const id =
             label === 'shipped'
               ? `survey-excavated-${state}-unoutlined-unscreened`
-              : `stipple-${label}-${state}-unoutlined`
+              : `stipple-${label === 'shipped-g8' ? 'g8' : label}-${state}-unoutlined`
           ink[state] = meanAbsDifference(await swatchOf(page, `ground-${ground}-${id}`), bare)
         }
         const activeSwatch = await swatchOf(
           page,
-          `ground-${ground}-${label === 'shipped' ? 'survey-excavated-active-unoutlined-unscreened' : `stipple-${label}-active-unoutlined`}`
+          `ground-${ground}-${
+            label === 'shipped'
+              ? 'survey-excavated-active-unoutlined-unscreened'
+              : `stipple-${label === 'shipped-g8' ? 'g8' : label}-active-unoutlined`
+          }`
         )
         const gaps = untouchedFraction(activeSwatch, bare)
         const spread = textureSpread(crop(activeSwatch, 8))
@@ -3403,7 +3438,7 @@ describeIf('the zone patterns, rendered', () => {
           page,
           label === 'shipped'
             ? `ground-${ground}-overlapscreen-0`
-            : `ground-${ground}-stippleoverlap-${label}`
+            : `ground-${ground}-stippleoverlap-${label === 'shipped-g8' ? 'g8' : label}`
         )
         const overlapTexture = textureSpread(crop(overlapSwatch, 8))
 
@@ -3438,17 +3473,82 @@ describeIf('the zone patterns, rendered', () => {
       expect(washGaps, `the wash control leaves no ground showing over ${ground}`).toBeLessThan(0.02)
     }
 
-    // DENSER IS MORE INK. If a candidate ever inked LESS than the shipped
-    // lattice, the candidate tiles are not being built from the spec and the
-    // whole sweep is measuring the shipped mark under seven names.
+    // DENSER IS MORE INK, AND THE LADDER IS ORDERED BY COVERAGE RATHER THAN
+    // AGAINST THE SHIPPED MARK.
+    //
+    // THIS USED TO ASSERT "every candidate inks more than shipped", which was
+    // true while the shipped lattice was the SPARSEST thing on the page and
+    // stopped being true the day grid 12 shipped -- g10 is now a step DOWN
+    // from it. An assertion that only holds while the mark sits at one end of
+    // its own sweep is an assertion about the mark's position, not about the
+    // lever. What is actually being claimed is that ink follows coverage, so
+    // that is what is checked, on each axis separately: the grid ladder and
+    // the radius ladder each rise, and the shipped mark takes its place inside
+    // them rather than under them.
     for (const ground of ['canopy', 'soil']) {
-      const shipped = rows.find((r) => r.ground === ground && r.label === 'shipped')
-      for (const row of rows.filter((r) => r.ground === ground && r.label !== 'shipped')) {
-        expect(row.ink.active, `${row.label} inks more than the shipped lattice over ${ground}`)
-          .toBeGreaterThan(shipped.ink.active)
-        // AND EVERY CANDIDATE LEAVES LESS GROUND SHOWING, which is the cost
-        // side of the same fact and the axis the boundary sits on.
-        expect(row.gaps, `${row.label} closes the field over ${ground}`).toBeLessThan(shipped.gaps)
+      const at = (label) => rows.find((r) => r.ground === ground && r.label === label)
+      for (const ladder of [
+        ['shipped-g8', 'g10', 'shipped', 'g16'],
+        ['shipped-g8', 'r20', 'r24', 'r32'],
+      ]) {
+        for (let i = 1; i < ladder.length; i += 1) {
+          const [prev, next] = [at(ladder[i - 1]), at(ladder[i])]
+          expect(
+            next.coverage,
+            `${ladder[i]} covers more than ${ladder[i - 1]}`
+          ).toBeGreaterThan(prev.coverage)
+          expect(
+            next.ink.active,
+            `${ladder[i]} inks more than ${ladder[i - 1]} over ${ground}`
+          ).toBeGreaterThan(prev.ink.active)
+          // AND LEAVES LESS GROUND SHOWING, the cost side of the same fact and
+          // the axis the lattice boundary sits on.
+          expect(
+            next.gaps,
+            `${ladder[i]} closes the field further than ${ladder[i - 1]} over ${ground}`
+          ).toBeLessThan(prev.gaps)
+        }
+      }
+    }
+  }, SLOW)
+
+  /**
+   * THE SHIPPING COMBINATION: grid 12 under --halo, swept for its alpha.
+   *
+   * WHY THE g8 LADDER'S ANSWER DOES NOT TRANSFER. --halo's overlap texture on
+   * the SHIPPED g8 lattice fell through the 0.004 floor between 0.03 and 0.06.
+   * A denser lattice starts with more overlap texture to spend -- g12 reads
+   * 0.0152 unscreened against g8's 0.0083 -- so the ceiling is a different
+   * number against a different mark, and reading it off the old ladder would be
+   * quoting a measurement of something else.
+   *
+   * REPORTED AT EVERY LEVEL, because this one ships: the block reading at all
+   * three, the dots isolated on their own screen, the texture on bare ground,
+   * and the overlap against its floor.
+   */
+  it('sweeps the shipping lattice under --halo and reports where the overlap ceilings it', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      for (const alpha of ['02', '03', '04', '05', '06', '08', '12']) {
+        const mark = await swatchOf(page, `ground-${ground}-haloship-${alpha}-active-unoutlined`)
+        const overlap = await swatchOf(page, `ground-${ground}-haloshipoverlap-${alpha}`)
+        const levels = []
+        for (const state of ['committed', 'active', 'focused']) {
+          levels.push(
+            meanAbsDifference(
+              await swatchOf(page, `ground-${ground}-haloship-${alpha}-${state}-unoutlined`),
+              bare
+            )
+          )
+        }
+        const overlapTexture = textureSpread(crop(overlap, 8))
+        // eslint-disable-next-line no-console
+        console.log(
+          `    haloship ${ground.padEnd(6)} --halo 0.${alpha.padEnd(2)}  ` +
+            `ink ${levels[0].toFixed(4)}/${levels[1].toFixed(4)}/${levels[2].toFixed(4)}  ` +
+            `spread ${textureSpread(crop(mark, 8)).toFixed(4)}  ` +
+            `OVERLAP ${overlapTexture.toFixed(4)}${overlapTexture > 0.004 ? '' : '  <floor'}`
+        )
       }
     }
   }, SLOW)

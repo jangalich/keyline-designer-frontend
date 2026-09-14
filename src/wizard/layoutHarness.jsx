@@ -824,15 +824,29 @@ for (const token of ['--stock', '--halo']) {
  * where it is and gives the beat more to work with. See the moire sweep, which
  * runs over every geometry here for exactly this reason.
  */
+/**
+ * EVERY CANDIDATE NAMES BOTH FIELDS, and that is a correction rather than
+ * verbosity. These were written as PARTIAL overrides -- `{ radius: 2.4 }`,
+ * meaning "the shipped lattice with a bigger dot" -- and the day the shipped
+ * grid moved from 8 to 12 every radius candidate silently became a different
+ * geometry: r32 at grid 12 puts 6.4px dots on a 5.33px pitch, which is not a
+ * lattice at all but a solid fill, and the sweep would have gone on reporting
+ * it under the same name. A candidate that is defined relative to the thing it
+ * is being compared against stops being a fixed point the moment that thing
+ * moves.
+ */
+const STIPPLE_GEOMETRIES = [
+  ['g8', { grid: 8, radius: 1.6 }],
+  ['g10', { grid: 10, radius: 1.6 }],
+  ['g12', { grid: 12, radius: 1.6 }],
+  ['g16', { grid: 16, radius: 1.6 }],
+  ['r20', { grid: 8, radius: 2.0 }],
+  ['r24', { grid: 8, radius: 2.4 }],
+  ['r32', { grid: 8, radius: 3.2 }],
+]
+
 const STIPPLE_CANDIDATES = []
-for (const [label, spec] of [
-  ['g10', { grid: 10 }],
-  ['g12', { grid: 12 }],
-  ['g16', { grid: 16 }],
-  ['r20', { radius: 2.0 }],
-  ['r24', { radius: 2.4 }],
-  ['r32', { radius: 3.2 }],
-]) {
+for (const [label, spec] of STIPPLE_GEOMETRIES) {
   for (const state of ['committed', 'active', 'focused']) {
     STIPPLE_CANDIDATES.push({
       treatment: 'survey-excavated',
@@ -845,14 +859,11 @@ for (const [label, spec] of [
 }
 
 /** Each candidate lattice under the overlap, for the texture floor. */
-const STIPPLE_CANDIDATE_OVERLAPS = ['g10', 'g12', 'g16', 'r20', 'r24', 'r32'].map((label) => ({
+const STIPPLE_CANDIDATE_OVERLAPS = STIPPLE_GEOMETRIES.map(([label, spec]) => ({
   id: `stippleoverlap-${label}`,
   overlap: ['survey-embankment', 'survey-excavated'],
   state: 'active',
-  spec: {
-    ...{ g10: { grid: 10 }, g12: { grid: 12 }, g16: { grid: 16 }, r20: { radius: 2.0 }, r24: { radius: 2.4 }, r32: { radius: 3.2 } }[label],
-    screen: 0,
-  },
+  spec: { ...spec, screen: 0 },
 }))
 
 /**
@@ -870,17 +881,17 @@ const STIPPLE_CANDIDATE_OVERLAPS = ['g10', 'g12', 'g16', 'r20', 'r24', 'r32'].ma
  * --stock 0.12 as the whiter lever's best case.
  */
 const COMBO_DENSITIES = [
-  ['g8', {}],
-  ['g12', { grid: 12 }],
-  ['g16', { grid: 16 }],
+  ['g8', { grid: 8, radius: 1.6 }],
+  ['g12', { grid: 12, radius: 1.6 }],
+  ['g16', { grid: 16, radius: 1.6 }],
   // AND THE RADIUS AXIS AT THE SAME TWO COVERAGES, because the screenless
   // sweep says the two axes are NOT interchangeable at equal ink: r24 covers
   // the same 28% as g12 and reads better on every instrument, and r32 covers
   // the same 50% as g16 and is still gaining texture where g16 has turned
   // over. A grid that swept only the spacing would have recommended the worse
-  // half of the lever.
-  ['r24', { radius: 2.4 }],
-  ['r32', { radius: 3.2 }],
+  // half of the lever -- and then moire ruled the radius axis out entirely.
+  ['r24', { grid: 8, radius: 2.4 }],
+  ['r32', { grid: 8, radius: 3.2 }],
 ]
 const COMBO_SCREENS = [
   ['rule03', { screen: 0.03, screenToken: '--rule' }],
@@ -905,6 +916,42 @@ for (const [dLabel, density] of COMBO_DENSITIES) {
       spec,
     })
   }
+}
+
+/**
+ * THE SHIPPING COMBINATION, SWEPT FOR ITS ALPHA: grid 12 under a --halo screen.
+ *
+ * WHY THIS NEEDED ITS OWN SWEEP RATHER THAN A ROW OF THE GRID ABOVE. The
+ * whiter-screen ladder was measured on the SHIPPED g8 lattice, where --halo's
+ * overlap texture fell through the floor between 0.03 and 0.06. A denser
+ * lattice carries MORE overlap texture to begin with -- g12 reads 0.0152
+ * unscreened against g8's 0.0083 -- so the alpha a whiter screen can afford is
+ * not the one the g8 ladder found, and picking it off that ladder would be
+ * reading a ceiling measured against a different mark.
+ *
+ * FINER STEPS THAN EITHER LADDER, because the answer is known to sit between
+ * 0.03 and 0.12 and the question is where exactly.
+ */
+const HALO_SHIP_ALPHAS = [0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.12]
+
+const HALO_SHIP_CANDIDATES = []
+for (const alpha of HALO_SHIP_ALPHAS) {
+  const id = `haloship-${String(alpha).replace('0.', '')}`
+  for (const state of ['committed', 'active', 'focused']) {
+    HALO_SHIP_CANDIDATES.push({
+      treatment: 'survey-excavated',
+      id,
+      spec: { grid: 12, screen: alpha, screenToken: '--halo' },
+      state,
+      unoutlined: true,
+    })
+  }
+  HALO_SHIP_CANDIDATES.push({
+    id: `haloshipoverlap-${String(alpha).replace('0.', '')}`,
+    overlap: ['survey-embankment', 'survey-excavated'],
+    state: 'active',
+    spec: { grid: 12, screen: alpha, screenToken: '--halo' },
+  })
 }
 
 const FENCE_CANDIDATES = []
@@ -1069,10 +1116,14 @@ const MOIRE_PERIODS = [1.5, 2, 2.5, 2.67, 3, 3.5, 4, 5, 6, 8, 11, 16, 24]
  */
 const MOIRE_LATTICES = [
   ['', null],
-  ['-g12', { grid: 12, screen: 0 }],
-  ['-g16', { grid: 16, screen: 0 }],
-  ['-r24', { radius: 2.4, screen: 0 }],
-  ['-r32', { radius: 3.2, screen: 0 }],
+  // THE MARK AS IT SHIPPED BEFORE grid 12, screen included, so the comparison
+  // is like for like. A screenless control would read louder for a reason that
+  // has nothing to do with pitch -- more dot-to-ground contrast is a stronger
+  // beat -- and the question here is what the DENSITY change did.
+  ['-g8', { grid: 8, radius: 1.6, screen: 0.03, screenToken: '--rule' }],
+  ['-g16', { grid: 16, radius: 1.6, screen: 0 }],
+  ['-r24', { grid: 8, radius: 2.4, screen: 0 }],
+  ['-r32', { grid: 8, radius: 3.2, screen: 0 }],
 ]
 
 /** A textured ground: canopy, with a finer/darker grid at `period` px over it. */
@@ -1180,6 +1231,7 @@ const GROUND_CELLS = () => [
   ...STIPPLE_CANDIDATES,
   ...STIPPLE_CANDIDATE_OVERLAPS,
   ...COMBO_CELLS,
+  ...HALO_SHIP_CANDIDATES,
   ...FENCE_CANDIDATES,
   ...HATCH_SCREEN_CANDIDATES,
   ...UNSCREENED,

@@ -1422,7 +1422,21 @@ describe('one pattern per step, three levels per pattern', () => {
     const stippleRow = rowFor('survey-excavated').replace(/\/\/.*$/gm, '')
     expect(stippleRow).toMatch(/grid: \d+/)
     expect(stippleRow).toMatch(/radius: [\d.]+/)
-    expect(stippleRow).not.toMatch(/halo|casing|stroke/i)
+    expect(stippleRow).not.toMatch(/casing|stroke/i)
+
+    // --halo WAS ALSO REFUSED BY NAME HERE, AND CANNOT BE ANY MORE, because
+    // the SCREEN is in --halo now. The token was standing in for the casing --
+    // the previous stipple ringed every dot on it, and that is what killed it
+    // -- so refusing the string was a cheap proxy for refusing the mark. It
+    // stopped being cheap the moment --halo became a legitimate field on this
+    // row, and a proxy that now fires on the shipped mark is worse than no
+    // proxy: it would be silenced rather than understood.
+    //
+    // SO THE GUARD IS EXACT INSTEAD. The row may mention --halo ONCE and only
+    // as the screen's token; a second one, or one anywhere else, is a casing
+    // coming back under the name that always carried it.
+    expect([...stippleRow.matchAll(/--halo/g)]).toHaveLength(1)
+    expect(stippleRow).toMatch(/screenToken: '--halo'/)
   })
 
   it('declares three levels per SCALE as tokens, so the remaining steps inherit them', () => {

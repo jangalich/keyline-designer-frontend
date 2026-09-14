@@ -166,7 +166,7 @@
 
      So the EMBANKMENT type keeps the screened tint and the EXCAVATED type is
      now a DOT FIELD ON A NEUTRAL SCREEN -- a lattice of dots in
-     --survey-excavated over a light screen of --rule, at the --pattern-*
+     --survey-excavated over a light screen of --halo, at the --pattern-*
      levels, with an outline in the zone's own colour. See
      ProductionHatchPattern.jsx for the mark and its measured ink, and
      layout.test.jsx for the measurement.
@@ -188,23 +188,39 @@
      AND THE SCREEN IS NOT IN THIS COLOUR ANY MORE, WHICH IS THE ONE THING TO
      KNOW BEFORE TOUCHING EITHER VALUE BELOW. It was --survey-excavated at
      0.28 -- a screen in the mark's own colour, which makes the whole cell one
-     blue and is the reading the dot field replaced a second wash to avoid.
-     It is --rule at 0.03 now, the same neutral production's hatch sits on, so
-     there is ONE screen treatment across every mark on this map that carries
-     one. A screen is the GROUND a mark was designed against, put back, and a
-     ground has no business being in the mark's own colour.
+     blue and is the reading the dot field replaced a second wash to avoid. It
+     is --halo at 0.03 now: a NEUTRAL, which is the rule, and specifically the
+     white end of the neutral ladder (--rule, --stock, --halo). A screen is the
+     GROUND a mark was designed against, put back, and a ground has no business
+     being in the mark's own colour.
 
-     WHAT THAT COST, BECAUSE IT IS A REAL COST AND IT IS THESE TWO VALUES'
-     FAULT. A light screen over dark canopy lifts the ground TOWARD the
-     excavated dots -- #3d5a6c at the pattern level reads LIGHTER than closed
-     canopy, not darker -- and on the embankment wash, where the ground is
-     already lifted, it closes the last of that gap. So the neutral screen is
-     ceilinged at 0.03 by the OVERLAP rather than by taste, and the zone reads
-     less loudly over canopy than the blue screen made it. The lever that
-     would actually fix that is HERE: --survey-excavated sits close to closed
+     THE TWO SCREENS ON THIS MAP ARE NOT ONE COLOUR. Production's hatch sits on
+     --rule and this lattice sits on --halo, and a revision of this note
+     claimed otherwise. Whiter lifts a dark ground faster per unit alpha, which
+     is what the dot field needs over closed canopy and what the ruling does
+     not.
+
+     AND THE DOT LATTICE IS DENSER: 12 per tile side rather than 8, at the same
+     dot size. That is the lever that actually moved this mark -- it adds ink
+     WITHOUT touching per-dot contrast, so it is the only one that makes the
+     survey pair's overlap better rather than worse. Every screen lever is
+     ceilinged by that overlap; density is not. It is ceilinged by the LATTICE
+     instead, measured: texture peaks at 0.60 closure and has turned over by
+     0.80, so grid 12 is the last step before the field begins closing into a
+     wash by another route.
+
+     WHERE IT LEAVES THE PAIR, and it is worth knowing before either value
+     below is touched. Over canopy the wash is still the heavier mark (0.1149
+     against the lattice's 0.0534). OVER BARE SOIL IT IS NOT: the lattice reads
+     0.0945 against the wash's 0.0576. The two types are told apart by KIND --
+     a texture and a wash -- and that is now the WHOLE of what tells them
+     apart, because the weight ordering no longer holds on both grounds.
+
+     THE LEVER STILL UNSPENT IS HERE: --survey-excavated sits close to closed
      canopy in luminance, and no screen under a mark can outrun the mark's own
-     value. The table beside the excavated row in ProductionHatchPattern.jsx
-     is the price list.
+     value. Moving it lighter or darker widens the gap a screen can work in.
+     The table beside the excavated row in ProductionHatchPattern.jsx is the
+     price list for everything that has been spent so far.
 
      THE TWO ARE STILL ONE HUE, and the pair below is unchanged: same hue
      (203.0 and 202.9 degrees), same saturation (0.44 and 0.45), so the step is
@@ -546,12 +562,12 @@
      all at ProductionHatchPattern.js, beside the row; layout.test.jsx sweeps
      them so the choice can be re-run rather than re-derived.
 
-     AND IT IS NOT PRODUCTION'S SCREEN ANY MORE, IT IS THE BUILD'S. The
-     excavated survey type's dot field sits on the same --rule screen (at its
-     own, much lower alpha -- the overlap ceilings it), so a stack of committed
-     layers is a stack of ONE wash rather than of several different claims
-     about one piece of ground. Two and three of them are measured: three take
-     about an eighth of the frame over canopy, so the five layers fencing could
+     AND PRODUCTION IS NOT THE ONLY MARK CARRYING ONE. The excavated dot field
+     sits on its own screen -- --halo rather than --rule, at a much lower alpha
+     that the survey overlap ceilings -- so a stack of committed layers is a
+     stack of DIFFERENT neutrals rather than of one. That is measured rather
+     than assumed: two and three shipped screens laid over each other take
+     about a seventh of the frame over canopy, so the five layers fencing could
      put on a parcel land around a fifth and the imagery still reads.
 
      THE SCREEN IS WHY THE SCALE DID NOT HAVE TO MOVE, and it still is: the
