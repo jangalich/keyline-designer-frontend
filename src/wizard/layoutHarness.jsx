@@ -68,8 +68,10 @@ import { EM_DASH, PANEL_BREAK, categoricalRow, measuredRow } from './shell/panel
 import {
   PIN_GLYPH_PATH,
   buildZonePattern,
+  focusIsAHalo,
   injectZonePatterns,
   marksItsOwnEdge,
+  patternIdFor,
   zoneMark,
   zoneTreatmentSpec,
 } from '../ProductionHatchPattern.jsx'
@@ -666,6 +668,24 @@ const UNSCREENED = ['committed', 'active', 'focused'].map((state) => ({
 }))
 
 /**
+ * PRODUCTION'S FOCUSED TILE WITH ITS HALO LIFTED OFF -- the one cell the halo
+ * is measured against.
+ *
+ * TWO QUESTIONS, ONE CELL. What the glow ADDS is this differenced against the
+ * focused block; whether the core CAME DOWN is this against the active block,
+ * which should be the same picture: focus points at a different tile and takes
+ * the active level, so the tile minus its halo IS an active block. The second
+ * is the claim that focus stopped costing the opacity scale anything, and it
+ * cannot be asserted from the shipped cells alone -- both of them carry the
+ * glow.
+ *
+ * FOCUSED ONLY, because that is the only state the halo exists in. A committed
+ * or active cell has no halo to lift and would be a second copy of the cell
+ * beside it.
+ */
+const UNHALOED = [{ treatment: 'production', state: 'focused', unhaloed: true }]
+
+/**
  * THE SCREEN UNDER THE EXCAVATED DOT FIELD: --rule, SWEPT.
  *
  * THE SAME PROBLEM AS PRODUCTION'S AND A DIFFERENT MARK. An excavated zone is
@@ -1214,6 +1234,7 @@ function cellId(cell) {
     (cell.uncased ? '-uncased' : '') +
     (cell.unoutlined ? '-unoutlined' : '') +
     (cell.unscreened ? '-unscreened' : '') +
+    (cell.unhaloed ? '-unhaloed' : '') +
     (cell.screenPassOnly ? '-screen' : '') +
     (cell.screenOnly ? '-alone' : '')
   // A CELL MAY HAVE NO STATE, AND MAY HAVE NO MARK. The opaque reference is one
@@ -1293,6 +1314,7 @@ const GROUND_CELLS = () => [
   ...FENCE_CANDIDATES,
   ...HATCH_SCREEN_CANDIDATES,
   ...UNSCREENED,
+  ...UNHALOED,
   ...STIPPLE_SCREEN_CANDIDATES,
   ...EXCAVATED_HALVES,
   ...STACKED_SCREENS,
@@ -1414,9 +1436,24 @@ function ZoneSwatches() {
            a candidate is the shipped mark with one field changed rather than
            this file's idea of what a stipple looks like. */
         const override = svg.dataset.spec ? JSON.parse(svg.dataset.spec) : null
+        // WHICH OF A TREATMENT'S TILES THIS CELL IS OF. One row ships two --
+        // the haloed variant production's focused zones point at -- and
+        // patternIdFor answers for every other row with the id it always had.
+        // A cell that asks for the mark at focus must get the mark the map
+        // draws at focus, or the ink it reports is a measurement of the tile
+        // the map stopped using there.
+        const focused = svg.dataset.state === 'focused'
+        // A CANDIDATE IS BUILT UNDER THE CELL'S OWN ID rather than under one
+        // shared name, because a tile's parts can carry ids derived from the
+        // pattern's -- the halo's blur filter does -- and two cells minting
+        // the same one would have the second resolve to the first's.
         const source = override
-          ? buildZonePattern({ ...zoneTreatmentSpec(treatment), ...override }, 'candidate')
-          : document.getElementById(`zone-pattern-${treatment}`)
+          ? buildZonePattern(
+              { ...zoneTreatmentSpec(treatment), ...override },
+              `local-${svg.dataset.testid}`,
+              { focused }
+            )
+          : document.getElementById(patternIdFor(treatment, focused))
         if (!source) continue
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
         const clone = override ? source : source.cloneNode(true)
@@ -1438,6 +1475,15 @@ function ZoneSwatches() {
         //                       the tint on its own.
         if (svg.dataset.unscreened === 'true' || svg.dataset.screenToken) {
           for (const pass of clone.querySelectorAll('[data-pass="screen"]')) pass.remove()
+        }
+        // data-unhaloed   THE FOCUSED TILE WITH ITS GLOW LIFTED OFF -- what the
+        //                 halo is worth, measured the way the screen's and the
+        //                 casing's worth are. It leaves the core, which is at
+        //                 the ACTIVE level, so this cell should read as an
+        //                 active block: that equality is the claim "focus costs
+        //                 the scale nothing", and layout.test.jsx asserts it.
+        if (svg.dataset.unhaloed === 'true') {
+          for (const pass of clone.querySelectorAll('[data-pass="halo"]')) pass.remove()
         }
         // data-screen-pass-only     THE SHIPPED SCREEN AND NOTHING ELSE: every
         //                          child that is not the screen pass removed,
@@ -1562,8 +1608,15 @@ function ZoneSwatches() {
     getComputedStyle(document.documentElement).getPropertyValue(`--tint-${name}`).trim()
   // THE SCALE IS THE MARK'S, not the swatch's -- a hatch is ink at full
   // strength and a tint is a screen, and index.css says which takes which.
-  const fillLevel = (treatment, state) =>
-    zoneMark(treatment)?.kind === 'tint' ? tintLevel(state) : patternLevel(state)
+  const fillLevel = (treatment, state) => {
+    const mark = zoneMark(treatment)
+    if (mark?.kind === 'tint') return tintLevel(state)
+    // AND A MARK WHOSE FOCUS IS A HALO TAKES THE ACTIVE LEVEL AT FOCUS, which
+    // is styleFor's own rule (fillLevelFor) rather than a harness convention:
+    // the glow says focus and the ink stays where an active block's is.
+    if (focusIsAHalo(mark) && state === 'focused') return patternLevel('active')
+    return patternLevel(state)
+  }
 
   const cells = cellsFor()
 
@@ -1745,6 +1798,7 @@ function ZoneSwatches() {
                 data-unoutlined={cell.unoutlined ? 'true' : undefined}
                 data-line-token={cell.lineToken ?? undefined}
                 data-unscreened={cell.unscreened ? 'true' : undefined}
+                data-unhaloed={cell.unhaloed ? 'true' : undefined}
                 data-screen-pass-only={cell.screenPassOnly ? 'true' : undefined}
                 data-spec={cell.spec ? JSON.stringify(cell.spec) : undefined}
                 data-screen-token={cell.screenToken ?? undefined}

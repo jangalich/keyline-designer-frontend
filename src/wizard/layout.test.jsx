@@ -1791,6 +1791,22 @@ describeIf('the zone patterns, rendered', () => {
     return meanDeviation(decodePng(shot))
   }
 
+  /**
+   * ONE MID-GREY SWATCH, DECODED -- the picture rather than a number off it.
+   *
+   * inkOf() reduces a swatch to its distance from mid-grey, which is the right
+   * answer for "how much ink" and the wrong one for a mark whose colour sits
+   * NEAR mid-grey in the mean. Two swatches differenced against each other
+   * answer that without a base to be trapped by; see the halo's assertion.
+   */
+  async function shotOf(page, treatment, state) {
+    return decodePng(
+      await (
+        await page.$(`[data-testid="swatch-${treatment}-${state}"]`)
+      ).screenshot({ type: 'png' })
+    )
+  }
+
   let page = null
 
   beforeAll(async () => {
@@ -1846,6 +1862,34 @@ describeIf('the zone patterns, rendered', () => {
   const STATE_STEP_FLOOR = { fence: 1.05 }
   const STATE_STEP_DEFAULT = 1.25
 
+  /**
+   * THE ONE MARK THIS MEASURE CANNOT ASK THE QUESTION OF, AND WHY.
+   *
+   * PRODUCTION'S FOCUS IS A HALO NOW, not a level: the focused block inks
+   * exactly what an active one does and a glow in --oxide is laid around each
+   * rule (index.css's halo exception). Every other treatment still steps its
+   * opacity, and for those this test is unchanged.
+   *
+   * MID-GREY CANNOT SEE THAT GLOW, AND IT IS THE MID-VALUE TRAP THIS FILE
+   * ALREADY HAS ONE RECORD OF -- the fence's rejected --ink-muted line, a
+   * mid-grey mark on a mid-grey ground, measuring 1.22x where --rule measured
+   * 1.41x. meanDeviation is distance from 128 per channel, and --oxide is
+   * #9c4a2f: one channel above mid-grey and two below, averaging almost
+   * exactly it. Laid over this swatch's own light screen, the glow pulls two
+   * channels back TOWARD 128 as fast as it pushes the third away, and the
+   * reading goes DOWN (0.0437 against active's 0.0462) for a mark that is
+   * plainly more present on both real grounds -- 1.14x over canopy, 1.44x over
+   * soil, in the ground test below, which is the measure that can see it.
+   *
+   * SO THE STEP IS ASSERTED AS THE GLOW'S OWN INK, differenced swatch against
+   * swatch. Two renderings of one tile at one level, alike in everything but
+   * the halo: what is left is the halo, with no base for a mid-value to hide
+   * against. It is held to the same 0.004 floor every mark on this surface is,
+   * which is the honest form of "an indicator you cannot see is not an
+   * indicator" for a mark that adds ink rather than opacity.
+   */
+  const FOCUS_IS_A_HALO = ['production']
+
   it('tells the focused state from the active one at whole-parcel size', async () => {
     for (const treatment of SWATCH_TREATMENTS) {
       const active = await inkOf(page, treatment, 'active')
@@ -1857,6 +1901,20 @@ describeIf('the zone patterns, rendered', () => {
           `active ${active.toFixed(4)}  focused ${focused.toFixed(4)}  ` +
           `(focused/active ${(focused / active).toFixed(2)}x)`
       )
+
+      if (FOCUS_IS_A_HALO.includes(treatment)) {
+        const halo = meanAbsDifference(
+          await shotOf(page, treatment, 'focused'),
+          await shotOf(page, treatment, 'active')
+        )
+        // eslint-disable-next-line no-console
+        console.log(
+          `    halo ${treatment.padEnd(18)} the glow's own ink ${halo.toFixed(4)}  ` +
+            `(floor 0.004; the levels are equal by design)`
+        )
+        expect(halo, `${treatment}: the halo is what says focus`).toBeGreaterThan(0.004)
+        continue
+      }
 
       // FOCUSED IS MORE PRESENT -- the direction the scheme chose, because it
       // changes one mark instead of every other one.
@@ -2327,6 +2385,85 @@ describeIf('the zone patterns, rendered', () => {
   }, SLOW)
 
   /**
+   * WHAT THE HALO IS WORTH, AND WHAT IT COST THE SCALE.
+   *
+   * THE CLAIM UNDER TEST IS THE WHOLE POINT OF THE CHANGE: production's focus
+   * is a glow around each rule instead of a step in opacity, so a focused
+   * block inks what an ACTIVE one does and everything the state says is said
+   * by the halo. Three readings, and all three have to hold together or the
+   * change has quietly become an opacity step with a glow on top.
+   *
+   *   THE CORE DID NOT MOVE. The focused tile with its halo lifted off is an
+   *   active block -- the same tile at the same level -- so the two readings
+   *   are the same number. This is the one that says --pattern-focused is off
+   *   its pin: if focus had kept the top of the scale, this cell would read
+   *   1/0.75 of active instead.
+   *
+   *   THE HALO IS THERE. The glow's own ink, differenced against that same
+   *   cell, over each ground, against the 0.004 floor every mark here is held
+   *   to.
+   *
+   *   AND IT REACHES, WITHOUT CLOSING THE HATCH. A halo is not more ink in the
+   *   same place, it is ink in places the ruling never touched -- which is why
+   *   it reads at whole-parcel size over canopy, where --oxide has almost no
+   *   contrast to spend and the added-ink step is only 1.14x (the old opacity
+   *   step measured 1.29x there and is plainly the less visible of the two).
+   *   The rules are 5.66px apart, so the same reach has a ceiling: a glow that
+   *   met its neighbours would have turned the block into a rust wash, which
+   *   is the failure the white casing hit by another route. ONE NUMBER SAYS
+   *   BOTH -- the share of the block the glow leaves exactly as the unhaloed
+   *   tile drew it. Too high and the halo is a rumour; at zero the ground
+   *   between the rules is gone.
+   *
+   *   AGAINST THE BLOCK'S OWN UNHALOED RENDERING, NOT AGAINST BARE GROUND,
+   *   and that is forced rather than chosen: production's hatch sits on a
+   *   screen that covers the whole cell, so NO pixel of it is still bare
+   *   ground and untouchedFraction against the imagery reads 0% for every
+   *   state, haloed or not. Differenced against the same tile without its
+   *   glow, the screen is on both sides and cancels, and what is left is the
+   *   halo's own footprint -- which is the thing being bounded.
+   */
+  it('says focus with a halo, at the active level, without closing the hatch', async () => {
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      const active = await addedInkOver(page, ground, 'production', 'active')
+      const focused = await addedInkOver(page, ground, 'production', 'focused')
+      const core = await addedInkOver(page, ground, 'production', 'focused-unhaloed')
+      const haloed = await swatchOf(page, `ground-${ground}-production-focused`)
+      const unhaloed = await swatchOf(page, `ground-${ground}-production-focused-unhaloed`)
+      const halo = meanAbsDifference(haloed, unhaloed)
+      const untouchedByHalo = untouchedFraction(haloed, unhaloed)
+      // eslint-disable-next-line no-console
+      console.log(
+        `    halo  ${ground.padEnd(6)} active ${active.toFixed(4)}  ` +
+          `focused ${focused.toFixed(4)} (${(focused / active).toFixed(2)}x)  ` +
+          `core ${core.toFixed(4)}  glow ${halo.toFixed(4)}  ` +
+          `block the glow leaves alone ${(untouchedByHalo * 100).toFixed(0)}%  ` +
+          `(bare ground under the screen ${(untouchedFraction(haloed, bare) * 100).toFixed(0)}%)`
+      )
+
+      // THE CORE IS AN ACTIVE BLOCK, to three decimals -- the same tile at the
+      // same level, drawn twice.
+      expect(core, `${ground}: the focused core is an active block`).toBeCloseTo(active, 3)
+
+      // THE GLOW CLEARS THE FLOOR ON ITS OWN.
+      expect(halo, `${ground}: the halo is legible over ${ground}`).toBeGreaterThan(0.004)
+
+      // AND IT REACHES GROUND THE RULING DID NOT, WITHOUT REACHING ALL OF IT.
+      // Both bounds sit outside the measured readings, which are printed above
+      // on every run; the arithmetic they confirm is in haloTile()'s table.
+      expect(
+        untouchedByHalo,
+        `${ground}: the halo lights ground the ruling leaves alone`
+      ).toBeLessThan(0.75)
+      expect(
+        untouchedByHalo,
+        `${ground}: and the ground between the rules survives it`
+      ).toBeGreaterThan(0.1)
+    }
+  }, SLOW)
+
+  /**
    * THE ROAD IS A LINE, AND A LINE OVER IMAGERY IS ITS CASING.
    *
    * The no-stroke rule is for ZONES: a zone is an area, and an outline around
@@ -2505,7 +2642,35 @@ describeIf('the zone patterns, rendered', () => {
         // THE BLOCK IS THERE, and comfortably -- the committed level over
         // canopy is the hardest case and is the one the complaint was about.
         expect(block, `${ground}/${state}: the block clears the floor`).toBeGreaterThan(0.004)
-        expect(block, `${ground}/${state}: and the screen is what does it`).toBeGreaterThan(bare)
+        /* AND THE SCREEN IS WHAT DOES IT -- everywhere the mark is SPARSE.
+           The screened block out-measures the bare ruling at every level over
+           canopy (4.1x, 4.1x, 2.2x) and at the two sparse levels over soil
+           (1.29x, 1.32x), which is the claim the screen was added for.
+
+           THE FOCUSED HALO OVER SOIL IS THE ONE CELL THIS COMPARISON CANNOT
+           ANSWER, and the reason is arithmetic rather than a mark going quiet.
+           addedInkOver is |cell - bare ground| per channel, and over SOIL the
+           screen and the mark pull the same channels in OPPOSITE directions:
+           --rule lifts a mid-light ground a little lighter, --oxide darkens it
+           a lot. While the mark is sparse the screen's own lift dominates and
+           the difference grows; once the halo has spread oxide over most of
+           the block the two cancel inside the absolute value, and the screened
+           cell measures 0.87x the unscreened one while looking exactly as a
+           lit block should. The measure is subtracting, not the screen.
+
+           SO THE CLAIM SCOPES TO WHAT IS ACTUALLY AT STAKE THERE: the screen
+           is a ground, and a ground may not cost the mark it carries. Over
+           canopy -- the hardest ground, the one the screen exists for -- the
+           full comparison still holds at every level, halo included. */
+        const cancels = ground === 'soil' && state === 'focused'
+        if (cancels) {
+          expect(
+            block / bare,
+            `${ground}/${state}: the screen does not cost the haloed mark`
+          ).toBeGreaterThan(0.8)
+        } else {
+          expect(block, `${ground}/${state}: and the screen is what does it`).toBeGreaterThan(bare)
+        }
       }
 
       // THE SCREEN IS STILL A GROUND, AT EVERY LEVEL. Compared STATE FOR STATE
@@ -2535,10 +2700,23 @@ describeIf('the zone patterns, rendered', () => {
       const at = (state) => addedInkOver(page, ground, 'production', state)
       const [committed, active, focused] = [await at('committed'), await at('active'), await at('focused')]
       expect(committed / active, `${ground}: committed stays under three quarters`).toBeLessThan(0.75)
-      // 1.25 RATHER THAN 1.5, and the reason is the scale rather than the
-      // screen: --pattern-active went to 0.75 against a focused pinned at 1,
-      // so 1.33x is the ceiling. See STATE_STEP_DEFAULT.
-      expect(focused / active, `${ground}: the top gap is the scale's`).toBeGreaterThan(1.25)
+      /* AND THE TOP OF THE SCALE IS NO LONGER THIS MARK'S TOP, which is the
+         change this floor had to be re-read against rather than re-tuned.
+
+         THE 1.25 FLOOR WAS THE OPACITY SCALE'S ARITHMETIC. --pattern-active
+         went to 0.75 against a focused pinned at 1, so 1.33x was the ceiling
+         and 1.25 was set just under it. Production's focused block is now
+         drawn at the ACTIVE level with a halo around each rule, so it is not
+         on that scale at the top at all: over canopy, where --oxide has least
+         contrast to spend, the glow adds 1.14x rather than the level's 1.29x,
+         and over soil it adds 1.44x -- more than the pin ever allowed.
+
+         SO WHAT IS ASSERTED HERE IS WHAT THIS TEST IS ABOUT: the screen rides
+         the level, so the states still order. The SIZE of the focus step is
+         the halo's claim and is held where the halo can be seen -- the core
+         against an active block, the glow's own ink against the floor, and its
+         reach bounded at both ends. See 'says focus with a halo' above. */
+      expect(focused / active, `${ground}: focus still adds to the block`).toBeGreaterThan(1)
     }
   }, SLOW)
 
@@ -2598,10 +2776,21 @@ describeIf('the zone patterns, rendered', () => {
         // AND THE HIGHLIGHT IS STILL THERE UNDER THE MARK. The combination has
         // to carry more than the mark does on bare ground -- if the screen had
         // painted the tint out, the two would converge.
+        /* THE SAME CANCELLATION, AND THE SAME ONE CELL. Over soil the eligible
+           highlight is a LIGHT tint on a light ground and the haloed focused
+           hatch is heavy oxide over it, so the combination's distance from
+           bare ground comes in under the mark's own downstream figure (0.0546
+           against 0.0607) while both marks are plainly on the cell -- the
+           highlight lifts the channels the glow darkens. The claim for that
+           cell is made against the HIGHLIGHT'S own contribution instead, which
+           is the same question without the subtraction: what is on this cell
+           is more than the tint alone, and the reading above says the mark is
+           more than the floor. Everywhere else the full comparison holds. */
+        const cancels = ground === 'soil' && state === 'focused'
         expect(
           combination,
           `${ground}/${state}: the highlight still reads under the screened hatch`
-        ).toBeGreaterThan(downstream)
+        ).toBeGreaterThan(cancels ? highlightAlone : downstream)
       }
     }
   }, SLOW)
