@@ -2285,6 +2285,19 @@ export const SURVEY_ZONE_LAYERS = Object.freeze({
 
 const SURVEY_ZONE_LAYER_SET = new Set(Object.values(SURVEY_ZONE_LAYERS))
 
+/**
+ * THE EMBANKMENT TYPE'S OWN NAME, taken off the table above rather than typed.
+ *
+ * The two survey types are the KEYS of SURVEY_ZONE_LAYERS, and they are also
+ * the values of every feature's `survey_type` -- the backend's
+ * SURVEY_TYPE_EMBANKMENT, on the wire. Reading it off the table is what keeps
+ * one spelling of the type in this file: a literal 'embankment' beside a table
+ * that already holds the word is the second copy that goes stale the day the
+ * wire renames it, and it would fail silently -- a type test that never matches
+ * just shows the wrong rows.
+ */
+const [EMBANKMENT] = Object.keys(SURVEY_ZONE_LAYERS)
+
 /** Is this Feature a committable survey zone -- an envelope, not a member? */
 export function isSurveyZone(feature) {
   return SURVEY_ZONE_LAYER_SET.has(feature?.properties?.layer)
@@ -2559,17 +2572,19 @@ function overlapRow(value, label) {
  * pond type, worth evaluating both approaches during the survey. That is a
  * finding, not a warning.
  *
- * SO THE LABEL NAMES THE OTHER ZONE RATHER THAN STATING A BARE PERCENTAGE.
- * "cross-type overlap %" would be a fourth crossing with a longer name; "also
- * excavated 2" is the sentence the finding actually makes, and the reader can
- * go and look at that tab. LAST POSITION AND A NAMING LABEL TOGETHER are what
- * keep it out of the run above it -- either alone would leave it reading as
- * one more thing wrong with the zone.
+ * SO THE LABEL NAMES THE OTHER ZONE RATHER THAN STATING A BARE CROSSING.
+ * "cross-type overlap %" would be a fourth crossing with a longer name;
+ * "shared ground w/ excavated 2 %" is the sentence the finding actually makes,
+ * and the reader can go and look at that tab. LAST POSITION AND A NAMING LABEL
+ * TOGETHER are what keep it out of the run above it -- either alone would
+ * leave it reading as one more thing wrong with the zone.
  *
- * WHICH IS ALSO WHY THE `%` IS NOT ON THIS LABEL. It sits directly under rows
- * whose labels end in `%`, in one run, so the column says what the unit is;
- * spelling it here would cost the label the zone's name, which is the whole
- * reason the row is shaped this way.
+ * "SHARED GROUND", NOT "ALSO". The label read "also excavated 2" for a while,
+ * which named the zone but left the reader to infer the relation from the
+ * row's position. "Shared ground with" says what the number IS, and the `%`
+ * says what it is measured in -- the three rows above it end in `%` too, so
+ * the run stays one column of like units rather than relying on position to
+ * supply the one it dropped.
  *
  * THE NAME IS MINTED ONCE, BY surveyZoneName(). `cross_type_overlaps` names
  * zones by INTERNAL `zone_id` -- not the wire feature id, and meaningless to a
@@ -2619,7 +2634,7 @@ function crossTypeRows(proposals, feature) {
   return (feature?.properties?.cross_type_overlaps ?? []).map((entry) => {
     const other = byZoneId.get(entry.zone_id)
     const name = other ? surveyZoneName(other.properties) : 'an area not shown'
-    return overlapRow(entry.fraction * 100, `also ${name}`)
+    return overlapRow(entry.fraction * 100, `shared ground w/ ${name} %`)
   })
 }
 
@@ -3028,17 +3043,19 @@ export const WATER_STEP = documentStep({
    * neither shape was the format's. It is two runs now, separated by the one
    * break this list declares:
    *
-   *     Embankment 1
-   *      0.6                        survey acres
-   *       52                        /100 score
-   *     ────────────────────────────────
-   *     gravity feed                water delivery
-   *      2.4                        contributing acres
-   *      3.1                        median slope %
-   *      4.1                        max depth ft
-   *     ────────────────────────────────
-   *      0.09                       production overlap %
-   *       60                        also excavated 2
+   *     Embankment 1                      Excavated 2
+   *      0.6        survey acres             1.2        survey acres
+   *       52        /100 score                60        /100 score
+   *     ──────────────────────────         ──────────────────────────
+   *     gravity feed  water delivery       pump required water delivery
+   *      2.4        contributing acres       3.9        contributing acres
+   *     31.2        contributing acres       4.0        median slope %
+   *                 at dam site              4.1        max depth ft
+   *      4.0        median slope %
+   *     ──────────────────────────         ──────────────────────────
+   *      0.1        production overlap %     0.1        production overlap %
+   *     60.0        shared ground w/         60.0       shared ground w/
+   *                 Excavated 2 %                       Embankment 1 %
    *
    * THE FIRST RULE IS THE FORMAT'S OWN, drawn between the tab's rows and this
    * list without being asked (panelBody). The second is the one PANEL_BREAK
@@ -3056,6 +3073,37 @@ export const WATER_STEP = documentStep({
    *
    * CATEGORICALS FIRST, THEN MEASURED VALUES -- the format's rule 4, applied to
    * each run. `water delivery` leads the first; the second is all figures.
+   *
+   *
+   * ONE ROW IN THE FIRST RUN IS EACH TYPE'S OWN, AND THAT IS THE ONE PLACE
+   * THIS PANEL DISPATCHES ON SURVEY TYPE.
+   *
+   * An embankment zone is a valley compartment dammed at a pinch; an excavated
+   * zone is a basin you dig. So the embankment is asked what a dam there would
+   * IMPOUND (`pinch_catchment_acres`, "contributing acres at dam site") and
+   * the excavated zone is asked how DEEP it goes (`depression_depth_max_ft`,
+   * "max depth ft"). Neither question means anything of the other type.
+   *
+   * THIS IS THE FAILURE THE OLD PANEL DIED OF, FIXED RATHER THAN REPEATED. It
+   * read `member_acres` and `member_count` off every zone under "anchor acres"
+   * and "members" -- excavated vocabulary, on a compartment that has neither --
+   * so half the zones on the map showed an em dash for a question that does
+   * not apply. An em dash means NOT KNOWN and must never mean NOT ASKED.
+   *
+   * AND THE WIRE CANNOT MAKE THIS DECISION FOR US, which is why the dispatch is
+   * here. `pinch_catchment_acres` really is embankment-only on the feature, so
+   * that half would work by accident -- but `depression_depth_max_ft` is set on
+   * BOTH types, and an embankment zone's value is the deepest hollow inside a
+   * compartment that is about to be filled by a dam. A panel that showed the
+   * row whenever the field was present would print a meaningless number, which
+   * is worse than the em dash it avoided.
+   *
+   * THE BACKEND FORESAW THIS AND DECLINED IT, correctly for its own panel:
+   * PANEL_EXCLUDED_KEYS says pinch_catchment_acres was kept off because it
+   * "would either make a sixth always-row that reads blank on every excavated
+   * zone or make the always-set type-dependent". Its five rows are
+   * type-generic by design. This list is not, so it can carry what that one
+   * could not.
    *
    *
    * WHERE EACH VALUE COMES FROM, because this panel reads two sources and the
@@ -3093,6 +3141,7 @@ export const WATER_STEP = documentStep({
     const feature = zoneFeature(proposals, featureId)
     if (!feature) return null
     const properties = feature.properties ?? {}
+    const embankment = properties.survey_type === EMBANKMENT
 
     return {
       // The fallback only; the panel prefers the tab's own name, and they are
@@ -3110,16 +3159,45 @@ export const WATER_STEP = documentStep({
           measure(properties.contributing_area_acres_at_wettest_cell),
           'contributing acres'
         ),
+        // AND THE EMBANKMENT'S SECOND ACREAGE, WHICH IS THE ONE THAT FILLS THE
+        // POND. `pinch_catchment_acres` is the contributing area read AT THE
+        // PINCH CELL -- the catchment this compartment would impound once it
+        // is dammed -- where the row above it is the catchment at the wettest
+        // cell. Two catchments, two questions, and the backend keeps them
+        // separately readable rather than folding them together; the labels
+        // do the same.
+        //
+        // RIGHT AFTER `contributing acres` because that is the row it is a
+        // second reading of. A reader comparing "the ground that drains here"
+        // with "the ground a dam here would hold" wants them adjacent, not
+        // separated by a slope.
+        embankment
+          ? measuredRow(measure(properties.pinch_catchment_acres), 'contributing acres at dam site')
+          : null,
         // THE MEDIAN, NOT THE RANGE -- production's row, and its argument: the
         // panel says what the ground is like and one figure does that.
         measuredRow(measure(properties.slope_median_pct), 'median slope %'),
-        // FEET, AND THE BACKEND'S CONVERSION. `depression_depth_max_ft` is
-        // shipped already converted beside the metric measurement it came from
-        // (the zone keeps depression_depth_max_m under its own name), because
-        // two consumers converting one metre value is two chances to forget.
-        // The unit rides the LABEL: "4.1 feet" in the figure column widens it
-        // for every row that has a word in it.
-        measuredRow(measure(properties.depression_depth_max_ft), 'max depth ft'),
+        // AND THE EXCAVATED TYPE'S DEPTH. A basin has a depth you could dig to
+        // and a valley compartment does not -- its depth is whatever the dam
+        // makes it -- so this row is the excavated vocabulary and is not asked
+        // of an embankment zone.
+        //
+        // THE WIRE CARRIES IT ON BOTH TYPES, which is why the omission has to
+        // be made HERE rather than inferred from the payload. `depression_
+        // depth_max_ft` is set unconditionally by _zone_feature_properties, so
+        // an embankment zone has a number for it and the number means nothing:
+        // it is the deepest hollow inside a compartment that is going to be
+        // filled by a dam, not a depth anyone would dig.
+        //
+        // FEET, AND THE BACKEND'S CONVERSION. It ships already converted beside
+        // the metric measurement it came from (the zone keeps
+        // depression_depth_max_m under its own name), because two consumers
+        // converting one metre value is two chances to forget. The unit rides
+        // the LABEL: "4.1 feet" in the figure column widens it for every row
+        // that has a word in it.
+        embankment
+          ? null
+          : measuredRow(measure(properties.depression_depth_max_ft), 'max depth ft'),
         PANEL_BREAK,
         // THE THREE CROSSINGS, IN THE BACKEND'S OWN ORDER rather than in an
         // order this side has an opinion about. Each drops at zero and renders

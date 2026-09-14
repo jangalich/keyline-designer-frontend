@@ -1029,7 +1029,7 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
 
     // LAST, and after the crossing that is also present.
     const last = rows[rows.length - 1]
-    expect(last.label).toBe('also Excavated 2')
+    expect(last.label).toBe('shared ground w/ Excavated 2 %')
     expect(rows.map((row) => row.label).indexOf('canopy overlap %')).toBeLessThan(rows.length - 1)
 
     // A FRACTION ON THE WIRE, A PERCENTAGE ON THE PANEL, so the run it joins
@@ -1054,7 +1054,7 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
     const proposals = payloadOf([embankment, other])
 
     const last = rowsOf(proposals, embankment.id).pop()
-    expect(last.label).toBe(`also ${surveyZoneName(other.properties)}`)
+    expect(last.label).toBe(`shared ground w/ ${surveyZoneName(other.properties)} %`)
     expect(last.value).toBe('31.0')
 
     // THE RANK IS PER TYPE, so the name has to carry the type -- "Zone 3"
@@ -1083,10 +1083,11 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
     })
     const proposals = payloadOf([zone])
     const last = rowsOf(proposals, zone.id).pop()
-    expect(last.label).toBe('also an area not shown')
+    expect(last.label).toBe('shared ground w/ an area not shown %')
     expect(last.value).toBe('23.9')
     // AND NO INTERNAL ID LEAKS INTO THE PROSE.
     expect(last.label).not.toMatch(/\d/)
+    expect(last.label).toContain('shared ground')
   })
 
   it('carries one row per agreeing zone, and none at all where the two disagree', () => {
@@ -1109,15 +1110,15 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
     ])
     const rows = rowsOf(proposals, zone.id)
     expect(rows.slice(-2).map((row) => `${row.value} ${row.label}`)).toEqual([
-      '60.0 also Excavated 1',
-      '12.0 also Excavated 2',
+      '60.0 shared ground w/ Excavated 1 %',
+      '12.0 shared ground w/ Excavated 2 %',
     ])
 
     // AND NOTHING WHERE THE TWO INSTRUMENTS DID NOT AGREE. An empty list is
     // no rows, not a row saying zero -- the same rule the crossings follow.
     const alone = fixtureZone({ zone_id: 9, cross_type_overlaps: [] })
     const soloRows = rowsOf(payloadOf([alone]), alone.id)
-    expect(soloRows.some((row) => row.label.startsWith('also '))).toBe(false)
+    expect(soloRows.some((row) => row.label.startsWith('shared ground'))).toBe(false)
   })
 
   liveIt('renders, and does not move when the selection does', async () => {
@@ -1142,13 +1143,15 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
     const withheld = ui.water.summary.presentation?.withheld_zone_ids ?? []
     for (const entry of overlapping.properties.cross_type_overlaps) {
       const other = zones.find((f) => f.properties.zone_id === entry.zone_id)
-      const label = other ? `also ${surveyZoneName(other.properties)}` : 'also an area not shown'
+      const label = other
+        ? `shared ground w/ ${surveyZoneName(other.properties)} %`
+        : 'shared ground w/ an area not shown %'
       expect(ui.text(`detail-value-${label}`), label).not.toBeNull()
       if (!other) expect(withheld, 'an unresolved reference is a withheld zone').toContain(entry.zone_id)
     }
     // NO INTERNAL ID ANYWHERE IN THE PANEL'S PROSE.
     for (const node of ui.all('.chrome-detail__row-label')) {
-      expect(node.textContent).not.toMatch(/^also zone \d/)
+      expect(node.textContent).not.toMatch(/shared ground w\/ zone \d/)
     }
 
     // CHANGE THE SELECTION -- take an agreeing zone out of the commit entirely.
@@ -2218,13 +2221,27 @@ describe('the panel', () => {
     // the assertion a list of separate row checks cannot make, because the
     // failure this format exists to prevent is an ARRANGEMENT drifting rather
     // than a row going missing.
-    const zone = fixtureZone({
+    //
+    // BOTH TYPES, because one of the terrain rows is now each type's own and
+    // a single-type assertion would pass while the other panel showed the
+    // wrong vocabulary -- which is exactly the failure that killed the panel
+    // this one replaced (`anchor acres` on a valley compartment).
+    const crossings = {
       canopy_overlap_pct: 1.2,
       road_overlap_pct: 0.4,
       production_overlap_pct: 0.09,
+    }
+    const zone = fixtureZone({
+      ...crossings,
       cross_type_overlaps: [{ zone_id: 4, fraction: 0.6 }],
     })
-    const other = fixtureZone({ zone_id: 4, survey_type: 'excavated', rank: 2 })
+    const other = fixtureZone({
+      zone_id: 4,
+      survey_type: 'excavated',
+      rank: 2,
+      ...crossings,
+      cross_type_overlaps: [{ zone_id: 1, fraction: 0.6 }],
+    })
     const proposals = payloadOf([zone, other])
 
     expect(shapeOf(proposals, zone.id)).toEqual([
@@ -2236,15 +2253,37 @@ describe('the panel', () => {
       // WHAT THE AREA IS: the categorical first (rule 4), then the figures.
       'water delivery',
       'contributing acres',
+      // THE EMBANKMENT'S SECOND CATCHMENT, directly under the first because it
+      // is a second reading of it -- the ground a dam here would hold, against
+      // the ground that drains to the wettest cell.
+      'contributing acres at dam site',
       'median slope %',
-      'max depth ft',
+      // AND NO `max depth ft`: a valley compartment's depth is whatever the
+      // dam makes it, so the question is not asked of this type.
       '───',
       // WHAT IT TOUCHES: the three crossings in the backend's own order, then
       // the agreement report last.
       'production overlap %',
       'canopy overlap %',
       'road overlap %',
-      'also Excavated 2',
+      'shared ground w/ Excavated 2 %',
+    ])
+
+    // AND THE EXCAVATED PANEL IS THE SAME SHAPE WITH THE TWO TYPE ROWS
+    // SWAPPED: a basin has a depth you could dig to and no dam site.
+    expect(shapeOf(proposals, other.id)).toEqual([
+      'survey acres',
+      '/100 score',
+      '───',
+      'water delivery',
+      'contributing acres',
+      'median slope %',
+      'max depth ft',
+      '───',
+      'production overlap %',
+      'canopy overlap %',
+      'road overlap %',
+      'shared ground w/ Embankment 1 %',
     ])
 
     // ONE BREAK IS THE STEP'S; the other is the format's, drawn between the
@@ -2274,22 +2313,29 @@ describe('the panel', () => {
     // RULE 4 AND THE TWO FACES, on water's own rows. The delivery answer is a
     // phrase and has no decimal point to hold still; a word in the aligned
     // column widens it for every row beneath it.
-    const zone = fixtureZone({ production_overlap_pct: 6.4 })
-    const kinds = Object.fromEntries(
-      bodyOf(payloadOf([zone]), zone.id)
-        .filter((row) => !isBreak(row))
-        .map((row) => [row.label, row.kind])
-    )
-    expect(kinds['water delivery']).toBe(CATEGORICAL)
-    for (const label of [
-      'survey acres',
-      '/100 score',
-      'contributing acres',
-      'median slope %',
-      'max depth ft',
-      'production overlap %',
+    // BOTH TYPES, so the two type-dispatched rows are covered as well as the
+    // shared ones.
+    for (const [type, own] of [
+      ['embankment', 'contributing acres at dam site'],
+      ['excavated', 'max depth ft'],
     ]) {
-      expect(kinds[label], label).toBe(MEASURED)
+      const zone = fixtureZone({ survey_type: type, production_overlap_pct: 6.4 })
+      const kinds = Object.fromEntries(
+        bodyOf(payloadOf([zone]), zone.id)
+          .filter((row) => !isBreak(row))
+          .map((row) => [row.label, row.kind])
+      )
+      expect(kinds['water delivery'], type).toBe(CATEGORICAL)
+      for (const label of [
+        'survey acres',
+        '/100 score',
+        'contributing acres',
+        'median slope %',
+        own,
+        'production overlap %',
+      ]) {
+        expect(kinds[label], `${type}: ${label}`).toBe(MEASURED)
+      }
     }
   })
 
@@ -2313,22 +2359,72 @@ describe('the panel', () => {
   })
 
   it('reads its measurements off the feature, at the panel\'s own width', () => {
-    const zone = fixtureZone({
+    const shared = {
       contributing_area_acres_at_wettest_cell: 2.43,
       slope_median_pct: 3.14,
+    }
+    const embankment = fixtureZone({ ...shared, pinch_catchment_acres: 31.24 })
+    const excavated = fixtureZone({
+      ...shared,
+      zone_id: 4,
+      survey_type: 'excavated',
       depression_depth_max_ft: 4.06,
     })
-    const proposals = payloadOf([zone])
+    const proposals = payloadOf([embankment, excavated])
+
     // ONE DECIMAL PLACE, which is measure()'s default and what holds a decimal
     // point still down a column that also carries an acreage and a percentage.
-    expect(valueOf(proposals, zone.id, 'contributing acres')).toBe('2.4')
-    expect(valueOf(proposals, zone.id, 'median slope %')).toBe('3.1')
-    expect(valueOf(proposals, zone.id, 'max depth ft')).toBe('4.1')
+    for (const zone of [embankment, excavated]) {
+      expect(valueOf(proposals, zone.id, 'contributing acres')).toBe('2.4')
+      expect(valueOf(proposals, zone.id, 'median slope %')).toBe('3.1')
+    }
+    // AND EACH TYPE'S OWN ROW, off its own field.
+    expect(valueOf(proposals, embankment.id, 'contributing acres at dam site')).toBe('31.2')
+    expect(valueOf(proposals, excavated.id, 'max depth ft')).toBe('4.1')
 
-    // AND A MISSING MEASUREMENT IS AN EM DASH, never a zero. A pond site with
-    // no depth reading is not a pond site with no depth.
-    const unmeasured = fixtureZone({ zone_id: 2, depression_depth_max_ft: null })
-    expect(valueOf(payloadOf([unmeasured]), unmeasured.id, 'max depth ft')).toBe('—')
+    // AND A MISSING MEASUREMENT IS AN EM DASH, never a zero -- on either row.
+    // A pond site with no depth reading is not a pond site with no depth, and
+    // a compartment whose pinch catchment was not measured is not one that
+    // holds nothing.
+    const noDepth = fixtureZone({ zone_id: 7, survey_type: 'excavated', depression_depth_max_ft: null })
+    expect(valueOf(payloadOf([noDepth]), noDepth.id, 'max depth ft')).toBe('—')
+    const noCatchment = fixtureZone({ zone_id: 8, pinch_catchment_acres: null })
+    expect(
+      valueOf(payloadOf([noCatchment]), noCatchment.id, 'contributing acres at dam site')
+    ).toBe('—')
+  })
+
+  it('asks each survey type only the questions that apply to it', () => {
+    // THE FAILURE THIS GUARDS, AND IT HAS HAPPENED HERE BEFORE. The panel this
+    // one replaced read `member_acres` and `member_count` off every zone under
+    // the labels "anchor acres" and "members" -- EXCAVATED vocabulary, on a
+    // valley compartment that has neither -- so half the zones on the map
+    // showed an em dash for a question that does not apply. An em dash means
+    // "not known"; it must never mean "not asked".
+    //
+    // THE WIRE CANNOT BE THE TEST. `depression_depth_max_ft` is set on BOTH
+    // types by _zone_feature_properties, so an embankment zone has a real
+    // number for it -- the deepest hollow in a compartment that is about to be
+    // filled by a dam. A panel that showed the row whenever the field was
+    // present would show a meaningless figure rather than an em dash, which is
+    // worse. The dispatch is this side's and is asserted as such.
+    const embankment = fixtureZone({ zone_id: 1 })
+    const excavated = fixtureZone({ zone_id: 4, survey_type: 'excavated' })
+    const proposals = payloadOf([embankment, excavated])
+    const labels = (id) =>
+      bodyOf(proposals, id)
+        .filter((row) => !isBreak(row))
+        .map((row) => row.label)
+
+    expect(labels(embankment.id)).toContain('contributing acres at dam site')
+    expect(labels(embankment.id)).not.toContain('max depth ft')
+
+    expect(labels(excavated.id)).toContain('max depth ft')
+    expect(labels(excavated.id)).not.toContain('contributing acres at dam site')
+
+    // AND THE EMBANKMENT ZONE REALLY DOES CARRY A DEPTH ON THE WIRE, so the
+    // omission above is the panel's decision and not an absent field.
+    expect(embankment.properties.depression_depth_max_ft).toBeGreaterThan(0)
   })
 
   it('keeps the diagnostic record off the panel', () => {
@@ -2772,8 +2868,18 @@ function fixtureZone(overrides) {
       zone_acres: 0.3,
       mean_suitability: 0.7933,
       slope_median_pct: 4.0,
-      depression_depth_max_m: 0.0,
+      // BOTH TYPES CARRY THE DEPTH ON THE WIRE and only the excavated panel
+      // renders it -- _zone_feature_properties sets depression_depth_max_ft
+      // unconditionally, so an embankment zone has a number for it and the
+      // number means nothing. The fixture models the wire, not the panel.
+      depression_depth_max_ft: 4.06,
+      depression_depth_max_m: 1.24,
       contributing_area_acres_at_wettest_cell: 10.51,
+      // EMBANKMENT ONLY, and the fixture carries it on both for the same
+      // reason it carries member_acres on both: what is asserted is that the
+      // PANEL dispatches on type, and a fixture that withheld the field would
+      // let a panel pass by rendering an em dash instead of by omitting a row.
+      pinch_catchment_acres: 31.2,
       representative_elevation_m: 312.4,
       canopy_overlap_pct: 0.0,
       road_overlap_pct: 0.0,
