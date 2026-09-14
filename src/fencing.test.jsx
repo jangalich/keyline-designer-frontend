@@ -88,7 +88,7 @@ import {
 } from './wizard/stepDefinitions'
 import { MACHINE_STATES, STEP_COMMITTED } from './wizard/useStepMachine.js'
 import { resetStepCatalog } from './wizard/stepCatalog.jsx'
-import { selectionAfterCheck } from './wizard/shell/TabStrip.jsx'
+import { selectionAfterCheck } from './wizard/tabs.js'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
 import MapLayerStack from './map/MapLayerStack.jsx'

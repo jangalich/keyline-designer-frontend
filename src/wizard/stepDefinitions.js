@@ -1807,20 +1807,44 @@ export function totalsFor(payload, selectedIds, drawnFeatures) {
  * -- which is exactly the failure scoreBandName()'s own note is about, in the
  * one place a reader would never think to check.
  *
- * TWO SPELLINGS OF ONE STATEMENT, AND BOTH ARE THE BACKEND'S. The payloads do
- * not agree on where the top of the scale is written:
+ * THREE SPELLINGS OF ONE STATEMENT, AND ALL THREE ARE THE BACKEND'S. The
+ * payloads do not agree on where the top of the scale is written, and they do
+ * not agree on WHAT CARRIES the block either:
  *
- *   scales.range[1]         landform, roads, solar. narrative_data['scales']
- *                           ships `range: [0.0, 100.0]` with `score` in its
- *                           `applies_to`.
- *   scales.suitability.max  water. Its scales block is keyed BY THE SCORED
- *                           QUANTITY -- {suitability, rank, overlap_pct,
- *                           boundary_adjacency_pct, pinch_drainage_score} --
- *                           because five different things on that payload are
- *                           scored and each carries its own endpoints. There is
- *                           no `range` to read; `suitability` IS water's score
- *                           and `max` is its top (water_survey_areas.
- *                           build_scales(), DISPLAY_SCALE_MAX).
+ *   scales.range[1]              landform, solar. One scored value on the
+ *                                payload, so the block describes it directly:
+ *                                `range: [0.0, 100.0]` with `score` in its
+ *                                `applies_to`.
+ *   scales.<quantity>.max        water. Its block is keyed BY THE SCORED
+ *                                QUANTITY -- {suitability, rank, overlap_pct,
+ *                                boundary_adjacency_pct, pinch_drainage_score}
+ *                                -- because five different things on that
+ *                                payload are scored and each carries its own
+ *                                endpoints. There is no `range` to read;
+ *                                `suitability` IS water's score and `max` is
+ *                                its top (water_survey_areas.build_scales(),
+ *                                DISPLAY_SCALE_MAX).
+ *   scales.<quantity>.range[1]   roads. Keyed by quantity like water --
+ *                                {terrain_quality_score, cost_per_meter_ratio,
+ *                                crossings}, three scored things, and the
+ *                                middle one runs LOWER-IS-BETTER while the
+ *                                score runs higher -- and spelled `range` like
+ *                                landform inside each entry
+ *                                (road_corridors._TERRAIN_QUALITY_SCALE).
+ *
+ * SO THE CALLER NAMES ITS OWN SCORED QUANTITY, and that is the whole of what
+ * roads needed. The key used to be hard-coded here as `suitability`, which was
+ * water's name for its score written into a shared reader -- fine while water
+ * was the only keyed payload and wrong the moment a second one arrived under
+ * a different key. A step knows which of the quantities on its payload is the
+ * one its tab prints; it does not know, and must not learn, whether the top of
+ * that scale is spelled `max` or `range[1]`. That half stays here.
+ *
+ * AND THE CARRIER IS AN ARGUMENT, NOT ALWAYS THE PAYLOAD. Landform's and
+ * water's blocks ride the payload; roads' rides EACH NETWORK
+ * (build_narrative_data() forwards _SCALES by identity into every candidate's
+ * block, so the instrument travels with each reading of it). Whatever holds
+ * `scales` is what is handed in.
  *
  * ONE READER RATHER THAN A DENOMINATOR PER STEP, and the argument is
  * suitabilityCeiling()'s: a figure two surfaces show has to be reached by one
@@ -1829,18 +1853,19 @@ export function totalsFor(payload, selectedIds, drawnFeatures) {
  * than worked around in a step -- a step that read its own key would put the
  * `/N` rule in six places and this function's whole point is that it is in one.
  *
- * RANGE FIRST, because it is the shape more of the payloads carry; a payload
- * shipping both would be saying one thing twice and either answer is that
- * thing.
+ * RANGE FIRST at each level, because it is the shape more of the payloads
+ * carry; a payload shipping both would be saying one thing twice and either
+ * answer is that thing.
  *
  * AN INTEGER, because 100.0 is a number the pipeline rounded and "/100.0 score"
  * reads as a measurement rather than as a scale. NOTHING AT ALL when the
  * payload carries no scale: a denominator this side cannot back is worse than
  * no denominator, and the label falls back to plain "score".
  */
-function scoreDenominator(proposals) {
-  const scales = proposals?.scales
-  const top = scales?.range?.[1] ?? scales?.suitability?.max
+function scoreDenominator(carrier, quantity) {
+  const scales = carrier?.scales
+  const entry = quantity == null ? null : scales?.[quantity]
+  const top = scales?.range?.[1] ?? entry?.range?.[1] ?? entry?.max
   return top == null ? undefined : Math.round(Number(top))
 }
 
@@ -2994,10 +3019,11 @@ export const WATER_STEP = documentStep({
    */
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
-    // WATER'S SCALES SPELL THE TOP OF THE SCALE `suitability.max` AND NOT
-    // `range[1]`, and scoreDenominator() reads both -- see its note. It is the
-    // payload's 0-100 display scale either way, and never a 100 typed here.
-    const denominator = scoreDenominator(proposals)
+    // WATER'S SCALES ARE KEYED BY THE SCORED QUANTITY and spell the top of
+    // the scale `suitability.max`, not `range[1]`. The step names the
+    // quantity; scoreDenominator() knows the spellings -- see its note. It is
+    // the payload's 0-100 display scale either way, never a 100 typed here.
+    const denominator = scoreDenominator(proposals, 'suitability')
 
     // EVERY TAB CARRIES A CHECKBOX AND NO TAB CARRIES AN ×. Nothing here is
     // user-authored, so nothing here can be destroyed -- see `tools` above.
@@ -3263,11 +3289,34 @@ export const ACCESS_POINTS_LIST = 'access_points'
  */
 export const MAX_ROAD_NETWORKS = 3
 
-/** The branch roles the backend emits, in the order a panel lists them. */
-const BRANCH_ROLE_WORDS = Object.freeze({ trunk: 'Trunk', spur: 'Spur', water_spur: 'Water spur' })
-
-/** Whole feet: the tab's length figure. build_narrative_data() ships one decimal; a tab has no room for it. */
+/** Whole feet. build_narrative_data() ships one decimal; no surface reads it. */
 const LENGTH_DP = 0
+
+/**
+ * Whole score. The backend ships one decimal; see `tabs` for why the panel
+ * and the strip both print none.
+ */
+const SCORE_DP = 0
+
+/**
+ * WHICH OF THE THINGS ROADS SCORES IS THE ONE ITS TAB PRINTS.
+ *
+ * The network's `scales` block is keyed by scored quantity -- terrain quality,
+ * the cost ratio it restates, and the crossing lengths -- so a reader of it
+ * has to say which. The key is the backend's own
+ * (road_corridors._SCALES), named once here and passed to scoreDenominator().
+ */
+const TERRAIN_QUALITY_KEY = 'terrain_quality_score'
+
+/**
+ * A CROSSING LENGTH AS A PANEL ROW, or nothing where the ground was crossed
+ * none of. water's overlapRow() with roads' unit and precision: same rule,
+ * same helper under it (dropsAtZero), different figure. Feet rather than a
+ * percentage, so whole ones.
+ */
+function crossingRow(value, label) {
+  return dropsAtZero(value, measuredRow(measure(value, LENGTH_DP), label))
+}
 
 /**
  * WHICH NETWORK A BRANCH BELONGS TO. The backend stamps every branch with
@@ -3336,23 +3385,33 @@ function networkIndex(payload, networkId) {
 }
 
 /**
- * A NETWORK'S NAME: "Access point N".
+ * A NETWORK'S NAME: "Road Network N".
  *
- * THE DISTINGUISHING FACT IS WHERE THE DRIVEWAY MEETS THE ROAD, and the
- * coordinates that say so are eleven digits each -- far too long for a tab
- * row, and unreadable as an identity even if they fit. The ordinal is the
- * order the user tried them in, which they will remember ("the second one I
- * placed"), and the marker on the map is the location. The panel could
- * carry the coordinates and does not: a lat/lng pair tells nobody standing
- * on a field anything the marker does not.
+ * THE ORDINAL IS THE IDENTITY, whatever the noun. The distinguishing fact is
+ * where the driveway meets the road, and the coordinates that say so are
+ * eleven digits each -- far too long for a tab row and unreadable as an
+ * identity even if they fit. N is the order the user tried them in, which
+ * they will remember ("the second one I placed"), and the marker on the map
+ * is the location. The panel could carry the coordinates and does not: a
+ * lat/lng pair tells nobody standing on a field anything the marker does not.
  *
- * "Road network N" was the alternative and it names the wrong thing: the
- * networks are what differ, but the ACCESS POINT is what the user chose and
- * the network is what the pipeline made of it.
+ * IT WAS "Access point N", AND THE ARGUMENT FOR THAT WAS ABOUT THE HEADER
+ * ALONE. The access point is what the user chose and the network is what the
+ * pipeline made of it, so the point was the honest subject of a name -- while
+ * the name had only itself to agree with. It does not now: every row beneath
+ * it describes the NETWORK (its length, its grades, the ground it crosses,
+ * what it scores), so a header naming the access point makes one panel read
+ * as two subjects and leaves the reader to work out which one "3.4 acres
+ * served" belongs to.
+ *
+ * NOTHING IS LOST BY THE CHANGE. The access-point marker stays on the map
+ * whatever is focused (see the `roads-access-points` layer), so the point the
+ * network grew from is still visible and still clickable -- the connection is
+ * drawn rather than named.
  */
 export function roadNetworkName(payload, networkId) {
   const index = networkIndex(payload, networkId)
-  return index == null ? 'Access point' : `Access point ${index}`
+  return index == null ? 'Road Network' : `Road Network ${index}`
 }
 
 /**
@@ -3472,10 +3531,16 @@ const ROADS_ACCESS_BESIDE_COMMIT = stepButton({ ...ROADS_ACCESS_SPEC, tone: 'sec
  * Route a network from the pending access point.
  *
  * THE PENDING POINT IS CLEARED ON SUCCESS AND FOCUS MOVES TO THE NEW
- * NETWORK. The server has recorded the point (it is in the document that
- * came back with the payload), so the draft's copy would now draw a second
- * marker over the server's; and the network just made is the one the user
- * is about to look at. On failure the point stays, so the retry is one click.
+ * NETWORK -- WHICH, ON THIS STEP, IS ALSO THE NETWORK THAT WOULD COMMIT. The
+ * server has recorded the point (it is in the document that came back with
+ * the payload), so the draft's copy would now draw a second marker over the
+ * server's; and the network just made is the one the user is about to look
+ * at. On failure the point stays, so the retry is one click.
+ *
+ * THE AUTO-SELECT IS THE ACCEPTED CONSEQUENCE, not an oversight: generating a
+ * third network changes what a commit would carry, because you generated it
+ * to look at it and looking at it is choosing it here. The action banner
+ * still requires an explicit press, so nothing is recorded without one.
  *
  * THE CAP IS THE SERVER'S. A fourth point is refused with a 409 naming the
  * three held (CandidateCapReachedError); the store surfaces it as a step
@@ -3503,15 +3568,20 @@ async function generateRoadNetwork({ machine, disarm, focusFeature }) {
     made.find((n) => !before.has(n.network_id)) ??
     made.find((n) => Number(n.access_point?.[0]) === lon && Number(n.access_point?.[1]) === lat)
   if (!target) return true
+  // THE FOCUS, AND THE FOCUS ALONE. Roads declares `selection: { follows:
+  // 'focus' }`, so the cursor moves the tick onto this network as part of
+  // moving the focus to it -- see WizardCursor's focusFeature.
+  //
+  // WHAT THIS REPLACES WAS A SELECTION WRITE HERE, GUARDED BY "only if
+  // nothing is selected yet". It made the FIRST network commit and left every
+  // later one focused-but-unchecked: the map and the detail panel showed the
+  // network you had just routed while the tab of the one before it stayed
+  // ticked, and the only way to move the commit onto what you were looking at
+  // was to find its tab. The guard was written to protect a chosen network
+  // from being displaced by a comparison; on a step where focus IS the choice
+  // there is nothing to protect it from, because generating a network is
+  // asking to look at it.
   if (focusFeature) focusFeature(target.network_id)
-  // THE FIRST NETWORK IS THE ONE THAT COMMITS UNTIL THE USER SAYS OTHERWISE.
-  // A draft that has selected nothing (the point was placed before any
-  // proposals existed, so the store's seed never ran) takes this one; a later
-  // generate is a comparison and does not take the tick off the network the
-  // user has already chosen.
-  if (!machine.draft?.selectedFeatureIds?.length && target.feature_ids?.length) {
-    machine.actions.setSelection(machine.stepId, [...target.feature_ids])
-  }
   return true
 }
 
@@ -3553,11 +3623,6 @@ const ROADS_UNCHECKED_CONSEQUENCE = {
     'Floodplain and wet-soil data was unavailable, so these networks were not routed around wet ground.',
   canopy_data_available:
     'Canopy data was unavailable, so these networks pay nothing for crossing wooded ground.',
-}
-
-/** A yes/no reading for a boolean the backend measured. */
-function yesNo(value) {
-  return value == null ? '—' : value ? 'yes' : 'no'
 }
 
 export const ROADS_STEP = documentStep({
@@ -3675,24 +3740,29 @@ export const ROADS_STEP = documentStep({
    * no road" affordance because there does not need to be one: the toggle is
    * the gesture.
    *
-   * `follows: 'focus'` IS THE COLLAPSE, DECLARED RATHER THAN IMPLIED. Roads'
-   * tab body checks its box, so through the strip what you are looking at is
-   * what commits: there is no "focused but unchecked" tab to have. That one
-   * fact is ALSO what makes the editable network layer draw only the focused
-   * candidate -- `show: 'focused'` is RESOLVED from this line, not declared
-   * up there beside the geometry where it would have to be kept in agreement
-   * by hand. Two fields that happen to agree is a divergence waiting for its
-   * first edit; this is one field. See LAYER SCHEMA item 12.
+   * `follows: 'focus'` IS THE COLLAPSE, DECLARED RATHER THAN IMPLIED. What you
+   * are looking at is what commits: there is no "focused but unchecked" tab to
+   * have. That one fact is ALSO what makes the editable network layer draw
+   * only the focused candidate -- `show: 'focused'` is RESOLVED from this
+   * line, not declared up there beside the geometry where it would have to be
+   * kept in agreement by hand. Two fields that happen to agree is a divergence
+   * waiting for its first edit; this is one field. See LAYER SCHEMA item 12.
    *
-   * WHAT IT DOES NOT REACH, because neither is the strip: the map's own click
-   * (an access-point marker, a branch, the bare map) still FOCUSES and
-   * changes no selection, and a later generate focuses the network it just
-   * routed without taking the tick off the one already chosen. Both are
-   * readings rather than choices, and both are exactly as they were.
+   * AND IT REACHES EVERY PATH, which it did not. The collapse used to be
+   * enforced by the tab strip's click handler, so the strip was the only way
+   * to move the commit: a generate focused the network it had just routed and
+   * a marker click focused its own, and both left the tick where it was --
+   * the map and the detail panel on one network, the commit on another. The
+   * rule is the CURSOR's now (WizardCursor's focusFeature), so a focus move is
+   * a selection move wherever it comes from, and a fourth path would be
+   * correct without being told. The exception the old arrangement needed --
+   * "converge on a disagreement rather than deepen it" -- survives as
+   * arithmetic: clicking a checked-but-unfocused tab moves the focus onto a
+   * tab whose features already ARE the selection.
    *
    * The one tab the collapse leaves out is the one with no checkbox -- an
-   * access point that routed nothing (see `tabs`). Its body focuses, because
-   * there is no network for the focus to commit.
+   * access point that routed nothing (see `tabs`). Focusing it selects
+   * nothing, because there is no network on it for the focus to commit.
    */
   selection: { mode: 'radio', follows: 'focus' },
   groupOf: roadNetworkOf,
@@ -3756,7 +3826,7 @@ export const ROADS_STEP = documentStep({
     [EDITING]: 'Click the property boundary where it meets the road.',
     [GENERATING]: 'Routing a network from the access point — grade, wet ground, canopy, and the water zone…',
     [REVIEWING]:
-      'Click a network or its access point to read it. Clicking its tab is what commits it — one network, or none.',
+      'Click a network, its access point or its tab to choose it — one network, or none. Clicking the one you are looking at leaves none chosen.',
     [COMMITTING]: 'Saving this network…',
     [STEP_COMMITTED]: 'This network is committed. Trees, structures and fencing are measured against it.',
   },
@@ -3804,7 +3874,10 @@ export const ROADS_STEP = documentStep({
       lines.push({
         key: `no-network-${network.network_id}`,
         tone: 'caution',
-        text: `Access point ${index + 1} routed no network: the router stopped (${network.stop_reason}).`,
+        // NAMED AS THE TAB NAMES IT. One ordinal, one noun: a notice saying
+        // "Access point 3" beside a tab saying "Road Network 3" would be two
+        // names for one slot.
+        text: `Road Network ${index + 1} routed nothing: the router stopped (${network.stop_reason}).`,
       })
     })
 
@@ -3830,9 +3903,25 @@ export const ROADS_STEP = documentStep({
    * branch id (`featureIds`), the checkbox toggles all of them, and the strip
    * marks it focused when any of them is.
    *
-   * THREE ROWS: identity, total length, served acres -- the shape landform
-   * and water set. Whole feet, because the tab has no room for a decimal
-   * that build_narrative_data() ships and nobody reads on a tab.
+   * IDENTITY, THEN ACREAGE, THEN SCORE -- the shape landform and water set,
+   * and the two rows are what a reader picks a network out BY: how much of
+   * the block ground it reaches, and how good the ground it runs on is. The
+   * LENGTH moved down into the panel with the rest of the network's
+   * measurements: a tab is read across candidates, and "how long is it" is
+   * not how you choose between three roads.
+   *
+   * THE SCORE ROW DECLARES A DENOMINATOR AND DOES NOT PRINT ONE. The strip
+   * says "score"; the panel, repeating this same row below its header, says
+   * "/100 score" -- one declaration, two renderings, and the `/N` is
+   * panelFormat's denominated() rather than anything written twice. The
+   * denominator comes off the NETWORK's own scales block (roads ships one per
+   * candidate), never off a 100 typed here.
+   *
+   * WHOLE NUMBERS. build_narrative_data() ships the score at one decimal and
+   * a column of "60.9" against "76.7" claims a precision the scale itself
+   * disclaims -- its own block says `calibration: unvalidated_starting_values`
+   * -- so the figure is printed as the screening value it is. Water's row
+   * does the same on the same 0-100 scale.
    *
    * A CANDIDATE THAT ROUTED NOTHING KEEPS ITS TAB, without a checkbox: the
    * access point was tried and the slot is held, so it can be discarded,
@@ -3840,16 +3929,20 @@ export const ROADS_STEP = documentStep({
    */
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
-    return roadNetworks(proposals).map((network, index) => {
+    return roadNetworks(proposals).map((network) => {
       const featureIds = network.feature_ids ?? []
       const tab = {
         id: network.network_id,
-        name: `Access point ${index + 1}`,
+        name: roadNetworkName(proposals, network.network_id),
         featureIds,
         removable: true,
         rows: [
-          { value: measure(network.access?.total_length_ft, LENGTH_DP), label: 'feet' },
           { value: measure(network.access?.served_acres), label: 'acres served' },
+          {
+            value: measure(network.quality?.terrain_quality_score, SCORE_DP),
+            label: 'score',
+            denominator: scoreDenominator(network, TERRAIN_QUALITY_KEY),
+          },
         ],
       }
       if (featureIds.length) {
@@ -3861,82 +3954,114 @@ export const ROADS_STEP = documentStep({
   },
 
   /**
-   * THE PANEL: network-level readings the tab had no room for, then one
-   * group per branch. A click on a branch focuses its network and names the
-   * branch, so the panel scrolls to that branch's group (`scrollTo`).
+   * THE PANEL: WHAT THIS NETWORK IS, THEN WHAT IT CROSSES.
    *
-   * PER-FEATURE VALUES OFF THE BRANCH FEATURES; STEP-LEVEL OFF
-   * build_narrative_data() -- the two-source split water established. Every
-   * figure is FINAL and printed as sent, through measure() so a null is an
-   * em dash and never a 0.0: a grade the pipeline did not measure is not a
-   * flat road.
+   * DECLARED AGAINST THE SHARED FORMAT -- `rows`, not `groups`. panelFormat.js
+   * owns the arrangement and this owns the fields, as landform's and water's
+   * do; between them there is no roads-specific rendering anywhere.
+   *
+   *     Road Network 1
+   *      3.4                        acres served
+   *       61                        /100 score
+   *     ────────────────────────────────
+   *     1340                        length ft
+   *      4.2                        avg grade %
+   *      9.8                        max grade %
+   *     ────────────────────────────────
+   *       85                        crosses block ft
+   *      120                        crosses canopy ft
+   *
+   * TWO RUNS AND ONE DECLARED BREAK. The first rule is the format's own, drawn
+   * between the tab's rows and this list without being asked (panelBody); the
+   * second is the one PANEL_BREAK below. Above it: what the network IS -- how
+   * long, how steep at its worst, how steep on average. Below it: what it
+   * CROSSES.
+   *
+   * NEITHER RUN IS LABELLED. Water settled that: a heading over three length
+   * and grade rows says what the reader can already see, and the panel's whole
+   * argument is that a rule between two runs is cheaper than a heading over
+   * each. Trees keeps its MARGINAL BENEFITS because that heading makes a claim
+   * the rows under it do not make themselves.
+   *
+   * NO CATEGORICALS, so the format's rule 4 has nothing to order here. Every
+   * row is a figure.
+   *
+   *
+   * NO PER-BRANCH DATA, AND THAT IS A REMOVAL RATHER THAN AN OMISSION.
+   *
+   * This panel used to carry one labelled group per branch -- trunk, spur,
+   * water spur, each with its own length, grades, steep feet and acreage --
+   * under a network group of eleven rows. That is the report's business.
+   * Every figure here describes THE WHOLE NETWORK: `max grade %` is the
+   * steepest point anywhere on it, and `avg grade %` is the backend's
+   * LENGTH-WEIGHTED average over it (determination.avg_grade_pct), which is
+   * the one figure a consumer given only the branch list cannot honestly
+   * reach -- averaging the per-branch averages weights a 40 ft spur like a
+   * 900 ft trunk, and build_narrative_data() ships the weighted figure
+   * precisely to stop that.
+   *
+   * SO THERE IS NO `scrollTo` EITHER. It named a branch's group so a click on
+   * that branch scrolled the panel to it; with no groups there is nothing to
+   * scroll to, and the click still focuses the network and opens this.
+   *
+   *
+   * THE CROSSINGS ARE LENGTHS NOW, NOT YES AND NO.
+   *
+   * The backend ships `crossings` -- feet, summed over the whole network, one
+   * figure per ground. A corridor clipping a block's corner for 20 ft and one
+   * running 300 ft through its middle were the same "yes" before, and they are
+   * not the same fact.
+   *
+   * EACH ROW DROPS AT ZERO AND RENDERS AN EM DASH FOR NULL -- water's overlap
+   * rule, on the same helper. Zero means the ground was measured and none of
+   * it was crossed, which costs a line to say nothing; null means that
+   * ground's data never arrived (canopy unavailable, NHD and SSURGO both out)
+   * and is a different answer that still renders. The backend's own
+   * `_CROSSING_SCALE` states exactly that distinction on the wire.
+   *
+   * IN THE BACKEND'S OWN ORDER, rather than an order this side has an opinion
+   * about -- block, canopy, floodplain.
+   *
+   * "BLOCK", NOT "PRODUCTION ZONE". Production areas are blocks in this
+   * interface (landform's tabs say "Block N"), the backend renamed the
+   * panel-facing key to `crosses_block_ft` for it, and the panel follows. The
+   * mask, the ids and the per-branch `crosses_production_zone` boolean keep
+   * their own names on the wire; this is display prose.
+   *
+   * AND "WET GROUND" FOR THE FLOODPLAIN, which is roads' own word for it in
+   * every other sentence it prints -- the notice, the determination. The wire
+   * key is `crosses_floodplain_ft`; the panel says what a person standing on
+   * it would.
    */
   detail: ({ proposals }, focusedId) => {
-    const features = (proposals?.road_corridors?.features ?? []).filter(
-      (feature) => feature.id === focusedId || roadNetworkOf(feature) === focusedId
+    // A BRANCH OR THE NETWORK. A click on the map lands on a branch; the
+    // panel is the network's either way, because the network is the unit of
+    // the decision and every figure below is measured over the whole of it.
+    const branch = (proposals?.road_corridors?.features ?? []).find(
+      (feature) => feature.id === focusedId
     )
-    const branch = features.find((feature) => feature.id === focusedId) ?? null
     const networkId = branch ? roadNetworkOf(branch) : focusedId
     const network = roadNetwork(proposals, networkId)
     if (!network) return null
 
     const access = network.access ?? {}
     const determination = network.determination ?? {}
-    const branches = (proposals?.road_corridors?.features ?? []).filter(
-      (feature) => roadNetworkOf(feature) === networkId
-    )
-
-    const groups = [
-      {
-        id: 'network',
-        label: null,
-        fields: [
-          { label: 'feet of road', value: measure(access.total_length_ft, LENGTH_DP), measured: true },
-          { label: 'acres served', value: measure(access.served_acres), measured: true },
-          { label: 'acres unserved', value: measure(access.unserved_acres), measured: true },
-          { label: '% of production served', value: measure(access.served_pct_of_production), measured: true },
-          { label: 'max grade %', value: measure(determination.max_grade_pct), measured: true },
-          { label: 'steep feet', value: measure(determination.steep_ft), measured: true },
-          { label: 'branches', value: String(access.branch_count ?? '—') },
-          { label: 'reaches the water zone', value: yesNo(access.reaches_water_zone) },
-          { label: 'water zone excluded', value: yesNo(determination.water_zone_excluded) },
-          {
-            label: 'wet ground avoided',
-            value: determination.floodplain_data_available
-              ? determination.floodplain_data_is_fallback
-                ? 'estimated from elevation'
-                : 'yes'
-              : 'not applied',
-          },
-          { label: 'canopy avoided', value: determination.canopy_data_available ? 'yes' : 'not applied' },
-          { label: 'stopped because', value: String(network.stop_reason ?? '—') },
-        ],
-      },
-    ]
-
-    for (const feature of branches) {
-      const p = feature.properties ?? {}
-      const role = BRANCH_ROLE_WORDS[p.branch_role] ?? p.branch_role ?? 'Branch'
-      groups.push({
-        id: feature.id,
-        label: `${role} ${Number(p.branch_index ?? 0) + 1}`,
-        fields: [
-          { label: 'feet', value: measure(p.length_ft, LENGTH_DP), measured: true },
-          { label: 'avg grade %', value: measure(p.avg_grade_pct), measured: true },
-          { label: 'max grade %', value: measure(p.max_grade_pct), measured: true },
-          { label: 'steep feet', value: measure(p.steep_ft, LENGTH_DP), measured: true },
-          { label: 'acres newly served', value: measure(p.newly_served_acres), measured: true },
-          { label: 'crosses wet ground', value: yesNo(p.crosses_floodplain) },
-          { label: 'crosses production ground', value: yesNo(p.crosses_production_zone) },
-        ],
-      })
-    }
+    const crossings = network.crossings ?? {}
 
     return {
+      // The fallback only; the panel prefers the tab's own name, and the two
+      // are minted by one function so they cannot disagree.
       name: roadNetworkName(proposals, networkId),
-      groups,
+      rows: [
+        measuredRow(measure(access.total_length_ft, LENGTH_DP), 'length ft'),
+        measuredRow(measure(determination.avg_grade_pct), 'avg grade %'),
+        measuredRow(measure(determination.max_grade_pct), 'max grade %'),
+        PANEL_BREAK,
+        crossingRow(crossings.crosses_block_ft, 'crosses block ft'),
+        crossingRow(crossings.crosses_canopy_ft, 'crosses canopy ft'),
+        crossingRow(crossings.crosses_floodplain_ft, 'crosses wet ground ft'),
+      ],
       cautions: [],
-      scrollTo: branch ? branch.id : null,
     }
   },
 })

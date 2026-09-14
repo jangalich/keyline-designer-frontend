@@ -24,14 +24,24 @@
  * nothing, changes nothing about what a commit would send, and is thrown away
  * when the cursor moves. A feature can be focused and unchecked at once, and
  * that is a real and useful state -- it is how you read the measurements of
- * something you have just taken out.
+ * something you have just taken out. FIVE OF THE SIX STEPS DECLARE
+ * `follows: null` AND MEAN EXACTLY THAT: click a landform zone's tab body and
+ * you are reading it, not changing what you are about to commit.
  *
  * ONE STEP CHOOSES OTHERWISE, AND IT SAYS SO IN ITS OWN DEFINITION. Roads
- * declares `selection: { follows: 'focus' }`, which makes its tab body check
- * its box: through the strip, what is focused there is what commits. That is
- * a STEP's statement about its own tabs, not a change to what this slot is --
- * this file still holds a pointer and still commits nothing, and the map's
- * own clicks focus without choosing on every step alike.
+ * declares `selection: { mode: 'radio', follows: 'focus' }`: there, the two
+ * are ONE FACT, what you are looking at is what commits, and there is no
+ * focused-but-unchecked network to have. `show: 'focused'` on its network
+ * layer is RESOLVED from that same line, so the map draws only the focused
+ * candidate -- which is why the pair cannot be allowed to drift: a tick on a
+ * network nothing is drawing is a commit with no geometry on screen.
+ *
+ * SO THE COLLAPSE IS APPLIED HERE, IN focusFeature, AND NOWHERE ELSE. It used
+ * to be applied by the tab strip's click handler, which was the same rule
+ * written where only one of the three paths that move a focus could reach it.
+ * See focusFeature for the two that could not, and for what they did instead.
+ * What this file holds is still ONE POINTER: the step says what a pointer
+ * means on it, and this reads that rather than knowing which step it is.
  *
  * WHY THEY LIVE TOGETHER. The arming is only meaningful against a step's
  * `tools[]`, and it must not survive the step it was armed for -- an armed
@@ -84,9 +94,11 @@
 
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 
-import { COMMITTED, selectStepStatus, useSession } from '../session/SessionStore'
+import { COMMITTED, selectHasDraft, selectStepStatus, useSession } from '../session/SessionStore'
 import { useStepCatalog } from './stepCatalog.jsx'
 import { STEP_DEFINITIONS, definitionMap, wizardStepOrder } from './stepDefinitions'
+import { selectionFollowingFocus } from './tabs.js'
+import { stepContextFor } from './useStepMachine.js'
 
 const WizardCursorContext = createContext(null)
 
@@ -94,7 +106,7 @@ const WizardCursorContext = createContext(null)
 const NOTHING_ARMED = Object.freeze({ stepId: null, tool: null })
 
 export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS }) {
-  const { state } = useSession()
+  const { state, actions } = useSession()
   const registry = useMemo(() => definitionMap(definitions), [definitions])
   // The pipeline before a document exists. The document's own `step_order`
   // takes over the moment one arrives -- see wizardStepOrder.
@@ -250,15 +262,73 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
    * Takes no step id. The cursor's step is the only step whose features are on
    * screen, so "which step's feature is this" has one answer and it is not the
    * caller's to give.
+   *
+   *
+   * AND ON A STEP THAT DECLARES `selection: { follows: 'focus' }`, THIS MOVES
+   * THE SELECTION TOO. That is the whole of the field, and it is here rather
+   * than in any caller.
+   *
+   * THE BUG THIS FIXES, because the fix is a deletion in two other files and
+   * nothing about it is visible from them. `follows: 'focus'` says focus and
+   * the commit decision are ONE FACT on that step -- there is no "focused but
+   * unchecked" tab to have, and `show: 'focused'` is RESOLVED from the same
+   * line, so only the focused candidate is even drawn. THREE PATHS MOVE THE
+   * FOCUS: a tab body, an access-point marker, and the generate that focuses
+   * the network it has just routed. ONE OF THEM ENFORCED THE COLLAPSE -- the
+   * tab body -- so the other two moved the focus, the map, and the detail
+   * panel onto a network while the tick, and therefore the commit, stayed on
+   * the one before it. Generate a second network and the panel described it
+   * while the first tab stayed checked; click a marker and the same.
+   *
+   * SO IT IS NOT THREE CORRECTIONS. Three handlers each remembering the rule
+   * is the arrangement that produced the bug, and adding the two that were
+   * missing would leave the fourth path -- whatever declares a focus next --
+   * free to forget it again. There is one focus setter in this application;
+   * the rule belongs to it, and every path is correct by having gone through
+   * here.
+   *
+   * RADIO WITHOUT ARITHMETIC. selectionFollowingFocus() returns the focused
+   * tab's features and nothing else, so the others are out by absence rather
+   * than by an un-tick step. Nothing focused is an empty selection, which is
+   * roads' legal empty commit (`min_features: 0`) and the only thing that can
+   * honestly pair with a map drawing nothing.
+   *
+   * THE READ IS THE REDUCER'S, NOT THIS CLOSURE'S, and that is load-bearing
+   * for exactly one caller. generateRoadNetwork() awaits the generate and then
+   * focuses the network that came back; the `focusFeature` it holds is the one
+   * from the render BEFORE the request, closing over a state whose proposals
+   * do not contain that network. Computing the tabs out here would find no tab
+   * for it and select nothing. The updater form of setSelection runs inside
+   * the reducer, after the payload's own dispatch, against the state that
+   * carries it. See SessionStore's DRAFT_SELECTION_SET.
+   *
+   * NOT ON A STEP WITH NO DRAFT. A selection is a fact about a draft, and a
+   * write here would MINT one -- which would then make useStepMachine's seed
+   * skip the step for having a draft already, and roads would open with
+   * nothing chosen instead of its first network. A bare-map click on a roads
+   * step that has generated nothing is the case; it blurs a focus that was
+   * never set and must not leave a draft behind it.
    */
+  const followsFocus = definition?.selection?.follows === 'focus'
   const focusFeature = useCallback(
-    (featureId) =>
-      setFocusSlot(featureId ? { stepId: cursorStepId, featureId } : NOTHING_FOCUSED),
-    [cursorStepId]
+    (featureId) => {
+      setFocusSlot(featureId ? { stepId: cursorStepId, featureId } : NOTHING_FOCUSED)
+      if (!followsFocus || !selectHasDraft(state, cursorStepId)) return
+      actions.setSelection(cursorStepId, (_current, storeState) =>
+        selectionFollowingFocus(definition.tabs(stepContextFor(storeState, definition)), featureId)
+      )
+    },
+    [actions, cursorStepId, definition, followsFocus, state]
   )
 
-  /** Look at nothing. What a click on bare map does. */
-  const blurFeature = useCallback(() => setFocusSlot(NOTHING_FOCUSED), [])
+  /**
+   * Look at nothing. What a click on bare map does -- and on a focus-bound
+   * step that is a decision as much as a reading, because the map draws only
+   * what is focused: a selection surviving a blur would be a commit with no
+   * geometry anywhere on screen. Focusing nothing is the same act as focusing
+   * something, so it is the same call.
+   */
+  const blurFeature = useCallback(() => focusFeature(null), [focusFeature])
 
   /**
    * Is ANYTHING live on this map.
