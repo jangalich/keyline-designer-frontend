@@ -807,6 +807,49 @@ function tileSizeOf(spec) {
  * they are actually tellable apart -- see layout.test.jsx -- without standing
  * up Leaflet and a tile server to ask.
  */
+/**
+ * ONE <pattern> ELEMENT FROM ONE SPEC, under the id you give it.
+ *
+ * SPLIT OUT OF injectZonePatterns SO A CANDIDATE CAN BE BUILT, and that is the
+ * only reason it is separate: the map injects the shipped table and the layout
+ * harness injects tiles that are NOT in the table -- a denser lattice, a bigger
+ * dot, a different screen -- to measure what moving each lever would cost. A
+ * harness that hand-rolled those tiles would be measuring its own idea of a
+ * stipple rather than this file's, and the day stippleTile() changed, the sweep
+ * would quietly stop describing the mark it is meant to be sweeping.
+ *
+ * THE SPEC IS THE TABLE'S OWN SHAPE -- see TREATMENT_MARKS -- and `token` is
+ * read here rather than written by the caller, so a candidate cannot introduce
+ * a colour literal either.
+ */
+export function buildZonePattern(spec, id) {
+  const buildTile = TILE_BUILDERS[spec.kind]
+  if (!buildTile) return null
+  const size = tileSizeOf(spec)
+  const pattern = document.createElementNS(SVG_NS, 'pattern')
+  pattern.setAttribute('id', id)
+  pattern.setAttribute('patternUnits', 'userSpaceOnUse')
+  pattern.setAttribute('width', String(size))
+  pattern.setAttribute('height', String(size))
+  // The colours on this surface are the only ones not set from a stylesheet,
+  // so they are read from their tokens rather than written as literals.
+  for (const mark of buildTile(spec, readToken(spec.token))) pattern.appendChild(mark)
+  return pattern
+}
+
+/**
+ * ONE TREATMENT'S SPEC, COPIED.
+ *
+ * FOR CANDIDATES ONLY, and copied rather than handed out so a sweep cannot
+ * mutate the shipped table out from under the map. A candidate is this spread
+ * with one field changed, which is what makes "the same mark with a denser
+ * lattice" true rather than approximate.
+ */
+export function zoneTreatmentSpec(treatment) {
+  const spec = TREATMENT_MARKS.find((entry) => entry.treatment === treatment)
+  return spec ? { ...spec } : null
+}
+
 export function injectZonePatterns(container) {
   const host = document.createElementNS(SVG_NS, 'svg')
   // Present in the document so the paint servers resolve, and occupying no
@@ -822,19 +865,8 @@ export function injectZonePatterns(container) {
   host.appendChild(defs)
 
   for (const spec of TREATMENT_MARKS) {
-    const buildTile = TILE_BUILDERS[spec.kind]
-    if (!buildTile) continue
-    const size = tileSizeOf(spec)
-    const pattern = document.createElementNS(SVG_NS, 'pattern')
-    pattern.setAttribute('id', patternIdFor(spec.treatment))
-    pattern.setAttribute('patternUnits', 'userSpaceOnUse')
-    pattern.setAttribute('width', String(size))
-    pattern.setAttribute('height', String(size))
-    // The colours on this surface are the only ones not set from a
-    // stylesheet, so they are read from their tokens rather than written
-    // as literals.
-    for (const mark of buildTile(spec, readToken(spec.token))) pattern.appendChild(mark)
-    defs.appendChild(pattern)
+    const pattern = buildZonePattern(spec, patternIdFor(spec.treatment))
+    if (pattern) defs.appendChild(pattern)
   }
 
   container.appendChild(host)

@@ -454,8 +454,14 @@
      Nearly 2x between active and focused; measured in water.test.jsx at
      whole-parcel zoom rather than judged here.
 
-     COMMITTED WAS 0.3 AND IS 0.4, AND THE REASON THE OLD VALUE SURVIVED SO
-     LONG IS THAT NOTHING WAS MEASURING WHERE IT FAILS.
+     THE SCALE IS 0.55 / 0.75 / 1, RAISED BY INSTRUCTION, AND IT WAS 0.4 /
+     0.55 / 1 BEFORE. What follows is the history of the old numbers and then
+     the measured cost of the new ones, in that order, because the argument for
+     0.4 is still the argument a future reader needs and the cost is what they
+     need beside it.
+
+     COMMITTED WAS 0.3 AND THEN 0.4, AND THE REASON THE OLDEST VALUE SURVIVED
+     SO LONG IS THAT NOTHING WAS MEASURING WHERE IT FAILS.
 
      The three levels were tuned against a flat mid-grey swatch, which is the
      right backdrop for comparing two STATES of one mark -- a neutral ground
@@ -472,37 +478,57 @@
 
                               canopy            bare soil
        0.3  (was)             0.0067            0.0127
-       0.4  (is)              0.0088            0.0170      +31%
-       0.45 (rejected)        0.0101            0.0191
+       0.4  (was)             0.0088            0.0170      +31%
+       0.45 (rejected then)   0.0101            0.0191
 
      THE CEILING IS THE RELATIONSHIP, NOT THE LEGIBILITY. Ink is linear in
-     alpha here, so the committed level IS its fraction of active: 0.3 was
-     0.55 of it, 0.4 is 0.73, and 0.45 would be 0.82 -- at which point the
-     quiet layer and the working one are the same weight of mark and the
-     scale has stopped saying anything. 0.4 is the largest step that keeps
-     committed under three quarters of active, which is what "settled, without
-     competing with the step in hand" is worth in a number.
+     alpha here, so the committed level IS its fraction of active: at 0.3/0.55
+     it was 0.55 of it and at 0.4/0.55 it was 0.73, and 0.45 would have been
+     0.82 -- at which point the quiet layer and the working one are the same
+     weight of mark and the scale has stopped saying anything. THE CURRENT PAIR
+     KEEPS THAT: 0.55/0.75 is 0.733, still under the three quarters that is
+     what "settled, without competing with the step in hand" is worth in a
+     number. It is the one claim in this block the raise did not cost.
 
-     ACTIVE AND FOCUSED ARE UNTOUCHED. Raising them to restore the old ratios
-     would undo the change: the complaint is about absolute presence on
-     imagery, and moving every level up moves the problem rather than the
-     mark.
+     AND THE SCALE WAS ONCE 0.55 / 0.75 / 1 AND WAS REVERTED, AND IT IS
+     0.55 / 0.75 / 1 AGAIN. Both facts belong here.
 
-     AND THE SCALE WAS BRIEFLY 0.55 / 0.75 / 1, WHICH IS THE WRONG LEVER AND IS
-     RECORDED HERE SO IT IS NOT REACHED FOR AGAIN.
-
-     The complaint that produced it was real: a committed production block is
-     barely visible on the LATER steps. The diagnosis was not. The hatch is not
-     fainter downstream -- it is on a different ground. During landform it sits
-     on the ELIGIBLE HIGHLIGHT (--eligible at 0.32), and that tint is what the
-     mark reads against; from water onward the highlight is gone and the same
+     THE FIRST TIME, THE DIAGNOSIS WAS WRONG. The complaint was real -- a
+     committed production block is barely visible on the LATER steps -- but the
+     hatch is not fainter downstream, it is on a different ground. During
+     landform it sits on the ELIGIBLE HIGHLIGHT (--eligible at 0.32) and reads
+     against that tint; from water onward the highlight is gone and the same
      hatch sits directly on imagery, where a mid-tone diagonal over closed
-     canopy has almost nothing to work with. Raising the whole scale treats a
-     contrast problem as an opacity problem, and it charges the top of the
-     scale for it: focus is pinned at 1, so every level coming up compressed
-     focused/active from 1.82x to 1.33x, dragged the mid-grey state floor from
-     1.5x to 1.25x, and took the fence -- a pale line over its own casing,
-     already the weakest case at 1.41x -- down to 1.13x. Reverted.
+     canopy has almost nothing to work with. Raising the whole scale treated a
+     contrast problem as an opacity problem. It was reverted, THE GROUND WAS
+     PUT BACK INSTEAD (the screen, below), and that fix still stands and is
+     still the right one.
+
+     THE SECOND TIME IS A DELIBERATE PURCHASE, and what it buys is absolute
+     presence at every level on top of the screen. What it costs is the top of
+     the scale, because focus is pinned at 1 and everything under it came up.
+     The first attempt's own note PREDICTED the three costs and the measurements
+     this time confirmed all three to the second decimal:
+
+                              predicted then    measured now
+       focused / active         1.82x -> 1.33x    1.29x - 1.34x
+       mid-grey state floor      1.5x -> 1.25x    floor now 1.25
+       fence focused/active     1.41x -> 1.13x    1.13x
+
+     A FOURTH COST WAS NOT PREDICTED, BECAUSE THE MARK DID NOT EXIST THEN. The
+     excavated dot lattice BEATS against fine ground structure in proportion to
+     its own opacity, and the raise took its worst reading from 0.0038 to
+     0.0046 against a 0.004 bound. That reading is at a 2px ground period --
+     the display's Nyquist limit, finer than any aerial frame carries at these
+     zooms -- so it is reported on every run and excluded from the assertion,
+     with the argument written out at layout.test.jsx's NYQUIST_PERIOD_PX. The
+     whole coarse band, which is the band that exists in real imagery, is clear
+     at 0.0037.
+
+     SO THE SCALE IS NOT A FREE LEVER AND THIS BLOCK IS THE PRICE LIST. The
+     thing it cannot buy back is the top: focused/active can never exceed
+     1/0.75 = 1.33x while focus is pinned at 1, and no screen, colour or
+     density changes that.
 
      A --halo CASING ON EACH HATCH LINE WAS THE SECOND WRONG LEVER, and the
      road's own fix, and it measured well -- 9.7x over canopy. It read as a
@@ -528,16 +554,19 @@
      about an eighth of the frame over canopy, so the five layers fencing could
      put on a parcel land around a fifth and the imagery still reads.
 
-     NOTHING ABOUT THIS SCALE MOVED FOR IT, which is the point of fixing the
-     ground: the levels are the same three numbers they were tuned to, and the
-     mark they scale now has something to be seen against.
+     THE SCREEN IS WHY THE SCALE DID NOT HAVE TO MOVE, and it still is: the
+     ground is the right lever for a contrast problem and the levels are the
+     wrong one. The levels moved anyway, later and by instruction, for absolute
+     presence rather than for contrast -- see the price list above. The two
+     changes are independent and the screen's argument does not depend on the
+     scale's.
 
      IT ALSO MOVES A TINTED ZONE'S OUTLINE, which is correct and is the reason
      the outline is on this scale at all -- a committed survey area's boundary
      gets the same lift its neighbouring hatch does, while its wash stays on
      the --tint-* levels below. */
-  --pattern-committed: 0.4;
-  --pattern-active: 0.55;
+  --pattern-committed: 0.55;
+  --pattern-active: 0.75;
   --pattern-focused: 1;
 
   /* HOW HEAVY A TINTED ZONE'S SCREEN IS, in the same three states.

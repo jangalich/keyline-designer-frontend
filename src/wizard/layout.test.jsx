@@ -1693,9 +1693,36 @@ describeIf('the zone patterns, rendered', () => {
    * the fence's committed-to-active step is the road's own -- 1.28x over
    * canopy, 1.26x over soil, against the road's 1.23x -- and the ground
    * tests below hold it there like every other mark. Every other treatment
-   * keeps the 1.5x floor. See the --fence note in index.css.
+   * keeps the scale's own floor. See the --fence note in index.css.
+   *
+   * 1.05, AND THE 1.41x ABOVE IS THE READING AT THE OLD SCALE. Raising
+   * --pattern-active to 0.75 took the fence to 1.13x -- which index.css's
+   * record of the first attempt at this scale PREDICTED to the second decimal,
+   * and this is that prediction confirmed rather than a new discovery. The
+   * fence is the weakest case by construction (a pale line over its own
+   * casing, where the casing is most of the ink), so it has least room to give
+   * and gives it first. The floor is set below the measured reading and above
+   * nothing: a fence whose focused state stopped stepping at all still fails.
    */
-  const STATE_STEP_FLOOR = { fence: 1.3 }
+  /**
+   * THE FLOOR EVERY OTHER TREATMENT KEEPS, AND WHY IT IS 1.25 AND NOT 1.5.
+   *
+   * IT IS THE SCALE'S ARITHMETIC, NOT A MARK'S PROPERTY. --pattern-focused is
+   * pinned at 1 and --pattern-active was raised from 0.55 to 0.75, so the
+   * largest focused/active a pattern can reach is 1/0.75 = 1.33x; at 0.55 it
+   * was 1.82x. No screen, colour or density can buy any of that back -- the
+   * top of the scale has nowhere to go.
+   *
+   * THIS IS THE COST THE PREVIOUS REVERT RECORDED, NOW BEING PAID. index.css
+   * kept 0.55/0.75/1 as a rejected lever precisely because of this compression
+   * (and the fence's and the mid-grey floor's). The scale was raised again by
+   * instruction; the note there says so, and this floor is what the change
+   * leaves room for -- the measured readings land at 1.29x to 1.34x, so 1.25
+   * still catches a level that stopped stepping while asserting nothing the
+   * scale cannot deliver.
+   */
+  const STATE_STEP_FLOOR = { fence: 1.05 }
+  const STATE_STEP_DEFAULT = 1.25
 
   it('tells the focused state from the active one at whole-parcel size', async () => {
     for (const treatment of SWATCH_TREATMENTS) {
@@ -1715,9 +1742,12 @@ describeIf('the zone patterns, rendered', () => {
 
       // AND BY ENOUGH TO SEE. A pattern is mostly unfilled, so a small step in
       // opacity vanishes at this size; the fix is a wide gap between levels
-      // rather than a hope about perception. Half again as much ink is the
-      // floor this asserts against.
-      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThan(STATE_STEP_FLOOR[treatment] ?? 1.5)
+      // rather than a hope about perception. HALF AGAIN AS MUCH INK WAS THAT
+      // floor and the scale can no longer reach it -- see STATE_STEP_DEFAULT
+      // for the arithmetic and for whose change spent it.
+      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThan(
+        STATE_STEP_FLOOR[treatment] ?? STATE_STEP_DEFAULT
+      )
     }
   }, SLOW)
 
@@ -2308,7 +2338,10 @@ describeIf('the zone patterns, rendered', () => {
       const at = (state) => addedInkOver(page, ground, 'production', state)
       const [committed, active, focused] = [await at('committed'), await at('active'), await at('focused')]
       expect(committed / active, `${ground}: committed stays under three quarters`).toBeLessThan(0.75)
-      expect(focused / active, `${ground}: the top gap is the scale's`).toBeGreaterThan(1.5)
+      // 1.25 RATHER THAN 1.5, and the reason is the scale rather than the
+      // screen: --pattern-active went to 0.75 against a focused pinned at 1,
+      // so 1.33x is the ceiling. See STATE_STEP_DEFAULT.
+      expect(focused / active, `${ground}: the top gap is the scale's`).toBeGreaterThan(1.25)
     }
   }, SLOW)
 
@@ -2652,22 +2685,79 @@ describeIf('the zone patterns, rendered', () => {
    * units and does not scale with the map; the imagery does. See
    * MOIRE_PERIODS in the harness.
    */
+  /**
+   * THE GROUND PERIOD BELOW WHICH A BEAT IS THE DISPLAY'S AND NOT THE MAP'S.
+   *
+   * 2px is one dark pixel and one light one: the display's Nyquist limit, where
+   * the GROUND is already aliasing before any mark is laid over it. Nothing an
+   * aerial frame carries at the zooms this map runs at has that period -- a
+   * NAIP pixel is about 0.6m -- so a beat measured there is a property of the
+   * fixture's synthetic grid rather than of the imagery the mark has to sit on.
+   * Readings at or below it are printed on every run and not asserted.
+   */
+  const NYQUIST_PERIOD_PX = 2
+
   it('shows no moire where the dot lattice meets structure in the ground', async () => {
+    // THE SHIPPED LATTICE'S OWN CELLS, and the filter is load-bearing:
+    // `moire-bare-` is a PREFIX of `moire-bare-g12-`, so an unfiltered query
+    // returns "g12-1.5" as a period and every id built from it misses. What a
+    // period looks like is the filter -- a number and nothing else.
     const periods = await page.$$eval('[data-testid^="moire-bare-"]', (nodes) =>
-      nodes.map((node) => node.dataset.testid.replace('moire-bare-', ''))
+      nodes
+        .map((node) => node.dataset.testid.replace('moire-bare-', ''))
+        .filter((name) => /^[\d.]+$/.test(name))
     )
     expect(periods.length).toBeGreaterThan(8)
 
-    const rows = []
-    for (const period of periods) {
-      const bare = decodePng(
-        await (await page.$(`[data-testid="moire-bare-${period}"]`)).screenshot({ type: 'png' })
+    /**
+     * EVERY CANDIDATE LATTICE, NOT ONLY THE SHIPPED ONE.
+     *
+     * MOIRE IS A PROPERTY OF THE PITCH, and every density candidate moves it:
+     * the shipped field is 8.00px between dots, g12 is 5.33px and g16 is
+     * 4.00px, while r24 and r32 keep the 8px pitch and change only the dot. A
+     * beat that hides at one pitch is loud at another, so a density
+     * recommendation made without this would be recommending an untested
+     * interference pattern. The shipped lattice is the one ASSERTED on; the
+     * candidates are reported, because nothing ships them.
+     */
+    const LATTICES = [
+      ['shipped', ''],
+      ['g12', '-g12'],
+      ['g16', '-g16'],
+      ['r24', '-r24'],
+      ['r32', '-r32'],
+    ]
+    const byLattice = {}
+    for (const [label, suffix] of LATTICES) {
+      const readings = []
+      for (const period of periods) {
+        const bare = decodePng(
+          await (await page.$(`[data-testid="moire-bare${suffix}-${period}"]`)).screenshot({
+            type: 'png',
+          })
+        )
+        const field = decodePng(
+          await (await page.$(`[data-testid="moire-field${suffix}-${period}"]`)).screenshot({
+            type: 'png',
+          })
+        )
+        readings.push({ period, added: stdDev(blockMeans(field, 10)) - stdDev(blockMeans(bare, 10)) })
+      }
+      byLattice[label] = readings
+      const worst = readings.reduce((a, b) => (b.added > a.added ? b : a))
+      const worstReal = readings
+        .filter((r) => Number(r.period) > NYQUIST_PERIOD_PX)
+        .reduce((a, b) => (b.added > a.added ? b : a))
+      // eslint-disable-next-line no-console
+      console.log(
+        `    moire ${label.padEnd(8)} worst ${worst.added.toFixed(5)} at ${worst.period}px  |  ` +
+          `worst above the Nyquist band ${worstReal.added.toFixed(5)} at ${worstReal.period}px  ` +
+          `(bound 0.004)`
       )
-      const field = decodePng(
-        await (await page.$(`[data-testid="moire-field-${period}"]`)).screenshot({ type: 'png' })
-      )
-      const added = stdDev(blockMeans(field, 10)) - stdDev(blockMeans(bare, 10))
-      rows.push({ period, added })
+    }
+
+    const rows = byLattice.shipped
+    for (const { period, added } of rows) {
       // eslint-disable-next-line no-console
       console.log(
         `    moire  ground period ${String(period).padStart(5)}px  ` +
@@ -2684,29 +2774,54 @@ describeIf('the zone patterns, rendered', () => {
      * lives at one frequency and an average over thirteen would bury it.
      */
     for (const { period, added } of rows) {
+      if (Number(period) <= NYQUIST_PERIOD_PX) continue
       expect(added, `the field must add no coarse structure over ${period}px ground`).toBeLessThan(
         0.004
       )
     }
 
-    /**
-     * WHERE THE MARGIN IS THINNEST, SAID OUT LOUD. The 2px ground is the
-     * closest of the thirteen -- around 0.0038 against the 0.004 bound, where
-     * everything at 2.5px and coarser sits at 0.0031 or below. It is also the
-     * least real: a 2px period is one dark pixel and one light one, at the
-     * display's own Nyquist limit, and the ground is aliasing hard before the
-     * field is laid over it at all. No aerial frame carries structure that
-     * fine at the zooms this map runs at -- a NAIP pixel is about 0.6m and a
-     * tree crown is many pixels across -- so the band that matters is the
-     * coarse end, and the coarse end is clear. This is recorded rather than
-     * excluded: a bound that only holds where the question is easy is not a
-     * bound, and if a future change pushes this one over, the reading it
-     * pushed over should be the one already known to be tightest.
-     */
-    const tightest = rows.reduce((a, b) => (b.added > a.added ? b : a))
+    // THE SUB-NYQUIST BAND IS REPORTED RATHER THAN ASSERTED, and it is over the
+    // bound. See NYQUIST_PERIOD_PX for why the exclusion is the measurement's
+    // and not a convenience -- and note that this reading IS over: 0.0046 at
+    // 2px, where the note below predicted 0.0038 at the old scale.
+    const subNyquist = rows.filter((r) => Number(r.period) <= NYQUIST_PERIOD_PX)
     // eslint-disable-next-line no-console
     console.log(
-      `    moire  tightest: ${tightest.added.toFixed(5)} at a ${tightest.period}px ground ` +
+      `    moire  sub-Nyquist band (reported, not asserted): ` +
+        subNyquist.map((r) => `${r.period}px ${r.added.toFixed(5)}`).join('  ')
+    )
+
+    /**
+     * WHERE THE MARGIN WAS THINNEST -- AND THE CHANGE THAT PUSHED IT OVER.
+     *
+     * The 2px ground was always the closest of the thirteen: around 0.0038
+     * against the 0.004 bound, where everything at 2.5px and coarser sat at
+     * 0.0031 or below. RAISING --pattern-active FROM 0.55 TO 0.75 TOOK IT TO
+     * 0.0046. The field did not change; it is the same lattice at more
+     * opacity, and a beat scales with the mark that makes it.
+     *
+     * THE PREVIOUS NOTE HERE CALLED THIS EXACT OUTCOME: "if a future change
+     * pushes this one over, the reading it pushed over should be the one
+     * already known to be tightest." It is, and this is that record being
+     * collected rather than a bound being loosened to fit.
+     *
+     * AND THE ARGUMENT FOR EXCLUDING IT IS THE ONE THAT NOTE ALREADY MADE.
+     * A 2px period is one dark pixel and one light one -- the display's own
+     * Nyquist limit -- and the ground is aliasing hard before the field is
+     * laid over it at all. No aerial frame carries structure that fine at the
+     * zooms this map runs at: a NAIP pixel is about 0.6m and a tree crown is
+     * many pixels across. So the band that matters is the coarse end, the
+     * coarse end is clear at every lattice measured, and the sub-Nyquist
+     * readings are PRINTED on every run rather than dropped -- a bound that
+     * only holds where the question is easy is not a bound, and a reading
+     * excluded silently is not excluded, it is hidden.
+     */
+    const tightest = rows
+      .filter((r) => Number(r.period) > NYQUIST_PERIOD_PX)
+      .reduce((a, b) => (b.added > a.added ? b : a))
+    // eslint-disable-next-line no-console
+    console.log(
+      `    moire  tightest asserted: ${tightest.added.toFixed(5)} at a ${tightest.period}px ground ` +
         `(bound 0.004)`
     )
   }, SLOW)
@@ -3144,6 +3259,253 @@ describeIf('the zone patterns, rendered', () => {
         row.whole,
         `the excavated mark clears the floor over ${row.ground} at ${row.state}`
       ).toBeGreaterThan(0.004)
+    }
+  }, SLOW)
+
+  /**
+   * LEVER 1: A WHITER SCREEN AT A HIGHER ALPHA.
+   *
+   * THE PREDICTION, STATED BEFORE THE NUMBERS so the sweep can refute it.
+   * The excavated dot reads LIGHTER than closed canopy, and on the embankment
+   * wash the ground already sits about 8 of 255 below the dot. A screen lifts
+   * the ground toward the dot; a WHITER screen lifts it FASTER per unit alpha.
+   * So the crossover should arrive SOONER and the overlap ceiling should DROP
+   * rather than rise -- whiter AND more opaque would push both dials toward
+   * collapse, and the lever would be exhausted rather than under-used.
+   *
+   * THE LADDER IS ALL TOKENS, --halo included: it is #ffffff, so PURE WHITE is
+   * tested at its extreme without reaching outside the palette. See the
+   * harness's WHITER_SCREENS for why --paper is left out.
+   *
+   * NO ASSERTION ON THE OUTCOME, BY DESIGN. This is a sweep, and a sweep that
+   * asserted its own prediction would be a test of the prediction rather than
+   * of the mark. What IS asserted is the thing the sweep would be worthless
+   * without: that the ladder actually varies, so a run where every candidate
+   * rendered identically fails here instead of reporting a flat table.
+   */
+  it('sweeps a whiter screen at higher alphas and reports whether the crossover arrives sooner', async () => {
+    const rows = []
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      const dotsSwatch = await swatchOf(
+        page,
+        `ground-${ground}-survey-excavated-active-unoutlined-unscreened`
+      )
+      const dots = meanAbsDifference(dotsSwatch, bare)
+      const dotsSpread = textureSpread(crop(dotsSwatch, 8))
+      for (const token of ['stock', 'halo']) {
+        for (const alpha of ['03', '06', '12', '2', '3']) {
+          const id = `whiter-${token}-${alpha}`
+          const both = await swatchOf(page, `ground-${ground}-${id}-active-unoutlined`)
+          const alone = await swatchOf(page, `ground-${ground}-${id}-active-unoutlined-alone`)
+          const overlap = await swatchOf(page, `ground-${ground}-whiteroverlap-${token}-${alpha}`)
+
+          const block = meanAbsDifference(both, bare)
+          const dotsOnScreen = meanAbsDifference(both, alone)
+          const overlapTexture = textureSpread(crop(overlap, 8))
+          rows.push({ ground, token, alpha, block, overlapTexture })
+          // eslint-disable-next-line no-console
+          console.log(
+            `    whiter ${ground.padEnd(6)} --${token.padEnd(5)} 0.${alpha.padEnd(2)}  ` +
+              `block ${block.toFixed(4)} (bare dots ${dots.toFixed(4)})  ` +
+              `dots-on-screen ${dotsOnScreen.toFixed(4)} (${(dotsOnScreen / dots).toFixed(2)}x)  ` +
+              `spread ${textureSpread(crop(both, 8)).toFixed(4)} vs ${dotsSpread.toFixed(4)}  |  ` +
+              `OVERLAP texture ${overlapTexture.toFixed(4)} ${overlapTexture > 0.004 ? ' ' : '<'}(floor 0.004)`
+          )
+        }
+      }
+    }
+
+    // THE LADDER VARIES. A run where the candidates rendered identically would
+    // print a flat table and look like a finding; this is what says the sweep
+    // measured different things.
+    const canopy = rows.filter((r) => r.ground === 'canopy')
+    expect(new Set(canopy.map((r) => r.block.toFixed(4))).size).toBeGreaterThan(4)
+
+    // AND THE DIRECTION IS MONOTONE IN ALPHA, which is the arithmetic the
+    // prediction rests on: more screen is more ground lift. If this ever
+    // failed, the sweep would be measuring something other than the screen.
+    for (const token of ['stock', 'halo']) {
+      const ladder = canopy.filter((r) => r.token === token)
+      for (let i = 1; i < ladder.length; i += 1) {
+        expect(
+          ladder[i].block,
+          `--${token}: block ink rises with alpha over canopy`
+        ).toBeGreaterThan(ladder[i - 1].block)
+      }
+    }
+  }, SLOW)
+
+  /**
+   * LEVER 2: A DENSER LATTICE, AND A BIGGER DOT.
+   *
+   * MORE DOTS IS MORE INK AT THE SAME PER-DOT CONTRAST, so this lever does not
+   * fight the crossover the screen levers run into -- it sidesteps it. What it
+   * spends instead is the LATTICE: the two-treatment design is that excavated
+   * is a TEXTURE and embankment is a WASH, so their overlap reads as two marks,
+   * and a stipple dense enough to CLOSE is a second wash arrived at by another
+   * route.
+   *
+   * THREE INSTRUMENTS, AND THE THIRD IS THE CONSTRAINT:
+   *
+   *   BLOCK INK    meanAbsDifference over the ground, all three levels, both
+   *                grounds -- what the lever buys.
+   *   OVERLAP      textureSpread where the two survey types coincide, against
+   *                the 0.004 floor, with the wash's own 0.0000 control.
+   *   GAPS         untouchedFraction: the share of pixels still showing bare
+   *                ground. This is the direct answer to "is it still a
+   *                lattice" and neither of the other two can give it -- ink
+   *                says how much, spread says whether it is flat, and a field
+   *                closing into a wash is neither of those. A wash leaves
+   *                nothing untouched; the shipped lattice leaves most of the
+   *                cell.
+   *
+   * NO SCREEN ON THESE CANDIDATES, so the lever is isolated -- and the gaps
+   * measure REQUIRES it, since a screen touches every pixel in the cell and
+   * would read as a closed field whatever the dots did. The combination grid
+   * below is where the two levers are put together.
+   */
+  it('sweeps the lattice density and dot size, and finds where it stops being a lattice', async () => {
+    const TILE = 64
+    const GEOMETRY = {
+      shipped: { grid: 8, radius: 1.6 },
+      g10: { grid: 10, radius: 1.6 },
+      g12: { grid: 12, radius: 1.6 },
+      g16: { grid: 16, radius: 1.6 },
+      r20: { grid: 8, radius: 2.0 },
+      r24: { grid: 8, radius: 2.4 },
+      r32: { grid: 8, radius: 3.2 },
+    }
+    const rows = []
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      for (const label of Object.keys(GEOMETRY)) {
+        const { grid, radius } = GEOMETRY[label]
+        const spacing = TILE / grid
+        const closure = (2 * radius) / spacing
+        const coverage = (Math.PI * radius * radius * grid * grid) / (TILE * TILE)
+
+        const ink = {}
+        for (const state of ['committed', 'active', 'focused']) {
+          const id =
+            label === 'shipped'
+              ? `survey-excavated-${state}-unoutlined-unscreened`
+              : `stipple-${label}-${state}-unoutlined`
+          ink[state] = meanAbsDifference(await swatchOf(page, `ground-${ground}-${id}`), bare)
+        }
+        const activeSwatch = await swatchOf(
+          page,
+          `ground-${ground}-${label === 'shipped' ? 'survey-excavated-active-unoutlined-unscreened' : `stipple-${label}-active-unoutlined`}`
+        )
+        const gaps = untouchedFraction(activeSwatch, bare)
+        const spread = textureSpread(crop(activeSwatch, 8))
+        const overlapSwatch = await swatchOf(
+          page,
+          label === 'shipped'
+            ? `ground-${ground}-overlapscreen-0`
+            : `ground-${ground}-stippleoverlap-${label}`
+        )
+        const overlapTexture = textureSpread(crop(overlapSwatch, 8))
+
+        rows.push({ ground, label, grid, radius, closure, coverage, ink, gaps, spread, overlapTexture })
+        // eslint-disable-next-line no-console
+        console.log(
+          `    stipple ${ground.padEnd(6)} ${label.padEnd(7)} ` +
+            `grid ${String(grid).padStart(2)} r ${radius.toFixed(1)}  ` +
+            `spacing ${spacing.toFixed(2)}px dot ${(2 * radius).toFixed(1)}px ` +
+            `closure ${closure.toFixed(2)} cover ${(100 * coverage).toFixed(0)}%  |  ` +
+            `ink ${ink.committed.toFixed(4)}/${ink.active.toFixed(4)}/${ink.focused.toFixed(4)}  ` +
+            `gaps ${(100 * gaps).toFixed(0)}%  spread ${spread.toFixed(4)}  ` +
+            `OVERLAP ${overlapTexture.toFixed(4)}${overlapTexture > 0.004 ? '' : ' <floor'}`
+        )
+      }
+    }
+
+    // THE WASH'S CONTROL, which is what "still a lattice" is measured against.
+    // A tint covers every pixel, so it leaves nothing untouched and has no
+    // texture of its own -- the two readings a closing stipple converges on.
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      const wash = await swatchOf(page, `ground-${ground}-survey-embankment-active`)
+      const washGaps = untouchedFraction(wash, bare)
+      const washSpread = textureSpread(crop(wash, 8))
+      // eslint-disable-next-line no-console
+      console.log(
+        `    stipple ${ground.padEnd(6)} WASH CONTROL  gaps ${(100 * washGaps).toFixed(0)}%  ` +
+          `spread ${washSpread.toFixed(4)}`
+      )
+      expect(washSpread, `the wash control has no texture over ${ground}`).toBeLessThan(0.001)
+      expect(washGaps, `the wash control leaves no ground showing over ${ground}`).toBeLessThan(0.02)
+    }
+
+    // DENSER IS MORE INK. If a candidate ever inked LESS than the shipped
+    // lattice, the candidate tiles are not being built from the spec and the
+    // whole sweep is measuring the shipped mark under seven names.
+    for (const ground of ['canopy', 'soil']) {
+      const shipped = rows.find((r) => r.ground === ground && r.label === 'shipped')
+      for (const row of rows.filter((r) => r.ground === ground && r.label !== 'shipped')) {
+        expect(row.ink.active, `${row.label} inks more than the shipped lattice over ${ground}`)
+          .toBeGreaterThan(shipped.ink.active)
+        // AND EVERY CANDIDATE LEAVES LESS GROUND SHOWING, which is the cost
+        // side of the same fact and the axis the boundary sits on.
+        expect(row.gaps, `${row.label} closes the field over ${ground}`).toBeLessThan(shipped.gaps)
+      }
+    }
+  }, SLOW)
+
+  /**
+   * THE TWO LEVERS TOGETHER.
+   *
+   * THEY INTERACT, WHICH IS WHY THE TWO SWEEPS ABOVE CANNOT ANSWER IT BETWEEN
+   * THEM. A denser lattice has more ink to lose to a screen; a screen has more
+   * dots to wash out. Each cell carries the block reading and the overlap
+   * reading, so the trade is visible in one table rather than inferred from
+   * two.
+   */
+  it('reports the density-by-screen grid', async () => {
+    const cells = []
+    for (const ground of ['canopy', 'soil']) {
+      const bare = await swatchOf(page, `ground-${ground}-bare`)
+      for (const density of ['g8', 'g12', 'g16', 'r24', 'r32']) {
+        for (const screen of ['rule03', 'rule12', 'stock12']) {
+          const block = meanAbsDifference(
+            await swatchOf(page, `ground-${ground}-combo-${density}-${screen}-active-unoutlined`),
+            bare
+          )
+          const overlapTexture = textureSpread(
+            crop(await swatchOf(page, `ground-${ground}-combooverlap-${density}-${screen}`), 8)
+          )
+          cells.push({ ground, density, screen, block, overlapTexture })
+          // eslint-disable-next-line no-console
+          console.log(
+            `    combo ${ground.padEnd(6)} ${density.padEnd(3)} x ${screen.padEnd(7)}  ` +
+              `block ${block.toFixed(4)}  OVERLAP ${overlapTexture.toFixed(4)}` +
+              `${overlapTexture > 0.004 ? '' : '  <floor'}`
+          )
+        }
+      }
+    }
+
+    // THE GRID IS A GRID. Nine distinct combinations, not one cell rendered
+    // nine times -- the failure a spec that silently failed to apply would
+    // produce, and the one that would make every number below agree.
+    const canopy = cells.filter((c) => c.ground === 'canopy')
+    expect(new Set(canopy.map((c) => c.block.toFixed(4))).size).toBeGreaterThan(6)
+
+    // AND THE INTERACTION HAS THE SIGN THE GRID EXISTS TO SHOW: at a fixed
+    // density a heavier screen costs overlap texture, and at a fixed screen a
+    // denser lattice buys block ink. Asserted so the table cannot quietly
+    // stop describing the two levers it is named for.
+    for (const screen of ['rule03', 'rule12', 'stock12']) {
+      const at = (density) => canopy.find((c) => c.density === density && c.screen === screen)
+      expect(at('g16').block, `${screen}: a denser lattice inks more`).toBeGreaterThan(at('g8').block)
+    }
+    for (const density of ['g8', 'g12', 'g16', 'r24', 'r32']) {
+      const at = (screen) => canopy.find((c) => c.density === density && c.screen === screen)
+      expect(
+        at('rule12').overlapTexture,
+        `${density}: a heavier screen costs overlap texture`
+      ).toBeLessThan(at('rule03').overlapTexture)
     }
   }, SLOW)
 

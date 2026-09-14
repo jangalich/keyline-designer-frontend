@@ -1358,7 +1358,13 @@ describe('one pattern per step, three levels per pattern', () => {
     // one is a table rather than a name test, so a kind added later gets a def
     // by having a tile.
     expect(marks).toContain('const TILE_BUILDERS = { hatch: hatchTile, stipple: stippleTile }')
-    expect(marks).toMatch(/const buildTile = TILE_BUILDERS\[spec\.kind\]\s*\n\s*if \(!buildTile\) continue/)
+    // THE LOOKUP MOVED INTO buildZonePattern(), which is what injectZonePatterns
+    // now calls once per row -- split out so the layout harness can build a
+    // CANDIDATE tile (a denser lattice, a bigger dot) from this file's own
+    // builder rather than from its own idea of one. A kind with no tile still
+    // yields no def; it returns null instead of continuing a loop.
+    expect(marks).toMatch(/const buildTile = TILE_BUILDERS\[spec\.kind\]\s*\n\s*if \(!buildTile\) return null/)
+    expect(marks).toMatch(/for \(const spec of TREATMENT_MARKS\) \{\s*\n\s*const pattern = buildZonePattern\(/)
   })
 
   it('is TWO marks for the two survey types, because their overlap is the point', () => {
@@ -1491,14 +1497,25 @@ describe('one pattern per step, three levels per pattern', () => {
     }
 
     // AND THE RELATIONSHIPS HOLD FOR BOTH TREATMENTS: committed quietest,
-    // focused fullest, with the same wide gap between active and focused.
+    // focused fullest, with a wide gap between active and focused.
+    //
+    // THE TOP GAP IS THE SCALE'S, AND THE TWO TYPES ARE ON DIFFERENT SCALES.
+    // A wash takes --tint-* (0.12/0.22/0.4) and still steps 1.82x at the top;
+    // a dot field takes --pattern-*, which was raised to 0.55/0.75/1, and 1.33x
+    // is the most it can reach with focus pinned at 1. That is the raise's
+    // cost rather than anything about either mark -- see the price list in
+    // index.css -- so the floor is per scale and neither number is a
+    // preference this file holds.
+    const TOP_GAP_FLOOR = { 'survey-embankment': 1.7, 'survey-excavated': 1.25 }
     for (const treatment of ['survey-embankment', 'survey-excavated']) {
       const committed = at(treatment, { isCommitted: true }).fillOpacity
       const active = at(treatment, {}).fillOpacity
       const focused = at(treatment, { isFocused: true }).fillOpacity
       expect(committed, `${treatment}: committed < active`).toBeLessThan(active)
       expect(active, `${treatment}: active < focused`).toBeLessThan(focused)
-      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThanOrEqual(1.7)
+      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThanOrEqual(
+        TOP_GAP_FLOOR[treatment]
+      )
       // AND THE BOTTOM GAP: settled stays under three quarters of working,
       // which is what stops a committed block and a candidate zone carrying
       // equal weight during the step in hand.

@@ -65,7 +65,14 @@ import {
   stepButton,
 } from './stepDefinitions'
 import { EM_DASH, categoricalRow, measuredRow } from './shell/panelFormat.js'
-import { PIN_GLYPH_PATH, injectZonePatterns, marksItsOwnEdge, zoneMark } from '../ProductionHatchPattern.jsx'
+import {
+  PIN_GLYPH_PATH,
+  buildZonePattern,
+  injectZonePatterns,
+  marksItsOwnEdge,
+  zoneMark,
+  zoneTreatmentSpec,
+} from '../ProductionHatchPattern.jsx'
 import {
   CASING_WEIGHT,
   ELIGIBLE_OPACITY,
@@ -717,6 +724,189 @@ const STACKED_SCREENS = [1, 2, 3].map((count) => ({
   unoutlined: true,
 }))
 
+/**
+ * LEVER 1: A WHITER SCREEN, AT HIGHER ALPHAS.
+ *
+ * THE PREDICTION THIS EXISTS TO TEST, STATED BEFORE THE NUMBERS. The excavated
+ * dot reads LIGHTER than closed canopy, so a screen that lifts the ground moves
+ * it TOWARD the dot; on the embankment wash the ground already sits about 8
+ * of 255 below the dot, and the screen closes that gap. A WHITER screen lifts
+ * FASTER per unit alpha, so the crossover should arrive SOONER and the overlap
+ * ceiling should DROP rather than rise -- whiter-plus-more-opaque would push
+ * both dials toward collapse and the lever would be exhausted. If that is what
+ * the sweep says, the measured negative is the finding.
+ *
+ * THE LADDER, ALL OF IT TOKENS. --rule (#ddd6c8) is what ships; --stock is the
+ * page background and the palette's whiter candidate, which production measured
+ * LOUDER than --rule at every alpha on both grounds; --halo is #ffffff, the
+ * casing colour, and it is PURE WHITE -- so the direction is tested at its
+ * extreme without reaching outside the palette for a literal. (--paper sits
+ * between --stock and --halo and is omitted as indistinguishable from --halo
+ * at these alphas.)
+ *
+ * ABOVE 0.12, WHICH IS THE HALF OF THE SWEEP THAT IS NEW. --rule was ceilinged
+ * at 0.03 by the overlap, so the question "does a whiter screen buy room at a
+ * HIGHER alpha" is the one being asked, and the ladder runs to 0.3.
+ *
+ * AT `active` ONLY, AND THAT IS PROPORTIONATE RATHER THAN LAZY. The three
+ * levels scale one tile together, so a candidate that loses at active loses at
+ * all three in the same ratio; the shipped mark and the --rule ladder are both
+ * measured at every level beside these. A finalist here would be re-measured
+ * across the scale before it shipped.
+ */
+const WHITER_SCREENS = []
+for (const token of ['--stock', '--halo']) {
+  for (const alpha of [0.03, 0.06, 0.12, 0.2, 0.3]) {
+    const id = `whiter-${token.replace('--', '')}-${String(alpha).replace('0.', '')}`
+    const base = {
+      treatment: 'survey-excavated',
+      id,
+      screenToken: token,
+      screenAlpha: alpha,
+      state: 'active',
+      unoutlined: true,
+    }
+    WHITER_SCREENS.push(base, { ...base, screenOnly: true })
+  }
+}
+
+/** The same ladder under the overlap, where the ceiling actually binds. */
+const WHITER_SCREEN_OVERLAPS = []
+for (const token of ['--stock', '--halo']) {
+  for (const alpha of [0.03, 0.06, 0.12, 0.2, 0.3]) {
+    WHITER_SCREEN_OVERLAPS.push({
+      id: `whiteroverlap-${token.replace('--', '')}-${String(alpha).replace('0.', '')}`,
+      overlap: ['survey-embankment', 'survey-excavated'],
+      state: 'active',
+      screenToken: token,
+      screenAlpha: alpha,
+    })
+  }
+}
+
+/**
+ * LEVER 2: A DENSER LATTICE, AND A BIGGER DOT.
+ *
+ * THIS ONE DOES NOT FIGHT THE CROSSOVER, IT SIDESTEPS IT. The screen levers
+ * all trade per-dot contrast for ground lift; density trades nothing -- more
+ * dots is more ink at the SAME per-dot contrast, so it should move block ink
+ * without moving the dot-to-ground delta the overlap depends on.
+ *
+ * WHAT IT SPENDS INSTEAD IS THE LATTICE. The two-treatment design is that
+ * excavated is a TEXTURE and embankment is a WASH, so their overlap reads as
+ * two marks. A stipple dense enough to CLOSE is a second wash arrived at by
+ * another route, and the design collapses -- so the boundary is the constraint
+ * and it is measured rather than assumed.
+ *
+ * TWO AXES, SWEPT SEPARATELY, because they are not the same lever even where
+ * they buy the same coverage. `grid` is dots per tile side and moves the
+ * SPACING; `radius` moves the DOT. Coverage is pi*r^2*grid^2/tile^2, so
+ * (grid 10, r 1.6) and (grid 8, r 2.0) both ink 19.6% of the ground -- one as
+ * more small dots, the other as fewer large ones. Whether those read alike is
+ * exactly what a coverage figure cannot say, which is the lesson the 1.1px dot
+ * left behind (see the shipped row's note).
+ *
+ * NO SCREEN ON THESE, so the lever is isolated. The combination grid below is
+ * where the two are put together.
+ *
+ * THE SHIPPED LATTICE IS grid 8 / r 1.6 -- 8.00px spacing, 3.2px dots, 12.6%
+ * covered -- and it is already on the page as the unscreened cells, which is
+ * what these are read against.
+ *
+ * AND THE TWO AXES CAME APART ON AN INSTRUMENT NEITHER OF THEM WAS SWEPT FOR,
+ * which is the finding worth carrying forward. On ink, texture, gaps and the
+ * overlap, the radius axis is the better half at equal coverage -- r24 beats
+ * g12 on every one of them. ON MOIRE IT IS THE WORSE HALF BY A FACTOR OF
+ * THREE: a bigger dot at the SAME 8px pitch beats against 5px ground structure
+ * at 0.0085 against a 0.004 bound, where g12's tighter pitch measures 0.0028
+ * and is QUIETER than the shipped field. A denser lattice moves the pitch away
+ * from the ground frequencies that beat with it; a fatter dot leaves the pitch
+ * where it is and gives the beat more to work with. See the moire sweep, which
+ * runs over every geometry here for exactly this reason.
+ */
+const STIPPLE_CANDIDATES = []
+for (const [label, spec] of [
+  ['g10', { grid: 10 }],
+  ['g12', { grid: 12 }],
+  ['g16', { grid: 16 }],
+  ['r20', { radius: 2.0 }],
+  ['r24', { radius: 2.4 }],
+  ['r32', { radius: 3.2 }],
+]) {
+  for (const state of ['committed', 'active', 'focused']) {
+    STIPPLE_CANDIDATES.push({
+      treatment: 'survey-excavated',
+      id: `stipple-${label}`,
+      spec: { ...spec, screen: 0 },
+      state,
+      unoutlined: true,
+    })
+  }
+}
+
+/** Each candidate lattice under the overlap, for the texture floor. */
+const STIPPLE_CANDIDATE_OVERLAPS = ['g10', 'g12', 'g16', 'r20', 'r24', 'r32'].map((label) => ({
+  id: `stippleoverlap-${label}`,
+  overlap: ['survey-embankment', 'survey-excavated'],
+  state: 'active',
+  spec: {
+    ...{ g10: { grid: 10 }, g12: { grid: 12 }, g16: { grid: 16 }, r20: { radius: 2.0 }, r24: { radius: 2.4 }, r32: { radius: 3.2 } }[label],
+    screen: 0,
+  },
+}))
+
+/**
+ * THE TWO LEVERS TOGETHER -- three densities against three screens.
+ *
+ * THEY INTERACT, WHICH IS WHY TWO SEPARATE SWEEPS CANNOT ANSWER IT. A denser
+ * lattice has more ink to lose to a screen, and a screen has more dots to wash
+ * out; the sign of the combination is not the sum of the two signs. Each cell
+ * carries a block reading and an overlap reading, so the trade is visible in
+ * one table rather than inferred across two.
+ *
+ * THE DENSITIES ARE THE SHIPPED ONE AND THE TWO THAT BRACKET THE LATTICE
+ * BOUNDARY; the screens are the shipped --rule 0.03, the --rule 0.12
+ * production landed on (which the overlap already refused for this mark), and
+ * --stock 0.12 as the whiter lever's best case.
+ */
+const COMBO_DENSITIES = [
+  ['g8', {}],
+  ['g12', { grid: 12 }],
+  ['g16', { grid: 16 }],
+  // AND THE RADIUS AXIS AT THE SAME TWO COVERAGES, because the screenless
+  // sweep says the two axes are NOT interchangeable at equal ink: r24 covers
+  // the same 28% as g12 and reads better on every instrument, and r32 covers
+  // the same 50% as g16 and is still gaining texture where g16 has turned
+  // over. A grid that swept only the spacing would have recommended the worse
+  // half of the lever.
+  ['r24', { radius: 2.4 }],
+  ['r32', { radius: 3.2 }],
+]
+const COMBO_SCREENS = [
+  ['rule03', { screen: 0.03, screenToken: '--rule' }],
+  ['rule12', { screen: 0.12, screenToken: '--rule' }],
+  ['stock12', { screen: 0.12, screenToken: '--stock' }],
+]
+const COMBO_CELLS = []
+for (const [dLabel, density] of COMBO_DENSITIES) {
+  for (const [sLabel, screen] of COMBO_SCREENS) {
+    const spec = { ...density, ...screen }
+    COMBO_CELLS.push({
+      treatment: 'survey-excavated',
+      id: `combo-${dLabel}-${sLabel}`,
+      spec,
+      state: 'active',
+      unoutlined: true,
+    })
+    COMBO_CELLS.push({
+      id: `combooverlap-${dLabel}-${sLabel}`,
+      overlap: ['survey-embankment', 'survey-excavated'],
+      state: 'active',
+      spec,
+    })
+  }
+}
+
 const FENCE_CANDIDATES = []
 for (const [id, lineToken] of [
   ['fence-rule', '--rule'],
@@ -864,6 +1054,27 @@ const CROP_OVERLAP_CELLS = ['bare', 'production', 'tree', 'both']
 
 const MOIRE_PERIODS = [1.5, 2, 2.5, 2.67, 3, 3.5, 4, 5, 6, 8, 11, 16, 24]
 
+/**
+ * THE LATTICES THE MOIRE SWEEP IS RUN OVER.
+ *
+ * ONE PER CANDIDATE GEOMETRY, because moire is a property of the lattice's
+ * PITCH and every density candidate changes it. The shipped field is 8.00px
+ * between dots; r24 is the same spacing with a bigger dot, and g12 and g16 are
+ * 5.33px and 4.00px. A beat that hides at one pitch is loud at another, so a
+ * density recommendation that skipped this would be recommending an untested
+ * interference pattern.
+ *
+ * `null` IS THE SHIPPED MARK and takes the plain `moire-` ids the original
+ * sweep already uses, so that measurement is unchanged and still comparable.
+ */
+const MOIRE_LATTICES = [
+  ['', null],
+  ['-g12', { grid: 12, screen: 0 }],
+  ['-g16', { grid: 16, screen: 0 }],
+  ['-r24', { radius: 2.4, screen: 0 }],
+  ['-r32', { radius: 3.2, screen: 0 }],
+]
+
 /** A textured ground: canopy, with a finer/darker grid at `period` px over it. */
 function moireGround(period) {
   return {
@@ -964,6 +1175,11 @@ const GROUND_CELLS = () => [
   ...UNOUTLINED,
   ...OVERLAP,
   ...OVERLAP_SCREEN_CANDIDATES,
+  ...WHITER_SCREENS,
+  ...WHITER_SCREEN_OVERLAPS,
+  ...STIPPLE_CANDIDATES,
+  ...STIPPLE_CANDIDATE_OVERLAPS,
+  ...COMBO_CELLS,
   ...FENCE_CANDIDATES,
   ...HATCH_SCREEN_CANDIDATES,
   ...UNSCREENED,
@@ -989,9 +1205,18 @@ const GROUND_ROWS = Math.ceil(GROUND_CELLS().length / GROUND_COLUMNS)
 /** Clear of both ground blocks above, at whatever height they actually are. */
 const MOIRE_TOP = GROUND_TOP + GROUND_ROWS * GROUNDS.length * SWATCH_PX + 20
 
-/** Clear of the moire sweep above, whose own height is two rows per wrap. */
-const CROP_OVERLAP_TOP =
-  MOIRE_TOP + Math.ceil(MOIRE_PERIODS.length / GROUND_COLUMNS) * 2 * SWATCH_PX + 20
+/**
+ * HOW TALL ONE LATTICE'S MOIRE BLOCK IS -- two rows per wrap, bare above field.
+ *
+ * DERIVED, LIKE GROUND_CELLS' OWN ROW COUNT, and for the reason recorded there:
+ * a literal here slid one block over another the last time cells were added,
+ * and the failure it produced accused the dot field of gaining coarse
+ * structure when what it had gained was a swatch sitting on top of it.
+ */
+const MOIRE_LATTICE_HEIGHT = Math.ceil(MOIRE_PERIODS.length / GROUND_COLUMNS) * 2 * SWATCH_PX
+
+/** Clear of every lattice's moire sweep above. */
+const CROP_OVERLAP_TOP = MOIRE_TOP + MOIRE_LATTICES.length * MOIRE_LATTICE_HEIGHT + 20
 
 /**
  * WHERE ONE (ground, size) BLOCK OF FOUR CELLS STARTS, and how tall it is.
@@ -1064,10 +1289,27 @@ function ZoneSwatches() {
       const mark = zoneMark(treatment)
       if (!mark) continue
       if (mark.kind === 'pattern' || mark.kind === 'stipple') {
-        const source = document.getElementById(`zone-pattern-${treatment}`)
+        /* A CANDIDATE TILE IS BUILT, NOT CLONED, and everything else is
+           cloned. The two dressings answer two different questions.
+
+           CLONING answers "what does the SHIPPED mark do here" -- the map's
+           own def, copied so a serialised swatch can reach a paint server in
+           its own document, then optionally stripped of a pass.
+
+           BUILDING answers "what would moving a lever COST" -- a lattice at a
+           density the table does not carry, a bigger dot, a screen at an alpha
+           or in a token nothing ships. Those tiles do not exist in the map's
+           defs, so there is nothing to clone; `data-spec` names the fields to
+           override and ProductionHatchPattern's own builder makes the tile, so
+           a candidate is the shipped mark with one field changed rather than
+           this file's idea of what a stipple looks like. */
+        const override = svg.dataset.spec ? JSON.parse(svg.dataset.spec) : null
+        const source = override
+          ? buildZonePattern({ ...zoneTreatmentSpec(treatment), ...override }, 'candidate')
+          : document.getElementById(`zone-pattern-${treatment}`)
         if (!source) continue
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
-        const clone = source.cloneNode(true)
+        const clone = override ? source : source.cloneNode(true)
         clone.setAttribute('id', `local-${svg.dataset.testid}`)
         // THE SCREEN IS THE THING UNDER TEST ON SOME OF THESE CELLS, so the
         // clone is dressed three ways. Every pass is found BY NAME (the tile
@@ -1242,40 +1484,45 @@ function ZoneSwatches() {
       {/* THE MOIRE SWEEP. Each period gets the field alone (no outline, so
           what is measured is the lattice and nothing else) and the same
           ground bare beside it, for the difference the test takes. */}
-      {MOIRE_PERIODS.map((period, index) =>
-        ['bare', 'field'].map((which) => (
-          <div
-            key={`moire-${period}-${which}`}
-            data-testid={`moire-${which}-${period}`}
-            style={{
-              position: 'absolute',
-              left: (index % GROUND_COLUMNS) * SWATCH_PX,
-              top:
-                MOIRE_TOP +
-                (Math.floor(index / GROUND_COLUMNS) * 2 + (which === 'field' ? 1 : 0)) * SWATCH_PX,
-              width: SWATCH_PX,
-              height: SWATCH_PX,
-              ...moireGround(period),
-            }}
-          >
-            {which === 'field' ? (
-              <svg
-                data-testid={`moire-mark-${period}`}
-                data-treatment="survey-excavated"
-                data-state="active"
-                data-unoutlined="true"
-                width={SWATCH_PX}
-                height={SWATCH_PX}
-              >
-                <rect
+      {MOIRE_LATTICES.map(([suffix, spec], latticeIndex) =>
+        MOIRE_PERIODS.map((period, index) =>
+          ['bare', 'field'].map((which) => (
+            <div
+              key={`moire${suffix}-${period}-${which}`}
+              data-testid={`moire-${which}${suffix}-${period}`}
+              style={{
+                position: 'absolute',
+                left: (index % GROUND_COLUMNS) * SWATCH_PX,
+                top:
+                  MOIRE_TOP +
+                  latticeIndex * MOIRE_LATTICE_HEIGHT +
+                  (Math.floor(index / GROUND_COLUMNS) * 2 + (which === 'field' ? 1 : 0)) *
+                    SWATCH_PX,
+                width: SWATCH_PX,
+                height: SWATCH_PX,
+                ...moireGround(period),
+              }}
+            >
+              {which === 'field' ? (
+                <svg
+                  data-testid={`moire-mark${suffix}-${period}`}
+                  data-treatment="survey-excavated"
+                  data-state="active"
+                  data-unoutlined="true"
+                  data-spec={spec ? JSON.stringify(spec) : undefined}
                   width={SWATCH_PX}
                   height={SWATCH_PX}
-                  fillOpacity={fillLevel('survey-excavated', 'active')}
-                />
-              </svg>
-            ) : null}
-          </div>
-        ))
+                >
+                  <rect
+                    width={SWATCH_PX}
+                    height={SWATCH_PX}
+                    fillOpacity={fillLevel('survey-excavated', 'active')}
+                  />
+                </svg>
+              ) : null}
+            </div>
+          ))
+        )
       )}
       {/* THE TWO CROP HATCHES, over both grounds, at three zone sizes. Each
           block is the ground bare, each hatch alone, and the two together --
@@ -1389,6 +1636,7 @@ function ZoneSwatches() {
                 data-line-token={cell.lineToken ?? undefined}
                 data-unscreened={cell.unscreened ? 'true' : undefined}
                 data-screen-pass-only={cell.screenPassOnly ? 'true' : undefined}
+                data-spec={cell.spec ? JSON.stringify(cell.spec) : undefined}
                 data-screen-token={cell.screenToken ?? undefined}
                 data-screen-alpha={cell.screenAlpha ?? undefined}
                 data-screen-only={cell.screenOnly ? 'true' : undefined}

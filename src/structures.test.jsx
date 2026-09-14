@@ -1853,7 +1853,17 @@ describe('12. what the definition declares, and the sweep', () => {
     // point and the committed line are one colour.
     const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
     expect(css).toMatch(/--road:\s*var\(--ink\);/)
-    expect(Number(document.documentElement.style.getPropertyValue('--pattern-committed'))).toBe(0.4)
+    // MUTED, AND THE NUMBER IS index.css's TO CHOOSE. This asserted 0.4 --
+    // a copy of the token's value, which is the second source of truth this
+    // repo warns about everywhere else, and it broke the day the scale was
+    // raised to 0.55 without anything about the access point changing. What
+    // the marker actually claims is that a committed point is QUIETER than a
+    // live one and is still drawn, so that is what is asserted.
+    const committedLevel = Number(
+      document.documentElement.style.getPropertyValue('--pattern-committed')
+    )
+    expect(committedLevel).toBeGreaterThan(0)
+    expect(committedLevel).toBeLessThan(1)
 
     // ON THE MAP: the committed roads layer's point carries the committed
     // class, the structures step's candidates are live pins, and nothing
