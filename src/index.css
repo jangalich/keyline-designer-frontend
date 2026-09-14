@@ -189,10 +189,19 @@
      KNOW BEFORE TOUCHING EITHER VALUE BELOW. It was --survey-excavated at
      0.28 -- a screen in the mark's own colour, which makes the whole cell one
      blue and is the reading the dot field replaced a second wash to avoid. It
-     is --halo at 0.03 now: a NEUTRAL, which is the rule, and specifically the
+     is --halo at 0.16 now: a NEUTRAL, which is the rule, and specifically the
      white end of the neutral ladder (--rule, --stock, --halo). A screen is the
      GROUND a mark was designed against, put back, and a ground has no business
      being in the mark's own colour.
+
+     AT 0.16 THAT MARK IS NO LONGER A SCREEN, and that is a decision recorded
+     rather than a drift. The aerial frame is a little under half of what you
+     see inside an excavated zone at focus; the embankment wash still leaves
+     well over half. It was taken past that line to reach the far side of the
+     survey overlap's crossover, where the dots read against the wash again --
+     every alpha that keeps it under the line sits in a trough where the
+     overlap collapses. ProductionHatchPattern.jsx has the table and
+     layout.test.jsx carries one ceiling per mark now, with the argument.
 
      THE TWO SCREENS ON THIS MAP ARE NOT ONE COLOUR. Production's hatch sits on
      --rule and this lattice sits on --halo, and a revision of this note
@@ -217,11 +226,14 @@
      the dot down would have closed the field.
 
      WHERE IT LEAVES THE PAIR, and it is worth knowing before either value
-     below is touched. Over canopy the wash is still the heavier mark (0.1149
-     against the lattice's 0.0534). OVER BARE SOIL IT IS NOT: the lattice reads
-     0.0945 against the wash's 0.0576. The two types are told apart by KIND --
-     a texture and a wash -- and that is now the WHOLE of what tells them
-     apart, because the weight ordering no longer holds on both grounds.
+     below is touched. Over canopy the two are now within a twentieth of each
+     other (the wash 0.1149, the lattice 0.1076). OVER BARE SOIL THE LATTICE IS
+     NEARLY TWICE THE WASH: 0.1014 against 0.0576. So weight tells the two
+     types apart NOWHERE, and KIND -- a texture and a wash -- is the whole of
+     what does. That is why the texture floors are the assertions that may not
+     be traded away: a lattice that stopped reading as dots would leave two
+     marks of one kind in two values, which is the failure the dot field was
+     introduced to fix.
 
      THE LEVER STILL UNSPENT IS HERE: --survey-excavated sits close to closed
      canopy in luminance, and no screen under a mark can outrun the mark's own

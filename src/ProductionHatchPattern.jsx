@@ -284,7 +284,8 @@ const TREATMENT_MARKS = [
   // texture rather than a support for the first. A 3.2px dot does not need
   // one; it is legible because it is a dot.
   //
-  // AND A SCREEN UNDER THE DOTS, IN --halo, AT 0.03.
+  // AND A SCREEN UNDER THE DOTS, IN --halo, AT 0.16 -- WHICH IS PAST THE POINT
+  // WHERE THIS MARK IS STILL A SCREEN. Read the whole of this before moving it.
   //
   // WHY THERE IS A SCREEN. A dot field inks a quarter of what it covers and
   // the rest is bare frame, so the screen is the rest: it is the GROUND the
@@ -300,46 +301,94 @@ const TREATMENT_MARKS = [
   // the casing white, in that order of lightness. index.css holds the values;
   // this file holds none.
   //
-  // AND THAT RETIRES "ONE SCREEN COLOUR ACROSS THE BUILD", which the previous
+  // AND THAT RETIRES "ONE SCREEN COLOUR ACROSS THE BUILD", which an earlier
   // revision of this row claimed. Production sits on --rule and this mark sits
   // on --halo. The rule that survived is the one that was always doing the
   // work: A SCREEN IS NEVER IN ITS OWN MARK'S COLOUR. See screenNode().
   //
-  // WHAT THE WHITE END BUYS, MEASURED AT THE SAME ALPHA, over canopy at
-  // active: about a tenth more presence for about a tenth less overlap
-  // texture. It is a small trade and it was taken deliberately.
   //
-  // 0.03, AND THE CEILING IS THE OVERLAP'S -- the same constraint that has
-  // ceilinged every screen this mark has worn. Over canopy, at active, with
-  // the 0.004 floor:
+  // 0.16, AND IT IS ON THE FAR SIDE OF A TROUGH. This is the part that is not
+  // obvious from the number, and reaching for a value between 0.04 and 0.12
+  // because it "looks safer" would land in the worst part of the range.
   //
-  //                    overlap texture   block ink (committed/active/focused)
-  //     --halo 0.03       0.0106          0.0346 / 0.0475 / 0.0636
-  //     --halo 0.04       0.0090          0.0373 / 0.0503 / 0.0681
-  //     --halo 0.05       0.0066          0.0410 / 0.0562 / 0.0752
-  //     --halo 0.06       0.0050          0.0435 / 0.0596 / 0.0794
-  //     --halo 0.08       0.0011  <floor  0.0498 / 0.0686 / 0.0912
+  // OVER CANOPY THE DOT READS LIGHTER THAN ITS GROUND. So a white screen lifts
+  // the ground TOWARD the dot, the two converge, and the mark loses contrast --
+  // until the screen carries the ground PAST the dot, after which the dot is
+  // the dark thing on a light ground and contrast climbs again. There are two
+  // such crossings, at different alphas, because the EMBANKMENT WASH has
+  // already lifted the ground where the two types coincide: the overlap
+  // crosses over near 0.08 and bare canopy not until about 0.20.
   //
-  // THE CLIFF IS AT 0.08 AND 0.03 IS NOT THE LAST VALUE BEFORE IT. What picks
-  // 0.03 is a bound the test states rather than the floor: THE SCREEN MAY NOT
-  // EAT MOST OF THE OVERLAP'S TEXTURE. Unscreened, this lattice carries 0.0165
-  // there; at 0.03 the screen leaves 0.64 of it and at 0.05 it leaves 0.40 --
-  // most of what the denser lattice bought, spent on the screen. The absolute
-  // floor is met all the way to 0.06; the relative bound is what says the
-  // overlap is still two marks rather than one mark and a memory of another.
+  // MEASURED, over canopy at active, against a 0.004 floor:
   //
-  // WHERE THAT LEAVES THE MARK, against the grid 8 lattice it replaced (canopy,
-  // active, field only, outline excluded): 0.0475 against 0.0255 -- 1.9x. The
-  // overlap reads 0.0106 against 0.0060, which is 1.8x BETTER rather than a
-  // cost, and is the best this pair has ever measured (the blue screen's own
-  // reading was 0.0045). Density is why both moved the same way.
+  //                 overlap texture   texture on BARE canopy   block ink
+  //     0.03           0.0106               0.0331              0.0475
+  //     0.05           0.0066               0.0288              0.0562
+  //     0.08           0.0011  <floor       0.0232              0.0686
+  //     0.12           0.0067               0.0144              0.0876
+  //     0.16           0.0136               0.0066              0.1044
+  //     0.20           0.0214               0.0020  <floor      0.1217
   //
-  // AND IT IS NOW THE HEAVIER OF THE TWO SURVEY MARKS OVER SOIL. The whole
-  // mark reads 0.0947 there against the embankment wash's 0.0576, where the
-  // type that IS a wash used to be heavier everywhere. Over canopy the wash is
-  // still ahead (0.1149 against 0.0545). The pair is told apart by KIND --
-  // a texture and a wash -- and that is now the whole of what tells them
-  // apart, because the weight ordering no longer holds on both grounds.
+  // 0.16 IS CHOSEN FOR THE OVERLAP, which is the reading this pair of marks
+  // exists to support: 0.0136 against the 0.0106 it had at 0.03, keeping 0.82
+  // of what the lattice carries unscreened. That is the best the overlap has
+  // ever measured, and every alpha that keeps the mark under the screen line
+  // is on the near side, in the trough.
+  //
+  // WHAT IT COSTS IS THE MARK ON BARE CANOPY -- 0.0066 against 0.0331, a fifth
+  // of the texture, still over the visibility floor and not by much. The field
+  // is nearly flat there; what carries the zone instead is sheer presence,
+  // 0.1044 of added ink against 0.0475. IT READS AS A PALE PANEL WITH A FAINT
+  // GRID RATHER THAN AS A SCREEN DOOR ON IMAGERY, and that is the trade.
+  //
+  //
+  // AND IT IS NO LONGER A SCREEN, WHICH IS A DECISION AND NOT A DRIFT.
+  //
+  // Measured against an opaque fill of the same colour at the focused level,
+  // the mark reads 0.54 -- the aerial frame is a little under half of what you
+  // see. The bound every survey mark used to keep was "the frame is MORE than
+  // half"; the embankment wash still keeps it, at 0.40. This one was let past
+  // deliberately, because the overlap and the half line could not both be had.
+  // layout.test.jsx now carries one ceiling per mark and says so at length.
+  //
+  // THE WEAKER CLAIM THAT REPLACED IT is that the frame must still be at least
+  // 40% of what is seen. 0.20 would read about 0.62 and fail that, so the band
+  // asserted off the def is 0.12 to 0.16: far enough past the trough, not far
+  // enough to become paint.
+  //
+  // WHAT IS NOT NEGOTIABLE is that this stays a TEXTURE. A mark that stopped
+  // having dots in it would be a wash, and the two survey types would have
+  // collapsed into one kind -- which is the whole thing the pair is built to
+  // avoid. The overlap's texture floor and the mid-value test hold that, and
+  // neither moved.
+  //
+  // TWO THINGS THE HEAVIER SCREEN QUIETLY IMPROVED, both recorded so the next
+  // person knows what they are spending if they take it back down:
+  //
+  //   MOIRE fell to 0.0013 from 0.0016, because a beat scales with the dots'
+  //   own contrast and the screen has taken that away.
+  //
+  //   THE OVERLAP'S RETENTION rose to 0.82 from 0.64 -- see the table.
+  //
+  // AND ONE IT MADE WORSE. STACKED SCREENS: three committed layers now take
+  // 22.8% of an opaque cover over canopy and 30.6% over soil, against 14.9%
+  // and 16.3% before. The bound is half, so there is room, but the margin is
+  // no longer generous and by fencing there may be five layers. See the
+  // stacking test.
+  //
+  //
+  // AND THE PAIR IS NOW THE SAME WEIGHT ON ONE GROUND AND INVERTED ON THE
+  // OTHER, which is the last thing to know before either survey mark moves.
+  // Over canopy at active the wash reads 0.1149 and this mark 0.1076 -- within
+  // a twentieth of each other, where at 0.03 it was less than half. Over bare
+  // soil this mark reads 0.1014 against the wash's 0.0576, nearly twice it.
+  //
+  // SO WEIGHT NO LONGER TELLS THE TWO TYPES APART ANYWHERE, and KIND is the
+  // whole of what does: one is a wash and one is a texture. That is what the
+  // texture floors are protecting and why they are the assertions that may not
+  // be traded away. If this mark ever stops reading as dots, the two survey
+  // types become one mark in two values, which is the failure the dot field
+  // was introduced to fix.
   {
     treatment: 'survey-excavated',
     kind: 'stipple',
@@ -347,7 +396,7 @@ const TREATMENT_MARKS = [
     tile: 64,
     grid: 16,
     radius: 1.2,
-    screen: 0.03,
+    screen: 0.16,
     screenToken: '--halo',
   },
   // ROADS: a cased LINE. The first mark here that is not ground. Its whole

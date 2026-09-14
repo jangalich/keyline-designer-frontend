@@ -1911,13 +1911,20 @@ describeIf('the zone patterns, rendered', () => {
     // comment says why that is the wrong kind of bound. This reads the value
     // out of the def instead, where a change to it is exact.
     //
-    // THE CLIFF IS AT 0.08 AND THE SHIPPED VALUE IS 0.03, so this band is
-    // deliberately NOT "everything below the cliff". The overlap's absolute
-    // floor is met all the way to 0.06; what picks 0.03 is the RELATIVE bound
-    // the overlap test states -- the screen may not eat most of the overlap's
-    // texture -- and at 0.05 it eats 57% of what the lattice carries
-    // unscreened. The table beside the row in ProductionHatchPattern.jsx has
-    // every rung.
+    // 0.16 IS PAST THE OVERLAP'S CROSSOVER, NOT BELOW IT, and that is the
+    // whole shape of this row's history. Below the crossover a heavier screen
+    // costs overlap texture; at 0.08 it bottoms out at 0.0011, under the
+    // floor; above it the dot has gone from LIGHTER than its ground to DARKER
+    // and the reading recovers -- 0.0136 at 0.16, which is better than the
+    // 0.0106 the mark had at 0.03. The band therefore sits on the far side of
+    // a trough it must not fall back into, which is why its floor is 0.12 and
+    // not zero: a drift down lands in the trough rather than somewhere safe.
+    //
+    // WHAT 0.16 COSTS IS THE MARK ON BARE CANOPY, where the same crossover has
+    // not happened yet (the wash lifts the overlap's ground, so it crosses
+    // first). Texture there falls from 0.0331 to 0.0066 -- still over the
+    // visibility floor, and a fifth of what it was. The table beside the row
+    // in ProductionHatchPattern.jsx has every rung of both.
     //
     // THE CLIFF MOVED TWICE, WHICH IS WHY IT IS NOT A FIXED PROPERTY OF THE
     // SCREEN. In the mark's own colour it was 0.32; in --rule on the sparse
@@ -1933,8 +1940,8 @@ describeIf('the zone patterns, rendered', () => {
     // The upper end leaves one rung of room above the shipped value; the lower
     // end is high enough that a drift back toward nothing fails here rather
     // than leaving a tile that still carries a rect doing nothing.
-    expect(marks.excavated.screenOpacity).toBeGreaterThanOrEqual(0.02)
-    expect(marks.excavated.screenOpacity).toBeLessThanOrEqual(0.05)
+    expect(marks.excavated.screenOpacity).toBeGreaterThanOrEqual(0.12)
+    expect(marks.excavated.screenOpacity).toBeLessThanOrEqual(0.16)
 
     // A HALFTONE: MANY DOTS, EACH ONE ACTUALLY DRAWABLE, GROUND BETWEEN THEM.
     //
@@ -2037,13 +2044,39 @@ describeIf('the zone patterns, rendered', () => {
      * SO THE GUARD MOVED TO THE CLAIM THAT IS STILL TRUE OF A TINT: it must be
      * a SCREEN. The ground has to read through it, and that is measurable --
      * against the same colour at full opacity, which is arithmetic rather than
-     * a second render. The ratio between the two IS the effective alpha, and
-     * the assertion is that the aerial frame is more than half of what you see
-     * even on the most present state there is.
+     * a second render. The ratio between the two IS the effective alpha.
      *
      * MEASURED INSIDE THE OUTLINE. The wash is what is being asked about; the
      * line around it is ink at full strength and is meant to be. See inkOf's
      * own note for why that matters at 90px and not on a real zone.
+     *
+     *
+     * AND THE TWO SURVEY MARKS NO LONGER SHARE ONE BOUND, WHICH IS A DECISION
+     * RATHER THAN A DRIFT. Read this before moving either number.
+     *
+     * The bound was ONE value for both: the aerial frame must be MORE THAN
+     * HALF of what you see, even at the most present state there is. The
+     * embankment wash still keeps it comfortably, at 0.40.
+     *
+     * THE EXCAVATED LATTICE DOES NOT, AND WAS SHIPPED THAT WAY ON PURPOSE. Its
+     * --halo screen is at 0.16, which puts it at 0.54 -- the frame is a little
+     * under half. It crossed that line to reach the far side of the OVERLAP'S
+     * crossover, where the dots read against the embankment wash again (0.0136
+     * against 0.0106 at the old 0.03); every alpha that keeps the mark under
+     * 0.5 is on the near side, in the trough. The two constraints could not
+     * both be met and the overlap was chosen.
+     *
+     * SO THE CLAIM FOR THIS MARK IS WEAKER AND STILL REAL: the frame must be
+     * at least 40% of what you see. That is a bound on how far this can go,
+     * not a blessing -- 0.20 would read about 0.62 and fail it -- and it is
+     * the honest statement of what the mark now is: a light tint carrying a
+     * dot field, rather than a texture on imagery that mostly shows through.
+     *
+     * WHAT IS NOT NEGOTIABLE EITHER WAY is that the mark stays a TEXTURE. A
+     * screened mark that also stopped having dots in it would be a wash, and
+     * the two survey types would have collapsed into one kind. That is
+     * asserted elsewhere -- the overlap test's texture floor and the
+     * mid-value test's -- and those did not move.
      */
     const opaqueDeviation = await page.evaluate((state) => {
       const hex = getComputedStyle(document.documentElement)
@@ -2055,6 +2088,11 @@ describeIf('the zone patterns, rendered', () => {
       return (Math.abs(r - 128) + Math.abs(g - 128) + Math.abs(b - 128)) / (3 * 255)
     })
 
+    // ONE BOUND PER MARK, because they no longer make the same claim. See the
+    // note above for why the excavated lattice was let past the half line and
+    // what it bought.
+    const SCREEN_CEILING = { 'survey-embankment': 0.5, 'survey-excavated': 0.6 }
+
     const hatch = await inkOf(page, 'production', 'active')
     for (const tint of ['survey-embankment', 'survey-excavated']) {
       const focused = await inkOf(page, tint, 'focused', { inset: 8 })
@@ -2062,10 +2100,20 @@ describeIf('the zone patterns, rendered', () => {
       // eslint-disable-next-line no-console
       console.log(
         `    ink  ${tint.padEnd(18)} focused ${focused.toFixed(4)}  ` +
-          `opaque ${opaqueDeviation.toFixed(4)}  (screened ${screened.toFixed(2)})`
+          `opaque ${opaqueDeviation.toFixed(4)}  (screened ${screened.toFixed(2)}` +
+          `${screened < 0.5 ? '' : ' -- PAST THE HALF LINE, by decision'})`
       )
-      expect(screened, `${tint} must remain a screen`).toBeLessThan(0.5)
+      expect(
+        screened,
+        `${tint} must leave the aerial frame at least ${Math.round(100 * (1 - SCREEN_CEILING[tint]))}% of what is seen`
+      ).toBeLessThan(SCREEN_CEILING[tint])
     }
+
+    // AND THE WASH IS STILL THE QUIETER OF THE TWO BY THIS MEASURE, which is
+    // worth holding: whatever else the pair does, the type that IS a wash may
+    // not be the one that covers the frame hardest.
+    const washScreened = (await inkOf(page, 'survey-embankment', 'focused', { inset: 8 })) / opaqueDeviation
+    expect(washScreened, 'the wash stays under the half line the lattice left').toBeLessThan(0.5)
 
     // AND PRODUCTION IS STILL THERE BESIDE IT. The hatch is the quieter mark
     // by construction now; what it may not be is invisible, because from the
@@ -3687,18 +3735,23 @@ describeIf('the zone patterns, rendered', () => {
       // THE STACK IS ESSENTIALLY LINEAR AT THESE ALPHAS, and that is the
       // finding rather than the expectation. A stack of translucent washes is
       // sub-linear IN THE LIMIT -- each layer covers a ground the one before it
-      // already moved, so it has less distance left -- but at 0.4 x 0.12 the
-      // effective alpha is under a twentieth, the ground is still nowhere near
-      // the screen's colour after three of them, and the curve has not bent
-      // yet: over canopy the steps are 0.0327 then 0.0288 twice, and over soil
-      // they are equal to four decimal places. So the honest bound is that no
-      // later screen costs MORE than the first, and the safety comes from the
-      // share below rather than from a curve that flattens.
+      // already moved, so it has less distance left -- but the effective alphas
+      // here are small enough that the ground is nowhere near the screens'
+      // colour after three of them, and the curve has not bent yet.
+      //
+      // THE STEPS ARE UNEVEN NOW, AND NOT BECAUSE OF STACKING. This asserted
+      // that no later screen cost more than the first, which held only while
+      // every screen was the same one. They are not: production sits on --rule
+      // at 0.12 and the excavated lattice on --halo at 0.16, so the second
+      // layer in this stack is simply the heavier screen and costs more than
+      // the first did. An ordering over the steps measures WHICH TREATMENTS
+      // ARE STACKED IN WHICH ORDER, not how stacking behaves, so it is gone.
+      //
+      // WHAT IS ASSERTED INSTEAD is the pair of claims that survive the layers
+      // being different: every screen adds something, and the whole stack stays
+      // a screen. The share below is what carries the safety.
       for (const [index, step] of steps.entries()) {
-        expect(
-          step,
-          `screen ${index + 1} costs no more than the first over ${ground}`
-        ).toBeLessThanOrEqual(steps[0] + 1e-6)
+        expect(step, `screen ${index + 1} adds something over ${ground}`).toBeGreaterThan(0)
       }
 
       // AND THREE OF THEM ARE STILL A SCREEN RATHER THAN A COVER. The same
