@@ -1955,7 +1955,7 @@ describeIf('the zone patterns, rendered', () => {
     //
     // SO WHAT IS ASKED FOR NOW IS THE HALFTONE'S OWN SHAPE. Enough dots
     // across a zone that it reads as tone rather than as countable objects --
-    // a 90px zone at this spacing carries about 17 to a side, near 280 in
+    // a 90px zone at this spacing carries about 22 to a side, near 500 in
     // view. Each dot at least 2px across, so it is drawn as a disc. And a
     // diameter under its spacing, so ground shows between the dots and the
     // field stays a texture rather than closing into a fill.
@@ -2750,6 +2750,7 @@ describeIf('the zone patterns, rendered', () => {
     const LATTICES = [
       ['shipped', ''],
       ['g8', '-g8'],
+      ['g12', '-g12'],
       ['g16', '-g16'],
       ['r24', '-r24'],
       ['r32', '-r32'],
@@ -3394,14 +3395,17 @@ describeIf('the zone patterns, rendered', () => {
    */
   it('sweeps the lattice density and dot size, and finds where it stops being a lattice', async () => {
     const TILE = 64
-    // THE SHIPPED LATTICE IS grid 12 AND IS READ THROUGH ITS OWN CELLS, so it
-    // is measured as the mark the map draws rather than as a candidate that
-    // happens to match it. Every other row names both fields -- see the
-    // harness's STIPPLE_GEOMETRIES for why a partial override is a trap.
+    // THE SHIPPED LATTICE IS READ THROUGH ITS OWN CELLS, so it is measured as
+    // the mark the map draws rather than as a candidate that happens to match
+    // it -- and it is no longer ON either ladder, because it is grid 16 with a
+    // SMALLER dot (r 1.2) and the ladders each hold one field still. Every
+    // other row names both fields; see the harness's STIPPLE_GEOMETRIES for
+    // why a partial override is a trap.
     const GEOMETRY = {
-      'shipped-g8': { grid: 8, radius: 1.6 },
+      shipped: { grid: 16, radius: 1.2 },
+      g8: { grid: 8, radius: 1.6 },
       g10: { grid: 10, radius: 1.6 },
-      shipped: { grid: 12, radius: 1.6 },
+      g12: { grid: 12, radius: 1.6 },
       g16: { grid: 16, radius: 1.6 },
       r20: { grid: 8, radius: 2.0 },
       r24: { grid: 8, radius: 2.4 },
@@ -3421,7 +3425,7 @@ describeIf('the zone patterns, rendered', () => {
           const id =
             label === 'shipped'
               ? `survey-excavated-${state}-unoutlined-unscreened`
-              : `stipple-${label === 'shipped-g8' ? 'g8' : label}-${state}-unoutlined`
+              : `stipple-${label}-${state}-unoutlined`
           ink[state] = meanAbsDifference(await swatchOf(page, `ground-${ground}-${id}`), bare)
         }
         const activeSwatch = await swatchOf(
@@ -3429,7 +3433,7 @@ describeIf('the zone patterns, rendered', () => {
           `ground-${ground}-${
             label === 'shipped'
               ? 'survey-excavated-active-unoutlined-unscreened'
-              : `stipple-${label === 'shipped-g8' ? 'g8' : label}-active-unoutlined`
+              : `stipple-${label}-active-unoutlined`
           }`
         )
         const gaps = untouchedFraction(activeSwatch, bare)
@@ -3438,7 +3442,7 @@ describeIf('the zone patterns, rendered', () => {
           page,
           label === 'shipped'
             ? `ground-${ground}-overlapscreen-0`
-            : `ground-${ground}-stippleoverlap-${label === 'shipped-g8' ? 'g8' : label}`
+            : `ground-${ground}-stippleoverlap-${label}`
         )
         const overlapTexture = textureSpread(crop(overlapSwatch, 8))
 
@@ -3473,23 +3477,19 @@ describeIf('the zone patterns, rendered', () => {
       expect(washGaps, `the wash control leaves no ground showing over ${ground}`).toBeLessThan(0.02)
     }
 
-    // DENSER IS MORE INK, AND THE LADDER IS ORDERED BY COVERAGE RATHER THAN
-    // AGAINST THE SHIPPED MARK.
+    // COVERAGE BUYS INK, ON EACH AXIS SEPARATELY.
     //
-    // THIS USED TO ASSERT "every candidate inks more than shipped", which was
-    // true while the shipped lattice was the SPARSEST thing on the page and
-    // stopped being true the day grid 12 shipped -- g10 is now a step DOWN
-    // from it. An assertion that only holds while the mark sits at one end of
-    // its own sweep is an assertion about the mark's position, not about the
-    // lever. What is actually being claimed is that ink follows coverage, so
-    // that is what is checked, on each axis separately: the grid ladder and
-    // the radius ladder each rise, and the shipped mark takes its place inside
-    // them rather than under them.
+    // THIS USED TO ASSERT "every candidate inks more than shipped", which held
+    // only while the shipped lattice was the sparsest thing on the page. What
+    // is actually being claimed is that ink follows coverage, so each ladder
+    // holds ONE field still and walks the other: the grid ladder at r 1.6, the
+    // radius ladder at grid 8. The shipped mark is on neither -- it is grid 16
+    // with a smaller dot -- and is reported beside them.
     for (const ground of ['canopy', 'soil']) {
       const at = (label) => rows.find((r) => r.ground === ground && r.label === label)
       for (const ladder of [
-        ['shipped-g8', 'g10', 'shipped', 'g16'],
-        ['shipped-g8', 'r20', 'r24', 'r32'],
+        ['g8', 'g10', 'g12', 'g16'],
+        ['g8', 'r20', 'r24', 'r32'],
       ]) {
         for (let i = 1; i < ladder.length; i += 1) {
           const [prev, next] = [at(ladder[i - 1]), at(ladder[i])]
@@ -3501,14 +3501,39 @@ describeIf('the zone patterns, rendered', () => {
             next.ink.active,
             `${ladder[i]} inks more than ${ladder[i - 1]} over ${ground}`
           ).toBeGreaterThan(prev.ink.active)
-          // AND LEAVES LESS GROUND SHOWING, the cost side of the same fact and
-          // the axis the lattice boundary sits on.
+          // AND LEAVES LESS GROUND SHOWING, the cost side of the same fact,
+          // WITHIN a ladder -- see below for why only within one.
           expect(
             next.gaps,
             `${ladder[i]} closes the field further than ${ladder[i - 1]} over ${ground}`
           ).toBeLessThan(prev.gaps)
         }
       }
+    }
+
+    /**
+     * THE GAPS READING IS NOT A COMPARATOR ACROSS DOT SIZES, and this is where
+     * that was found rather than assumed. untouchedFraction counts a pixel as
+     * bare when it is within 6/255 of the ground on every channel, which is the
+     * tolerance that stops it counting antialiasing as ink. A SMALLER dot puts
+     * a larger share of its ink into partially-covered edge pixels, and at 2.4px
+     * across enough of them fall under that tolerance that the shipped lattice
+     * reads MORE open than a sparser field with fatter dots -- 75% against
+     * g10's 71%, which is not what the eye sees.
+     *
+     * SO IT IS HELD WHERE IT IS SOUND AND NOT WHERE IT IS NOT. Within one
+     * ladder the dot is fixed and only the spacing moves, so the comparison is
+     * clean and is asserted above. ACROSS ladders, and against the shipped
+     * mark, the reading is reported and the WASH CONTROL is what it is
+     * asserted against: a wash leaves nothing, and every lattice here leaves a
+     * lot. That is the claim the instrument can actually carry.
+     */
+    for (const ground of ['canopy', 'soil']) {
+      const shipped = rows.find((r) => r.ground === ground && r.label === 'shipped')
+      expect(
+        shipped.gaps,
+        `the shipped lattice leaves most of the ground showing over ${ground}`
+      ).toBeGreaterThan(0.4)
     }
   }, SLOW)
 

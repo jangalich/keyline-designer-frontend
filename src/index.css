@@ -200,14 +200,21 @@
      is what the dot field needs over closed canopy and what the ruling does
      not.
 
-     AND THE DOT LATTICE IS DENSER: 12 per tile side rather than 8, at the same
-     dot size. That is the lever that actually moved this mark -- it adds ink
-     WITHOUT touching per-dot contrast, so it is the only one that makes the
-     survey pair's overlap better rather than worse. Every screen lever is
-     ceilinged by that overlap; density is not. It is ceilinged by the LATTICE
-     instead, measured: texture peaks at 0.60 closure and has turned over by
-     0.80, so grid 12 is the last step before the field begins closing into a
-     wash by another route.
+     AND THE DOT LATTICE IS DENSER AND FINER: 16 per tile side rather than 8,
+     with a SMALLER dot (2.4px rather than 3.2px). That is the lever that
+     actually moved this mark -- density adds ink WITHOUT touching per-dot
+     contrast, so it is the only one that makes the survey pair's overlap
+     better rather than worse. Every screen lever is ceilinged by that overlap;
+     density is not. It is ceilinged by the LATTICE instead, measured: texture
+     peaks at 0.60 closure and has turned over by 0.80, and the shipped field
+     sits at 0.60.
+
+     THE SMALLER DOT IS WHY IT SITS THERE RATHER THAN PAST IT. Coverage is
+     pi*r^2*grid^2/tile^2, so a finer grain reaches the same 28% at the same
+     0.60 closure as a coarser one -- and wins on every instrument at once,
+     because more dot EDGE in the same area is more local contrast and local
+     contrast is what a texture is made of. Taking the grid up WITHOUT taking
+     the dot down would have closed the field.
 
      WHERE IT LEAVES THE PAIR, and it is worth knowing before either value
      below is touched. Over canopy the wash is still the heavier mark (0.1149

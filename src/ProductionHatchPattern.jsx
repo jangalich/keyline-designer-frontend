@@ -213,24 +213,35 @@ const TREATMENT_MARKS = [
   // measurement of added ink sees -- which is why every number this field
   // was tuned against looked healthy while it did not read as dots.
   //
-  // 12 PER SIDE AT r=1.6: 5.33px apart, 3.2px across, 28% covered. A dot is
-  // several pixels wide and is drawn as a disc, and 64 divides evenly enough
-  // that the lattice tiles with no seam and no clamp (see stippleTile).
+  // 16 PER SIDE AT r=1.2: 4.00px apart, 2.4px across, 28% covered. A dot is
+  // still several pixels wide and is drawn as a disc, and 64 divides by 16
+  // exactly, so the lattice tiles with no seam and no clamp (see stippleTile).
   //
-  // IT WAS 8 PER SIDE AT 12.6% COVERED, chosen to sit within a point of the
-  // hatch's own eighth so the two marks were neighbours and neither shouted.
-  // THAT IS WHAT THE DENSITY BOUGHT AND WHAT IT SPENT: the excavated zone was
-  // still the quietest thing on this map over canopy, and density is the one
-  // lever that adds ink WITHOUT touching per-dot contrast -- so unlike every
-  // screen lever it makes the overlap BETTER rather than worse. The cost is
-  // that excavated is no longer a quiet neighbour of the hatch; it is a
+  // IT WAS 8 PER SIDE AT r=1.6 AND 12.6% COVERED, chosen to sit within a point
+  // of the hatch's own eighth so the two marks were neighbours and neither
+  // shouted. THAT IS WHAT THE DENSITY BOUGHT AND WHAT IT SPENT: the excavated
+  // zone was still the quietest thing on this map over canopy, and density is
+  // the one lever that adds ink WITHOUT touching per-dot contrast -- so unlike
+  // every screen lever it makes the overlap BETTER rather than worse. The cost
+  // is that excavated is no longer a quiet neighbour of the hatch; it is a
   // heavier mark than production, deliberately.
+  //
+  // AND THE DOT CAME DOWN AS THE GRID WENT UP, which is not the same change
+  // twice. Coverage is pi*r^2*grid^2/tile^2, so 16-at-r-1.2 and 12-at-r-1.6
+  // ink the SAME 28% at the SAME 0.60 closure -- the difference between them
+  // is purely GRAIN. Finer grain wins on every instrument at once, because a
+  // smaller dot at the same coverage puts more dot EDGE into the same area and
+  // local contrast is what a texture is made of: 0.0475 of block ink against
+  // grid 12's 0.0464, texture 0.0331 against 0.0313, and overlap texture
+  // 0.0106 against 0.0098. That is the rare move on this mark that costs
+  // nothing anywhere.
   //
   // 0.60 CLOSURE IS THE CEILING AND IT IS MEASURED. Closure is dot diameter
   // over spacing, and a lattice that closes is a WASH arrived at by another
   // route -- which would collapse the whole two-treatment design, since what
   // makes the overlap read as two marks is that one is a texture and the other
-  // is a wash. layout.test.jsx sweeps it against two instruments:
+  // is a wash. layout.test.jsx sweeps the GRID at a fixed r=1.6, which is the
+  // clean way to see where the turnover is:
   //
   //                  closure  cover   texture   ground still showing
   //     grid 8        0.40     13%    0.0203    82%
@@ -240,27 +251,29 @@ const TREATMENT_MARKS = [
   //     the wash         -    100%    0.0000     0%
   //
   // TEXTURE PEAKS AT 0.60 AND HAS TURNED OVER BY 0.80, and the ground showing
-  // falls off a cliff across the same step. So grid 12 is the last geometry
-  // before the field begins closing, and grid 16 is past it -- more ink, less
-  // texture, and a quarter of the ground left. The bound in the test is 0.7,
-  // between the two measured points rather than at a round number.
+  // falls off a cliff across the same step. The bound in the test is 0.7,
+  // between the two measured points rather than at a round number, and the
+  // shipped lattice sits at 0.60 -- reached by a smaller dot on a tighter grid
+  // rather than by grid 12's fatter dot on a looser one.
   //
-  // AND THE RADIUS AXIS WAS THE OTHER WAY TO GET HERE AND IS RULED OUT. A
-  // bigger dot at the OLD 8px pitch reaches the same coverage and reads better
-  // on ink, texture, ground-showing and the overlap -- and loses on MOIRE by a
-  // factor of three (r 2.4 beats against a 5px ground at 0.0085 against a
-  // 0.004 bound, where grid 12 reads 0.0028). A denser lattice moves its pitch
-  // away from the ground frequencies it beats with; a fatter dot leaves the
-  // pitch where it is and gives the beat more to work with.
+  // AND A BIGGER DOT AT THE OLD 8px PITCH WAS THE OTHER WAY TO REACH THE SAME
+  // COVERAGE AND IS RULED OUT. It reads better on ink, texture,
+  // ground-showing and the overlap -- and loses on MOIRE by a factor of five
+  // (r 2.4 beats against a 5px ground at 0.0085 against a 0.004 bound, where
+  // the shipped lattice reads 0.0016). A denser lattice moves its pitch away
+  // from the ground frequencies it beats with; a fatter dot leaves the pitch
+  // where it is and gives the beat more to work with. THE TWO AXES ARE NOT
+  // INTERCHANGEABLE AT EQUAL INK, and moire is the instrument that says so.
   //
   // WHICH IS ALSO HOW THIS DENSITY PAID FOR A REGRESSION IT DID NOT CAUSE.
   // Raising --pattern-active to 0.75 took the old lattice's worst beat from
   // 0.0038 to 0.0046, over the bound, because a beat scales with the opacity
-  // of the mark making it. Grid 12 reads 0.0024 in the same band and 0.0034
-  // even in the sub-Nyquist band that raise pushed over. The density change
-  // did not set out to fix the moire and fixing it is not why it was chosen;
-  // it is recorded because the next person to move the grid needs to know the
-  // margin they are spending.
+  // of the mark making it. The three generations read 0.0037 (grid 8), 0.0024
+  // (grid 12) and 0.0016 (shipped) in the asserted band, and the shipped one
+  // is under the bound even in the sub-Nyquist band that raise pushed over.
+  // The density change did not set out to fix the moire and fixing it is not
+  // why it was chosen; it is recorded because the next person to move the grid
+  // needs to know the margin they are spending.
   //
   // NO `jitter` FIELD, and its absence is what lets the lattice tile. It
   // displaced each dot within its cell, which cost the tile its clean repeat.
@@ -292,41 +305,39 @@ const TREATMENT_MARKS = [
   // on --halo. The rule that survived is the one that was always doing the
   // work: A SCREEN IS NEVER IN ITS OWN MARK'S COLOUR. See screenNode().
   //
-  // WHAT THE WHITE END BUYS, MEASURED AT THE SAME ALPHA ON THIS LATTICE, over
-  // canopy at active: 0.0464 of added ink against --rule's 0.0427, for overlap
-  // texture of 0.0098 against 0.0111. About a tenth more presence for about a
-  // tenth less overlap. It is a small trade and it was taken deliberately.
+  // WHAT THE WHITE END BUYS, MEASURED AT THE SAME ALPHA, over canopy at
+  // active: about a tenth more presence for about a tenth less overlap
+  // texture. It is a small trade and it was taken deliberately.
   //
   // 0.03, AND THE CEILING IS THE OVERLAP'S -- the same constraint that has
   // ceilinged every screen this mark has worn. Over canopy, at active, with
   // the 0.004 floor:
   //
   //                    overlap texture   block ink (committed/active/focused)
-  //     --halo 0.02       0.0114          0.0297 / 0.0409 / 0.0545
-  //     --halo 0.03       0.0098          0.0341 / 0.0464 / 0.0619
-  //     --halo 0.04       0.0085          0.0362 / 0.0493 / 0.0666
-  //     --halo 0.05       0.0065          0.0406 / 0.0549 / 0.0733
-  //     --halo 0.06       0.0048          0.0427 / 0.0587 / 0.0781
-  //     --halo 0.08       0.0015  <floor  0.0487 / 0.0673 / 0.0890
+  //     --halo 0.03       0.0106          0.0346 / 0.0475 / 0.0636
+  //     --halo 0.04       0.0090          0.0373 / 0.0503 / 0.0681
+  //     --halo 0.05       0.0066          0.0410 / 0.0562 / 0.0752
+  //     --halo 0.06       0.0050          0.0435 / 0.0596 / 0.0794
+  //     --halo 0.08       0.0011  <floor  0.0498 / 0.0686 / 0.0912
   //
   // THE CLIFF IS AT 0.08 AND 0.03 IS NOT THE LAST VALUE BEFORE IT. What picks
   // 0.03 is a bound the test states rather than the floor: THE SCREEN MAY NOT
-  // EAT MOST OF THE OVERLAP'S TEXTURE. Unscreened, grid 12 carries 0.0152
-  // there; at 0.03 the screen leaves 0.64 of it and at 0.05 it leaves 0.43 --
+  // EAT MOST OF THE OVERLAP'S TEXTURE. Unscreened, this lattice carries 0.0165
+  // there; at 0.03 the screen leaves 0.64 of it and at 0.05 it leaves 0.40 --
   // most of what the denser lattice bought, spent on the screen. The absolute
-  // floor is met either way; the relative bound is what says the overlap is
-  // still two marks rather than one mark and a memory of another.
+  // floor is met all the way to 0.06; the relative bound is what says the
+  // overlap is still two marks rather than one mark and a memory of another.
   //
-  // WHERE THAT LEAVES THE MARK, against what it replaced (canopy, active,
-  // field only, outline excluded): 0.0464 against 0.0255 -- 1.8x. The overlap
-  // reads 0.0098 against 0.0060, which is 1.6x BETTER rather than a cost, and
-  // is the best this pair has ever measured (the blue screen's own reading was
-  // 0.0045). Density is why both moved the same way.
+  // WHERE THAT LEAVES THE MARK, against the grid 8 lattice it replaced (canopy,
+  // active, field only, outline excluded): 0.0475 against 0.0255 -- 1.9x. The
+  // overlap reads 0.0106 against 0.0060, which is 1.8x BETTER rather than a
+  // cost, and is the best this pair has ever measured (the blue screen's own
+  // reading was 0.0045). Density is why both moved the same way.
   //
   // AND IT IS NOW THE HEAVIER OF THE TWO SURVEY MARKS OVER SOIL. The whole
-  // mark reads 0.0945 there against the embankment wash's 0.0576, where the
+  // mark reads 0.0947 there against the embankment wash's 0.0576, where the
   // type that IS a wash used to be heavier everywhere. Over canopy the wash is
-  // still ahead (0.1149 against 0.0534). The pair is told apart by KIND --
+  // still ahead (0.1149 against 0.0545). The pair is told apart by KIND --
   // a texture and a wash -- and that is now the whole of what tells them
   // apart, because the weight ordering no longer holds on both grounds.
   {
@@ -334,8 +345,8 @@ const TREATMENT_MARKS = [
     kind: 'stipple',
     token: '--survey-excavated',
     tile: 64,
-    grid: 12,
-    radius: 1.6,
+    grid: 16,
+    radius: 1.2,
     screen: 0.03,
     screenToken: '--halo',
   },

@@ -1116,11 +1116,12 @@ const MOIRE_PERIODS = [1.5, 2, 2.5, 2.67, 3, 3.5, 4, 5, 6, 8, 11, 16, 24]
  */
 const MOIRE_LATTICES = [
   ['', null],
-  // THE MARK AS IT SHIPPED BEFORE grid 12, screen included, so the comparison
-  // is like for like. A screenless control would read louder for a reason that
+  // THE TWO MARKS THIS ONE REPLACED, screens included, so each comparison is
+  // like for like. A screenless control would read louder for a reason that
   // has nothing to do with pitch -- more dot-to-ground contrast is a stronger
-  // beat -- and the question here is what the DENSITY change did.
+  // beat -- and the question here is what the GEOMETRY changes did.
   ['-g8', { grid: 8, radius: 1.6, screen: 0.03, screenToken: '--rule' }],
+  ['-g12', { grid: 12, radius: 1.6, screen: 0.03, screenToken: '--halo' }],
   ['-g16', { grid: 16, radius: 1.6, screen: 0 }],
   ['-r24', { grid: 8, radius: 2.4, screen: 0 }],
   ['-r32', { grid: 8, radius: 3.2, screen: 0 }],
