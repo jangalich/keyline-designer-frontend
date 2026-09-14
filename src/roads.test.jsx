@@ -1674,7 +1674,7 @@ describe('13. the panel renders through the shared format', () => {
       ['avg grade %', '4.2'],
       ['max grade %', '9.8'],
       null,
-      ['crosses block ft', '85'],
+      ['crosses production block ft', '85'],
       ['crosses canopy ft', '120'],
     ])
 
@@ -1768,7 +1768,7 @@ describe('13. the panel renders through the shared format', () => {
     const payload = roadsPayload()
     expect(payload.networks[0].crossings.crosses_floodplain_ft).toBe(0.0)
     const labels = bodyOf(payload, NET_A).filter((r) => !isBreak(r)).map((r) => r.label)
-    expect(labels).toContain('crosses block ft')
+    expect(labels).toContain('crosses production block ft')
     expect(labels).toContain('crosses canopy ft')
     expect(labels).not.toContain('crosses wet ground ft')
 
@@ -1781,7 +1781,7 @@ describe('13. the panel renders through the shared format', () => {
       crosses_floodplain_ft: null,
     }
     const rows = bodyOf(unmeasured, NET_A).filter((r) => !isBreak(r))
-    expect(rows.map((r) => r.label)).not.toContain('crosses block ft')
+    expect(rows.map((r) => r.label)).not.toContain('crosses production block ft')
     expect(rows.find((r) => r.label === 'crosses canopy ft').value).toBe('—')
     expect(rows.find((r) => r.label === 'crosses wet ground ft').value).toBe('—')
     // The rule itself, stated once: three inputs, three answers.
@@ -1800,7 +1800,7 @@ describe('13. the panel renders through the shared format', () => {
       ...ROADS_STEP.tabs(context).flatMap((tab) => [tab.name, ...tab.rows.map((r) => r.label)]),
       ...Object.values(ROADS_STEP.instructions),
     ].join(' ')
-    expect(prose).toContain('crosses block ft')
+    expect(prose).toContain('crosses production block ft')
     expect(prose).not.toMatch(/production zone/i)
     // The WIRE keeps its own names; this is display prose and nothing else.
     expect(payload.road_corridors.features[0].properties.crosses_production_zone).toBe(true)
@@ -1843,7 +1843,7 @@ describe('13. the panel renders through the shared format', () => {
     const body = bodyOf(none, 'cccccccccc', draft).filter((r) => !isBreak(r))
     expect(body.find((r) => r.label === 'max grade %').value).toBe('—')
     // AND ITS CROSSINGS ARE NULL -- never measured -- so they all render.
-    expect(body.find((r) => r.label === 'crosses block ft').value).toBe('—')
+    expect(body.find((r) => r.label === 'crosses production block ft').value).toBe('—')
   })
 
   /* A CONSTRAINT THAT NEVER RAN IS STILL REPORTED -- in the notices, which is

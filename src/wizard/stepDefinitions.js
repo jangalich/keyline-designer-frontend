@@ -3968,7 +3968,8 @@ export const ROADS_STEP = documentStep({
    *      4.2                        avg grade %
    *      9.8                        max grade %
    *     ────────────────────────────────
-   *       85                        crosses block ft
+   *       85                        crosses production
+   *                                 block ft
    *      120                        crosses canopy ft
    *
    * TWO RUNS AND ONE DECLARED BREAK. The first rule is the format's own, drawn
@@ -4022,11 +4023,26 @@ export const ROADS_STEP = documentStep({
    * IN THE BACKEND'S OWN ORDER, rather than an order this side has an opinion
    * about -- block, canopy, floodplain.
    *
-   * "BLOCK", NOT "PRODUCTION ZONE". Production areas are blocks in this
-   * interface (landform's tabs say "Block N"), the backend renamed the
+   * "PRODUCTION BLOCK", NOT "PRODUCTION ZONE". Production areas are blocks in
+   * this interface (landform's tabs say "Block N"), the backend renamed the
    * panel-facing key to `crosses_block_ft` for it, and the panel follows. The
    * mask, the ids and the per-branch `crosses_production_zone` boolean keep
    * their own names on the wire; this is display prose.
+   *
+   * AND IT SAYS "production block" RATHER THAN "block" ALONE, which is the
+   * one place in this panel where a bare noun was not enough. The row sits
+   * directly above "crosses canopy ft" and "crosses wet ground ft" -- two
+   * grounds a reader knows on sight -- and "block" on its own is the only one
+   * of the three that needs the reader to already know this interface's word
+   * for a production area. The qualifier is what makes the run readable
+   * without that.
+   *
+   * IT IS ALSO THE LONGEST LABEL THIS PANEL SHIPS, and it wraps rather than
+   * pushing the grid past the card -- the label track's own rule
+   * (App.css .chrome-detail__rows, track 3's `minmax(0, max-content)`), the
+   * same one water's "contributing acres at dam site" is held to. Nothing here
+   * arranges that; the format does it for every step alike, which is what
+   * makes a longer label a decision about words rather than about layout.
    *
    * AND "WET GROUND" FOR THE FLOODPLAIN, which is roads' own word for it in
    * every other sentence it prints -- the notice, the determination. The wire
@@ -4057,7 +4073,7 @@ export const ROADS_STEP = documentStep({
         measuredRow(measure(determination.avg_grade_pct), 'avg grade %'),
         measuredRow(measure(determination.max_grade_pct), 'max grade %'),
         PANEL_BREAK,
-        crossingRow(crossings.crosses_block_ft, 'crosses block ft'),
+        crossingRow(crossings.crosses_block_ft, 'crosses production block ft'),
         crossingRow(crossings.crosses_canopy_ft, 'crosses canopy ft'),
         crossingRow(crossings.crosses_floodplain_ft, 'crosses wet ground ft'),
       ],
