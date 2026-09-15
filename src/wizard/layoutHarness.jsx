@@ -1322,8 +1322,8 @@ const MOIRE_PERIODS = [1.5, 2, 2.5, 2.67, 3, 3.5, 4, 5, 6, 8, 11, 16, 24]
  * THE LATTICES THE MOIRE SWEEP IS RUN OVER.
  *
  * ONE PER CANDIDATE GEOMETRY, because moire is a property of the lattice's
- * PITCH and every density candidate changes it. The shipped field is 8.00px
- * between dots; r24 is the same spacing with a bigger dot, and g12 and g16 are
+ * PITCH and every density candidate changes it. The shipped field is 2.67px
+ * between dots; r24 sits at 8px with a bigger dot, and g12 and g16 are
  * 5.33px and 4.00px. A beat that hides at one pitch is loud at another, so a
  * density recommendation that skipped this would be recommending an untested
  * interference pattern.

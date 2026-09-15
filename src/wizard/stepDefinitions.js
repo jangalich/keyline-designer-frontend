@@ -2852,9 +2852,19 @@ export const WATER_STEP = documentStep({
      *
      * So the commit is never blocked. But it must never be a silent empty
      * submit either: the button renames itself and states the decision.
+     *
+     * "SURVEY AREAS" IS THIS STEP'S OWN WORD, AND THE BUTTON NOW USES IT. The
+     * step generates "water survey areas", its reset note spends those words,
+     * and the panel calls one "survey acres" -- the commit button was the last
+     * place still saying "water zones", which is the wire's vocabulary
+     * (`survey_zones`, `zone_id`) rather than the person's.
+     *
+     * BOTH LABELS MOVED, because they are one sentence in two states and a
+     * button that renamed itself from Survey Areas to water zones would be
+     * reporting the decision in a vocabulary the affirmative never used.
      */
     label: ({ committableCount }) =>
-      committableCount === 0 ? 'Commit no water zones' : 'Commit water zones',
+      committableCount === 0 ? 'Commit no Survey Areas' : 'Commit Survey Areas',
     canCommit: () => true,
     blockedReason: () => null,
   },
@@ -3146,10 +3156,11 @@ export const WATER_STEP = documentStep({
    *       52        /100 score                60        /100 score
    *     ──────────────────────────         ──────────────────────────
    *     gravity feed  water delivery       pump required water delivery
-   *      2.4        contributing acres       3.9        contributing acres
-   *     31.2        contributing acres       4.0        median slope %
-   *                 at dam site              4.1        max depth ft
-   *      4.0        median slope %
+   *     31.2        contributing acres       3.9        contributing acres
+   *                 at dam site              4.0        median slope %
+   *      4.0        median slope %           4.1        max depth ft
+   *      7.4        binding shoulder
+   *                 height ft
    *     ──────────────────────────         ──────────────────────────
    *      0.1        production overlap %     0.1        production overlap %
    *     60.0        shared ground w/         60.0       shared ground w/
@@ -3173,14 +3184,42 @@ export const WATER_STEP = documentStep({
    * each run. `water delivery` leads the first; the second is all figures.
    *
    *
-   * ONE ROW IN THE FIRST RUN IS EACH TYPE'S OWN, AND THAT IS THE ONE PLACE
-   * THIS PANEL DISPATCHES ON SURVEY TYPE.
+   * THE FIRST RUN IS NOW TWO PAIRED DISPATCHES ON SURVEY TYPE, AND THEY ARE
+   * THE ONLY PLACES THIS PANEL DISPATCHES.
    *
    * An embankment zone is a valley compartment dammed at a pinch; an excavated
-   * zone is a basin you dig. So the embankment is asked what a dam there would
-   * IMPOUND (`pinch_catchment_acres`, "contributing acres at dam site") and
-   * the excavated zone is asked how DEEP it goes (`depression_depth_max_ft`,
-   * "max depth ft"). Neither question means anything of the other type.
+   * zone is a basin you dig. Each run position asks the question that type's
+   * ground can answer, and the two types sit in the same slots:
+   *
+   *     THE ACREAGE THAT FILLS IT.  Embankment: `pinch_catchment_acres`,
+   *     "contributing acres at dam site" -- what a dam at the chosen pinch
+   *     would IMPOUND. Excavated: `contributing_area_acres_at_wettest_cell`,
+   *     "contributing acres" -- the catchment at the wettest cell, which is
+   *     the only reading a basin has.
+   *
+   *     THE DEPTH IT HAS.  Embankment: `pinch_binding_height_ft`, "binding
+   *     shoulder height ft" -- how high the LOWER of the two shoulders stands
+   *     above the channel at the dam site, which is what limits how far a pool
+   *     can rise before it spills around the abutment. Excavated:
+   *     `depression_depth_max_ft`, "max depth ft" -- how deep you could dig.
+   *
+   * Neither question in either pair means anything of the other type.
+   *
+   * WHY THE EMBANKMENT LOST `contributing_area_acres_at_wettest_cell`. It had
+   * both acreages, one under each label, and the wettest-cell reading was the
+   * weaker of the two on precisely this type: it is the catchment at the zone's
+   * soggiest square, where the dam-site reading is the catchment at the cell a
+   * dam would actually be built on. On a compartment whose whole proposition is
+   * the dam, the second answers the question and the first is a neighbouring
+   * measurement of somewhere else in the same polygon. The excavated zone keeps
+   * it because a basin has no pinch and no dam site, so it is that type's only
+   * catchment -- which is why this became a dispatch rather than a deletion.
+   *
+   * THE SHOULDER HEIGHT SITS AFTER `median slope %`, IN THE EXCAVATED TYPE'S
+   * `max depth ft` SLOT, and the two rows being the same shape is the argument
+   * for the position: both are the type's own depth figure in feet, both are
+   * the last thing said about the ground before the rule, and a reader moving
+   * between two zones of different types finds the depth question in one place.
    *
    * THIS IS THE FAILURE THE OLD PANEL DIED OF, FIXED RATHER THAN REPEATED. It
    * read `member_acres` and `member_count` off every zone under "anchor acres"
@@ -3188,13 +3227,24 @@ export const WATER_STEP = documentStep({
    * so half the zones on the map showed an em dash for a question that does
    * not apply. An em dash means NOT KNOWN and must never mean NOT ASKED.
    *
-   * AND THE WIRE CANNOT MAKE THIS DECISION FOR US, which is why the dispatch is
-   * here. `pinch_catchment_acres` really is embankment-only on the feature, so
-   * that half would work by accident -- but `depression_depth_max_ft` is set on
-   * BOTH types, and an embankment zone's value is the deepest hollow inside a
-   * compartment that is about to be filled by a dam. A panel that showed the
-   * row whenever the field was present would print a meaningless number, which
-   * is worse than the em dash it avoided.
+   * AND THE WIRE CANNOT MAKE EITHER DECISION FOR US, which is why both
+   * dispatches are here. Two of the four fields really are embankment-only on
+   * the feature -- `pinch_catchment_acres` and the binding-shoulder pair are
+   * all inside _zone_feature_properties' embankment branch -- so those halves
+   * would work by accident. The other two are set on BOTH types and would not:
+   *
+   *     `depression_depth_max_ft` is unconditional, and an embankment zone's
+   *     value is the deepest hollow inside a compartment that is about to be
+   *     filled by a dam -- a number that means nothing about a dam.
+   *
+   *     `contributing_area_acres_at_wettest_cell` is unconditional too, and an
+   *     embankment zone's value is real but is the weaker of that type's two
+   *     catchments. Nothing on the wire says so; it is an editorial judgement
+   *     and it belongs in a panel, not in a payload.
+   *
+   * A panel that showed each row whenever its field was present would print a
+   * meaningless number in the first case and a distracting one in the second,
+   * and both are worse than the em dash they avoid.
    *
    * THE BACKEND FORESAW THIS AND DECLINED IT, correctly for its own panel:
    * PANEL_EXCLUDED_KEYS says pinch_catchment_acres was kept off because it
@@ -3248,53 +3298,63 @@ export const WATER_STEP = documentStep({
       rows: [
         // THE ANSWER, NOT THE DIFFERENTIAL. See waterDeliveryPhrase().
         categoricalRow(waterDeliveryPhrase(proposals, featureId), 'water delivery'),
-        // THE OTHER ACREAGE, AND THE ONE THE TAB'S "survey acres" IS NOT. This
-        // is the catchment at the wettest cell -- the ground that DRAINS into
-        // the site, which is what fills a pond, where the survey acreage is
-        // the ground you walk. Two acreages that mean different things, said
-        // as two labels rather than left to position.
-        measuredRow(
-          measure(properties.contributing_area_acres_at_wettest_cell),
-          'contributing acres'
-        ),
-        // AND THE EMBANKMENT'S SECOND ACREAGE, WHICH IS THE ONE THAT FILLS THE
-        // POND. `pinch_catchment_acres` is the contributing area read AT THE
-        // PINCH CELL -- the catchment this compartment would impound once it
-        // is dammed -- where the row above it is the catchment at the wettest
-        // cell. Two catchments, two questions, and the backend keeps them
-        // separately readable rather than folding them together; the labels
-        // do the same.
+        // THE ACREAGE THAT FILLS IT, AND THE ONE THE TAB'S "survey acres" IS
+        // NOT. The survey acreage is the ground you WALK; this is the ground
+        // that DRAINS in, which is what fills a pond. Two acreages that mean
+        // different things, said as two labels rather than left to position.
         //
-        // RIGHT AFTER `contributing acres` because that is the row it is a
-        // second reading of. A reader comparing "the ground that drains here"
-        // with "the ground a dam here would hold" wants them adjacent, not
-        // separated by a slope.
+        // AND WHICH DRAINAGE READING IS THE RIGHT ONE DEPENDS ON THE TYPE.
+        // An embankment compartment has a dam site, so it is asked what a dam
+        // THERE would impound: `pinch_catchment_acres`, the contributing area
+        // read at the pinch cell. An excavated basin has no pinch, so its only
+        // catchment is the one at the wettest cell. See the docblock for why
+        // the embankment no longer shows both.
         embankment
           ? measuredRow(measure(properties.pinch_catchment_acres), 'contributing acres at dam site')
-          : null,
+          : measuredRow(
+              measure(properties.contributing_area_acres_at_wettest_cell),
+              'contributing acres'
+            ),
         // THE MEDIAN, NOT THE RANGE -- production's row, and its argument: the
         // panel says what the ground is like and one figure does that.
         measuredRow(measure(properties.slope_median_pct), 'median slope %'),
-        // AND THE EXCAVATED TYPE'S DEPTH. A basin has a depth you could dig to
-        // and a valley compartment does not -- its depth is whatever the dam
-        // makes it -- so this row is the excavated vocabulary and is not asked
-        // of an embankment zone.
+        // AND THE DEPTH THE TYPE ACTUALLY HAS, WHICH IS A DIFFERENT
+        // MEASUREMENT ON EACH. A basin has a depth you could DIG to; a valley
+        // compartment does not -- its depth is whatever the dam makes it --
+        // and what it has instead is a ceiling on that dam. So the slot is one
+        // question ("how deep does this go") answered out of each type's own
+        // vocabulary, which is why they share a position rather than sitting in
+        // two.
         //
-        // THE WIRE CARRIES IT ON BOTH TYPES, which is why the omission has to
-        // be made HERE rather than inferred from the payload. `depression_
-        // depth_max_ft` is set unconditionally by _zone_feature_properties, so
-        // an embankment zone has a number for it and the number means nothing:
-        // it is the deepest hollow inside a compartment that is going to be
-        // filled by a dam, not a depth anyone would dig.
+        // THE EMBANKMENT'S IS THE BINDING SHOULDER. `pinch_binding_height_ft`
+        // is how high the LOWER of the dam site's two shoulders stands above the
+        // channel -- the binding side, not the mean and not the deeper side --
+        // and it is the ceiling on the pool because water spills around the
+        // lower abutment first. It is the measurement the backend's enclosure
+        // gate is taken on (MIN_BINDING_SHOULDER_METERS, NRCS CPS 378's 3 ft),
+        // so a zone on this map carries the figure that decided whether its
+        // dam site could impound at all.
         //
-        // FEET, AND THE BACKEND'S CONVERSION. It ships already converted beside
-        // the metric measurement it came from (the zone keeps
-        // depression_depth_max_m under its own name), because two consumers
-        // converting one metre value is two chances to forget. The unit rides
-        // the LABEL: "4.1 feet" in the figure column widens it for every row
-        // that has a word in it.
+        // THE EXCAVATED TYPE'S IS `depression_depth_max_ft`, AND THE WIRE
+        // CARRIES THAT ONE ON BOTH TYPES -- which is why the dispatch has to be
+        // made HERE rather than inferred from the payload. It is set
+        // unconditionally by _zone_feature_properties, so an embankment zone
+        // has a number for it and the number means nothing: it is the deepest
+        // hollow inside a compartment that is going to be filled by a dam, not
+        // a depth anyone would dig.
+        //
+        // BOTH IN FEET, AND BOTH CONVERTED ON THE WIRE, which is the backend's
+        // rule rather than a coincidence of these two rows: a length it ships
+        // for display ships already in feet, because two consumers converting
+        // one metre value is two chances to forget. `pinch_binding_height_ft`
+        // rides beside the metric `pinch_binding_height_m` the enclosure gate
+        // is read on -- this side prints the converted one and never does the
+        // arithmetic, the same as every other figure on this panel.
+        //
+        // THE UNIT RIDES THE LABEL on both. "4.1 feet" in the figure column
+        // widens it for every row that has a word in it.
         embankment
-          ? null
+          ? measuredRow(measure(properties.pinch_binding_height_ft), 'binding shoulder height ft')
           : measuredRow(measure(properties.depression_depth_max_ft), 'max depth ft'),
         PANEL_BREAK,
         // THE THREE CROSSINGS, IN THE BACKEND'S OWN ORDER rather than in an

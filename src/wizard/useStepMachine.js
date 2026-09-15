@@ -82,7 +82,7 @@ export const IDLE = 'idle'
  * IT EXISTS BECAUSE THE ALTERNATIVE WAS AN ARMED COMMIT OVER AN EMPTY MAP.
  * Without it `status === GENERATED` alone read as REVIEWING, so the bar said
  * to review the proposals, the strip had no tabs to review, and the primary
- * button read "Commit no water zones" -- one click from recording a decision
+ * button read "Commit no Survey Areas" -- one click from recording a decision
  * the user never made, and a LEGAL one: the contract sets `min_features=0`,
  * so the request returns 200 and nothing anywhere reports a problem.
  *
@@ -347,7 +347,7 @@ export function useStepMachine(definition) {
    * WHY THAT WAS WORSE THAN AN EMPTY MAP. deriveMachineState reads
    * `hasProposals || status === GENERATED`, so the step landed in REVIEWING:
    * the bar said to review the proposals, the strip had no tabs to review, and
-   * the primary button read "Commit no water zones" -- a legal empty commit,
+   * the primary button read "Commit no Survey Areas" -- a legal empty commit,
    * one click away, recording a decision the user never made. The status was
    * right and everything derived from it was wrong.
    *
