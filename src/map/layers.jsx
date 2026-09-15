@@ -49,6 +49,7 @@ import {
   PIN_GLYPH_PATH,
   PIN_GLYPH_TIP,
   PIN_GLYPH_VIEWBOX,
+  focusIsAHalo,
   marksItsOwnEdge,
   zoneMark,
 } from '../ProductionHatchPattern.jsx'
@@ -155,7 +156,11 @@ const SCRIM_OPACITY = 0.55
 // Presence comes from opacity rather than from a colour picked to beat the
 // imagery -- see the --eligible token's own note for why that differs from the
 // halo-casing rule DrawTool established for LINES.
-const ELIGIBLE_OPACITY = 0.32
+// EXPORTED so the layout harness lays the highlight at the shipped alpha
+// rather than at a copy of it -- the landform case measures production's cased
+// hatch ON this tint, and a harness that guessed 0.3 would be measuring a
+// combination the app never draws.
+export const ELIGIBLE_OPACITY = 0.32
 
 /** Committed geometry is settled: no dash, no fill weight, and no click to make. */
 const COMMITTED_FILL_OPACITY = 0.12
@@ -472,14 +477,44 @@ function isFocusedFeature(layer, feature, focusedFeatureId) {
 const DISPLAY_ONLY_OUTLINE = 'display_only_smoothed_outline'
 
 /**
+ * THE PROPERTY A FENCE LINE CARRIES ITS DISPLAY-ONLY LINE UNDER.
+ *
+ * Backend: fence_display_geometry.DISPLAY_ONLY_FENCE_LINE_PROPERTY. The
+ * second wire name spelled in this file, beside the first and read by the
+ * same function, for the same reason: a fence's drawn line is NOT its ring.
+ * The server angular-simplifies every fence ring and trims each zone ring
+ * where it runs on top of another drawn ring -- the two passes the printed
+ * layout map has always run before drawing -- and ships the result beside
+ * the real geometry. Where the trim left nothing (a zone ring that shares
+ * its whole length with the boundary fence, which draws that line), the
+ * value is NULL, and null means DRAW NOTHING rather than fall back to the
+ * ring: the doubled line the trim removed must not come back through a
+ * default. So the substitution below tests for the KEY, not the value.
+ * NOTHING MAY COMPUTE FROM IT: the tab's length is the backend's own
+ * measurement of the real ring, the commit sends `feature.geometry`, and a
+ * trimmed display line and its reported length legitimately disagree.
+ */
+const DISPLAY_ONLY_FENCE_LINE = 'display_only_fence_line'
+
+/**
  * WHAT A FEATURE IS DRAWN WITH -- and it is not always what it IS.
  *
- * A production zone and a tree zone are unions of 5 m DEM cells, so their
- * edges are pixel boundaries: an unbroken right-angle staircase. The printed
- * layout map has never shown that -- it smooths the same shape before it draws
- * it -- so this map was the one disagreeing about what a zone looks like. The
- * server now ships that smoothed outline beside the geometry, computed by the
+ * A production zone is a union of 5 m DEM cells, so its edge is a pixel
+ * boundary: an unbroken right-angle staircase. The printed layout map has
+ * never shown that -- it smooths the same shape before it clips its contours
+ * to it -- so this map was the one disagreeing about what a zone looks like.
+ * The server ships that smoothed outline beside the geometry, computed by the
  * SAME function the PDF uses, and this is where it is picked up.
+ *
+ * A TREE ZONE IS ALSO A CELL UNION AND IS NOT SMOOTHED, on the server or
+ * here. That is the one case where the staircase is real and the smooth was
+ * still wrong: the layout map draws the tree hatch from the cell-union
+ * footprint verbatim, so a smoothed tree outline made the two maps disagree
+ * rather than agree -- and the smooth is anti-extensive, measured at 19.56% of
+ * a 0.32 ac candidate with nothing added back, taken off the thin arms a tree
+ * zone exists to be. The server stopped shipping the field for trees; this
+ * function needs no change for that, because a feature without it is returned
+ * as itself.
  *
  * DISPLAY ONLY, AND THE SUBSTITUTION HAPPENS HERE FOR THAT REASON. It is a
  * rendering of a shape, not the shape, and nothing may compute from it:
@@ -496,12 +531,12 @@ const DISPLAY_ONLY_OUTLINE = 'display_only_smoothed_outline'
  * crossing-grounds work closed.
  *
  * A FEATURE WITHOUT THE PROPERTY IS RETURNED AS ITSELF, unwrapped, and that
- * covers three real cases rather than being a guard: a zone the USER DREW (no
+ * covers four real cases rather than being a guard: a zone the USER DREW (no
  * staircase -- its edge was placed vertex by vertex, and moving it would put
- * the drawn line somewhere other than where the vertices were clicked), water
- * survey zones (clipped envelopes) and road corridors (LineStrings). None of
- * the three is a cell union and none of them is smoothed, on the server or
- * here.
+ * the drawn line somewhere other than where the vertices were clicked), TREE
+ * candidates (cell unions the layout map itself draws unsmoothed, see above),
+ * water survey zones (clipped envelopes) and road corridors (LineStrings).
+ * None of the four is smoothed, on the server or here.
  */
 /**
  * A LAYER MAY SAY WHAT ITS FEATURES ARE DRAWN WITH, and one does. The
@@ -518,7 +553,13 @@ const DISPLAY_ONLY_OUTLINE = 'display_only_smoothed_outline'
 function drawnAs(feature, layer = null) {
   const footprint = typeof layer?.footprint === 'function' ? layer.footprint(feature) : null
   const outline = footprint ?? feature.properties?.[DISPLAY_ONLY_OUTLINE]
-  return outline ? { ...feature, geometry: outline } : feature
+  if (outline) return { ...feature, geometry: outline }
+  // A FENCE LINE: present key, possibly null -- and null is "nothing to
+  // draw", never "draw the ring". See DISPLAY_ONLY_FENCE_LINE.
+  if (feature.properties && Object.prototype.hasOwnProperty.call(feature.properties, DISPLAY_ONLY_FENCE_LINE)) {
+    return { ...feature, geometry: feature.properties[DISPLAY_ONLY_FENCE_LINE] }
+  }
+  return feature
 }
 
 /** The pin on screen: its box, and where in it the tip sits. Fixed, at every zoom. */
@@ -865,7 +906,15 @@ function patternLevelFor(state) {
  * for it in the same proportions they hold for a hatch.
  */
 function fillLevelFor(mark, state) {
-  return mark?.kind === 'tint' ? tintLevel(stateName(state)) : patternLevel(stateName(state))
+  if (mark?.kind === 'tint') return tintLevel(stateName(state))
+  // A MARK WHOSE FOCUS IS A HALO KEEPS ITS ACTIVE INK AT FOCUS, and that is
+  // the whole of what the halo bought. The mark itself changed -- the fill
+  // points at a tile whose every rule is lit (see ProductionHatchPattern's
+  // haloTile) -- so raising the level on top of it would be saying focus
+  // twice and spending the top of the scale to do it. A focused block inks
+  // exactly what an active one does; the glow is the difference.
+  if (focusIsAHalo(mark) && state.isFocused) return patternLevel('active')
+  return patternLevel(stateName(state))
 }
 
 function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, colors }) {
@@ -888,7 +937,10 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
   }
 
   const state = { isFocused, isCommitted }
-  const mark = treatment ? zoneMark(treatment) : null
+  // THE STATE REACHES THE MARK, for the one mark that has two tiles. Every
+  // other treatment hands back the same mark in every state and this argument
+  // changes nothing for it.
+  const mark = treatment ? zoneMark(treatment, { focused: isFocused }) : null
   const fillOpacity = fillLevelFor(mark, state)
 
   if (isDrawn) {
@@ -1011,7 +1063,14 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
         const isFocused = isFocusedFeature(layer, feature, focusedFeatureId)
         const rejection = rejections[feature.id] ?? null
         const level = rejection ? 1 : patternLevelFor({ isFocused, isCommitted })
-        const positions = lineLatLngs(feature.geometry)
+        // THE DISPLAY GEOMETRY, which for a fence is its simplified, trimmed
+        // line and for a road is its own LineString. See drawnAs(): nothing
+        // but this renderer sees the substitution, and the casing below is
+        // laid under the same positions.
+        const positions = lineLatLngs(drawnAs(feature, layer).geometry)
+        // NOTHING TO DRAW -- a fence line the trim took entirely -- draws
+        // nothing: no casing, no path, no click target for an invisible line.
+        if (!positions.length) return null
         const key = `${feature.id}:${isFocused}:${interactive}:${rejection ? 'bad' : 'ok'}`
         const className = focusClass(
           rejection ? 'road--rejected' : `road--${layer.treatment ?? 'untreated'}`,
@@ -1066,10 +1125,20 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
   )
 }
 
-/** A GeoJSON LineString's coordinates as Leaflet [lat, lng] positions. */
+/**
+ * A GeoJSON LineString's coordinates as Leaflet [lat, lng] positions -- or a
+ * MultiLineString's as the nested form Polyline takes for several parts (a
+ * fence around a severed zone, or a trimmed ring that split into pieces).
+ * Anything else, null included, is nothing to draw.
+ */
 function lineLatLngs(geometry) {
-  const coordinates = geometry?.type === 'LineString' ? geometry.coordinates : []
-  return coordinates.map(([lng, lat]) => [lat, lng])
+  if (geometry?.type === 'LineString') return geometry.coordinates.map(([lng, lat]) => [lat, lng])
+  if (geometry?.type === 'MultiLineString') {
+    return geometry.coordinates
+      .filter((part) => part.length)
+      .map((part) => part.map(([lng, lat]) => [lat, lng]))
+  }
+  return []
 }
 
 const accessPointIcon = (extra) =>

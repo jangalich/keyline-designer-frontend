@@ -22,10 +22,15 @@
  *                      nothing about what a commit would send.
  *
  *                      EXCEPT ON A STEP THAT SAYS OTHERWISE IN ITS OWN
- *                      DEFINITION. `selection: { follows: 'focus' }` says
- *                      focus and the commit decision are ONE FACT there, and
- *                      the body checks the box: roads' tabs are the choice of
- *                      which network commits. See clickBody().
+ *                      DEFINITION, AND THE EXCEPTION IS NOT THIS FILE'S ANY
+ *                      MORE. `selection: { follows: 'focus' }` says focus and
+ *                      the commit decision are ONE FACT there, so roads' tabs
+ *                      are the choice of which network commits -- but the
+ *                      strip still only FOCUSES, and the cursor moves the
+ *                      selection because the step declares that it does. Two
+ *                      other paths move focus (a generate, an access-point
+ *                      marker) and neither goes through here; enforcing the
+ *                      collapse in this file is what let them drift.
  *
  *   THE BOX INCLUDES.  A CHECKBOX, and it says what it does: checked is in
  *                      the commit AND drawn, unchecked is out of the commit
@@ -72,6 +77,7 @@
 import { useState } from 'react'
 
 import { useWizardCursor } from '../WizardCursor.jsx'
+import { selectionAfterCheck, tabIsFocused } from '../tabs.js'
 
 /**
  * The grid, in tabs. Fixed rather than measured: there is no layout to measure
@@ -150,51 +156,6 @@ export function tabColumns(cells, cap = TAB_COLUMNS) {
   return Math.max(1, Math.min(cells, cap))
 }
 
-/**
- * Is this tab the focused one -- by its own id, or by any feature it carries.
- *
- * A TAB MAY STAND FOR SEVERAL FEATURES (`featureIds`), because a tab is a
- * unit of the commit decision and the roads step's unit is a network of
- * branches. The focus slot holds whatever was clicked -- the tab's id, or a
- * branch's -- and the tab is marked either way, which is what makes clicking
- * a branch on the map and clicking its tab the same act.
- */
-export function tabIsFocused(tab, focusedFeatureId) {
-  if (focusedFeatureId == null) return false
-  if (tab.id === focusedFeatureId) return true
-  return Array.isArray(tab.featureIds) && tab.featureIds.includes(focusedFeatureId)
-}
-
-/** The feature ids a tab's checkbox toggles: what it declares, or its own id. */
-function featureIdsOf(tab) {
-  return Array.isArray(tab.featureIds) && tab.featureIds.length ? tab.featureIds : [tab.id]
-}
-
-/**
- * THE SELECTION AFTER ONE BOX IS TICKED, in the step's declared mode.
- *
- * IT WAS selectionAfterEye(), AND THE BODY BELOW IS UNCHANGED. The eye became
- * a checkbox in shape and in label, and this is the EFFECT -- which the
- * change did not touch, in either direction, for any mode. The rename is the
- * label finishing its job: a helper named after a control nothing renders any
- * more is the next reader's wrong turn.
- *
- *   multiple  every box is its own: the tab's features join the set or leave
- *             it, and nothing else moves.
- *   radio     one or none: ticking a tab is the whole selection -- every
- *             other tab's features leave -- and un-ticking it leaves the set
- *             empty. Commit-one-or-none, read off the definition rather than
- *             off which step this is; the backend says the same thing as
- *             `max_features: 1` counted by network.
- */
-export function selectionAfterCheck(current, tab, mode) {
-  const ids = featureIdsOf(tab)
-  const isOn = tab.selected !== false
-  if (isOn) return current.filter((id) => !ids.includes(id))
-  if (mode === 'radio') return [...ids]
-  return [...new Set([...current, ...ids])]
-}
-
 export default function TabStrip({ machine, onRemove }) {
   const [expanded, setExpanded] = useState(false)
   const { focusedFeatureId, focusFeature } = useWizardCursor()
@@ -207,23 +168,27 @@ export default function TabStrip({ machine, onRemove }) {
    *
    * `selection.follows: 'focus'` says that on this step the focus and the
    * commit decision are ONE FACT -- what you are looking at is what commits.
-   * Two consequences here, and they are the same consequence twice: the tab
-   * BODY ticks the box, and the BOX moves the focus. Either gesture leaves
-   * the pair agreeing, which is what makes the claim true of this strip
-   * rather than merely conventional. A focus arriving from OUTSIDE it -- the
-   * map, a generate -- can still disagree, and clickBody() below converges on
-   * that rather than deepening it.
    *
-   * A TAB WITH NO BOX IS NOT PART OF THAT. Roads keeps a tab for an access
-   * point that routed nothing so the slot can still be discarded; it carries
-   * no checkbox because there is no network to commit, so its body focuses
-   * the way every other step's does.
+   * AND THIS STRIP NO LONGER ENFORCES IT. The rule is the CURSOR's now, so
+   * every path that moves the focus carries the selection with it -- the tab
+   * body, the access-point marker, the generate that routes a new network.
+   * The strip used to be the only path that remembered, which is precisely
+   * why the other two drifted: a generate focused what it had just made and
+   * left the tick on the network before it, and a marker click did the same.
+   * See WizardCursor's focusFeature.
+   *
+   * WHAT IS LEFT HERE IS ONE LINE, AND IT IS THE BOX'S. A checkbox on a
+   * focus-bound step is a focus control wearing a checkbox's clothes: ticking
+   * it is looking at that network, un-ticking it is looking at none. So it
+   * moves the focus and lets the selection follow, rather than writing the
+   * selection itself and hoping the focus agrees.
    */
   const bindsFocus = definition.selection?.follows === 'focus'
 
   /**
-   * FLIP ONE BOX. Both controls that can flip one call this, so there is one
-   * description of what ticking means and not two that agree.
+   * FLIP ONE BOX. The box of a step whose selection is its OWN fact -- which
+   * is every step but roads -- and there is one description of what ticking
+   * means rather than two that agree.
    *
    * THE ARITHMETIC IS HANDED TO THE STORE, NOT THE ANSWER. `machine.draft` is
    * the draft this render was built from, and computing the next selection
@@ -235,37 +200,26 @@ export default function TabStrip({ machine, onRemove }) {
    */
   const flip = (tab) => actions.setSelection(stepId, (current) => selectionAfterCheck(current, tab, mode))
 
-  /** THE BOX. On a focus-bound step the focus follows what the box becomes. */
+  /** THE BOX. On a focus-bound step ticking IS focusing, and the cursor does the rest. */
   const check = (tab) => {
-    const ticking = tab.selected === false
+    if (bindsFocus) return focusFeature(tab.selected === false ? tab.id : null)
     flip(tab)
-    if (bindsFocus) focusFeature(ticking ? tab.id : null)
   }
 
   /**
-   * THE BODY OF A TAB ON A FOCUS-BOUND STEP, in one sentence: clicking a tab
-   * makes it THE checked one, unless it is already the checked one you are
-   * looking at, in which case it becomes neither.
+   * THE BODY FOCUSES. ONE RULE, EVERY STEP, EVERY TAB: clicking the tab you
+   * are looking at lets go of it, and clicking any other looks at that one.
    *
-   * WHY IT IS NOT SIMPLY "FLIP THE BOX". Through the strip, checked and
-   * focused always agree, and the two rules are the same rule. They can
-   * disagree only when a focus arrived from OUTSIDE the strip -- an
-   * access-point marker, or the generate that focuses the network it has just
-   * routed without taking the tick off the one already chosen. Flipping the
-   * box there would punish the obvious gesture: click the tab of the network
-   * you have committed, merely to read it, and it would fall out of the
-   * commit. This rule CONVERGES on the disagreement instead of deepening it.
+   * THE THREE CASES ROADS USED TO BRANCH ON ARE THIS RULE PLUS `follows`.
+   * Checked and focused, clicking it lets the focus go -- and the selection
+   * goes with it, which is the empty roads commit. Checked but NOT focused,
+   * clicking it moves the focus onto a tab whose features are already the
+   * whole selection, so the tick is where it was: that is the convergence the
+   * old rule spelled out, surviving as arithmetic rather than as a case.
+   * Unchecked, clicking it focuses it and the selection becomes its features.
+   * Three outcomes, one line, and no branch that a fourth case could miss.
    */
-  const clickBody = (tab, focused) => {
-    if (!bindsFocus || !tab.checkbox) {
-      focusFeature(focused ? null : tab.id)
-      return
-    }
-    const checked = tab.selected !== false
-    const letGo = checked && focused
-    if (checked === letGo) flip(tab)
-    focusFeature(letGo ? null : tab.id)
-  }
+  const clickBody = (tab, focused) => focusFeature(focused ? null : tab.id)
 
   const tabs = definition.tabs(machine.context)
   if (!tabs.length) return null

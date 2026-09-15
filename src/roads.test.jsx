@@ -98,7 +98,8 @@ import {
   roadNetworks,
 } from './wizard/stepDefinitions'
 import { GENERATING, MACHINE_STATES, REVIEWING } from './wizard/useStepMachine.js'
-import { selectionAfterCheck, tabIsFocused } from './wizard/shell/TabStrip.jsx'
+import { MEASURED, dropsAtZero, headerFor, isBreak, panelBody } from './wizard/shell/panelFormat.js'
+import { selectionAfterCheck, selectionFollowingFocus, tabIsFocused } from './wizard/tabs.js'
 import { resetStepCatalog } from './wizard/stepCatalog.jsx'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
@@ -621,7 +622,32 @@ const NET_B = 'bbbbbbbbbb'
 const AP_A = [-74.02, 40.72] // west edge, [lon, lat]
 const AP_B = [-74.0, 40.73] // north edge
 
-function narrative(found = true) {
+/**
+ * THE SCALES BLOCK, AS THE BACKEND SHIPS IT -- road_corridors._SCALES,
+ * forwarded by identity into EVERY candidate's narrative block. Keyed by the
+ * scored quantity (water's shape) with `range` inside each entry (landform's),
+ * which is the third spelling scoreDenominator() had to learn.
+ */
+const ROADS_SCALES = {
+  terrain_quality_score: {
+    range: [0.0, 100.0],
+    direction: 'higher_is_better',
+    parcel_relative: false,
+    normalized_against: 'base_travel_cost_per_meter',
+    clamps_at_ratio: 10.0,
+    practical_max: 95.0,
+    applies_to: ['quality.terrain_quality_score'],
+  },
+  cost_per_meter_ratio: { min: 0.0, max: null, direction: 'lower_is_better' },
+  crossings: {
+    unit: 'feet',
+    min: 0.0,
+    zero_means: 'measured_crossed_none',
+    null_means: 'ground_data_unavailable_not_measured',
+  },
+}
+
+function narrative(found = true, extra = {}) {
   return {
     network_found: found,
     stop_reason: found ? 'cost_per_acre_exceeded' : 'corridor_too_short',
@@ -629,6 +655,10 @@ function narrative(found = true) {
       grade_ceiling_pct: 35,
       steep_grade_threshold_pct: 10,
       max_grade_pct: found ? 9.8 : null,
+      // THE NETWORK'S OWN AVERAGE, LENGTH-WEIGHTED over its branches -- not
+      // the mean of the per-branch averages, which is why the backend ships
+      // it rather than leaving it to be derived.
+      avg_grade_pct: found ? 4.2 : null,
       steep_ft: found ? 0 : null,
       water_zone_excluded: true,
       floodplain_data_available: true,
@@ -644,29 +674,64 @@ function narrative(found = true) {
       service_radius_ft: 328.1,
       reaches_water_zone: false,
     },
+    quality: {
+      terrain_quality_score: found ? 60.9 : null,
+      cost_per_meter_ratio: found ? 3.91 : null,
+      total_path_cost: 1200.0,
+    },
+    // LENGTHS, NOT BOOLEANS, and all three answers are here: a ground
+    // crossed, a ground measured and crossed none of (0.0), and a ground
+    // whose data never arrived (null).
+    crossings: {
+      crosses_block_ft: found ? 85.0 : null,
+      crosses_canopy_ft: found ? 120.0 : null,
+      crosses_floodplain_ft: found ? 0.0 : null,
+    },
+    scales: ROADS_SCALES,
     branches: [],
+    ...extra,
   }
 }
 
-function roadsPayload() {
-  const features = [
-    branch(NET_A, 0, 'trunk', [[-74.02, 40.72], [-74.01, 40.72], [-74.005, 40.722]], { access_point: AP_A }),
-    branch(NET_A, 1, 'spur', [[-74.01, 40.72], [-74.01, 40.715]], { access_point: AP_A }),
-    branch(NET_B, 0, 'trunk', [[-74.0, 40.73], [-74.0, 40.725], [-73.995, 40.722]], { access_point: AP_B }),
-    branch(NET_B, 1, 'water_spur', [[-74.0, 40.725], [-73.99, 40.725]], {
-      access_point: AP_B,
-      // THE SENTINELS: a grade never measured on this branch, and a steep
-      // length never measured. Null, and printed as a dash.
-      properties: { avg_grade_pct: null, steep_ft: null },
-    }),
-  ]
+/**
+ * THE TWO CANDIDATES, OR ONLY THE FIRST.
+ *
+ * `only` names the networks the payload carries, so a test can stand a
+ * generate up: resume onto a one-network payload, generate, and the second
+ * network is the one that was not there before -- which is exactly what
+ * generateRoadNetwork() looks for when it decides what it just made.
+ */
+function roadsPayload({ only = [NET_A, NET_B] } = {}) {
+  const byNetwork = {
+    [NET_A]: [
+      branch(NET_A, 0, 'trunk', [[-74.02, 40.72], [-74.01, 40.72], [-74.005, 40.722]], { access_point: AP_A }),
+      branch(NET_A, 1, 'spur', [[-74.01, 40.72], [-74.01, 40.715]], { access_point: AP_A }),
+    ],
+    [NET_B]: [
+      branch(NET_B, 0, 'trunk', [[-74.0, 40.73], [-74.0, 40.725], [-73.995, 40.722]], { access_point: AP_B }),
+      branch(NET_B, 1, 'water_spur', [[-74.0, 40.725], [-73.99, 40.725]], {
+        access_point: AP_B,
+        // THE SENTINELS: a grade never measured on this branch, and a steep
+        // length never measured. Null, and printed as a dash.
+        properties: { avg_grade_pct: null, steep_ft: null },
+      }),
+    ],
+  }
+  const points = { [NET_A]: AP_A, [NET_B]: AP_B }
+  const features = only.flatMap((id) => byNetwork[id])
   return {
     road_corridors: { type: 'FeatureCollection', features },
-    networks: [
-      { network_id: NET_A, access_point: AP_A, feature_ids: [features[0].id, features[1].id], ...narrative() },
-      { network_id: NET_B, access_point: AP_B, feature_ids: [features[2].id, features[3].id], ...narrative() },
-    ],
-    summary: { network_count: 2, max_networks: 3, slots_remaining: 1 },
+    networks: only.map((id) => ({
+      network_id: id,
+      access_point: points[id],
+      feature_ids: byNetwork[id].map((feature) => feature.id),
+      ...narrative(),
+    })),
+    summary: {
+      network_count: only.length,
+      max_networks: 3,
+      slots_remaining: 3 - only.length,
+    },
   }
 }
 
@@ -896,36 +961,40 @@ describe('5. the checkbox is a radio, and the tab body ticks it', () => {
     await ui.unmount()
   })
 
-  /* THE ONE STATE WHERE FOCUS AND THE TICK DISAGREE, ASKED WITHOUT A SERVER.
+  /* [PART 1, TEST 6] CHECKED BUT NOT FOCUSED -> CONVERGES.
 
-     It is reached only from outside the strip -- a map marker, or the
-     generate that focuses the network it just routed. Clicking the checked
-     tab there CONVERGES on it (focus moves, the tick stays) rather than
-     taking the committed network out of the commit for the crime of being
-     read; clicking the focused-but-unchecked one ticks it. The live section
-     above asks the same of the real generate. */
-  it('converges when a focus from the map disagrees with the tick', async () => {
+     THE CASE THE ORIGINAL CONVERGENCE RULE WAS WRITTEN FOR, AND IT SURVIVES
+     -- as arithmetic rather than as a branch. Clicking a checked-but-unfocused
+     tab moves the focus onto a tab whose features already ARE the whole
+     selection, so `selectionFollowingFocus` returns the set it was already
+     holding and the tick does not move. Nothing converges it; there is
+     nothing to converge.
+
+     HOW THE DISAGREEMENT IS REACHED NOW IS THE WHOLE DIFFERENCE. It used to
+     be reachable by looking at anything -- a marker, a generate -- because
+     those paths moved the focus and left the selection. They do not (see the
+     two tests above this one). What is left is a selection written by
+     something that is NOT a focus move, which is what a seed and a reopen
+     are: setSelection straight into the draft. */
+  it('converges when a selection written by something other than a focus disagrees', async () => {
     const { ui } = await generatedRoads()
-    // A MARKER CLICK IS A READING: it focuses B and chooses nothing.
-    await ui.clickMarker(1)
-    expect(ui.cursor.focusedFeatureId).toBe(NET_B)
-    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('true')
-    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('false')
+    const aIds = ui.networks[0].feature_ids
 
-    // CLICKING THE CHECKED TAB brings the focus to it and leaves it checked.
+    // NOTHING FOCUSED, AND A SELECTION PUT THERE BY THE STORE -- the shape a
+    // seeded or reopened draft arrives in before anything has been looked at.
+    await ui.clickMap([40.72, -74.0])
+    await ui.run((a) => a.setSelection('roads', [...aIds]))
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-focused')).toBe('false')
+
+    // THE FOCUS MOVES ONTO IT AND THE TICK STAYS. Reading the network you
+    // have chosen does not take it out of the commit.
     await ui.click(`tab-focus-${NET_A}`)
     expect(ui.cursor.focusedFeatureId).toBe(NET_A)
     expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('true')
-
-    // AND CLICKING THE FOCUSED-BUT-UNCHECKED ONE TICKS IT, rather than
-    // merely letting go of a focus the user did not put there.
-    await ui.clickMarker(1)
-    expect(ui.cursor.focusedFeatureId).toBe(NET_B)
-    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('false')
-    await ui.click(`tab-focus-${NET_B}`)
-    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('true')
-    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('false')
-    expect(ui.cursor.focusedFeatureId).toBe(NET_B)
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-focused')).toBe('true')
+    expect([...selectDraft(ui.state, 'roads').selectedFeatureIds].sort()).toEqual([...aIds].sort())
     await ui.unmount()
   })
 
@@ -961,6 +1030,260 @@ describe('5. the checkbox is a radio, and the tab body ticks it', () => {
     expect(JSON.stringify(body())).toBe(untouched)
     await ui.unmount()
   })
+})
+
+/* ===========================================================================
+   5b. THE THREE PATHS THAT MOVE THE FOCUS LAND IN ONE STATE
+   ===========================================================================
+   THE BUG, AND WHY IT IS ASSERTED THIS WAY.
+
+   Roads declares `selection: { mode: 'radio', follows: 'focus' }` -- focus and
+   the commit decision are ONE FACT there, and `show: 'focused'` is resolved
+   from the same line, so only the focused candidate is drawn at all. THREE
+   THINGS MOVE THE FOCUS: a tab body, an access-point marker, and the generate
+   that focuses the network it has just routed. Only the TAB enforced the
+   collapse, so the other two left the map, the detail panel and the focus ring
+   on one network while the tick -- and therefore the commit -- stayed on
+   another. Reported from live testing as "the first tab stays bold and stays
+   checked" after a second generate, and the same after a marker click.
+
+   THE MEASURED DIAGNOSIS, before the fix, on this fixture: a generate and a
+   marker click each moved `focusedFeatureId`, the focus ring (`data-focused`)
+   and the panel onto the new network, and left `selectedFeatureIds` where it
+   was. The ring was never a second bug -- the strip reads the same slot the
+   map does -- but an unchecked tab is drawn dashed at 0.55 opacity
+   (.chrome-tab--unchecked), so the newly focused tab went QUIET as it took the
+   ring and the still-checked one stayed at full weight. That is the "bold
+   stays on the previous tab" reading: one bug, seen through the off state.
+
+   SO THE TEST IS A COMPARISON, NOT THREE ASSERTIONS. Three handlers each
+   remembering the rule is the arrangement that produced the drift; correcting
+   them separately would let them drift again. `stateOf()` reads everything a
+   user can see -- what is drawn, what the panel says, every tab's ring and
+   check, the focus slot and the draft's selection -- and the claim is that the
+   three paths leave it IDENTICAL. A fourth path added later has one thing to
+   pass.
+   =========================================================================== */
+
+/** A one-network payload, its second network, and the routes to generate it. */
+function oneThenTwo() {
+  const one = serverDocument({
+    roads: { status: GENERATED, inputs: { [ACCESS_POINTS_LIST]: [AP_A] } },
+  })
+  const two = serverDocument({
+    roads: { status: GENERATED, inputs: { [ACCESS_POINTS_LIST]: [AP_A, AP_B] } },
+  })
+  return [
+    route('GET', /^\/api\/sessions\/sess-roads$/, { body: one }),
+    route('GET', /\/steps\/roads\/layers$/, { body: roadsPayload({ only: [NET_A] }) }),
+    route('POST', /\/steps\/roads\/generate$/, { status: 202, body: { job_id: 'job-1', status: 'running' } }),
+    route('GET', /^\/api\/jobs\/job-1$/, {
+      body: { job_id: 'job-1', status: 'done', result: { payload: roadsPayload(), document: two } },
+    }),
+  ]
+}
+
+/**
+ * EVERYTHING ABOUT THE STEP A USER CAN SEE, as one comparable value.
+ *
+ * Feature ids and network ids are sorted and the drawn branches are counted
+ * rather than listed, so the comparison is about STATE and not about the order
+ * a renderer happened to emit.
+ */
+function stateOf(ui) {
+  return {
+    focus: ui.cursor.focusedFeatureId,
+    selection: [...selectDraft(ui.state, 'roads').selectedFeatureIds].sort(),
+    panel: ui.text('detail-name-roads'),
+    drawn: ui.drawnBranches('leaflet-roads--roads-networks-pane').length,
+    markers: ui.markers().length,
+    tabs: ui.all('[data-tab-id]').map((tab) => ({
+      id: tab.getAttribute('data-tab-id'),
+      focused: tab.getAttribute('data-focused'),
+      checked: tab.getAttribute('data-checked'),
+    })),
+    commit: ui.text('commit-roads'),
+  }
+}
+
+describe('5b. a generate, a marker and a tab leave the same state', () => {
+  /* [PART 1, TEST 1] THE GENERATE. */
+  it('moves the check and the ring onto the network it routed, and off the first', async () => {
+    installFetch(oneThenTwo())
+    const ui = await renderApp({ center: [40.72, -74.0] })
+    await ui.run((a) => a.resume('sess-roads'))
+    await ui.waitFor('the roads payload', () => ui.roads != null, 5000)
+    await ui.waitFor('the roads draft', () => ui.state.drafts.roads !== undefined, 5000)
+
+    // ONE NETWORK, CHOSEN AND DRAWN.
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-focused')).toBe('true')
+
+    // THE SECOND ONE, THROUGH THE REAL BUTTONS -- place the point, generate
+    // from it. Not actions.generate(): the focus move lives in the step's own
+    // run(), and a test calling the store directly would not exercise it.
+    await ui.click('access-roads')
+    await ui.clickMap([40.73, -74.0])
+    await ui.click('generate-roads')
+    await ui.waitFor('the second network', () => ui.networks.length === 2, 5000)
+
+    const after = stateOf(ui)
+    expect(after.focus).toBe(NET_B)
+    expect(after.panel).toBe('Road Network 2')
+    // THE MAP AND THE STRIP AGREE: B's two branches drawn, A's absent.
+    expect(after.drawn).toBe(2)
+    expect(after.selection).toEqual([...ui.networks[1].feature_ids].sort())
+    expect(after.tabs).toEqual([
+      { id: NET_A, focused: 'false', checked: 'false' },
+      { id: NET_B, focused: 'true', checked: 'true' },
+    ])
+    await ui.unmount()
+  })
+
+  /* [PART 1, TEST 4] AND THE THREE PATHS ARE INTERCHANGEABLE. */
+  it('lands in identical state whether the network was generated, clicked on the map, or tabbed', async () => {
+    // PATH 1: THE GENERATE. The step ends on the network it just routed.
+    installFetch(oneThenTwo())
+    const generated = await renderApp({ center: [40.72, -74.0] })
+    await generated.run((a) => a.resume('sess-roads'))
+    await generated.waitFor('the roads payload', () => generated.roads != null, 5000)
+    await generated.waitFor('the roads draft', () => generated.state.drafts.roads !== undefined, 5000)
+    await generated.click('access-roads')
+    await generated.clickMap([40.73, -74.0])
+    await generated.click('generate-roads')
+    await generated.waitFor('the second network', () => generated.networks.length === 2, 5000)
+    const byGenerate = stateOf(generated)
+
+    // PATH 2: THE MARKER. Both networks already there; click B's access point.
+    const { ui: marked } = await generatedRoads()
+    await marked.clickMarker(1)
+    const byMarker = stateOf(marked)
+
+    // PATH 3: THE TAB. The same two networks; click B's tab body.
+    const { ui: tabbed } = await generatedRoads()
+    await tabbed.click(`tab-focus-${NET_B}`)
+    const byTab = stateOf(tabbed)
+
+    // IDENTICAL. Not "each is correct" -- the same value, three ways.
+    expect(byMarker).toEqual(byTab)
+    expect(byGenerate).toEqual(byTab)
+
+    // And it is the state a reader would describe: network 2, everywhere.
+    expect(byTab).toMatchObject({
+      focus: NET_B,
+      panel: 'Road Network 2',
+      drawn: 2,
+      markers: 2,
+      tabs: [
+        { id: NET_A, focused: 'false', checked: 'false' },
+        { id: NET_B, focused: 'true', checked: 'true' },
+      ],
+    })
+
+    await generated.unmount()
+    await marked.unmount()
+    await tabbed.unmount()
+  }, 20000)
+})
+
+/* ===========================================================================
+   5c. THE OTHER FIVE STEPS ARE UNTOUCHED
+   ===========================================================================
+   [PART 1, TEST 7] THE ASSERTION THAT KEEPS THE FIX FROM BEING A REGRESSION
+   EVERYWHERE ELSE.
+
+   `follows: 'focus'` is roads' declaration and nobody else's. Making the
+   cursor move the selection UNIVERSALLY would be a smaller diff and it would
+   take away the thing five steps need: reading a zone's measurements without
+   changing what you are about to commit. water.test.jsx sweeps every step
+   declaring `follows: null` through the strip; this asks the same of the REAL
+   cursor, over the REAL store, on the two steps the roads work sits between.
+   =========================================================================== */
+
+const LANDFORM_PAYLOAD = {
+  suggested_zones: {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', id: 'zone-1', properties: { layer: 'production_area_candidate' }, geometry: POLY },
+      { type: 'Feature', id: 'zone-2', properties: { layer: 'production_area_candidate' }, geometry: POLY },
+    ],
+  },
+  zones: [
+    { feature_id: 'zone-1', rank: 1, area_acres: 2.5, score: 81 },
+    { feature_id: 'zone-2', rank: 2, area_acres: 1.2, score: 64 },
+  ],
+  scales: { range: [0, 100] },
+  summary: {},
+}
+
+const WATER_PAYLOAD = {
+  survey_zones: {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        id: 'survey-1',
+        geometry: POLY,
+        properties: { layer: 'survey_zone_embankment', survey_type: 'embankment', rank: 1, zone_acres: 0.6 },
+      },
+      {
+        type: 'Feature',
+        id: 'survey-2',
+        geometry: POLY,
+        properties: { layer: 'survey_zone_excavated', survey_type: 'excavated', rank: 1, zone_acres: 1.2 },
+      },
+    ],
+  },
+  scales: { suitability: { min: 0, max: 100 } },
+}
+
+describe('5c. landform and water are unaffected', () => {
+  for (const [stepId, payload, tabs] of [
+    ['landform', LANDFORM_PAYLOAD, ['zone-1', 'zone-2']],
+    ['water', WATER_PAYLOAD, ['survey-1', 'survey-2']],
+  ]) {
+    it(`focuses without changing the selection: ${stepId}`, async () => {
+      const document = serverDocument({ roads: { status: NOT_STARTED } })
+      // THE STEP UNDER TEST IS THE FIRST UNCOMMITTED ONE, so the cursor lands
+      // on it and `definition` in the cursor is the one whose rule is being
+      // asked about.
+      document.steps[stepId] = { status: GENERATED }
+      if (stepId === 'landform') document.steps.water = { status: NOT_STARTED }
+      installFetch([
+        route('GET', /^\/api\/sessions\/sess-roads$/, { body: document }),
+        route('GET', new RegExp(`/steps/${stepId}/layers$`), { body: payload }),
+      ])
+      const ui = await renderApp({ center: [40.72, -74.0] })
+      await ui.run((a) => a.resume('sess-roads'))
+      await ui.waitFor(`the ${stepId} payload`, () => ui.state.steps[stepId]?.proposals != null, 5000)
+      await ui.waitFor(`the ${stepId} draft`, () => ui.state.drafts[stepId] !== undefined, 5000)
+      expect(ui.cursor.cursorStepId).toBe(stepId)
+
+      // EVERY CANDIDATE IS SEEDED IN -- a multi-select step's seed.
+      const before = [...selectDraft(ui.state, stepId).selectedFeatureIds].sort()
+      expect(before).toEqual([...tabs].sort())
+
+      // A TAB BODY FOCUSES AND CHANGES NOTHING ABOUT THE COMMIT...
+      await ui.click(`tab-focus-${tabs[1]}`)
+      expect(ui.cursor.focusedFeatureId).toBe(tabs[1])
+      expect([...selectDraft(ui.state, stepId).selectedFeatureIds].sort()).toEqual(before)
+      // ...INCLUDING THE FOCUSED-BUT-UNCHECKED STATE, which is the state roads
+      // has no word for and these five need: read what you have taken out.
+      await ui.click(`tab-check-${tabs[1]}`)
+      expect(ui.find(`tab-${tabs[1]}`).getAttribute('data-checked')).toBe('false')
+      expect(ui.cursor.focusedFeatureId).toBe(tabs[1])
+      expect(ui.find(`tab-${tabs[1]}`).getAttribute('data-focused')).toBe('true')
+
+      // AND LETTING GO OF THE FOCUS LEAVES THE COMMIT ALONE TOO.
+      const held = [...selectDraft(ui.state, stepId).selectedFeatureIds].sort()
+      await ui.clickMap([40.72, -74.0])
+      expect(ui.cursor.focusedFeatureId).toBeNull()
+      expect([...selectDraft(ui.state, stepId).selectedFeatureIds].sort()).toEqual(held)
+
+      expect(ui.cursor.definition.selection.follows).toBeNull()
+      await ui.unmount()
+    })
+  }
 })
 
 /* ===========================================================================
@@ -1086,13 +1409,20 @@ describe('7. the access-point markers persist', () => {
   })
 })
 
-/* A MARKER CLICK IS STILL A READING, and that is deliberate. Roads' TAB body
-   ticks its box now (see section 5), because a tab IS the commit decision
-   drawn as a control; a shape on the map is the thing itself, and clicking a
-   thing to look at it must not quietly change what a commit would send. So
-   what a marker and a tab share is the FOCUS, which is what this asserts. */
-describe('8. a marker click focuses its network', () => {
-  it('focuses it the way its tab does, and the line does, without choosing it', async () => {
+/* [PART 1, TEST 2] A MARKER CLICK IS A CHOICE ON THIS STEP, AND THAT IS THE
+   CORRECTION.
+
+   It used to be "still a reading": the marker focused its network and chose
+   nothing, on the argument that a shape on the map is the thing itself and
+   clicking a thing to look at it must not change what a commit would send.
+   That argument holds on five steps and it is exactly the one roads'
+   `follows: 'focus'` declines -- there, looking IS choosing, the map draws
+   only what is focused, and a tick left behind on another network is a commit
+   with nothing on screen to show for it. So the marker moves the check and
+   the focus ring with the focus, because it goes through the same setter the
+   tab does. */
+describe('8. a marker click focuses its network, and the commit follows', () => {
+  it('moves the focus, the ring, the check and the panel, the way its tab does', async () => {
     const { ui } = await generatedRoads()
     await ui.clickMap([40.72, -74.0])
     expect(ui.cursor.focusedFeatureId).toBeNull()
@@ -1100,20 +1430,29 @@ describe('8. a marker click focuses its network', () => {
     await ui.clickMarker(1)
     expect(ui.cursor.focusedFeatureId).toBe(NET_B)
     expect(ui.find(`tab-${NET_B}`).getAttribute('data-focused')).toBe('true')
-    expect(ui.text('detail-name-roads')).toBe('Access point 2')
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-focused')).toBe('false')
+    // THE CHECK CAME WITH IT, off the first tab and onto this one.
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('false')
+    expect([...selectDraft(ui.state, 'roads').selectedFeatureIds].sort()).toEqual(
+      [...ui.networks[1].feature_ids].sort()
+    )
+    expect(ui.text('detail-name-roads')).toBe('Road Network 2')
     expect(ui.container.querySelectorAll('.access-point-marker--focused')).toHaveLength(1)
 
     await ui.clickMarker(0)
     expect(ui.cursor.focusedFeatureId).toBe(NET_A)
     expect(ui.find(`tab-${NET_A}`).getAttribute('data-focused')).toBe('true')
+    expect(ui.find(`tab-${NET_A}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('false')
 
-    // THE LINE: a branch's own id focuses its network's tab and scrolls the
-    // panel to that branch.
+    // THE LINE: a branch's own id focuses its NETWORK -- its tab, its check
+    // and its panel -- because the network is the unit of the decision.
     const spur = ui.networks[1].feature_ids[1]
     await ui.focus(spur)
     expect(ui.find(`tab-${NET_B}`).getAttribute('data-focused')).toBe('true')
-    expect(ui.text('detail-name-roads')).toBe('Access point 2')
-    expect(ui.find(`detail-group-${spur}`).getAttribute('data-scroll-target')).toBe('true')
+    expect(ui.find(`tab-${NET_B}`).getAttribute('data-checked')).toBe('true')
+    expect(ui.text('detail-name-roads')).toBe('Road Network 2')
     await ui.unmount()
   })
 })
@@ -1129,6 +1468,13 @@ describe('9. a bare-map click', () => {
     expect(ui.markers()).toHaveLength(2)
     expect(ui.all('[data-tab-id]')).toHaveLength(2)
     expect(ui.all('.chrome-tab--focused')).toHaveLength(0)
+    // AND THE TICK WENT WITH THE FOCUS. Looking at nothing is choosing
+    // nothing on a step whose map draws only what is focused -- a check
+    // surviving this would be a commit with no network anywhere on screen.
+    // It is the same empty commit un-ticking the last tab reaches.
+    expect(selectDraft(ui.state, 'roads').selectedFeatureIds).toEqual([])
+    expect(ui.all('[data-checked="true"]')).toHaveLength(0)
+    expect(ui.text('commit-roads')).toBe('Commit no road for this step')
     await ui.unmount()
   })
 })
@@ -1295,44 +1641,259 @@ describe('12. reopen restores every candidate', () => {
 })
 
 /* ===========================================================================
-   13. SENTINELS
+   13. THE PANEL, AGAINST THE SHARED FORMAT
+   ===========================================================================
+   Roads is the third step to declare `rows` rather than `groups`. What this
+   section asks is what landform's and water's ask of theirs: the panel's
+   arrangement is panelFormat's, the figures are the payload's, and the two
+   sentinels -- null is an em dash, a measured zero drops -- survive the move.
    =========================================================================== */
 
-describe('13. a null grade is an em dash, never 0.0', () => {
+/** The panel's body for one network, through the shared format. */
+function bodyOf(payload, networkId, draft = { selectedFeatureIds: [], drawnFeatures: [], inputs: {} }) {
+  const context = { proposals: payload, draft }
+  const tab = ROADS_STEP.tabs(context).find((entry) => entry.id === networkId) ?? null
+  return panelBody(tab, ROADS_STEP.detail(context, networkId).rows)
+}
+
+/** `[label, value]` for every row, with `null` where a break is. */
+const shapeOf = (body) => body.map((row) => (isBreak(row) ? null : [row.label, row.value]))
+
+describe('13. the panel renders through the shared format', () => {
+  /* [PART 2, TEST 9] THE DECLARED ORDER, AND THE RULES WHERE THE FORMAT AND
+     THE STEP PUT THEM. */
+  it('is the tab\'s own rows, a rule, the network, a rule, the crossings', () => {
+    const body = bodyOf(roadsPayload(), NET_A)
+    expect(shapeOf(body)).toEqual([
+      // THE TAB'S TWO ROWS, REPEATED VERBATIM (format rule 2) -- the panel
+      // reads them off tabs(), so "verbatim" is a fact about the code.
+      ['acres served', '2.5'],
+      ['/100 score', '61'],
+      null,
+      ['length ft', '801'],
+      ['avg grade %', '4.2'],
+      ['max grade %', '9.8'],
+      null,
+      ['crosses production block ft', '85'],
+      ['crosses canopy ft', '120'],
+    ])
+
+    // TWO RULES, AND ONLY ONE OF THEM IS THE STEP'S. panelBody draws the
+    // first without being asked; the step declares the second.
+    expect(body.filter(isBreak)).toHaveLength(2)
+    expect(ROADS_STEP.detail({ proposals: roadsPayload(), draft: { selectedFeatureIds: [] } }, NET_A)
+      .rows.filter(isBreak)).toHaveLength(1)
+
+    // NO GROUP LABELS AND NO GROUPS AT ALL -- two unlabelled runs, water's
+    // answer. And no `scrollTo`: there is no per-branch group to scroll to.
+    const detail = ROADS_STEP.detail({ proposals: roadsPayload(), draft: { selectedFeatureIds: [] } }, NET_A)
+    expect(detail.groups).toBeUndefined()
+    expect(detail.fields).toBeUndefined()
+    expect(detail.scrollTo).toBeUndefined()
+
+    // EVERY ROW IS A FIGURE, so the format's categoricals-first convention
+    // has nothing to order here.
+    for (const row of body.filter((r) => !isBreak(r))) expect(row.kind).toBe(MEASURED)
+  })
+
+  /* [PART 2, TEST 10] ONE DECLARATION, TWO RENDERINGS. */
+  it('says "score" on the tab and "/100 score" in the panel, off one row', () => {
+    const payload = roadsPayload()
+    const tab = ROADS_STEP.tabs({ proposals: payload, draft: { selectedFeatureIds: [] } })[0]
+    expect(tab.rows[1]).toEqual({ value: '61', label: 'score', denominator: 100 })
+
+    const panelRow = bodyOf(payload, NET_A).find((row) => !isBreak(row) && row.label.endsWith('score'))
+    expect(panelRow.label).toBe('/100 score')
+    expect(panelRow.value).toBe('61')
+    // THE VALUE IS UNTOUCHED BY THE ADDITION; the strip's label is a suffix
+    // of the panel's.
+    expect(panelRow.label.endsWith(tab.rows[1].label)).toBe(true)
+  })
+
+  /* [PART 2] THE DENOMINATOR COMES OFF ROADS' OWN SCALE SHAPE. */
+  it('reads the denominator off the network\'s scales block, in roads\' spelling of it', () => {
+    // ROADS' BLOCK IS KEYED BY THE SCORED QUANTITY (water's shape) AND SPELLS
+    // THE TOP `range[1]` INSIDE THE ENTRY (landform's). It is also carried by
+    // the NETWORK rather than by the payload, because build_narrative_data()
+    // forwards _SCALES into every candidate's block.
+    const payload = roadsPayload()
+    expect(payload.scales).toBeUndefined()
+    expect(payload.networks[0].scales.terrain_quality_score.range[1]).toBe(100)
+    const tabsOf = (p) => ROADS_STEP.tabs({ proposals: p, draft: { selectedFeatureIds: [] } })
+    expect(tabsOf(payload)[0].rows[1].denominator).toBe(100)
+
+    // A RETUNE FOLLOWS, rather than a 100 typed on this side.
+    const retuned = roadsPayload()
+    retuned.networks[0].scales = { terrain_quality_score: { range: [0, 50] } }
+    expect(tabsOf(retuned)[0].rows[1].denominator).toBe(50)
+
+    // AND A PAYLOAD WITH NO SCALE DROPS THE `/N` rather than guessing one.
+    const unscaled = roadsPayload()
+    delete unscaled.networks[0].scales
+    expect(tabsOf(unscaled)[0].rows[1].denominator).toBeUndefined()
+    expect(bodyOf(unscaled, NET_A).find((r) => !isBreak(r) && r.label.endsWith('score')).label).toBe('score')
+
+    // THE SCORE IS ABSOLUTE, NOT PARCEL-RELATIVE -- the opposite of water's
+    // ceiling -- and the wire says so. Nothing in the panel claims otherwise;
+    // no label here mentions a parcel, a ceiling, or a best.
+    expect(payload.networks[0].scales.terrain_quality_score.parcel_relative).toBe(false)
+    for (const row of bodyOf(payload, NET_A).filter((r) => !isBreak(r))) {
+      expect(row.label).not.toMatch(/parcel|ceiling|best|observed/i)
+    }
+  })
+
+  /* [PART 2, TEST 11] THE TAB IS THE NETWORK, NOT THE POINT IT GREW FROM. */
+  it('names the network, and "Access point" is gone from the tab and the header', () => {
+    const payload = roadsPayload()
+    const tabs = ROADS_STEP.tabs({ proposals: payload, draft: { selectedFeatureIds: [] } })
+    expect(tabs.map((tab) => tab.name)).toEqual(['Road Network 1', 'Road Network 2'])
+    expect(roadNetworkName(payload, NET_B)).toBe('Road Network 2')
+    // THE HEADER IS THE TAB'S OWN NAME, and the detail's fallback agrees with
+    // it because one function mints both.
+    const detail = ROADS_STEP.detail({ proposals: payload, draft: { selectedFeatureIds: [] } }, NET_B)
+    expect(headerFor(tabs[1], detail)).toBe('Road Network 2')
+    expect(detail.name).toBe('Road Network 2')
+    for (const name of [...tabs.map((t) => t.name), detail.name]) {
+      expect(name).not.toMatch(/access point/i)
+    }
+    // THE MARKER STAYS, which is what keeps the connection visible without
+    // the header having to name it.
+    expect(ROADS_STEP.layers.find((l) => l.id === 'roads-access-points')).toBeDefined()
+  })
+
+  /* [PART 2, TEST 12] ZERO DROPS, NULL DOES NOT. */
+  it('drops a crossing measured at zero and renders an em dash for one never measured', () => {
+    // THE FIXTURE CARRIES ALL THREE ANSWERS: 85 ft of block, 120 ft of
+    // canopy, and 0.0 ft of floodplain -- measured, and crossed none of.
+    const payload = roadsPayload()
+    expect(payload.networks[0].crossings.crosses_floodplain_ft).toBe(0.0)
+    const labels = bodyOf(payload, NET_A).filter((r) => !isBreak(r)).map((r) => r.label)
+    expect(labels).toContain('crosses production block ft')
+    expect(labels).toContain('crosses canopy ft')
+    expect(labels).not.toContain('crosses wet ground ft')
+
+    // NULL IS A DIFFERENT ANSWER AND STILL RENDERS. `Number(null) === 0` is
+    // what dropsAtZero() had to be written against; this is the case.
+    const unmeasured = roadsPayload()
+    unmeasured.networks[0].crossings = {
+      crosses_block_ft: 0.0,
+      crosses_canopy_ft: null,
+      crosses_floodplain_ft: null,
+    }
+    const rows = bodyOf(unmeasured, NET_A).filter((r) => !isBreak(r))
+    expect(rows.map((r) => r.label)).not.toContain('crosses production block ft')
+    expect(rows.find((r) => r.label === 'crosses canopy ft').value).toBe('—')
+    expect(rows.find((r) => r.label === 'crosses wet ground ft').value).toBe('—')
+    // The rule itself, stated once: three inputs, three answers.
+    expect(dropsAtZero(0, 'row')).toBeNull()
+    expect(dropsAtZero(null, 'row')).toBe('row')
+    expect(dropsAtZero(undefined, 'row')).toBe('row')
+    expect(dropsAtZero(0.1, 'row')).toBe('row')
+  })
+
+  /* [PART 2, TEST 13] THE DISPLAY WORD FOR A PRODUCTION ZONE IS "BLOCK". */
+  it('says "block" and never "production zone", in every word this step prints', () => {
+    const payload = roadsPayload()
+    const context = { proposals: payload, draft: { selectedFeatureIds: [], drawnFeatures: [], inputs: {} } }
+    const prose = [
+      ...bodyOf(payload, NET_A).filter((r) => !isBreak(r)).flatMap((r) => [r.label, String(r.value)]),
+      ...ROADS_STEP.tabs(context).flatMap((tab) => [tab.name, ...tab.rows.map((r) => r.label)]),
+      ...Object.values(ROADS_STEP.instructions),
+    ].join(' ')
+    expect(prose).toContain('crosses production block ft')
+    expect(prose).not.toMatch(/production zone/i)
+    // The WIRE keeps its own names; this is display prose and nothing else.
+    expect(payload.road_corridors.features[0].properties.crosses_production_zone).toBe(true)
+  })
+
+  /* [PART 2] AND THE SENTINEL SURVIVES THE MOVE. */
   it('prints — for null and 0.0 for zero, on the tab and in the panel', () => {
     expect(measure(null)).toBe('—')
     expect(measure(0)).toBe('0.0')
+
+    // A NETWORK THE PIPELINE DID NOT MEASURE. Every figure is null and every
+    // one prints a dash -- a grade nobody measured is not a flat road.
     const payload = roadsPayload()
+    payload.networks[0].determination.avg_grade_pct = null
+    payload.networks[0].determination.max_grade_pct = null
+    payload.networks[0].access.total_length_ft = null
+    payload.networks[0].quality.terrain_quality_score = null
+    const rows = bodyOf(payload, NET_A).filter((r) => !isBreak(r))
+    const value = (label) => rows.find((r) => r.label === label).value
+    expect(value('length ft')).toBe('—')
+    expect(value('avg grade %')).toBe('—')
+    expect(value('max grade %')).toBe('—')
+    expect(value('/100 score')).toBe('—')
+    // A ZERO IS A MEASUREMENT AND PRINTS AS ONE.
+    payload.networks[0].determination.avg_grade_pct = 0
+    expect(bodyOf(payload, NET_A).find((r) => !isBreak(r) && r.label === 'avg grade %').value).toBe('0.0')
+
+    // A CANDIDATE THAT ROUTED NOTHING keeps its tab, without a checkbox, and
+    // its panel prints dashes rather than zeros.
     const draft = { selectedFeatureIds: [], drawnFeatures: [], inputs: {} }
-    const detail = ROADS_STEP.detail({ proposals: payload, draft }, NET_B)
-    const spur = detail.groups.find((g) => g.label === 'Water spur 2')
-    expect(spur).toBeDefined()
-    const field = (label) => spur.fields.find((f) => f.label === label).value
-    expect(field('avg grade %')).toBe('—')
-    expect(field('steep feet')).toBe('—')
-    expect(field('max grade %')).toBe('9.8')
-    // And the trunk, whose values were measured, prints them.
-    const trunk = detail.groups.find((g) => g.label === 'Trunk 1')
-    expect(trunk.fields.find((f) => f.label === 'steep feet').value).toBe('0')
-    expect(trunk.fields.find((f) => f.label === 'avg grade %').value).toBe('4.2')
-    // A candidate that routed nothing keeps its tab and prints nothing measured.
-    const none = { ...payload, networks: [{ network_id: 'cccccccccc', access_point: [-73.98, 40.72], feature_ids: [], ...narrative(false) }] }
+    const none = {
+      ...payload,
+      networks: [{ network_id: 'cccccccccc', access_point: [-73.98, 40.72], feature_ids: [], ...narrative(false) }],
+    }
     const tabs = ROADS_STEP.tabs({ proposals: none, draft })
     expect(tabs).toHaveLength(1)
+    expect(tabs[0].name).toBe('Road Network 1')
     expect(tabs[0].checkbox).toBeUndefined()
     expect(tabs[0].removable).toBe(true)
-    const networkDetail = ROADS_STEP.detail({ proposals: none, draft }, 'cccccccccc')
-    expect(networkDetail.groups[0].fields.find((f) => f.label === 'max grade %').value).toBe('—')
-    expect(networkDetail.groups[0].fields.find((f) => f.label === 'wet ground avoided').value).toBe('yes')
+    const body = bodyOf(none, 'cccccccccc', draft).filter((r) => !isBreak(r))
+    expect(body.find((r) => r.label === 'max grade %').value).toBe('—')
+    // AND ITS CROSSINGS ARE NULL -- never measured -- so they all render.
+    expect(body.find((r) => r.label === 'crosses production block ft').value).toBe('—')
   })
 
+  /* A CONSTRAINT THAT NEVER RAN IS STILL REPORTED -- in the notices, which is
+     where it was always the honest place for it. The panel's crossing rows
+     say the same thing in figures (an em dash for a ground never measured);
+     the notice says it in words, once for the whole strip. */
   it('reports a constraint that never ran as not applied, never as satisfied', () => {
     const payload = roadsPayload()
-    payload.networks[0].determination.floodplain_data_available = false
-    payload.networks[0].determination.canopy_data_available = false
-    const detail = ROADS_STEP.detail({ proposals: payload, draft: { selectedFeatureIds: [] } }, NET_A)
-    expect(detail.groups[0].fields.find((f) => f.label === 'wet ground avoided').value).toBe('not applied')
-    expect(detail.groups[0].fields.find((f) => f.label === 'canopy avoided').value).toBe('not applied')
+    for (const network of payload.networks) {
+      network.determination.floodplain_data_available = false
+      network.determination.canopy_data_available = false
+      network.crossings.crosses_canopy_ft = null
+      network.crossings.crosses_floodplain_ft = null
+    }
+    const notices = ROADS_STEP.notices({
+      state: { steps: { roads: { inputs: { [ACCESS_POINTS_LIST]: [AP_A, AP_B] } } } },
+      stepId: 'roads',
+      proposals: payload,
+    })
+    const text = notices.map((line) => String(line.text)).join(' ')
+    expect(text).toContain('Floodplain and wet-soil data was unavailable')
+    expect(text).toContain('Canopy data was unavailable')
+    // AND THE PANEL AGREES rather than printing a measured zero for either.
+    const rows = bodyOf(payload, NET_A).filter((r) => !isBreak(r))
+    expect(rows.find((r) => r.label === 'crosses canopy ft').value).toBe('—')
+    expect(rows.find((r) => r.label === 'crosses wet ground ft').value).toBe('—')
+  })
+
+  /* NO PER-BRANCH DATA. The report keeps the trunk/spur/water_spur split; the
+     panel's figures are the whole network's. */
+  it('says nothing per branch, and the branch vocabulary is gone with it', () => {
+    const payload = roadsPayload()
+    const body = bodyOf(payload, NET_A)
+    const labels = body.filter((r) => !isBreak(r)).map((r) => r.label).join(' ')
+    expect(labels).not.toMatch(/trunk|spur|branch/i)
+    expect(body.filter((r) => !isBreak(r))).toHaveLength(7)
+
+    // A CLICK ON A BRANCH STILL OPENS ITS NETWORK'S PANEL, whole.
+    const spur = payload.networks[0].feature_ids[1]
+    const context = { proposals: payload, draft: { selectedFeatureIds: [] } }
+    expect(ROADS_STEP.detail(context, spur).name).toBe('Road Network 1')
+    expect(ROADS_STEP.detail(context, spur).rows).toEqual(ROADS_STEP.detail(context, NET_A).rows)
+
+    // AND `avg grade %` IS THE NETWORK'S LENGTH-WEIGHTED FIGURE off
+    // `determination`, never an average of the per-branch numbers -- which is
+    // the naive reduction the backend ships this field to prevent.
+    const weighted = roadsPayload()
+    weighted.networks[0].determination.avg_grade_pct = 7.7
+    for (const feature of weighted.road_corridors.features) feature.properties.avg_grade_pct = 1.1
+    expect(bodyOf(weighted, NET_A).find((r) => !isBreak(r) && r.label === 'avg grade %').value).toBe('7.7')
   })
 })
 
@@ -1342,7 +1903,7 @@ describe('13. a null grade is an em dash, never 0.0', () => {
 
 describe('14. what the definition declares, and what the shell does not know', () => {
   it('registers roads with the fields the first two steps never needed', () => {
-    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees', 'structures'])
+    expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees', 'structures', 'fencing'])
     expect(LAYER_KINDS).toContain('line')
     expect(LAYER_KINDS).toContain('point')
     expect(ROADS_STEP.accumulate).toEqual({
@@ -1366,8 +1927,8 @@ describe('14. what the definition declares, and what the shell does not know', (
     expect(accessPointParams({ inputs: { [ACCESS_POINT_INPUT]: [40.7, -74.0] } })).toEqual({
       [ACCESS_POINT_INPUT]: [-74.0, 40.7],
     })
-    // Identity: an ordinal, with the location on the map.
-    expect(roadNetworkName(roadsPayload(), NET_B)).toBe('Access point 2')
+    // Identity: an ordinal on the NETWORK, with the location on the map.
+    expect(roadNetworkName(roadsPayload(), NET_B)).toBe('Road Network 2')
     // The road mark is a line, in its own token.
     expect(zoneMark('road')).toEqual({ kind: 'line', fill: null, stroke: expect.stringMatching(/^#/) })
     // Tabs carry every branch, and focus by any of them.
@@ -1389,6 +1950,7 @@ describe('14. what the definition declares, and what the shell does not know', (
       'wizard/shell/DetailPanel.jsx',
       'wizard/shell/TabStrip.jsx',
       'wizard/shell/ActionBanner.jsx',
+      'wizard/tabs.js',
       'map/layerStack.js',
       'map/layers.jsx',
       'map/StepTools.jsx',

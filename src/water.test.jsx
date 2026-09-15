@@ -53,11 +53,15 @@ import {
   surveyZoneName,
   surveyZonePanel,
 } from './wizard/stepDefinitions'
-import TabStrip, {
-  COLLAPSED_TAB_CAP,
-  collapsedTabs,
-  selectionAfterCheck,
-} from './wizard/shell/TabStrip.jsx'
+import {
+  CATEGORICAL,
+  MEASURED,
+  dropsAtZero,
+  isBreak,
+  panelBody,
+} from './wizard/shell/panelFormat.js'
+import TabStrip, { COLLAPSED_TAB_CAP, collapsedTabs } from './wizard/shell/TabStrip.jsx'
+import { selectionAfterCheck, selectionFollowingFocus } from './wizard/tabs.js'
 import { LANDFORM_STEP } from './wizard/stepDefinitions'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
@@ -585,8 +589,22 @@ describe('3. two treatments, both cased', () => {
     // See ProductionHatchPattern's own note and layout.test.jsx, which
     // measures the consequence. What matters HERE is unchanged and is
     // asserted below: no ring around any dot.
-    expect(drawn.length).toBeGreaterThanOrEqual(36)
-    for (const dot of drawn) {
+    // THE SCREEN IS NOT A DOT, and it is separated out rather than allowed
+    // through the loop below: what that loop forbids is a RING AT THE DOT'S
+    // OWN FREQUENCY, and the screen is one rect per tile, under all of them.
+    // Letting it fall through would either fail on its tagName or, worse,
+    // make the loop's stroke check vacuous for it.
+    const screens = drawn.filter((node) => node.tagName.toLowerCase() === 'rect')
+    const tileDots = drawn.filter((node) => node.tagName.toLowerCase() !== 'rect')
+    expect(screens).toHaveLength(1)
+    // AND THE SCREEN IS A SCREEN: no stroke of its own, and well short of
+    // opaque, or the imagery stops reading through and the dots sit on paint.
+    expect(screens[0].getAttribute('stroke')).toBeNull()
+    expect(Number(screens[0].getAttribute('fill-opacity'))).toBeGreaterThan(0)
+    expect(Number(screens[0].getAttribute('fill-opacity'))).toBeLessThan(0.4)
+
+    expect(tileDots.length).toBeGreaterThanOrEqual(36)
+    for (const dot of tileDots) {
       expect(dot.tagName.toLowerCase()).toBe('circle')
       // ONE FILL, NO STROKE OF ANY COLOUR. Not "no --halo stroke": any ring
       // at the dot's frequency is the failure, whatever it is painted in.
@@ -861,6 +879,22 @@ describe('7. an unchecked overlap is not a measured zero', () => {
     expect(measure(null)).not.toBe(measure(0))
   })
 
+  it('keeps the drop-at-zero rule off the never-checked row', () => {
+    // THE RULE AS A FUNCTION, ASSERTED DIRECTLY, because the obvious
+    // implementation of it is wrong in a way no reader would see: `Number(null)`
+    // IS 0 in JavaScript, so a bare `Number(value) === 0` drops the
+    // never-checked row along with the measured-zero one -- the exact
+    // `value || null` shortcut dropsAtZero() exists to refuse. Production
+    // declares no row that drops at zero, so water's three overlaps are the
+    // first payload shape that can tell the two apart, and this is the pin.
+    const row = { kind: MEASURED, value: '—', label: 'canopy overlap %' }
+    expect(dropsAtZero(0, row)).toBeNull()
+    expect(dropsAtZero(0.0, row)).toBeNull()
+    expect(dropsAtZero(null, row)).toBe(row)
+    expect(dropsAtZero(undefined, row)).toBe(row)
+    expect(dropsAtZero(0.09, row)).toBe(row)
+  })
+
   it('carries the difference all the way into the panel, per overlap', () => {
     // ONE ZONE, THREE OVERLAPS, THREE DIFFERENT ANSWERS, and the panel says
     // three different things about them:
@@ -869,63 +903,81 @@ describe('7. an unchecked overlap is not a measured zero', () => {
     //   road        CHECKED, GENUINELY NONE -- NO ROW AT ALL. Nothing to
     //               caution anybody about is the cheapest cut there is.
     //   production  6.4% -- a row with the figure.
+    //
+    // READ OFF THE FEATURE NOW, WHICH IS WHERE THE THREE SENTINELS LIVE. The
+    // backend expressed the same three answers by OMITTING a row for the zero
+    // and sending a null-valued one for the never-checked; the panel declares
+    // all three rows and dropsAtZero() makes the same three statements. What
+    // may never change is that null and 0.0 stay tellable apart.
     const zone = fixtureZone({
       canopy_overlap_pct: null,
       road_overlap_pct: 0.0,
       production_overlap_pct: 6.4,
     })
-    const rows = [
-      ...alwaysRows(zone.properties),
-      { key: 'production_overlap_pct', label: 'on committed production ground', value: 6.4, unit: 'percent' },
-      { key: 'canopy_overlap_pct', label: 'under tree canopy', value: null, unit: 'percent' },
-    ]
-    const detail = WATER_STEP.detail(
-      { proposals: payloadOf([zone], {}, { panels: { [zone.id]: rows } }) },
+    const rows = WATER_STEP.detail(
+      { proposals: payloadOf([zone]), draft: { selectedFeatureIds: [], drawnFeatures: [] } },
       zone.id
-    )
+    ).rows.filter((row) => row != null && !isBreak(row))
 
-    const field = (label) => detail.fields.find((f) => f.label === label)
-    expect(field('under tree canopy (percent)').value).toBe('—')
-    expect(field('on committed production ground (percent)').value).toBe('6.4')
-    // A MEASURED ZERO IS NOT ON THE PANEL, and its absence is not this side's
-    // doing -- the backend never sent a row for it.
-    expect(detail.fields.some((f) => f.label.startsWith('removed by existing farm road'))).toBe(false)
+    const value = (label) => rows.find((row) => row.label === label)?.value
+    expect(value('canopy overlap %')).toBe('—')
+    expect(value('production overlap %')).toBe('6.4')
+    // A MEASURED ZERO IS NOT ON THE PANEL. dropsAtZero() returns nothing for
+    // it and panelBody drops the null, so there is no row and no blank line.
+    expect(rows.some((row) => row.label === 'road overlap %')).toBe(false)
     // DISTINGUISHABLE ON SCREEN, which is the whole point of the sentinel:
-    // nothing on this path can turn the null into the figure beside it.
-    expect(field('under tree canopy (percent)').value).not.toBe(
-      field('on committed production ground (percent)').value
-    )
+    // nothing on this path can turn the null into a zero, and `value || null`
+    // at the call site -- the shortcut dropsAtZero() exists to refuse -- would
+    // have dropped both.
+    expect(value('canopy overlap %')).not.toBe(measure(0))
+
+    // AND THE ZERO IS A ZERO RATHER THAN A FALSY. A 0.0 that dropped because
+    // it was falsy would take a null with it; this pins the rule as the
+    // function states it.
+    const zeroed = fixtureZone({ zone_id: 2, production_overlap_pct: 0 })
+    const zeroedRows = WATER_STEP.detail(
+      { proposals: payloadOf([zeroed]), draft: { selectedFeatureIds: [], drawnFeatures: [] } },
+      zeroed.id
+    ).rows.filter((row) => row != null && !isBreak(row))
+    expect(zeroedRows.some((row) => row.label === 'production overlap %')).toBe(false)
   })
 
-  liveIt('renders the live payload\'s own rows, coercing none of them', async () => {
+  liveIt('renders the live payload\'s own overlaps, coercing none of them', async () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)
 
     // The reference parcel measures all three overlaps, so its zones carry
-    // genuine zeros -- and a genuine zero is a row the backend DOES NOT SEND.
-    // What must reach the screen is exactly the rows it did send, with every
-    // value as it sent it.
+    // genuine zeros -- and a genuine zero is a row the panel does not draw.
     const zones = surveyZoneFeatures(ui.water)
-    const withZero = zones.find((f) =>
-      ['canopy_overlap_pct', 'road_overlap_pct', 'production_overlap_pct'].some(
-        (k) => f.properties[k] === 0
-      )
-    )
+    const keys = ['production_overlap_pct', 'canopy_overlap_pct', 'road_overlap_pct']
+    const labels = {
+      production_overlap_pct: 'production overlap %',
+      canopy_overlap_pct: 'canopy overlap %',
+      road_overlap_pct: 'road overlap %',
+    }
+    const withZero = zones.find((f) => keys.some((k) => f.properties[k] === 0))
     expect(withZero, 'a checked-zero overlap on the reference parcel').toBeDefined()
 
     await ui.focus(withZero.id)
-    const rows = surveyZonePanel(ui.water, withZero.id)
-    expect(rows.length).toBeGreaterThan(0)
-    for (const row of rows) {
-      // A ZERO OVERLAP IS NOT A ROW. If one ever is, the panel is showing a
-      // measured absence where the design says nothing.
-      if (row.key.endsWith('_overlap_pct')) expect(row.value).not.toBe(0)
-      const rendered = ui.text(
-        `detail-value-${row.unit ? `${row.label} (${row.unit})` : row.label}`
-      )
-      expect(rendered).not.toBeNull()
-      if (row.value == null) expect(rendered).toBe('—')
+    for (const key of keys) {
+      const measured = withZero.properties[key]
+      const rendered = ui.text(`detail-value-${labels[key]}`)
+      if (measured === 0) {
+        // NO ROW, NO LINE. Checked and genuinely none says nothing worth a line.
+        expect(rendered, labels[key]).toBeNull()
+      } else if (measured == null) {
+        expect(rendered, labels[key]).toBe('—')
+      } else {
+        expect(rendered, labels[key]).toBe(measure(measured))
+      }
     }
+
+    // IN PRACTICE NULL CANNOT OCCUR HERE, and the live payload is where that
+    // is checked rather than assumed: production is committed upstream, and
+    // canopy and farm roads are hard-fail layers, so all three measurements
+    // are present by the time water generates. The em-dash path above stays
+    // because the CONTRACT says null means never-checked.
+    for (const key of keys) expect(withZero.properties[key], key).not.toBeNull()
 
     await ui.unmount()
   })
@@ -936,44 +988,134 @@ describe('7. an unchecked overlap is not a measured zero', () => {
    =========================================================================== */
 
 describe('8. cross_type_overlaps is a finding about the ground', () => {
-  it('reaches the panel as the backend\'s either-type row, naming the other zone', () => {
-    // THE RESOLUTION FROM ZONE ID TO A NAME IS THE BACKEND'S NOW.
-    // cross_type_overlaps names zones by INTERNAL id, which means nothing to a
-    // reader, and the fraction has a threshold (CROSS_TYPE_OVERLAP_NOTE_
-    // FRACTION) below which the finding does not fire. Both of those are
-    // decisions about a measurement; both moved to build_zone_panel(), which
-    // ships one row valued with the other zone's type-and-rank name. This side
-    // renders it.
+  const contextOf = (proposals) => ({
+    proposals,
+    draft: { selectedFeatureIds: [], drawnFeatures: [] },
+  })
+  const rowsOf = (proposals, featureId) =>
+    WATER_STEP.detail(contextOf(proposals), featureId).rows.filter(
+      (row) => row != null && !isBreak(row)
+    )
+
+  it('renders LAST, labelled with the other zone rather than as a percentage', () => {
+    // IT IS A DIFFERENT KIND OF STATEMENT FROM THE THREE CROSSINGS ABOVE IT.
+    // They mean "this zone touches something you may not want"; this means
+    // "the two survey instruments independently identified the same ground",
+    // and the module treats a high-overlap area as a candidate for EITHER pond
+    // type, worth evaluating both approaches.
+    //
+    // SO THE LABEL NAMES THE OTHER ZONE. "cross-type overlap %" would be a
+    // fourth crossing with a longer name. LAST POSITION PLUS A NAMING LABEL
+    // together are what keep it out of the run above it -- either alone would
+    // leave it reading as one more thing wrong with the zone.
     const embankment = fixtureZone({
       zone_id: 1,
       survey_type: 'embankment',
       rank: 1,
+      canopy_overlap_pct: 1.2,
       cross_type_overlaps: [{ zone_id: 4, fraction: 0.6 }],
     })
     const excavated = fixtureZone({
       zone_id: 4,
       survey_type: 'excavated',
       rank: 2,
-      layer: 'survey_zone_excavated',
       cross_type_overlaps: [{ zone_id: 1, fraction: 0.6 }],
     })
-    const rows = [
-      ...alwaysRows(embankment.properties),
-      { key: 'either_type_candidate', label: 'also a candidate as', value: 'excavated 2', unit: null },
-    ]
-    const detail = WATER_STEP.detail(
-      {
-        proposals: payloadOf([embankment, excavated], {}, {
-          panels: { [embankment.id]: rows },
-        }),
-      },
-      embankment.id
-    )
-    const field = detail.fields.find((f) => f.label === 'also a candidate as')
-    expect(field.value).toBe('excavated 2')
-    // PROSE, not a figure: it is categorical and has no decimal point to hold
-    // still in the aligned column.
-    expect(field.measured).toBe(false)
+    const proposals = payloadOf([embankment, excavated])
+    const rows = rowsOf(proposals, embankment.id)
+
+    // LAST, and after the crossing that is also present.
+    const last = rows[rows.length - 1]
+    expect(last.label).toBe('shared ground w/ Excavated 2 %')
+    expect(rows.map((row) => row.label).indexOf('canopy overlap %')).toBeLessThan(rows.length - 1)
+
+    // A FRACTION ON THE WIRE, A PERCENTAGE ON THE PANEL, so the run it joins
+    // is one scale rather than two. It is a figure, in the number track: the
+    // NAME is in the label, where a word belongs.
+    expect(last.value).toBe('60.0')
+    expect(last.kind).toBe(MEASURED)
+  })
+
+  it('names the zone the way the tab and the map name it, off the payload\'s reference', () => {
+    // cross_type_overlaps NAMES ZONES BY INTERNAL `zone_id`, which is not the
+    // wire feature id and means nothing to a reader. The other zone's FEATURE
+    // is found by that id and named by surveyZoneName() -- the one function
+    // that mints this app's vocabulary for a zone identity, so the panel
+    // cannot come to disagree with the strip it is sitting under.
+    const embankment = fixtureZone({
+      zone_id: 1,
+      survey_type: 'embankment',
+      cross_type_overlaps: [{ zone_id: 7, fraction: 0.31 }],
+    })
+    const other = fixtureZone({ zone_id: 7, survey_type: 'excavated', rank: 3 })
+    const proposals = payloadOf([embankment, other])
+
+    const last = rowsOf(proposals, embankment.id).pop()
+    expect(last.label).toBe(`shared ground w/ ${surveyZoneName(other.properties)} %`)
+    expect(last.value).toBe('31.0')
+
+    // THE RANK IS PER TYPE, so the name has to carry the type -- "Zone 3"
+    // would name two pieces of ground on this parcel.
+    expect(surveyZoneName(other.properties)).toBe('Excavated 3')
+  })
+
+  it('says so when the agreeing zone is not on screen, rather than printing an id', () => {
+    // THIS FIRES ON THE REFERENCE PARCEL. The overlaps are computed against
+    // every SURVIVING zone and the payload then ships only the PRESENTED ones
+    // (`presentation.rule_applied`), so a zone the two instruments agreed
+    // about can have no tab and no feature -- one excavated zone there agrees
+    // 23.9% with a withheld embankment zone.
+    //
+    // "also zone 8" WOULD SEND A READER LOOKING FOR A TAB THAT IS NOT THERE,
+    // which is worse than the finding is worth: the internal zone_id is not a
+    // wire feature id and means nothing on screen. The row still renders,
+    // because the two instruments did agree about that ground and which of
+    // them is presented is a fact about the presentation rule rather than
+    // about the land; the step's withheld notice is where "not shown" is
+    // explained.
+    const zone = fixtureZone({
+      zone_id: 1,
+      survey_type: 'embankment',
+      cross_type_overlaps: [{ zone_id: 8, fraction: 0.239 }],
+    })
+    const proposals = payloadOf([zone])
+    const last = rowsOf(proposals, zone.id).pop()
+    expect(last.label).toBe('shared ground w/ an area not shown %')
+    expect(last.value).toBe('23.9')
+    // AND NO INTERNAL ID LEAKS INTO THE PROSE.
+    expect(last.label).not.toMatch(/\d/)
+    expect(last.label).toContain('shared ground')
+  })
+
+  it('carries one row per agreeing zone, and none at all where the two disagree', () => {
+    // THE PAYLOAD ONLY CARRIES AN ENTRY WHERE THE TWO ENVELOPES ACTUALLY
+    // INTERSECT, so the list IS the findings and no threshold is applied on
+    // this side -- see the scales grep for why a copy of the backend's own
+    // constant would silently hide findings the day it is retuned.
+    const zone = fixtureZone({
+      zone_id: 1,
+      survey_type: 'embankment',
+      cross_type_overlaps: [
+        { zone_id: 4, fraction: 0.6 },
+        { zone_id: 5, fraction: 0.12 },
+      ],
+    })
+    const proposals = payloadOf([
+      zone,
+      fixtureZone({ zone_id: 4, survey_type: 'excavated', rank: 1 }),
+      fixtureZone({ zone_id: 5, survey_type: 'excavated', rank: 2 }),
+    ])
+    const rows = rowsOf(proposals, zone.id)
+    expect(rows.slice(-2).map((row) => `${row.value} ${row.label}`)).toEqual([
+      '60.0 shared ground w/ Excavated 1 %',
+      '12.0 shared ground w/ Excavated 2 %',
+    ])
+
+    // AND NOTHING WHERE THE TWO INSTRUMENTS DID NOT AGREE. An empty list is
+    // no rows, not a row saying zero -- the same rule the crossings follow.
+    const alone = fixtureZone({ zone_id: 9, cross_type_overlaps: [] })
+    const soloRows = rowsOf(payloadOf([alone]), alone.id)
+    expect(soloRows.some((row) => row.label.startsWith('shared ground'))).toBe(false)
   })
 
   liveIt('renders, and does not move when the selection does', async () => {
@@ -985,28 +1127,47 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
     expect(overlapping, 'the two surfaces agree somewhere on the reference parcel').toBeDefined()
 
     await ui.focus(overlapping.id)
-    const before = surveyZonePanel(ui.water, overlapping.id)
-    expect(before.length).toBeGreaterThan(0)
     const renderedBefore = ui
       .all('[data-testid^="detail-value-"]')
-      .map((n) => n.textContent)
+      .map((n) => `${n.getAttribute('data-testid')}=${n.textContent}`)
+    // THE FINDING IS ON SCREEN, and EVERY agreement on this zone is named by
+    // something a reader can act on: a zone that has a tab is named the way
+    // its tab names it, and one the presentation rule withheld says it is not
+    // shown. What must never reach the panel is the internal zone_id, which is
+    // not a wire feature id and means nothing on screen -- and the reference
+    // parcel really does carry an agreement with a withheld zone, so this is
+    // exercised rather than hypothetical.
+    const withheld = ui.water.summary.presentation?.withheld_zone_ids ?? []
+    for (const entry of overlapping.properties.cross_type_overlaps) {
+      const other = zones.find((f) => f.properties.zone_id === entry.zone_id)
+      const label = other
+        ? `shared ground w/ ${surveyZoneName(other.properties)} %`
+        : 'shared ground w/ an area not shown %'
+      expect(ui.text(`detail-value-${label}`), label).not.toBeNull()
+      if (!other) expect(withheld, 'an unresolved reference is a withheld zone').toContain(entry.zone_id)
+    }
+    // NO INTERNAL ID ANYWHERE IN THE PANEL'S PROSE.
+    for (const node of ui.all('.chrome-detail__row-label')) {
+      expect(node.textContent).not.toMatch(/shared ground w\/ zone \d/)
+    }
 
-    // CHANGE THE SELECTION -- take the OTHER zone out of the commit entirely.
-    const other = zones.find(
-      (f) => f.properties.zone_id === overlapping.properties.cross_type_overlaps[0].zone_id
-    )
-    await ui.toggle(other.id)
-    expect(selectDraft(ui.state, 'water').selectedFeatureIds).not.toContain(other.id)
+    // CHANGE THE SELECTION -- take an agreeing zone out of the commit entirely.
+    // One that is ON SCREEN, because a withheld one has no checkbox to press.
+    const agreeing = overlapping.properties.cross_type_overlaps
+      .map((entry) => zones.find((f) => f.properties.zone_id === entry.zone_id))
+      .find(Boolean)
+    expect(agreeing, 'an agreeing zone that is also presented').toBeDefined()
+    await ui.toggle(agreeing.id)
+    expect(selectDraft(ui.state, 'water').selectedFeatureIds).not.toContain(agreeing.id)
 
     // IT IS COMPUTED AT GENERATE TIME AGAINST SURVIVING ZONES AND IS NOT
-    // RECOMPUTED AGAINST THE COMMIT SET. Un-checking a zone does not make
-    // the other instrument stop agreeing with it -- nor does it move any other
-    // row on this zone's panel, because the whole panel is a reading of the
-    // GROUND and the commit set is not one of its inputs.
-    expect(surveyZonePanel(ui.water, overlapping.id)).toEqual(before)
-    expect(ui.all('[data-testid^="detail-value-"]').map((n) => n.textContent)).toEqual(
-      renderedBefore
-    )
+    // RECOMPUTED AGAINST THE COMMIT SET. Un-checking a zone does not make the
+    // other instrument stop agreeing with it -- nor does it move any other row
+    // on this zone's panel, because the whole panel is a reading of the GROUND
+    // and the commit set is not one of its inputs.
+    expect(
+      ui.all('[data-testid^="detail-value-"]').map((n) => `${n.getAttribute('data-testid')}=${n.textContent}`)
+    ).toEqual(renderedBefore)
 
     await ui.unmount()
   })
@@ -1197,7 +1358,13 @@ describe('one pattern per step, three levels per pattern', () => {
     // one is a table rather than a name test, so a kind added later gets a def
     // by having a tile.
     expect(marks).toContain('const TILE_BUILDERS = { hatch: hatchTile, stipple: stippleTile }')
-    expect(marks).toMatch(/const buildTile = TILE_BUILDERS\[spec\.kind\]\s*\n\s*if \(!buildTile\) continue/)
+    // THE LOOKUP MOVED INTO buildZonePattern(), which is what injectZonePatterns
+    // now calls once per row -- split out so the layout harness can build a
+    // CANDIDATE tile (a denser lattice, a bigger dot) from this file's own
+    // builder rather than from its own idea of one. A kind with no tile still
+    // yields no def; it returns null instead of continuing a loop.
+    expect(marks).toMatch(/const buildTile = TILE_BUILDERS\[spec\.kind\]\s*\n\s*if \(!buildTile\) return null/)
+    expect(marks).toMatch(/for \(const spec of TREATMENT_MARKS\) \{\s*\n\s*const pattern = buildZonePattern\(/)
   })
 
   it('is TWO marks for the two survey types, because their overlap is the point', () => {
@@ -1255,7 +1422,21 @@ describe('one pattern per step, three levels per pattern', () => {
     const stippleRow = rowFor('survey-excavated').replace(/\/\/.*$/gm, '')
     expect(stippleRow).toMatch(/grid: \d+/)
     expect(stippleRow).toMatch(/radius: [\d.]+/)
-    expect(stippleRow).not.toMatch(/halo|casing|stroke/i)
+    expect(stippleRow).not.toMatch(/casing|stroke/i)
+
+    // --halo WAS ALSO REFUSED BY NAME HERE, AND CANNOT BE ANY MORE, because
+    // the SCREEN is in --halo now. The token was standing in for the casing --
+    // the previous stipple ringed every dot on it, and that is what killed it
+    // -- so refusing the string was a cheap proxy for refusing the mark. It
+    // stopped being cheap the moment --halo became a legitimate field on this
+    // row, and a proxy that now fires on the shipped mark is worse than no
+    // proxy: it would be silenced rather than understood.
+    //
+    // SO THE GUARD IS EXACT INSTEAD. The row may mention --halo ONCE and only
+    // as the screen's token; a second one, or one anywhere else, is a casing
+    // coming back under the name that always carried it.
+    expect([...stippleRow.matchAll(/--halo/g)]).toHaveLength(1)
+    expect(stippleRow).toMatch(/screenToken: '--halo'/)
   })
 
   it('declares three levels per SCALE as tokens, so the remaining steps inherit them', () => {
@@ -1330,14 +1511,118 @@ describe('one pattern per step, three levels per pattern', () => {
     }
 
     // AND THE RELATIONSHIPS HOLD FOR BOTH TREATMENTS: committed quietest,
-    // focused fullest, with the same wide gap between active and focused.
+    // focused fullest, with a wide gap between active and focused.
+    //
+    // THE TOP GAP IS THE SCALE'S, AND THE TWO TYPES ARE ON DIFFERENT SCALES.
+    // A wash takes --tint-* (0.12/0.22/0.4) and still steps 1.82x at the top;
+    // a dot field takes --pattern-*, which was raised to 0.55/0.75/1, and 1.33x
+    // is the most it can reach with focus pinned at 1. That is the raise's
+    // cost rather than anything about either mark -- see the price list in
+    // index.css -- so the floor is per scale and neither number is a
+    // preference this file holds.
+    const TOP_GAP_FLOOR = { 'survey-embankment': 1.7, 'survey-excavated': 1.25 }
     for (const treatment of ['survey-embankment', 'survey-excavated']) {
       const committed = at(treatment, { isCommitted: true }).fillOpacity
       const active = at(treatment, {}).fillOpacity
       const focused = at(treatment, { isFocused: true }).fillOpacity
       expect(committed, `${treatment}: committed < active`).toBeLessThan(active)
       expect(active, `${treatment}: active < focused`).toBeLessThan(focused)
-      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThanOrEqual(1.7)
+      expect(focused / active, `${treatment}: focused vs active`).toBeGreaterThanOrEqual(
+        TOP_GAP_FLOOR[treatment]
+      )
+      // AND THE BOTTOM GAP: settled stays under three quarters of working,
+      // which is what stops a committed block and a candidate zone carrying
+      // equal weight during the step in hand.
+      expect(committed / active, `${treatment}: committed vs active`).toBeLessThan(0.75)
+    }
+  })
+
+  it('injects the haloed tile whole, with its blur inside it', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const teardown = injectZonePatterns(host)
+
+    const plain = host.querySelector(`#${patternIdFor('production')}`)
+    const haloed = host.querySelector(`#${patternIdFor('production', true)}`)
+    expect(plain, 'the hatch every other state points at').not.toBeNull()
+    expect(haloed, 'and the one a focused zone points at').not.toBeNull()
+
+    // THE HALO IS A PASS OF ITS OWN, NAMED, in the mark's own colour and under
+    // the ruling it lights -- a casing in a SECOND colour is what read as a
+    // candy cane, and the ruling on top is what keeps the rule crisp.
+    const passes = [...haloed.children].map((node) => node.tagName.toLowerCase())
+    expect(passes).toEqual(['rect', 'filter', 'path', 'path'])
+    const glow = haloed.querySelector('[data-pass="halo"]')
+    const ruling = [...haloed.querySelectorAll('path')].at(-1)
+    expect(glow.getAttribute('stroke')).toBe(ruling.getAttribute('stroke'))
+    expect(Number(glow.getAttribute('stroke-width'))).toBeGreaterThan(
+      Number(ruling.getAttribute('stroke-width'))
+    )
+    expect(Number(glow.getAttribute('stroke-opacity'))).toBeLessThan(1)
+    // AND THE PLAIN TILE CARRIES NO GLOW: the halo is the focused state, not
+    // the mark, so a committed block is the hatch it always was.
+    expect(plain.querySelector('[data-pass="halo"]')).toBeNull()
+
+    // THE BLUR LIVES INSIDE THE TILE, AND THAT IS LOAD-BEARING RATHER THAN
+    // TIDY. The layout harness measures a pattern by CLONING it into a
+    // swatch's own defs; a filter left behind in the map's host would leave
+    // that clone pointing at nothing, and SVG draws a filtered element with an
+    // unresolvable filter as NOTHING AT ALL -- a halo that measured as absent
+    // while looking right on the map, or the reverse. Cloning the tile has to
+    // carry the blur with it.
+    const filterId = glow.getAttribute('filter').match(/^url\(#(.+)\)$/)[1]
+    expect(haloed.querySelector(`#${CSS.escape(filterId)}`)).not.toBeNull()
+    expect(haloed.querySelector('filter feGaussianBlur')).not.toBeNull()
+
+    teardown()
+    expect(document.querySelector(`#${patternIdFor('production', true)}`)).toBeNull()
+  })
+
+  it('says a focused production zone with a halo, at the active level', () => {
+    const active = styleFor({ treatment: 'production', colors: COLORS })
+    const focused = styleFor({ treatment: 'production', isFocused: true, colors: COLORS })
+    const committedFocused = styleFor({
+      treatment: 'production',
+      isCommitted: true,
+      isFocused: true,
+      colors: COLORS,
+    })
+
+    // A DIFFERENT TILE, WHICH IS THE ONLY PLACE ON THIS SURFACE A STATE
+    // CHANGES THE MARK ITSELF. The focused zone's fill points at the haloed
+    // def -- a glow in the mark's own colour around each rule -- rather than
+    // at the same tile turned up.
+    expect(focused.fillColor).toBe(`url(#${patternIdFor('production', true)})`)
+    expect(focused.fillColor).not.toBe(active.fillColor)
+    expect(patternIdFor('production', true)).not.toBe(patternIdFor('production'))
+
+    // AND AT THE ACTIVE LEVEL, which is what the halo bought: a focused block
+    // inks exactly what an active one does, so --pattern-focused is no longer
+    // pinned at the top of the scale by this mark. See index.css's halo
+    // exception and ProductionHatchPattern's haloTile.
+    expect(focused.fillOpacity).toBe(active.fillOpacity)
+
+    // FOCUS STILL BEATS COMMITTED, and by the same two facts: a committed zone
+    // being read is the haloed tile at the active level, not the quiet one.
+    expect(committedFocused.fillColor).toBe(focused.fillColor)
+    expect(committedFocused.fillOpacity).toBe(active.fillOpacity)
+
+    // AND IT ADDS NO EDGE. A hatch carries no stroke in any state; focus was
+    // never allowed to be the exception and is not one now.
+    expect(focused.stroke).toBe(false)
+  })
+
+  it('leaves every other treatment saying focus with its level', () => {
+    // THE HALO IS ONE ROW'S, NOT A NEW RULE FOR THE SURFACE. A treatment
+    // without one keeps a single def in every state and steps its opacity, so
+    // a step added later inherits the scheme it always had.
+    for (const treatment of ['survey-excavated', 'tree']) {
+      const active = styleFor({ treatment, colors: COLORS })
+      const focused = styleFor({ treatment, isFocused: true, colors: COLORS })
+      expect(focused.fillColor, `${treatment} keeps one mark`).toBe(active.fillColor)
+      expect(focused.fillOpacity, `${treatment} steps its level`).toBeGreaterThan(
+        active.fillOpacity
+      )
     }
   })
 
@@ -1988,27 +2273,156 @@ describe('11. the shell names no step, after a second definition', () => {
 })
 
 /* ===========================================================================
-   THE PANEL: THE SERVER'S ROWS, THIS SIDE'S TYPOGRAPHY
+   THE PANEL: THE SHARED FORMAT, DECLARED
+   ===========================================================================
+   Water is the SECOND step to declare against panelFormat.js and the first
+   one that had something to lose by it: four labelled groups, and a panel
+   whose whole row list was the backend's. What it declares now is a list of
+   rows in a fixed order with ONE break in it, and these tests are that list.
+
+   THE FORMAT'S RULES ARE NOT RE-TESTED HERE. panelBody()'s composition, the
+   two faces, the em-dash, the drop-at-zero rule and the denominator are
+   panelFormat's and are exercised in layout.test.jsx against a real engine.
+   What is asserted below is WATER'S DECLARATION: which rows, in what order,
+   under what labels, off which fields.
    =========================================================================== */
 
 describe('the panel', () => {
-  it('renders the backend\'s rows, in the backend\'s order, under its labels', () => {
-    const zone = fixtureZone({})
-    const detail = WATER_STEP.detail({ proposals: payloadOf([zone]) }, zone.id)
+  /** The panel body as the shell composes it: the tab's rows, then the step's. */
+  const bodyOf = (proposals, featureId) => {
+    const context = { proposals, draft: { selectedFeatureIds: [], drawnFeatures: [] } }
+    const tab = WATER_STEP.tabs(context).find((entry) => entry.id === featureId) ?? null
+    return panelBody(tab, WATER_STEP.detail(context, featureId).rows)
+  }
 
-    expect(detail.fields.map((f) => f.label)).toEqual([
-      'area to survey (acres)',
-      'survey type',
-      'suitability',
-      'rank',
+  /** Every row's label, breaks included, in the order the panel draws them. */
+  const shapeOf = (proposals, featureId) =>
+    bodyOf(proposals, featureId).map((row) => (isBreak(row) ? '───' : row.label))
+
+  const valueOf = (proposals, featureId, label) =>
+    bodyOf(proposals, featureId).find((row) => !isBreak(row) && row.label === label)?.value
+
+  it('renders through the shared format, in the declared order, with one break', () => {
+    // TEST 1. The whole panel, top to bottom, as a reader sees it -- which is
+    // the assertion a list of separate row checks cannot make, because the
+    // failure this format exists to prevent is an ARRANGEMENT drifting rather
+    // than a row going missing.
+    //
+    // BOTH TYPES, because one of the terrain rows is now each type's own and
+    // a single-type assertion would pass while the other panel showed the
+    // wrong vocabulary -- which is exactly the failure that killed the panel
+    // this one replaced (`anchor acres` on a valley compartment).
+    const crossings = {
+      canopy_overlap_pct: 1.2,
+      road_overlap_pct: 0.4,
+      production_overlap_pct: 0.09,
+    }
+    const zone = fixtureZone({
+      ...crossings,
+      cross_type_overlaps: [{ zone_id: 4, fraction: 0.6 }],
+    })
+    const other = fixtureZone({
+      zone_id: 4,
+      survey_type: 'excavated',
+      rank: 2,
+      ...crossings,
+      cross_type_overlaps: [{ zone_id: 1, fraction: 0.6 }],
+    })
+    const proposals = payloadOf([zone, other])
+
+    expect(shapeOf(proposals, zone.id)).toEqual([
+      // THE TAB'S OWN TWO ROWS, repeated verbatim, and the rule the format
+      // draws under them without being asked.
+      'survey acres',
+      '/100 score',
+      '───',
+      // WHAT THE AREA IS: the categorical first (rule 4), then the figures.
       'water delivery',
+      'contributing acres',
+      // THE EMBANKMENT'S SECOND CATCHMENT, directly under the first because it
+      // is a second reading of it -- the ground a dam here would hold, against
+      // the ground that drains to the wettest cell.
+      'contributing acres at dam site',
+      'median slope %',
+      // AND NO `max depth ft`: a valley compartment's depth is whatever the
+      // dam makes it, so the question is not asked of this type.
+      '───',
+      // WHAT IT TOUCHES: the three crossings in the backend's own order, then
+      // the agreement report last.
+      'production overlap %',
+      'canopy overlap %',
+      'road overlap %',
+      'shared ground w/ Excavated 2 %',
     ])
-    // THE ORDER IS THE BACKEND'S ARGUMENT, so there is no grouping over here
-    // re-asserting one this side no longer decides.
+
+    // AND THE EXCAVATED PANEL IS THE SAME SHAPE WITH THE TWO TYPE ROWS
+    // SWAPPED: a basin has a depth you could dig to and no dam site.
+    expect(shapeOf(proposals, other.id)).toEqual([
+      'survey acres',
+      '/100 score',
+      '───',
+      'water delivery',
+      'contributing acres',
+      'median slope %',
+      'max depth ft',
+      '───',
+      'production overlap %',
+      'canopy overlap %',
+      'road overlap %',
+      'shared ground w/ Embankment 1 %',
+    ])
+
+    // ONE BREAK IS THE STEP'S; the other is the format's, drawn between the
+    // tab's rows and the step's. So the DECLARATION carries exactly one and
+    // the rendered body carries exactly two.
+    const declared = WATER_STEP.detail(
+      { proposals, draft: { selectedFeatureIds: [], drawnFeatures: [] } },
+      zone.id
+    ).rows
+    expect(declared.filter((row) => isBreak(row))).toHaveLength(1)
+    expect(bodyOf(proposals, zone.id).filter((row) => isBreak(row))).toHaveLength(2)
+
+    // NO GROUP LABELS ANYWHERE. The four labelled groups are gone and nothing
+    // replaced them -- the two runs are told apart by the rule between them.
+    const detail = WATER_STEP.detail(
+      { proposals, draft: { selectedFeatureIds: [], drawnFeatures: [] } },
+      zone.id
+    )
     expect(detail.groups).toBeUndefined()
+    expect(detail.fields).toBeUndefined()
     // AND NO SEPARATE CAUTION CHANNEL: that channel carries the exclusion
     // layers' own {type, label, acres} and a survey zone crosses none of them.
     expect(detail.cautions).toEqual([])
+  })
+
+  it('sets the categorical as prose and every figure in the number track', () => {
+    // RULE 4 AND THE TWO FACES, on water's own rows. The delivery answer is a
+    // phrase and has no decimal point to hold still; a word in the aligned
+    // column widens it for every row beneath it.
+    // BOTH TYPES, so the two type-dispatched rows are covered as well as the
+    // shared ones.
+    for (const [type, own] of [
+      ['embankment', 'contributing acres at dam site'],
+      ['excavated', 'max depth ft'],
+    ]) {
+      const zone = fixtureZone({ survey_type: type, production_overlap_pct: 6.4 })
+      const kinds = Object.fromEntries(
+        bodyOf(payloadOf([zone]), zone.id)
+          .filter((row) => !isBreak(row))
+          .map((row) => [row.label, row.kind])
+      )
+      expect(kinds['water delivery'], type).toBe(CATEGORICAL)
+      for (const label of [
+        'survey acres',
+        '/100 score',
+        'contributing acres',
+        'median slope %',
+        own,
+        'production overlap %',
+      ]) {
+        expect(kinds[label], `${type}: ${label}`).toBe(MEASURED)
+      }
+    }
   })
 
   it('joins on feature_id, which the payload gave it', () => {
@@ -2020,110 +2434,343 @@ describe('the panel', () => {
     expect(proposals.zones[0].feature_id).toBe(zone.id)
     expect(surveyZonePanel(proposals, zone.id)).toHaveLength(5)
     expect(surveyZonePanel(proposals, 'water-survey-zone-999')).toEqual([])
-    // A feature with no row of its own has nothing to say, and the panel
-    // says nothing rather than inventing a shape for it.
-    expect(WATER_STEP.detail({ proposals }, 'water-survey-zone-999')).toBeNull()
+    // A feature that is not in the collection has nothing to say, and the
+    // panel says nothing rather than inventing a shape for it.
+    expect(
+      WATER_STEP.detail(
+        { proposals, draft: { selectedFeatureIds: [], drawnFeatures: [] } },
+        'water-survey-zone-999'
+      )
+    ).toBeNull()
   })
 
-  it('reads rank and suitability against the scales block', () => {
-    const embankment = fixtureZone({ zone_id: 1, survey_type: 'embankment', rank: 1 })
-    const second = fixtureZone({ zone_id: 2, survey_type: 'embankment', rank: 2 })
-    const detail = WATER_STEP.detail(
-      { proposals: payloadOf([embankment, second]) },
-      embankment.id
+  it('reads its measurements off the feature, at the panel\'s own width', () => {
+    const shared = {
+      contributing_area_acres_at_wettest_cell: 2.43,
+      slope_median_pct: 3.14,
+    }
+    const embankment = fixtureZone({ ...shared, pinch_catchment_acres: 31.24 })
+    const excavated = fixtureZone({
+      ...shared,
+      zone_id: 4,
+      survey_type: 'excavated',
+      depression_depth_max_ft: 4.06,
+    })
+    const proposals = payloadOf([embankment, excavated])
+
+    // ONE DECIMAL PLACE, which is measure()'s default and what holds a decimal
+    // point still down a column that also carries an acreage and a percentage.
+    for (const zone of [embankment, excavated]) {
+      expect(valueOf(proposals, zone.id, 'contributing acres')).toBe('2.4')
+      expect(valueOf(proposals, zone.id, 'median slope %')).toBe('3.1')
+    }
+    // AND EACH TYPE'S OWN ROW, off its own field.
+    expect(valueOf(proposals, embankment.id, 'contributing acres at dam site')).toBe('31.2')
+    expect(valueOf(proposals, excavated.id, 'max depth ft')).toBe('4.1')
+
+    // AND A MISSING MEASUREMENT IS AN EM DASH, never a zero -- on either row.
+    // A pond site with no depth reading is not a pond site with no depth, and
+    // a compartment whose pinch catchment was not measured is not one that
+    // holds nothing.
+    const noDepth = fixtureZone({ zone_id: 7, survey_type: 'excavated', depression_depth_max_ft: null })
+    expect(valueOf(payloadOf([noDepth]), noDepth.id, 'max depth ft')).toBe('—')
+    const noCatchment = fixtureZone({ zone_id: 8, pinch_catchment_acres: null })
+    expect(
+      valueOf(payloadOf([noCatchment]), noCatchment.id, 'contributing acres at dam site')
+    ).toBe('—')
+  })
+
+  it('asks each survey type only the questions that apply to it', () => {
+    // THE FAILURE THIS GUARDS, AND IT HAS HAPPENED HERE BEFORE. The panel this
+    // one replaced read `member_acres` and `member_count` off every zone under
+    // the labels "anchor acres" and "members" -- EXCAVATED vocabulary, on a
+    // valley compartment that has neither -- so half the zones on the map
+    // showed an em dash for a question that does not apply. An em dash means
+    // "not known"; it must never mean "not asked".
+    //
+    // THE WIRE CANNOT BE THE TEST. `depression_depth_max_ft` is set on BOTH
+    // types by _zone_feature_properties, so an embankment zone has a real
+    // number for it -- the deepest hollow in a compartment that is about to be
+    // filled by a dam. A panel that showed the row whenever the field was
+    // present would show a meaningless figure rather than an em dash, which is
+    // worse. The dispatch is this side's and is asserted as such.
+    const embankment = fixtureZone({ zone_id: 1 })
+    const excavated = fixtureZone({ zone_id: 4, survey_type: 'excavated' })
+    const proposals = payloadOf([embankment, excavated])
+    const labels = (id) =>
+      bodyOf(proposals, id)
+        .filter((row) => !isBreak(row))
+        .map((row) => row.label)
+
+    expect(labels(embankment.id)).toContain('contributing acres at dam site')
+    expect(labels(embankment.id)).not.toContain('max depth ft')
+
+    expect(labels(excavated.id)).toContain('max depth ft')
+    expect(labels(excavated.id)).not.toContain('contributing acres at dam site')
+
+    // AND THE EMBANKMENT ZONE REALLY DOES CARRY A DEPTH ON THE WIRE, so the
+    // omission above is the panel's decision and not an absent field.
+    expect(embankment.properties.depression_depth_max_ft).toBeGreaterThan(0)
+  })
+
+  it('keeps the diagnostic record off the panel', () => {
+    // THE ALTITUDE RULE, PINNED. The panel answers "should I walk this"; the
+    // per-criterion scores, the seed and pinch geometry, the TWI readings, the
+    // boundary adjacency and the representative elevation are how a zone got
+    // its score, and the export is where they are read. The rank is off it too
+    // -- the header says "Embankment 1" and a rank two lines under its own
+    // name is the name again.
+    const zone = fixtureZone({ zone_id: 1, survey_type: 'embankment' })
+    const proposals = payloadOf([zone])
+    const text = bodyOf(proposals, zone.id)
+      .filter((row) => !isBreak(row))
+      .map((row) => `${row.label} ${row.value}`)
+      .join(' ')
+      .toLowerCase()
+    for (const word of [
+      'member',
+      'anchor acres',
+      'rank',
+      'survey type',
+      'twi',
+      'pinch',
+      'adjacency',
+      'elevation',
+      'criterion',
+    ]) {
+      expect(text, word).not.toContain(word)
+    }
+  })
+})
+
+/* ===========================================================================
+   THE SCORE IS OUT OF THE SCALE, AND ONLY THE PANEL SAYS SO
+   =========================================================================== */
+
+describe('the score row', () => {
+  const contextOf = (proposals) => ({
+    proposals,
+    draft: { selectedFeatureIds: [], drawnFeatures: [] },
+  })
+  const tabsOf = (proposals) => WATER_STEP.tabs(contextOf(proposals))
+  const bodyOf = (proposals, featureId) =>
+    panelBody(
+      tabsOf(proposals).find((entry) => entry.id === featureId) ?? null,
+      WATER_STEP.detail(contextOf(proposals), featureId).rows
     )
-    const value = (label) => detail.fields.find((f) => f.label === label).value
 
-    // "1" alone is not a reading. rank is PER TYPE and the scale carries the
-    // denominator.
-    expect(value('rank')).toBe('1 of 2')
-    // 0.7933 against a theoretical 1.0 understates what was attainable here:
-    // the soil criterion's parcel range caps the blend, and the scale carries
-    // the parcel's own measured ceiling.
-    expect(value('suitability')).toBe('0.7933 of 0.82')
+  it('shows "score" on the tab and "/100 score" in the panel, off one declaration', () => {
+    // TEST 2. The strip is read ACROSS candidates that are all on one scale,
+    // where the denominator is the same four characters on every tab; the
+    // panel is read about ONE area, where "what is this out of" is a real
+    // question. One row declaration, two renderings -- panelFormat's
+    // denominated() adds the `/N` and only for the panel's copy.
+    const zone = fixtureZone({ mean_suitability: 0.52 })
+    const proposals = payloadOf([zone])
+
+    const tabRow = tabsOf(proposals)[0].rows[1]
+    expect(tabRow).toEqual({ value: '52', label: 'score', denominator: 100 })
+
+    const panelRow = bodyOf(proposals, zone.id).find(
+      (row) => !isBreak(row) && row.label === '/100 score'
+    )
+    expect(panelRow.value).toBe('52')
+    expect(panelRow.kind).toBe(MEASURED)
   })
 
-  it('falls back to the bare number when a payload carries no scales', () => {
-    // An older payload is OLDER, not wrong, and a missing denominator must
-    // never blank a measurement.
+  it('has no "of N suitability" left anywhere, on either surface', () => {
+    // WHAT THE DENOMINATOR REPLACED. The tab minted its own denominator --
+    // "of 68 suitability" -- and it was wrong three ways at once: `of N`
+    // rather than the format's `/N`, a ceiling no zone can reach rather than
+    // the scale, and printed on the STRIP where it is four characters of noise
+    // per tab.
     const zone = fixtureZone({})
     const proposals = payloadOf([zone])
-    delete proposals.scales
-    const detail = WATER_STEP.detail({ proposals }, zone.id)
-    const value = (label) => detail.fields.find((f) => f.label === label).value
-    expect(value('rank')).toBe('1')
-    expect(value('suitability')).toBe('0.7933')
-  })
-
-  it('puts figures in the aligned column and categorical readings in prose', () => {
-    const zone = fixtureZone({})
-    const detail = WATER_STEP.detail({ proposals: payloadOf([zone]) }, zone.id)
-    const measured = Object.fromEntries(detail.fields.map((f) => [f.label, f.measured]))
-    expect(measured['area to survey (acres)']).toBe(true)
-    expect(measured['suitability']).toBe(true)
-    // The survey type and the water-delivery answer have no decimal point to
-    // hold still, and a word in the aligned column widens it for every row.
-    expect(measured['survey type']).toBe(false)
-    expect(measured['water delivery']).toBe(false)
-  })
-
-  it('renders a fired boolean as yes, and a null as an em dash', () => {
-    const zone = fixtureZone({})
-    const rows = [
-      ...alwaysRows(zone.properties),
-      { key: 'sparse_anchor', label: 'little of the claim is anchoring ground', value: true, unit: null },
-      { key: 'road_overlap_pct', label: 'removed by existing farm road', value: null, unit: 'percent' },
+    const everyLabel = [
+      ...tabsOf(proposals).flatMap((tab) => tab.rows.map((row) => row.label)),
+      ...bodyOf(proposals, zone.id)
+        .filter((row) => !isBreak(row))
+        .map((row) => row.label),
     ]
-    const detail = WATER_STEP.detail(
-      { proposals: payloadOf([zone], {}, { panels: { [zone.id]: rows } }) },
-      zone.id
-    )
-    const value = (label) => detail.fields.find((f) => f.label === label).value
-    // A boolean row is PRESENT ONLY WHEN IT FIRES, so true is the only value
-    // one can carry and there is no "no" case to render.
-    expect(value('little of the claim is anchoring ground')).toBe('yes')
-    expect(value('removed by existing farm road (percent)')).toBe('—')
-  })
-
-  it('never puts excavated vocabulary on an embankment panel', () => {
-    // THE FAILURE THIS REPLACED. The old panel read `member_acres` and
-    // `member_count` off every zone under the labels "anchor acres" and
-    // "members" -- excavated vocabulary, on a valley compartment that has
-    // neither, rendering an em dash for a question that does not apply. The
-    // rows are the backend's now and it dispatches on type; what is asserted
-    // here is that this side adds no vocabulary of its own on the way through.
-    const embankment = fixtureZone({ zone_id: 1, survey_type: 'embankment' })
-    const detail = WATER_STEP.detail({ proposals: payloadOf([embankment]) }, embankment.id)
-    const text = detail.fields.map((f) => `${f.label} ${f.value}`).join(' ')
-    for (const word of ['member', 'anchor acres', 'depression', 'catchment', 'elevation m']) {
-      expect(text.toLowerCase()).not.toContain(word)
+    for (const label of everyLabel) {
+      expect(label).not.toMatch(/\bof \d/)
+      expect(label).not.toContain('suitability')
     }
   })
 
-  it('prints numbers as the backend sent them, adding no second rounding', () => {
+  it('reads the denominator off the payload, in water\'s own spelling of it', () => {
+    // WATER'S SCALES BLOCK IS KEYED BY THE SCORED QUANTITY and carries no
+    // `range` -- landform's spelling. scoreDenominator() reads both, so the
+    // `/N` follows a retune rather than remembering a number.
+    const zone = fixtureZone({})
+    const proposals = payloadOf([zone])
+    expect(proposals.scales.range).toBeUndefined()
+    expect(proposals.scales.suitability.max).toBe(100)
+    expect(tabsOf(proposals)[0].rows[1].denominator).toBe(100)
+
+    const retuned = payloadOf([zone])
+    retuned.scales.suitability.max = 50
+    expect(tabsOf(retuned)[0].rows[1].denominator).toBe(50)
+  })
+
+  it('drops the denominator rather than guessing one, on a payload with no scale', () => {
+    // A PAYLOAD WITHOUT `scales` IS OLDER, NOT WRONG. A denominator this side
+    // cannot back is worse than no denominator; the label falls back to plain
+    // "score" and the measurement still renders.
+    const zone = fixtureZone({ mean_suitability: 0.52 })
+    const proposals = payloadOf([zone], {}, { scales: {} })
+    expect(tabsOf(proposals)[0].rows[1]).toEqual({
+      value: '52',
+      label: 'score',
+      denominator: undefined,
+    })
+    const panelRow = bodyOf(proposals, zone.id).find(
+      (row) => !isBreak(row) && row.label === 'score'
+    )
+    expect(panelRow.value).toBe('52')
+  })
+
+  it('reads the CONVERTED panel row, never the feature\'s 0-1 property', () => {
+    // THE DOUBLE-SCALING THE DISPLAY SCALE HAD TO PREVENT, pinned as a case
+    // rather than left to the other assertions to imply. The feature still
+    // carries mean_suitability on 0-1 (it is the diagnostic record and was
+    // deliberately not converted) and the scale beside it is 0-100. A surface
+    // reading the feature would print "0.53" under "/100 score". So the zone
+    // below carries a feature property that DISAGREES with its panel row.
+    const zone = fixtureZone({ mean_suitability: 0.526 })
+    const proposals = payloadOf([zone])
+    proposals.zones[0].panel = proposals.zones[0].panel.map((row) =>
+      row.key === 'suitability' ? { ...row, value: 61 } : row
+    )
+    expect(tabsOf(proposals)[0].rows[1].value).toBe('61')
+  })
+
+  it('prints an em dash, never a zero, when no suitability row was sent', () => {
+    // The same rule the never-checked overlaps are held to: a missing
+    // measurement is a dash, and nothing on this path may coerce it to a 0
+    // that reads as the worst possible ground.
+    const zone = fixtureZone({})
+    const proposals = payloadOf([zone])
+    proposals.zones[0].panel = proposals.zones[0].panel.filter(
+      (row) => row.key !== 'suitability'
+    )
+    expect(tabsOf(proposals)[0].rows[1].value).toBe('—')
+  })
+
+  it('does not render parcel_observed_max, and leaves it on the wire', () => {
+    // TEST 3. THE CEILING IS THE MAX OF A PER-CELL SURFACE AND A ZONE'S SCORE
+    // IS A MEAN OVER ITS CELLS, so no zone can reach it -- on the reference
+    // parcel the best embankment zone read 0.57 against a displayed 0.87.
+    // "57 of 87" invites "two thirds of what this parcel can do" and the
+    // honest reading is "the best mean against the best single cell", which
+    // is not a fraction anyone can act on.
+    const zone = fixtureZone({})
+    const proposals = payloadOf([zone])
+
+    // ON THE WIRE, where the report reads it, and reachable by the one reader
+    // that knows the key.
+    expect(proposals.scales.suitability.parcel_observed_max.embankment).toBe(82)
+    expect(suitabilityCeiling(proposals.scales, 'embankment')).toBe(82)
+
+    // AND ON NEITHER SURFACE.
+    const printed = [
+      ...tabsOf(proposals).flatMap((tab) => tab.rows.map((row) => `${row.value} ${row.label}`)),
+      ...bodyOf(proposals, zone.id)
+        .filter((row) => !isBreak(row))
+        .map((row) => `${row.value} ${row.label}`),
+    ].join(' ')
+    expect(printed).not.toContain('82')
+  })
+})
+
+/* ===========================================================================
+   THE DELIVERY ROW SAYS THE ANSWER, NOT THE DIFFERENTIAL
+   =========================================================================== */
+
+describe('water delivery', () => {
+  const contextOf = (proposals) => ({
+    proposals,
+    draft: { selectedFeatureIds: [], drawnFeatures: [] },
+  })
+  const rowsOf = (proposals, featureId) => WATER_STEP.detail(contextOf(proposals), featureId).rows
+  const deliveryRow = (proposals, featureId) =>
+    rowsOf(proposals, featureId).find((row) => row?.label === 'water delivery')
+
+  /** A zone whose backend panel carries the delivery answer `value`. */
+  const zoneDelivering = (value, extra = {}) => {
+    const zone = fixtureZone(extra)
+    const rows = alwaysRows(zone.properties).map((row) =>
+      row.key === 'water_delivery' ? { ...row, value } : row
+    )
+    return { zone, proposals: payloadOf([zone], {}, { panels: { [zone.id]: rows } }) }
+  }
+
+  it('labels the row "water delivery" and prints the answer', () => {
+    // TEST 4. The label names the QUESTION and the value answers it. The
+    // backend compares the zone's MAXIMUM elevation against the block's
+    // MAXIMUM now, so a zone that could only reach a block's bottom no longer
+    // reads gravity feed -- which is exactly why the row has to say the
+    // answer rather than the differential it was computed from.
+    const { zone, proposals } = zoneDelivering('gravity_feed')
+    const row = deliveryRow(proposals, zone.id)
+    expect(row.value).toBe('gravity feed')
+    expect(row.kind).toBe(CATEGORICAL)
+  })
+
+  it('renders all three states, the backend\'s own tokens, spaced', () => {
+    // THE THIRD STATE IS A REAL ANSWER -- "nothing is in range" is something
+    // the pipeline computed, which is why the backend makes it a VALUE of this
+    // row rather than the row's absence, and why it prints rather than
+    // dashing. The underscores are the wire's and not a word; spacing them is
+    // typesetting, which is the same posture the panel's lower-casing takes.
+    for (const [token, phrase] of [
+      ['gravity_feed', 'gravity feed'],
+      ['pump_required', 'pump required'],
+      ['no_service_relationship', 'no service relationship'],
+    ]) {
+      const { zone, proposals } = zoneDelivering(token)
+      expect(deliveryRow(proposals, zone.id).value).toBe(phrase)
+    }
+  })
+
+  it('has retired "elevation above production area" from the panel', () => {
+    // THE OLD LABEL, AND THE PIN THAT HELD IT. This suite pinned
+    // `water_delivery_differential` -- "elevation above production area" --
+    // because the backend branch could not change it. It describes the
+    // DIFFERENTIAL, which is the input to the answer: a reader looking for
+    // "can I get water there without a pump" had to know that a positive
+    // figure meant yes. The differential stays on the wire and in the report.
     const zone = fixtureZone({})
     const rows = [
-      { key: 'zone_acres', label: 'area to survey', value: 0.3, unit: 'acres' },
-      { key: 'survey_type', label: 'survey type', value: 'embankment', unit: null },
-      { key: 'suitability', label: 'suitability', value: 0.7933, unit: null },
-      { key: 'rank', label: 'rank', value: 1, unit: null },
-      { key: 'water_delivery', label: 'water delivery', value: 'gravity_feed', unit: null },
-      { key: 'water_delivery_differential', label: 'elevation above production area', value: 7.6, unit: 'feet' },
+      ...alwaysRows(zone.properties),
+      {
+        key: 'water_delivery_differential',
+        label: 'elevation above production area',
+        value: 7.6,
+        unit: 'feet',
+      },
     ]
     const proposals = payloadOf([zone], {}, { panels: { [zone.id]: rows } })
-    delete proposals.scales
-    const detail = WATER_STEP.detail({ proposals }, zone.id)
-    // The pipeline rounds at its own documented boundary and those values are
-    // contractually FINAL; a toFixed() here would be a second boundary for
-    // numbers that already have one.
-    expect(detail.fields.map((f) => f.value)).toEqual([
-      '0.3',
-      'embankment',
-      '0.7933',
-      '1',
-      'gravity_feed',
-      '7.6',
-    ])
+
+    // STILL ON THE WIRE, and this side still joins to it.
+    expect(surveyZonePanel(proposals, zone.id).some((row) => row.key === 'water_delivery_differential')).toBe(true)
+
+    // AND OFF THE PANEL, label and figure both.
+    const labels = rowsOf(proposals, zone.id)
+      .filter((row) => row && !isBreak(row))
+      .map((row) => row.label)
+    expect(labels).not.toContain('elevation above production area')
+    expect(labels.join(' ')).not.toContain('elevation')
+  })
+
+  it('dashes only when the backend sent no answer at all', () => {
+    // AN EM DASH IS FOR A QUESTION NOBODY ASKED. A payload whose row set
+    // carries no water_delivery row has not answered it, and nothing here
+    // invents one from the relationship on the feature.
+    const zone = fixtureZone({})
+    const rows = alwaysRows(zone.properties).filter((row) => row.key !== 'water_delivery')
+    const proposals = payloadOf([zone], {}, { panels: { [zone.id]: rows } })
+    expect(deliveryRow(proposals, zone.id).value).toBe('—')
   })
 })
 
@@ -2174,6 +2821,59 @@ describe('notices', () => {
     // THE FLOOR ITSELF IS NOT QUOTED: MIN_SURVEY_REGION_AREA_ACRES is a
     // backend constant and no key in this payload carries it.
     expect(dropped.text.join('')).not.toMatch(/0\.1/)
+  })
+
+  it('tells a withheld survivor apart from a dropped one, and quotes the rule it was withheld by', () => {
+    const zone = fixtureZone({})
+
+    // NOTHING WITHHELD -> NOTHING SAID. The presented set is everything that
+    // survived, so there is no shape to explain.
+    const all = WATER_STEP.notices({
+      proposals: payloadOf([zone], {
+        zone_count: 1,
+        presentation: { presented_count: 1, withheld_count: 0, rule_applied: '1 embankment' },
+      }),
+      draft: { selectedFeatureIds: [], drawnFeatures: [] },
+    })
+    expect(all.map((n) => n.key)).not.toContain('withheld')
+
+    const capped = WATER_STEP.notices({
+      proposals: payloadOf([zone], {
+        zone_count: 11,
+        dropped_count: 2,
+        presentation: {
+          presented_count: 4,
+          withheld_count: 7,
+          rule_applied: '2 embankment + 1 excavated + 1 embankment backfill',
+        },
+      }),
+      draft: { selectedFeatureIds: [], drawnFeatures: [] },
+    })
+    const withheld = capped.find((n) => n.key === 'withheld')
+    expect(withheld).toBeDefined()
+
+    // BOTH FIGURES MEASURED AND SET AS SUCH, mid-sentence, like the dropped
+    // notice's own count.
+    expect(withheld.text.some((part) => part?.measure === '4')).toBe(true)
+    expect(withheld.text.some((part) => part?.measure === '11')).toBe(true)
+    expect(withheld.text.some((part) => part?.measure === '7')).toBe(true)
+
+    // THE RULE IS THE PAYLOAD'S OWN WORDS, not a second copy of it over here.
+    expect(withheld.text.join('')).toContain(
+      '2 embankment + 1 excavated + 1 embankment backfill'
+    )
+
+    // THE TWO SENTENCES STAY DIFFERENT SENTENCES. A withheld zone passed
+    // every test; a dropped one failed one. Reading the withheld line as a
+    // rejection is the exact confusion this notice exists to prevent.
+    expect(withheld.text.join('')).toContain('passed every test')
+    expect(withheld.text.join('')).not.toMatch(/floor/)
+    const dropped = capped.find((n) => n.key === 'dropped')
+    expect(dropped).toBeDefined()
+    expect(dropped.text.join('')).toMatch(/minimum area floor/)
+
+    // AND IT IS NOT A CAUTION. Nothing is wrong.
+    expect(withheld.tone).toBe('advisory')
   })
 
   liveIt('says nothing untrue about the reference parcel', async () => {
@@ -2254,8 +2954,18 @@ function fixtureZone(overrides) {
       zone_acres: 0.3,
       mean_suitability: 0.7933,
       slope_median_pct: 4.0,
-      depression_depth_max_m: 0.0,
+      // BOTH TYPES CARRY THE DEPTH ON THE WIRE and only the excavated panel
+      // renders it -- _zone_feature_properties sets depression_depth_max_ft
+      // unconditionally, so an embankment zone has a number for it and the
+      // number means nothing. The fixture models the wire, not the panel.
+      depression_depth_max_ft: 4.06,
+      depression_depth_max_m: 1.24,
       contributing_area_acres_at_wettest_cell: 10.51,
+      // EMBANKMENT ONLY, and the fixture carries it on both for the same
+      // reason it carries member_acres on both: what is asserted is that the
+      // PANEL dispatches on type, and a fixture that withheld the field would
+      // let a panel pass by rendering an em dash instead of by omitting a row.
+      pinch_catchment_acres: 31.2,
       representative_elevation_m: 312.4,
       canopy_overlap_pct: 0.0,
       road_overlap_pct: 0.0,
@@ -2291,10 +3001,35 @@ function alwaysRows(properties) {
   return [
     { key: 'zone_acres', label: 'area to survey', value: properties.zone_acres, unit: 'acres' },
     { key: 'survey_type', label: 'survey type', value: properties.survey_type, unit: null },
-    { key: 'suitability', label: 'suitability', value: properties.mean_suitability, unit: null },
+    // THE ONE CONVERTED ROW ON THE WIRE. The backend grades zones on the
+    // 0-100 KSOP display scale and ships the suitability row already
+    // converted, as a whole number carrying its scale in `unit`; the FEATURE
+    // keeps `mean_suitability` on 0-1 as the diagnostic record. This fixture
+    // models both, because the failure this file has to be able to catch is
+    // a renderer that reaches for the wrong one.
+    {
+      key: 'suitability',
+      label: 'suitability',
+      value: displayScale(properties.mean_suitability),
+      unit: '/100',
+    },
     { key: 'rank', label: 'rank', value: properties.rank, unit: null },
     { key: 'water_delivery', label: 'water delivery', value: 'gravity_feed', unit: null },
   ]
+}
+
+/**
+ * The backend's conversion, mirrored HERE AND ONLY HERE so the fixtures model
+ * the wire rather than a guess at it.
+ *
+ * THIS IS A FIXTURE, NOT A RENDERER. The app under test does no multiplying at
+ * all -- the source-level assertion at the bottom of this file holds it to
+ * that -- and this exists so a test can say "a zone the backend scored 0.7933
+ * arrives as 79" without every case writing 79 next to 0.7933 and one of them
+ * eventually disagreeing.
+ */
+function displayScale(value) {
+  return value == null ? null : Math.round(value * 100)
 }
 
 /**
@@ -2305,11 +3040,15 @@ function alwaysRows(properties) {
 function scalesOf(features) {
   const countOf = (type) => features.filter((f) => f.properties.survey_type === type).length
   return {
+    // ON THE DISPLAY SCALE, because this block describes what the panel
+    // prints and the panel's suitability row is converted. The ceiling is
+    // the parcel's OWN measured maximum, converted -- 0.82 of an attainable
+    // 1.0 becomes 82 of an attainable 100, NOT 100.
     suitability: {
-      min: 0.0,
-      max: 1.0,
+      min: 0,
+      max: 100,
       higher_is_better: true,
-      parcel_observed_max: { embankment: 0.82, excavated: 0.6 },
+      parcel_observed_max: { embankment: 82, excavated: 60 },
     },
     rank: { embankment: { count: countOf('embankment') }, excavated: { count: countOf('excavated') } },
     overlap_pct: { min: 0, max: 100 },
@@ -2350,10 +3089,8 @@ const FIXTURE = payloadOf([
 ])
 
 /* ===========================================================================
-   THE TAB'S SUITABILITY IS READ AGAINST `scales`
+   WHAT WATER'S `scales` CARRIES, AND WHAT IS READ OFF IT
    ===========================================================================
-   WHAT WATER'S `scales` ACTUALLY CARRIES, AND WHAT IT DOES NOT.
-
    Landform's block carries `bands` and `band_bounds`, and scoreBandName()
    turns a score into "good" without this side knowing where good starts.
    WATER'S CARRIES NEITHER. Its keys are:
@@ -2363,100 +3100,45 @@ const FIXTURE = payloadOf([
        overlap_pct             {min, max}
        boundary_adjacency_pct  {min, max}
        pinch_drainage_score    {min, max, zero_means, min_acres, ...}
-       compartment_rank_score  {min, max, weights}
 
    So there is NO BAND TO NAME. Naming one here would mean writing this
    pipeline's thresholds down on the client, which is the single thing the
-   whole scales contract exists to prevent -- see scoreBandName()'s note. What
-   water ships instead is the parcel's OWN MEASURED CEILING, per survey type,
-   and that is the denominator both the panel and the tab render against.
+   whole scales contract exists to prevent -- see scoreBandName()'s note.
+
+   AND IT CARRIES NO `range`, WHICH IS LANDFORM'S SPELLING of the same
+   statement. Water's block is keyed BY THE SCORED QUANTITY, because five
+   different things on this payload are scored; `suitability.max` is where the
+   top of the score's scale is written. scoreDenominator() reads both
+   spellings, and the score row's tests above are where that is exercised.
+
+   WHAT IS READ OFF THIS BLOCK ON THE PANEL IS NOW EXACTLY ONE THING: the
+   score's denominator. `rank` left the panel with the header that already
+   names it, and `parcel_observed_max` left because it is a ceiling no zone
+   can reach. Both are still on the wire and the report reads them.
    =========================================================================== */
 
-describe('the suitability figure is read against the payload\'s own scale', () => {
-  const scalesWith = (embankment, excavated) => ({
-    suitability: {
-      min: 0.0,
-      max: 1.0,
-      higher_is_better: true,
-      parcel_observed_max: { embankment, excavated },
-    },
-    rank: { embankment: { count: 1 }, excavated: { count: 1 } },
-    overlap_pct: { min: 0, max: 100 },
-    boundary_adjacency_pct: { min: 0, max: 100 },
-  })
-
-  const rowsOf = (payload) =>
-    WATER_STEP.tabs({ proposals: payload, draft: { selectedFeatureIds: [], drawnFeatures: [] } })
-
-  it('prints the ceiling the payload sent, per survey type, on the tab', () => {
-    const payload = payloadOf(
-      [
-        fixtureZone({ zone_id: 1, survey_type: 'embankment', mean_suitability: 0.526 }),
-        fixtureZone({ zone_id: 4, survey_type: 'excavated', mean_suitability: 0.7933 }),
-      ],
-      {},
-      { scales: scalesWith(0.82, 0.675) }
+describe('the scales block', () => {
+  it('never rescales the parcel ceiling to 100 -- it is a denominator', () => {
+    // THE REJECTED ALTERNATIVE, pinned. Normalizing so the parcel's best
+    // cell reads 100 would make the same ground grade differently under a
+    // redrawn boundary and would flatten a poor parcel and an excellent one
+    // onto the same top mark. It is not divided into anything, on either
+    // surface -- and since the panel stopped showing it, it is not printed
+    // beside anything either.
+    const payload = payloadOf([fixtureZone({})])
+    expect(payload.scales.suitability.parcel_observed_max.embankment).toBe(82)
+    expect(suitabilityCeiling(payload.scales, 'embankment')).toBe(82)
+    expect(suitabilityCeiling(payload.scales, 'excavated')).toBe(60)
+    // PER TYPE, because the two surfaces are kept apart end to end and are
+    // never comparable on one scale.
+    expect(suitabilityCeiling(payload.scales, 'embankment')).not.toBe(
+      suitabilityCeiling(payload.scales, 'excavated')
     )
-    const [embankment, excavated] = rowsOf(payload)
-
-    // THE FIGURE IS THE ZONE'S; THE DENOMINATOR IS THE TYPE'S OWN CEILING.
-    // Rank is per type on this step and so is the ceiling: the two surfaces
-    // are never comparable on one scale.
-    expect(embankment.rows[1]).toEqual({ value: '0.53', label: 'of 0.82 suitability' })
-    expect(excavated.rows[1]).toEqual({ value: '0.79', label: 'of 0.68 suitability' })
+    // NULL ON A PAYLOAD THAT DOES NOT CARRY IT -- older, not wrong.
+    expect(suitabilityCeiling({}, 'embankment')).toBeNull()
   })
 
-  it('follows the payload rather than remembering a number', () => {
-    // THE POINT OF READING A SCALE RATHER THAN WRITING ONE. A backend retune
-    // moves the rendering; nothing on this side has to be edited, and nothing
-    // on this side can be left stale.
-    const zone = () => fixtureZone({ zone_id: 1, survey_type: 'embankment', mean_suitability: 0.526 })
-    const first = rowsOf(payloadOf([zone()], {}, { scales: scalesWith(0.82, 0.6) }))
-    const retuned = rowsOf(payloadOf([zone()], {}, { scales: scalesWith(0.44, 0.6) }))
-    expect(first[0].rows[1].label).toBe('of 0.82 suitability')
-    expect(retuned[0].rows[1].label).toBe('of 0.44 suitability')
-  })
-
-  it('falls back to the bare figure when the payload carries no scale', () => {
-    // A PAYLOAD WITHOUT `scales` IS OLDER, NOT WRONG. A missing denominator
-    // must not blank a measurement, and it must not be replaced by a guess.
-    const payload = payloadOf(
-      [fixtureZone({ zone_id: 1, survey_type: 'embankment', mean_suitability: 0.526 })],
-      {},
-      { scales: {} }
-    )
-    expect(rowsOf(payload)[0].rows[1]).toEqual({ value: '0.53', label: 'suitability' })
-  })
-
-  it('reads the same ceiling on the panel and on the tab, off one key', () => {
-    const zone = fixtureZone({ zone_id: 1, survey_type: 'embankment', mean_suitability: 0.526 })
-    const payload = payloadOf([zone], {}, { scales: scalesWith(0.82, 0.675) })
-
-    // The panel prints the backend's own number, unrounded; the tab prints it
-    // at the tab's own precision. Both denominators come off the same key --
-    // suitabilityCeiling() is the one reader -- so they cannot disagree about
-    // WHICH number it is.
-    expect(suitabilityCeiling(payload.scales, 'embankment')).toBe(0.82)
-    const panel = WATER_STEP.detail({ proposals: payload }, zone.id)
-    expect(panel.fields.find((f) => f.label === 'suitability').value).toBe('0.526 of 0.82')
-    expect(rowsOf(payload)[0].rows[1].label).toContain('0.82')
-  })
-
-  it('stays a 0-1 fraction: the backend did not rescale it', () => {
-    // `scales.suitability` DECLARES THE RANGE, and it is the same 0-1 the
-    // measure() note was written against -- so SUITABILITY_DP's two decimals
-    // are still the right precision and nothing here multiplies by 100 to
-    // make water's figure look like landform's 0-100 score.
-    const payload = payloadOf([fixtureZone({})], {}, { scales: scalesWith(0.82, 0.675) })
-    expect(payload.scales.suitability.min).toBe(0.0)
-    expect(payload.scales.suitability.max).toBe(1.0)
-    expect(payload.scales.suitability.higher_is_better).toBe(true)
-    // Two decimals, because one collapses the reference parcel's zones into a
-    // column of identical "0.5"s.
-    expect(rowsOf(payload)[0].rows[1].value).toMatch(/^\d\.\d\d$/)
-  })
-
-  liveIt('renders the live payload\'s own ceilings, and every zone sits under its own', async () => {
+  liveIt('renders the live payload\'s own scale, and every zone sits under its ceiling', async () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)
     await expandTabs(ui)
@@ -2469,17 +3151,27 @@ describe('the suitability figure is read against the payload\'s own scale', () =
       expect(value).toBeLessThanOrEqual(ui.water.scales.suitability.max)
     }
 
+    const top = ui.water.scales.suitability.max
     for (const feature of surveyZoneFeatures(ui.water)) {
       const type = feature.properties.survey_type
       // THE CEILING IS A CEILING: no zone of a type reads above its own.
       expect(feature.properties.mean_suitability).toBeLessThanOrEqual(ceilings[type] + 1e-9)
 
-      // AND THE STRIP SAYS SO, in the type's own terms.
+      // AND THE STRIP SAYS "score", WITH NO DENOMINATOR ON IT. The ceiling is
+      // not printed anywhere on either surface -- the panel's denominator is
+      // the SCALE, and the strip carries none at all.
       const tab = ui.find(`tab-${feature.id}`)
       expect(tab).not.toBeNull()
       const labels = [...tab.querySelectorAll('.chrome-tab__label')].map((n) => n.textContent)
-      expect(labels).toContain(`of ${measure(ceilings[type], 2)} suitability`)
+      expect(labels).toContain('score')
+      expect(labels.join(' ')).not.toContain('suitability')
+      expect(labels.join(' ')).not.toMatch(/\bof \d/)
     }
+
+    // AND THE PANEL'S DENOMINATOR IS THE PAYLOAD'S OWN TOP OF SCALE.
+    const first = surveyZoneFeatures(ui.water)[0]
+    await ui.focus(first.id)
+    expect(ui.text(`detail-value-/${Math.round(top)} score`)).not.toBeNull()
 
     await ui.unmount()
   })
@@ -2509,13 +3201,43 @@ describe('the suitability figure is read against the payload\'s own scale', () =
     // acreage floor and the suitability threshold are the backend's, no key
     // in the payload carries them, and the notices say what happened rather
     // than quoting a number they would have had to hardcode.
-    for (const constant of ['MIN_SURVEY_REGION_AREA_ACRES', 'suitability_threshold']) {
+    //
+    // CROSS_TYPE_OVERLAP_NOTE_FRACTION JOINS THEM. The backend applies a
+    // threshold to cross_type_overlaps for its own narrative line; the panel
+    // renders every entry the payload carries, because an entry only exists
+    // where the two envelopes actually intersect. A copy of that constant on
+    // this side would silently hide findings the day it is retuned.
+    for (const constant of [
+      'MIN_SURVEY_REGION_AREA_ACRES',
+      'suitability_threshold',
+      'CROSS_TYPE_OVERLAP_NOTE_FRACTION',
+    ]) {
       expect(code).not.toContain(constant)
     }
 
-    // AND EVERY SCALE READ IS AN INDEX INTO THE PAYLOAD'S OWN BLOCK.
+    // AND NO MULTIPLIER ON A GRADE. The 0-100 display scale is the BACKEND'S
+    // conversion, done once, in one helper; a client-side multiply on a
+    // server-converted value is how one scale silently becomes two -- and it
+    // fails in the same worst way a copied threshold does, since the number
+    // still renders and is simply a hundred times wrong.
+    //
+    // TWO MULTIPLIES BY 100 IN THIS FILE, AND NEITHER IS A GRADE: landform's
+    // acreage share of the parcel, and the cross-type overlap's fraction read
+    // as a percentage into a run of `_pct` rows. Both are UNIT READINGS of a
+    // proportion. The assertion is that no SCORE is on either side of one.
+    const hundreds = [...code.matchAll(/.{0,80}(?:\*\s*100|100\s*\*).{0,40}/g)].map((m) => m[0])
+    expect(hundreds.length).toBeGreaterThan(0)
+    for (const context of hundreds) {
+      expect(context).not.toMatch(/score|suitability/i)
+    }
+
+    // AND EVERY SCALE READ IS AN INDEX INTO THE PAYLOAD'S OWN BLOCK. The
+    // denominator reads THREE spellings now -- landform's top-level `range`,
+    // water's `<quantity>.max`, roads' `<quantity>.range[1]` -- and the step
+    // names its own scored quantity rather than the reader knowing water's.
     expect(code).toContain('scales?.suitability?.parcel_observed_max?.[surveyType]')
-    expect(code).toContain('scales?.rank?.[surveyType]?.count')
+    expect(code).toContain("scales?.range?.[1] ?? entry?.range?.[1] ?? entry?.max")
+    expect(code).toContain("scoreDenominator(proposals, 'suitability')")
     expect(code).toMatch(/if \(score == null \|\| !scales\?\.bands\) return null/)
   })
 })
@@ -2549,7 +3271,10 @@ describe('the checkbox, both ways', () => {
     // joins these cases by existing, instead of by someone remembering.
     // TREES JOINED BY EXISTING: landform's shape, so landform's cases.
     // STRUCTURES JOINED BY EXISTING: select-only candidates plus placed sites.
-    expect(MULTI_SELECT.map((d) => d.id)).toEqual(['landform', 'water', 'trees', 'structures'])
+    // FENCING JOINED BY EXISTING: select-only, and its tab is a fence TYPE --
+    // a group of features, which is what made the cases below read a tab's
+    // `featureIds` rather than assume a tab is one feature.
+    expect(MULTI_SELECT.map((d) => d.id)).toEqual(['landform', 'water', 'trees', 'structures', 'fencing'])
   })
 
   for (const definition of MULTI_SELECT) {
@@ -2570,6 +3295,8 @@ describe('the checkbox, both ways', () => {
           ? TREES_CHECKBOX_PAYLOAD
           : definition.id === 'structures'
           ? STRUCTURES_CHECKBOX_PAYLOAD
+          : definition.id === 'fencing'
+          ? FENCING_CHECKBOX_PAYLOAD
           : {
               suggested_zones: {
                 type: 'FeatureCollection',
@@ -2592,23 +3319,27 @@ describe('the checkbox, both ways', () => {
 
       const tabsAt = (selectedFeatureIds) =>
         definition.tabs({ proposals: payload, draft: { selectedFeatureIds, drawnFeatures: [] } })
-      const press = (selectedFeatureIds) => {
-        const tab = tabsAt(selectedFeatureIds).find((t) => t.id === victim)
-        return selectionAfterCheck(selectedFeatureIds, tab, definition.selection.mode)
-      }
+      // THE TAB THE VICTIM IS UNDER: its own, or -- on a step whose tab is a
+      // GROUP (fencing's fence type) -- the one whose featureIds carry it.
+      const tabOf = (selectedFeatureIds) =>
+        tabsAt(selectedFeatureIds).find((t) => t.id === victim || t.featureIds?.includes(victim))
+      const under = tabOf(ids).featureIds ?? [victim]
+      const press = (selectedFeatureIds) =>
+        selectionAfterCheck(selectedFeatureIds, tabOf(selectedFeatureIds), definition.selection.mode)
 
-      // OFF. The zone leaves the set and nothing else moves.
+      // OFF. The zone -- every feature under its tab -- leaves the set and
+      // nothing else moves.
       const off = press(ids)
       expect(off).not.toContain(victim)
-      expect(off.length).toBe(ids.length - 1)
+      expect(off.length).toBe(ids.length - under.length)
       // ...and the strip says so, which is what the user has to click again.
-      expect(tabsAt(off).find((t) => t.id === victim).selected).toBe(false)
+      expect(tabOf(off).selected).toBe(false)
 
       // ON. It comes back, and the set is the one it started as.
       const back = press(off)
       expect(back).toContain(victim)
       expect([...back].sort()).toEqual([...ids].sort())
-      expect(tabsAt(back).find((t) => t.id === victim).selected).toBe(true)
+      expect(tabOf(back).selected).toBe(true)
     })
   }
 
@@ -2873,12 +3604,52 @@ const STRUCTURES_CHECKBOX_PAYLOAD = {
   placement: { input: 'site', shape: 'lon_lat', max_placed: 2 },
 }
 
+/**
+ * step_orchestrator.build_fencing_payload()'s shape: two candidate types
+ * (boundary, one loop; tree zone, two loops) and a water type that was NOT
+ * generated -- so a tab is a fence TYPE carrying several feature ids, and
+ * one listed type has no tab at all.
+ */
+const FENCING_CHECKBOX_PAYLOAD = {
+  fence_lines: {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        id: 'perimeter-fencing-boundary-1',
+        properties: { layer: 'perimeter_fencing', fence_type: 'boundary', fence_index: 1, fence_count: 1, loop_count: 1, length_ft: 2100.4, display_only_fence_line: null },
+        geometry: null,
+      },
+      {
+        type: 'Feature',
+        id: 'perimeter-fencing-tree-zone-1',
+        properties: { layer: 'perimeter_fencing', fence_type: 'tree_zone_exclusion', fence_index: 1, fence_count: 2, loop_count: 1, length_ft: 640.0, display_only_fence_line: null },
+        geometry: null,
+      },
+      {
+        type: 'Feature',
+        id: 'perimeter-fencing-tree-zone-2',
+        properties: { layer: 'perimeter_fencing', fence_type: 'tree_zone_exclusion', fence_index: 2, fence_count: 2, loop_count: 1, length_ft: 512.5, display_only_fence_line: null },
+        geometry: null,
+      },
+    ],
+  },
+  fence_types: [
+    { fence_type: 'boundary', label: 'Boundary fencing', generated: true, candidate: true, loop_count: 1, feature_count: 1, total_length_ft: 2100.4, feature_ids: ['perimeter-fencing-boundary-1'], features: [], reason: null },
+    { fence_type: 'water_zone_exclusion', label: 'Water zone fencing', generated: false, candidate: false, loop_count: 0, feature_count: 0, total_length_ft: null, feature_ids: [], features: [], reason: 'The water step was committed with no zone, so there is no water ground to fence.' },
+    { fence_type: 'tree_zone_exclusion', label: 'Tree zone fencing', generated: true, candidate: true, loop_count: 2, feature_count: 2, total_length_ft: 1152.5, feature_ids: ['perimeter-fencing-tree-zone-1', 'perimeter-fencing-tree-zone-2'], features: [], reason: null },
+  ],
+  candidate_fence_types: ['boundary', 'tree_zone_exclusion'],
+  summary: { narrative_only: {}, segment_count: 1, developed_site_count: 1, buffers_ft: {} },
+}
+
 const CHECKBOX_PAYLOADS = {
   landform: LANDFORM_CHECKBOX_PAYLOAD,
   water: FIXTURE,
   roads: roadsCheckboxPayload(),
   trees: TREES_CHECKBOX_PAYLOAD,
   structures: STRUCTURES_CHECKBOX_PAYLOAD,
+  fencing: FENCING_CHECKBOX_PAYLOAD,
 }
 
 describe('the checkbox, on every step that renders one', () => {
@@ -3001,46 +3772,65 @@ describe('the tab body focuses without choosing, unless the step says otherwise'
   )
 
   it('covers every step whose focus and selection are independent', () => {
-    expect(INDEPENDENT.map((d) => d.id)).toEqual(['landform', 'water', 'trees', 'structures'])
+    expect(INDEPENDENT.map((d) => d.id)).toEqual(['landform', 'water', 'trees', 'structures', 'fencing'])
   })
 
   for (const definition of INDEPENDENT) {
     it(`focuses without changing the selection: ${definition.id}`, async () => {
       const proposals = CHECKBOX_PAYLOADS[definition.id]
-      const all = definition
+      const boxed = definition
         .tabs({ proposals, draft: { selectedFeatureIds: [], drawnFeatures: [], inputs: {} } })
         .filter((tab) => tab.checkbox)
-        .map((tab) => tab.id)
+      // THE SELECTION IS FEATURE IDS: a tab's own id, or -- for a GROUP tab
+      // (fencing's fence type) -- every feature id it carries.
+      const idsOf = (tab) => (tab.featureIds?.length ? tab.featureIds : [tab.id])
+      const all = boxed.flatMap(idsOf)
       const ui = await renderStrip(definition, proposals, [...all])
 
-      const [first, second] = all
+      const [first, second] = boxed
       expect(second, `${definition.id} offers a second tab to move the focus to`).toBeDefined()
 
-      await ui.click(`tab-focus-${first}`)
-      expect(ui.focused).toBe(first)
+      await ui.click(`tab-focus-${first.id}`)
+      expect(ui.focused).toBe(first.id)
       expect([...ui.selection].sort()).toEqual([...all].sort())
-      expect(ui.find(`tab-${first}`).getAttribute('data-checked')).toBe('true')
+      expect(ui.find(`tab-${first.id}`).getAttribute('data-checked')).toBe('true')
 
       // A SECOND TAB, and still nothing moves but the focus.
-      await ui.click(`tab-focus-${second}`)
-      expect(ui.focused).toBe(second)
+      await ui.click(`tab-focus-${second.id}`)
+      expect(ui.focused).toBe(second.id)
       expect([...ui.selection].sort()).toEqual([...all].sort())
 
       // AND CLICKING THE FOCUSED TAB LETS GO OF THE FOCUS, without touching
       // the commit either.
-      await ui.click(`tab-focus-${second}`)
+      await ui.click(`tab-focus-${second.id}`)
       expect(ui.focused).toBeNull()
       expect([...ui.selection].sort()).toEqual([...all].sort())
 
-      // The CHECKBOX is still the one thing that changes it.
-      await ui.click(`tab-check-${first}`)
-      expect(ui.selection).not.toContain(first)
+      // The CHECKBOX is still the one thing that changes it -- and it takes
+      // every feature under its tab out.
+      await ui.click(`tab-check-${first.id}`)
+      for (const id of idsOf(first)) expect(ui.selection).not.toContain(id)
 
       await ui.unmount()
     })
   }
 
-  it('is the roads step that declares otherwise, and only it', async () => {
+  /**
+   * AND THE ONE STEP THAT DECLARES OTHERWISE DECLARES IT ON THE STEP, NOT IN
+   * THE STRIP -- which is the correction this branch makes and the reason
+   * this case can no longer be asked of a strip on its own.
+   *
+   * The strip used to implement the collapse in its own click handler, so a
+   * TabStrip over roads' payload was enough to see it. It was also the reason
+   * the other two paths that move a focus -- an access-point marker, the
+   * generate that focuses the network it has just routed -- moved the map and
+   * the panel while leaving the tick behind. The rule is the CURSOR's now
+   * (WizardCursor's focusFeature), so what this harness can still see is the
+   * half that is the strip's: the body FOCUSES, on every step alike, and
+   * writes no selection of its own. roads.test.jsx section 5b is where the
+   * other half is asked, of all three paths at once and over a real store.
+   */
+  it('is the roads step that declares otherwise, and the strip still only focuses', async () => {
     const roads = STEP_DEFINITIONS.filter((d) => d.selection.follows === 'focus')
     expect(roads.map((d) => d.id)).toEqual(['roads'])
 
@@ -3048,16 +3838,45 @@ describe('the tab body focuses without choosing, unless the step says otherwise'
     const proposals = CHECKBOX_PAYLOADS.roads
     const ui = await renderStrip(definition, proposals, ['a-trunk', 'a-spur'])
 
+    // THE BODY FOCUSES, AND THAT IS ALL IT DOES HERE. This harness has no
+    // document behind it, so the cursor sits on a step that declares
+    // `follows: null` and applies nothing -- which is exactly what makes the
+    // absence of a strip-level write visible.
     await ui.click('tab-focus-net-b')
     expect(ui.focused).toBe('net-b')
-    expect([...ui.selection].sort()).toEqual(['b-trunk'])
-    expect(ui.find('tab-net-a').getAttribute('data-checked')).toBe('false')
-    expect(ui.find('tab-net-b').getAttribute('data-checked')).toBe('true')
+    expect([...ui.selection].sort()).toEqual(['a-spur', 'a-trunk'])
 
+    // AND CLICKING THE FOCUSED TAB LETS GO OF IT -- one rule, the same one
+    // every other step's body follows.
     await ui.click('tab-focus-net-b')
     expect(ui.focused).toBeNull()
-    expect(ui.selection).toEqual([])
 
     await ui.unmount()
+  })
+
+  /**
+   * THE RULE ITSELF, AS A FUNCTION, WHICH IS WHERE `follows: 'focus'` NOW
+   * LIVES IN FULL. Three cases, and they are the three the strip used to
+   * branch on -- reached here by arithmetic rather than by a handler.
+   */
+  it('turns a focus into a whole radio selection, with no un-tick step', () => {
+    const tabs = STEP_DEFINITIONS.find((d) => d.id === 'roads').tabs({
+      proposals: CHECKBOX_PAYLOADS.roads,
+      draft: { selectedFeatureIds: ['a-trunk', 'a-spur'], drawnFeatures: [], inputs: {} },
+    })
+
+    // FOCUSED -> THAT TAB'S FEATURES, AND NOTHING ELSE. The others are out by
+    // absence; there is no step that removes them.
+    expect(selectionFollowingFocus(tabs, 'net-a').sort()).toEqual(['a-spur', 'a-trunk'])
+    expect(selectionFollowingFocus(tabs, 'net-b')).toEqual(['b-trunk'])
+    // A BRANCH FOCUSES ITS NETWORK, so clicking a line on the map and
+    // clicking its tab are one act.
+    expect(selectionFollowingFocus(tabs, 'b-trunk')).toEqual(['b-trunk'])
+    // NOTHING FOCUSED -> THE LEGAL EMPTY COMMIT.
+    expect(selectionFollowingFocus(tabs, null)).toEqual([])
+    // AND A TAB WITH NO CHECKBOX SELECTS NOTHING -- never its own id, which
+    // is a network id and not a feature the commit could carry.
+    const boxless = [{ id: 'net-c', name: 'Road Network 3', featureIds: [], rows: [] }]
+    expect(selectionFollowingFocus(boxless, 'net-c')).toEqual([])
   })
 })

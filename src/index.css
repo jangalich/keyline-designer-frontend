@@ -165,10 +165,81 @@
      ceiling derived below had already spent it.
 
      So the EMBANKMENT type keeps the screened tint and the EXCAVATED type is
-     now a STATIC DOT FIELD -- a fine, dense, irregular field of ~1px dots in
-     --survey-excavated, at the --pattern-* levels, with an outline in that
-     same colour. See ProductionHatchPattern.jsx for the mark and its measured
-     ink, and layout.test.jsx for the measurement.
+     now a DOT FIELD ON A NEUTRAL SCREEN -- a lattice of dots in
+     --survey-excavated over a light screen of --halo, at the --pattern-*
+     levels, with an outline in the zone's own colour. See
+     ProductionHatchPattern.jsx for the mark and its measured ink, and
+     layout.test.jsx for the measurement.
+
+     THE SCREEN CAME BACK, AND THE PARAGRAPH ABOVE IS WHY IT COULD. What was
+     rejected was TWO WASHES AND NOTHING ELSE: with a tint the only axis, the
+     overlap multiplied into a third, darker fill and read as its own zone.
+     The dot field is what fixed that, and it fixed it by being a different
+     KIND of mark -- which the screen underneath does not undo, because the
+     dots are still the thing that tells the two types apart where they
+     coincide. What the dots could not do alone is hold the zone against
+     imagery: a field that inks an eighth of its ground leaves the other
+     seven eighths bare, and excavated was the quietest mark on this map. So
+     the screen is the ground under the texture rather than the mark itself,
+     and the overlap is measured with it in place -- the dot field still
+     carries its texture through a wash, which is the assertion the pair has
+     always been held to.
+
+     AND THE SCREEN IS NOT IN THIS COLOUR ANY MORE, WHICH IS THE ONE THING TO
+     KNOW BEFORE TOUCHING EITHER VALUE BELOW. It was --survey-excavated at
+     0.28 -- a screen in the mark's own colour, which makes the whole cell one
+     blue and is the reading the dot field replaced a second wash to avoid. It
+     is --halo at 0.16 now: a NEUTRAL, which is the rule, and specifically the
+     white end of the neutral ladder (--rule, --stock, --halo). A screen is the
+     GROUND a mark was designed against, put back, and a ground has no business
+     being in the mark's own colour.
+
+     AT 0.16 THAT MARK IS NO LONGER A SCREEN, and that is a decision recorded
+     rather than a drift. The aerial frame is a little under half of what you
+     see inside an excavated zone at focus; the embankment wash still leaves
+     well over half. It was taken past that line to reach the far side of the
+     survey overlap's crossover, where the dots read against the wash again --
+     every alpha that keeps it under the line sits in a trough where the
+     overlap collapses. ProductionHatchPattern.jsx has the table and
+     layout.test.jsx carries one ceiling per mark now, with the argument.
+
+     THE TWO SCREENS ON THIS MAP ARE NOT ONE COLOUR. Production's hatch sits on
+     --rule and this lattice sits on --halo, and a revision of this note
+     claimed otherwise. Whiter lifts a dark ground faster per unit alpha, which
+     is what the dot field needs over closed canopy and what the ruling does
+     not.
+
+     AND THE DOT LATTICE IS DENSER AND FINER: 16 per tile side rather than 8,
+     with a SMALLER dot (2.4px rather than 3.2px). That is the lever that
+     actually moved this mark -- density adds ink WITHOUT touching per-dot
+     contrast, so it is the only one that makes the survey pair's overlap
+     better rather than worse. Every screen lever is ceilinged by that overlap;
+     density is not. It is ceilinged by the LATTICE instead, measured: texture
+     peaks at 0.60 closure and has turned over by 0.80, and the shipped field
+     sits at 0.60.
+
+     THE SMALLER DOT IS WHY IT SITS THERE RATHER THAN PAST IT. Coverage is
+     pi*r^2*grid^2/tile^2, so a finer grain reaches the same 28% at the same
+     0.60 closure as a coarser one -- and wins on every instrument at once,
+     because more dot EDGE in the same area is more local contrast and local
+     contrast is what a texture is made of. Taking the grid up WITHOUT taking
+     the dot down would have closed the field.
+
+     WHERE IT LEAVES THE PAIR, and it is worth knowing before either value
+     below is touched. Over canopy the two are now within a twentieth of each
+     other (the wash 0.1149, the lattice 0.1076). OVER BARE SOIL THE LATTICE IS
+     NEARLY TWICE THE WASH: 0.1014 against 0.0576. So weight tells the two
+     types apart NOWHERE, and KIND -- a texture and a wash -- is the whole of
+     what does. That is why the texture floors are the assertions that may not
+     be traded away: a lattice that stopped reading as dots would leave two
+     marks of one kind in two values, which is the failure the dot field was
+     introduced to fix.
+
+     THE LEVER STILL UNSPENT IS HERE: --survey-excavated sits close to closed
+     canopy in luminance, and no screen under a mark can outrun the mark's own
+     value. Moving it lighter or darker widens the gap a screen can work in.
+     The table beside the excavated row in ProductionHatchPattern.jsx is the
+     price list for everything that has been spent so far.
 
      THE TWO ARE STILL ONE HUE, and the pair below is unchanged: same hue
      (203.0 and 202.9 degrees), same saturation (0.44 and 0.45), so the step is
@@ -297,6 +368,65 @@
      production zone share ground. */
   --tree: #52a466;
 
+  /* THE FENCE MARK'S COLOUR: --rule, ON A --halo CASING. A fence is the other
+     LINE on this map -- the road is --ink, dark -- and the two are told apart
+     by VALUE: a pale line beside a dark one, both cased. Two palette tokens
+     were candidates, --rule (#ddd6c8, the hairline) and --ink-muted (#8a8477,
+     the caption colour), and BOTH WERE MEASURED BEFORE ONE WAS CHOSEN, in
+     layout.test.jsx's harness, drawn exactly as the mark is drawn (the road's
+     cased line, LINE_WEIGHT on CASING_WEIGHT) at the committed and active
+     levels, over closed canopy (#2e3a24) and dry bare soil (#cbb896), with and
+     without the casing -- the same `addedInkOver` every other mark is held to,
+     against the same 0.004 visibility floor:
+
+                                    cased            bare line
+       --rule       canopy  committed  0.0238          0.0081
+                            active     0.0305          0.0112
+                    soil    committed  0.0072          0.0016
+                            active     0.0091          0.0021
+       --ink-muted  canopy  committed  0.0197          0.0041
+                            active     0.0251          0.0055
+                    soil    committed  0.0041          0.0026
+                            active     0.0057          0.0035
+
+     WHAT WAS EXPECTED, AND WHAT THE NUMBERS SAY. --rule was expected to wash
+     out over bare soil (it is nearly soil's own value) and to read strongly
+     over canopy: CONFIRMED -- its bare line is a fifth of the floor over
+     soil (0.0016) and twice the floor over canopy (0.0081). --ink-muted was
+     expected to be the mid-value trap the road's old umber hit, weak over
+     both grounds: CONFIRMED -- bare, it sits AT the floor over canopy
+     (0.0041) and under it over soil (0.0026), and even CASED it only just
+     clears the floor over soil at the committed level (0.0041, 1.03x), which
+     is a line that disappears on the ground the road already holds. Both
+     need the casing, and with it --rule clears the floor on both grounds at
+     both levels by 1.8x or more, --ink-muted by 1.03x at its worst.
+
+     THE CASING IS WHAT CARRIES --rule OVER SOIL (4.6x the bare line), as it
+     carries the road over canopy; over canopy the pale line reads on its
+     own and the casing widens it. A pale line on a white casing is, at that
+     point, nearly one mark -- a soft pale stroke -- and that is the reading
+     wanted: a fence is a lighter thing than a road, on the map as on the
+     ground. --ink-muted is the same neutral as --road at a lighter value,
+     so a fence in it would read as a road that has faded, which is the
+     wrong statement about a different thing. --rule sits at the other end
+     of the value scale from --road (4.8:1 against it), so the two lines are
+     a pair told apart at a glance.
+
+     ONE COST, STATED. On the mid-grey swatch the fence's focused state is
+     1.41x its active state, under the 1.5x floor the pattern marks meet: a
+     pale line over a white casing cannot swing against grey the way a dark
+     core does (the road manages 2.64x there), and --ink-muted is worse
+     still at 1.22x, a mid-grey line on mid-grey ground. On imagery the
+     fence's committed-to-active step (1.28x over canopy, 1.26x over soil)
+     is the road's own (1.23x). layout.test.jsx holds the fence to 1.3x on
+     mid-grey and to the same imagery floors as every other mark, and says
+     why beside the number.
+
+     #D4A017, the printed layout map's FENCE_COLOR, was NOT a candidate: it
+     is a near neighbour of --ochre, which is the live-point-marker colour
+     (see that token's rule), and a fence is not a live point. */
+  --fence: var(--rule);
+
   /* NO --structure TOKEN. The structure site had a violet wash of its own
      for one branch; it is a PIN now, in --ochre, for the rule written beside
      that token: a structure site is a live point, not ground, and takes the
@@ -325,7 +455,28 @@
        --pattern-active     an uncommitted zone that is in the commit.
        --pattern-focused    the one the detail panel is describing. FULL, so
                             the mark you are reading is the most present thing
-                            on the map.
+                            on the map -- for every mark that still takes this
+                            level. PRODUCTION'S HATCH NO LONGER DOES; see the
+                            halo exception below.
+
+     THE HALO EXCEPTION, AND IT IS THE ONE PLACE A STATE CHANGES THE MARK.
+     Production's hatch says focus with a GLOW AROUND EACH RULE rather than
+     with this scale: the focused zone's fill points at a second tile whose
+     every rule carries a blurred casing in the mark's own colour, and its
+     level comes back DOWN to --pattern-active, so a focused block inks exactly
+     what an active one does and the glow is the whole of the difference.
+     (ProductionHatchPattern's haloTile has the three numbers and the two
+     measures that bound them; layers.jsx's fillLevelFor is where the level
+     drops; every other mark reads this scale unchanged.)
+
+     WHICH IS WHY --pattern-focused IS STILL 1 AND IS NO LONGER A CEILING.
+     The price list below records focused/active compressed to 1.33x with
+     nothing above it, because focus was pinned at the top of an opacity scale.
+     A second KIND of ink is not on that scale at all: the hatch's focused
+     state measures further from its active one than the pin ever allowed,
+     while the pin itself stayed where it was for the marks that still use it.
+     A step that wants the same escape adds a halo to its row rather than
+     asking this token to go past 1, which is not a number that exists.
 
      FOCUSED GOES UP RATHER THAN OTHERS GOING DOWN. Both express the same
      relationship; this one changes ONE mark instead of every other one, and
@@ -359,8 +510,14 @@
      Nearly 2x between active and focused; measured in water.test.jsx at
      whole-parcel zoom rather than judged here.
 
-     COMMITTED WAS 0.3 AND IS 0.4, AND THE REASON THE OLD VALUE SURVIVED SO
-     LONG IS THAT NOTHING WAS MEASURING WHERE IT FAILS.
+     THE SCALE IS 0.55 / 0.75 / 1, RAISED BY INSTRUCTION, AND IT WAS 0.4 /
+     0.55 / 1 BEFORE. What follows is the history of the old numbers and then
+     the measured cost of the new ones, in that order, because the argument for
+     0.4 is still the argument a future reader needs and the cost is what they
+     need beside it.
+
+     COMMITTED WAS 0.3 AND THEN 0.4, AND THE REASON THE OLDEST VALUE SURVIVED
+     SO LONG IS THAT NOTHING WAS MEASURING WHERE IT FAILS.
 
      The three levels were tuned against a flat mid-grey swatch, which is the
      right backdrop for comparing two STATES of one mark -- a neutral ground
@@ -377,28 +534,103 @@
 
                               canopy            bare soil
        0.3  (was)             0.0067            0.0127
-       0.4  (is)              0.0088            0.0170      +31%
-       0.45 (rejected)        0.0101            0.0191
+       0.4  (was)             0.0088            0.0170      +31%
+       0.45 (rejected then)   0.0101            0.0191
 
      THE CEILING IS THE RELATIONSHIP, NOT THE LEGIBILITY. Ink is linear in
-     alpha here, so the committed level IS its fraction of active: 0.3 was
-     0.55 of it, 0.4 is 0.73, and 0.45 would be 0.82 -- at which point the
-     quiet layer and the working one are the same weight of mark and the
-     scale has stopped saying anything. 0.4 is the largest step that keeps
-     committed under three quarters of active, which is what "settled, without
-     competing with the step in hand" is worth in a number.
+     alpha here, so the committed level IS its fraction of active: at 0.3/0.55
+     it was 0.55 of it and at 0.4/0.55 it was 0.73, and 0.45 would have been
+     0.82 -- at which point the quiet layer and the working one are the same
+     weight of mark and the scale has stopped saying anything. THE CURRENT PAIR
+     KEEPS THAT: 0.55/0.75 is 0.733, still under the three quarters that is
+     what "settled, without competing with the step in hand" is worth in a
+     number. It is the one claim in this block the raise did not cost.
 
-     ACTIVE AND FOCUSED ARE UNTOUCHED. Raising them to restore the old ratios
-     would undo the change: the complaint is about absolute presence on
-     imagery, and moving every level up moves the problem rather than the
-     mark.
+     AND THE SCALE WAS ONCE 0.55 / 0.75 / 1 AND WAS REVERTED, AND IT IS
+     0.55 / 0.75 / 1 AGAIN. Both facts belong here.
+
+     THE FIRST TIME, THE DIAGNOSIS WAS WRONG. The complaint was real -- a
+     committed production block is barely visible on the LATER steps -- but the
+     hatch is not fainter downstream, it is on a different ground. During
+     landform it sits on the ELIGIBLE HIGHLIGHT (--eligible at 0.32) and reads
+     against that tint; from water onward the highlight is gone and the same
+     hatch sits directly on imagery, where a mid-tone diagonal over closed
+     canopy has almost nothing to work with. Raising the whole scale treated a
+     contrast problem as an opacity problem. It was reverted, THE GROUND WAS
+     PUT BACK INSTEAD (the screen, below), and that fix still stands and is
+     still the right one.
+
+     THE SECOND TIME IS A DELIBERATE PURCHASE, and what it buys is absolute
+     presence at every level on top of the screen. What it costs is the top of
+     the scale, because focus is pinned at 1 and everything under it came up.
+     The first attempt's own note PREDICTED the three costs and the measurements
+     this time confirmed all three to the second decimal:
+
+                              predicted then    measured now
+       focused / active         1.82x -> 1.33x    1.29x - 1.34x
+       mid-grey state floor      1.5x -> 1.25x    floor now 1.25
+       fence focused/active     1.41x -> 1.13x    1.13x
+
+     A FOURTH COST WAS NOT PREDICTED, BECAUSE THE MARK DID NOT EXIST THEN. The
+     excavated dot lattice BEATS against fine ground structure in proportion to
+     its own opacity, and the raise took its worst reading from 0.0038 to
+     0.0046 against a 0.004 bound. That reading is at a 2px ground period --
+     the display's Nyquist limit, finer than any aerial frame carries at these
+     zooms -- so it is reported on every run and excluded from the assertion,
+     with the argument written out at layout.test.jsx's NYQUIST_PERIOD_PX. The
+     whole coarse band, which is the band that exists in real imagery, is clear
+     at 0.0037.
+
+     SO THE SCALE IS NOT A FREE LEVER AND THIS BLOCK IS THE PRICE LIST. The
+     thing it cannot buy back is the top: focused/active can never exceed
+     1/0.75 = 1.33x while focus is pinned at 1, and no screen, colour or
+     density changes that.
+
+     A --halo CASING ON EACH HATCH LINE WAS THE SECOND WRONG LEVER, and the
+     road's own fix, and it measured well -- 9.7x over canopy. It read as a
+     CANDY CANE: white and rust in alternating bands with a third of the ground
+     showing through. Reverted too, and the ink measure's inability to see it is
+     recorded at ProductionHatchPattern.js's hatchTile().
+
+     AND A CASING IN THE MARK'S OWN COLOUR IS WHAT FOCUS IS NOW, which is not
+     that lever coming back. What failed was WHITE beside rust at a 5.66px
+     pitch -- two colours alternating, a striped ribbon -- and what ships is
+     oxide blurred around oxide, on ONE zone at a time rather than on every
+     committed block the map carries. The candy cane was a contrast fix applied
+     to every state; this is a focus mark, and the contrast fix is still the
+     screen below.
+
+     THE GROUND IS PUT BACK INSTEAD. Production's hatch now sits on a SCREEN --
+     --rule at 0.12, inside the pattern tile, so the path's own fill-opacity
+     scales it with the ruling and the three levels keep meaning one thing.
+     A committed block over canopy goes from 0.0088 added ink to 0.0374, against
+     a 0.004 floor, and the screen itself stays at about half the weight of the
+     quietest DECLARED wash in the build. It is a ground, not a layer. The
+     candidates, the alphas, the choice and the one thing the screen costs are
+     all at ProductionHatchPattern.js, beside the row; layout.test.jsx sweeps
+     them so the choice can be re-run rather than re-derived.
+
+     AND PRODUCTION IS NOT THE ONLY MARK CARRYING ONE. The excavated dot field
+     sits on its own screen -- --halo rather than --rule, at a much lower alpha
+     that the survey overlap ceilings -- so a stack of committed layers is a
+     stack of DIFFERENT neutrals rather than of one. That is measured rather
+     than assumed: two and three shipped screens laid over each other take
+     about a seventh of the frame over canopy, so the five layers fencing could
+     put on a parcel land around a fifth and the imagery still reads.
+
+     THE SCREEN IS WHY THE SCALE DID NOT HAVE TO MOVE, and it still is: the
+     ground is the right lever for a contrast problem and the levels are the
+     wrong one. The levels moved anyway, later and by instruction, for absolute
+     presence rather than for contrast -- see the price list above. The two
+     changes are independent and the screen's argument does not depend on the
+     scale's.
 
      IT ALSO MOVES A TINTED ZONE'S OUTLINE, which is correct and is the reason
      the outline is on this scale at all -- a committed survey area's boundary
      gets the same lift its neighbouring hatch does, while its wash stays on
      the --tint-* levels below. */
-  --pattern-committed: 0.4;
-  --pattern-active: 0.55;
+  --pattern-committed: 0.55;
+  --pattern-active: 0.75;
   --pattern-focused: 1;
 
   /* HOW HEAVY A TINTED ZONE'S SCREEN IS, in the same three states.

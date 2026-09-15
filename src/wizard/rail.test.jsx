@@ -30,6 +30,10 @@
  * different orders and see which one wins.
  */
 
+import path from 'node:path'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -43,6 +47,9 @@ import {
 } from './stepDefinitions'
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
+
+/** This file's own directory's parent -- src/ -- for the source reads below. */
+const SRC = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 
 /**
  * The backend's STEP_ORDER, as a fixture. It is written out because a test
@@ -223,26 +230,43 @@ describe('1. the rail at the boundary step', () => {
       const row = ui.container.querySelector(`[data-testid="rail-${stepId}"]`)
       expect(row.className).toContain('chrome-rail__step--ahead')
     }
-    // A BUILT STEP SAYS WHAT IS TRUE OF IT: not yet. An unbuilt one says
+    // A BUILT STEP SAYS WHAT IS TRUE OF IT: pending. An unbuilt one says
     // something more specific -- not built yet -- and that outranks
     // reachability, because "you cannot get here" and "this does not exist" are
     // different answers to someone looking at a dimmed row.
     //
-    // WATER MOVED FROM THE SECOND LIST TO THE FIRST, which is this branch's
-    // doing and is the only change here: it has a definition now, so it says
-    // the same thing landform says. The four still to come keep saying the
-    // other thing, which is what keeps the distinction meaningful.
-    expect(ui.statusWord(REGISTERED)).toBe('not yet')
-    expect(ui.statusWord('water')).toBe('not yet')
-    // ROADS MOVED TOO, with its own branch: it has a definition now.
-    expect(ui.statusWord('roads')).toBe('not yet')
-    // AND TREES, with its own.
-    expect(ui.statusWord('trees')).toBe('not yet')
-    // AND STRUCTURES, with its own. Fencing is the one still to come.
-    expect(ui.statusWord('structures')).toBe('not yet')
-    for (const unbuilt of ['fencing']) {
+    // IT WAS 'not yet' AND IT READS AS A REFUSAL. "Not yet" answers a request,
+    // and a reader scanning the shape of the job has not made one; on the row
+    // under the cursor it reads as an instruction and four rows down it reads
+    // as the app declining something. 'pending' states the row's condition and
+    // asks nothing of anyone. See StepRail's statusWord().
+    //
+    // AND IT NAMES NO BLOCKER, WHICH IS THE OTHER HALF OF THE CHOICE. Trees is
+    // the row that makes it matter: it consumes production, water AND roads,
+    // so the step that unblocks it is whichever of three is outstanding and is
+    // not in general the row above it. A word implying "the one above" would be
+    // wrong on exactly the rows a reader is most likely to check.
+    //
+    // WATER MOVED FROM THE SECOND LIST TO THE FIRST on its own branch: it has a
+    // definition now, so it says the same thing landform says. The four that
+    // followed did the same, which is why nothing reads 'not built yet'.
+    expect(ui.statusWord(REGISTERED)).toBe('pending')
+    expect(ui.statusWord('water')).toBe('pending')
+    expect(ui.statusWord('roads')).toBe('pending')
+    expect(ui.statusWord('trees')).toBe('pending')
+    expect(ui.statusWord('structures')).toBe('pending')
+    expect(ui.statusWord('fencing')).toBe('pending')
+    for (const unbuilt of []) {
       expect(ui.statusWord(unbuilt), `${unbuilt} has no definition yet`).toBe('not built yet')
     }
+
+    // AND THE OLD WORD IS GONE FROM THE RAIL, not merely unused by these rows:
+    // a second spelling left in the component is a second answer waiting to be
+    // returned by a branch nobody re-read.
+    const rail = readFileSync(path.join(SRC, 'wizard', 'shell', 'StepRail.jsx'), 'utf8')
+    const code = rail.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(code).not.toMatch(/'not yet'/)
+    expect(code).toMatch(/'pending'/)
 
     // BOUNDARY IS NOT DIMMED and is fully usable: it is the step being asked
     // for, and the rail showing six rows behind it changes nothing about it.

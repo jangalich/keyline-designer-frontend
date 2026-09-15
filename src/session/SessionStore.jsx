@@ -506,13 +506,25 @@ function reduce(state, action) {
        * no longer compute from a list the store has already replaced.
        *
        * THE ARRAY FORM IS UNTOUCHED, so every other caller is unchanged: an
-       * outright "the selection is now this" (a step's own commit path, the
-       * roads network the generate just made) is not composing with anything.
+       * outright "the selection is now this" (a step's own commit path) is not
+       * composing with anything.
+       *
+       * AND THE FUNCTION IS HANDED THE WHOLE STATE BESIDE THE LIST, for the
+       * same reason and one step further. WizardCursor computes roads'
+       * selection from what is FOCUSED, which means asking the step's own
+       * `tabs()` -- over the PROPOSALS. A generate focuses the network it has
+       * just routed, and the payload carrying that network reached the store
+       * in the dispatch immediately before this one: a closure computing from
+       * the state it rendered with would look for the new network in the
+       * payload that predates it, find no tab, and select nothing. Reducers
+       * run in order, so the state here already carries it. Same rule as the
+       * list above -- move the READ into the reducer, leave the arithmetic
+       * with the caller who understands it.
        */
       const draft = draftOf(state, action.stepId)
       const next =
         typeof action.featureIds === 'function'
-          ? action.featureIds(draft.selectedFeatureIds)
+          ? action.featureIds(draft.selectedFeatureIds, state)
           : action.featureIds
       return withDraft(state, action.stepId, {
         ...draft,

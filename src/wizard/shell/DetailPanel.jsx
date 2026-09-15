@@ -31,6 +31,27 @@
  * two render through one component.
  *
  *
+ * TWO SHAPES A DETAIL MAY DECLARE, AND ONE OF THEM IS THE SHARED FORMAT
+ *
+ * `rows: [...]` IS THE SHARED FORMAT and it is where all six steps are going.
+ * The arrangement -- header, the tab's own rows, a break, the step's rows, the
+ * cautions -- is panelFormat.js's, and a step supplies values and labels and
+ * nothing else. Production declares it. See panelFormat.js for every rule and
+ * for why each one is a rule.
+ *
+ * `fields`/`groups` IS WHAT THE REMAINING FOUR STILL DECLARE, and the
+ * paragraphs below are its notes. It is not a second format so much as the
+ * format before it was one: each of them arrived with its own arrangement of
+ * the same facts, which is the drift this branch exists to stop. Each migrates
+ * on its own branch, against the format production now carries; a group is
+ * exactly one run of rows between two breaks, so nothing loses a distinction
+ * when it moves. Production declared the format and WATER IS THE SECOND, which
+ * is the one that mattered -- see below.
+ *
+ * ONE PANEL RENDERS BOTH, which is the point -- a step that has not migrated
+ * yet is still rendered by this file and not by itself.
+ *
+ *
  * GROUPS, AND WHY THE FLAT LIST COULD NOT CARRY THE SECOND STEP
  *
  * A detail may return `groups: [{label, fields}]` INSTEAD OF `fields`. Both
@@ -44,12 +65,27 @@
  * every categorical reading as prose. That sort was a typographic rule with an
  * ordering side effect nobody had to notice.
  *
- * Water's is four groups that mean different things -- the acreage the tab had
- * no room for, the terrain, the agreement between two survey instruments, and
- * the cautions -- and the order is the argument. A sort by type interleaves
+ * Water's was four groups that mean different things -- the acreage the tab
+ * had no room for, the terrain, the agreement between two survey instruments,
+ * and the cautions -- and the order is the argument. A sort by type interleaves
  * all four and the reader is left to work out which figure belongs to which
  * question. There was no field that could say "these three go together and
  * come first".
+ *
+ * WATER HAS MIGRATED, AND ITS FOUR GROUPS BECAME TWO UNLABELLED RUNS -- which
+ * is the finding this note should be read with. What the groups were carrying
+ * was ORDER and a RULE BETWEEN THE RUNS, and the format carries both: rows
+ * render in declared order and PANEL_BREAK draws the rule. The LABELS turned
+ * out to be the part that was not load-bearing, because the runs say what they
+ * are ("water delivery", "median slope %" / "production overlap %", "also
+ * excavated 2"). So the schema gap this note records was real and the fix was
+ * not a labelled group; it was declared order plus a break, which is what
+ * panelFormat gives every step. TREES THEN EARNED THE LABEL that water could
+ * not: a break may carry a heading now (labelledBreak), and MARGINAL BENEFITS
+ * is the first and only one in the build -- a claim about three bare terms that
+ * the terms do not make themselves. The label is still an exception rather than
+ * the group label coming back; see panelFormat's rule 5 for the bar it has to
+ * clear, which water's four groups and roads' two runs both failed.
  *
  * WHAT THE GROUP DOES NOT DO IS RE-SORT. Inside a group the fields render in
  * DECLARED order, and a measured field and a prose one may sit next to each
@@ -90,10 +126,25 @@
  * front of the backend's measurement.
  */
 
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 
 import { useDrawingProgress } from '../../map/DrawingProgress.jsx'
 import { useWizardCursor } from '../WizardCursor.jsx'
+import { MEASURED, TERM, breakLabel, headerFor, isBreak, panelBody } from './panelFormat.js'
+
+/**
+ * THE CAUTIONS WORTH A LINE. A caution at exactly zero acres is the checker
+ * saying it looked and found none, which is an answer and not a warning -- the
+ * panel's shared rule, applied where the panel can apply it (panelFormat.js,
+ * dropsAtZero). NULL IS DIFFERENT and still renders: not known is not none.
+ *
+ * A sub-floor crossing never gets this far -- cautionsFor() drops it, and drops
+ * the map marker with it -- so this is the backstop for a zero that came off
+ * the payload rather than out of a gesture.
+ */
+function cautionsWorthALine(cautions) {
+  return (cautions ?? []).filter((caution) => Number(caution.acres) !== 0)
+}
 
 /**
  * One caution: the acreage, then the layer's own label, verbatim.
@@ -107,6 +158,85 @@ function CautionLine({ caution }) {
       <span className="measure">{Number(caution.acres).toFixed(1)}</span>
       <span className="chrome-detail__caution-label">acres — {caution.label}</span>
     </li>
+  )
+}
+
+/**
+ * THE SHARED FORMAT, RENDERED. One grid for the whole body -- every row the
+ * step declared and every row its tab did -- so one decimal point runs down
+ * the panel from the first figure to the last, across the break.
+ *
+ * A BREAK IS A RULE ACROSS THE GRID, not the start of a second one. Two grids
+ * size their columns independently and `42.9` above the rule would stop lining
+ * up with `3.2` below it, which is the whole thing the column is for.
+ *
+ * THE THREE FACES ARE SET DIFFERENTLY AND THEY HAVE TO BE. A measured value
+ * takes the number track: mono, tabular figures, right-aligned. A categorical
+ * takes the same left edge and the slack beside it, in the prose face, OUT of
+ * the track -- see panelFormat.js for what forcing a word into it costs. A TERM
+ * takes every track, because it has no label to leave a hole where.
+ *
+ * A LABELLED BREAK IS THE RULE AND THEN A HEADING, IN THAT ORDER AND AS TWO
+ * NODES. An <hr> cannot contain text and a heading cannot draw the panel's
+ * hairline, so the one declaration renders as both -- which also keeps the rule
+ * identical to every unlabelled break rather than a second thing that looks
+ * like one. Both span the whole grid, so the body is still ONE grid and the
+ * heading does not sit in a column.
+ *
+ * THE HEADING IS AN <h4> UNDER THE PANEL'S <h3>. It is a real heading -- it
+ * says what the rows below it ARE, which is a claim they do not make -- and the
+ * document outline should carry it. That is the difference from
+ * `.chrome-detail__group`, which is deliberately not a heading element: a group
+ * label divides one list, and there is one heading in that panel and it is the
+ * feature's name. This one is the case that note was leaving room for.
+ */
+function PanelRows({ body, stepId }) {
+  return (
+    <div className="chrome-detail__rows" data-testid={`detail-rows-${stepId}`}>
+      {body.map((row, index) => {
+        if (isBreak(row)) {
+          const label = breakLabel(row)
+          return (
+            <Fragment key={`break-${index}`}>
+              <hr className="chrome-detail__break" data-testid={`detail-break-${stepId}`} />
+              {label ? (
+                <h4 className="chrome-detail__heading" data-testid={`detail-heading-${stepId}`}>
+                  {label}
+                </h4>
+              ) : null}
+            </Fragment>
+          )
+        }
+        if (row.kind === TERM) {
+          return (
+            <p
+              key={`${row.value}-${index}`}
+              className="chrome-detail__row"
+              data-row={row.kind}
+            >
+              <span className="chrome-detail__term" data-testid={`detail-term-${row.value}`}>
+                {row.value}
+              </span>
+            </p>
+          )
+        }
+        return (
+          <p key={`${row.label}-${index}`} className="chrome-detail__row" data-row={row.kind}>
+            <span
+              className={
+                row.kind === MEASURED
+                  ? 'measure chrome-detail__figure'
+                  : 'chrome-detail__phrase'
+              }
+              data-testid={`detail-value-${row.label}`}
+            >
+              {row.value}
+            </span>
+            <span className="chrome-detail__row-label">{row.label}</span>
+          </p>
+        )
+      })}
+    </div>
   )
 }
 
@@ -202,6 +332,19 @@ export default function DetailPanel({ machine }) {
   // step does not recognise is a real answer and lands here too.
   if (!drawing && !detail) return null
 
+  // THE FEATURE'S OWN TAB, WHICH IS WHERE ITS IDENTITY AND ITS TOP ROWS COME
+  // FROM under the shared format. Read here rather than restated by the step,
+  // so the strip and the panel cannot come to disagree about either -- see
+  // panelFormat.js rules 1 and 2. A step whose tabs are not per-feature simply
+  // finds nothing, and the panel falls back to the detail's own name.
+  const tab = detail?.rows
+    ? definition.tabs(machine.context).find((entry) => entry.id === focusedFeatureId) ?? null
+    : null
+  const body = detail?.rows ? panelBody(tab, detail.rows) : null
+
+  // Computed once, for the branch that is about to render.
+  const cautions = cautionsWorthALine(drawing ? liveCautions : detail.cautions)
+
   return (
     <aside
       className="chrome-detail"
@@ -224,9 +367,9 @@ export default function DetailPanel({ machine }) {
                 {points.length < 3 ? ' — 3 close the shape' : ''}
               </span>
             </p>
-            {liveCautions.length ? (
+            {cautions.length ? (
               <ul className="chrome-detail__cautions" data-testid={`detail-cautions-${stepId}`}>
-                {liveCautions.map((caution) => (
+                {cautions.map((caution) => (
                   <CautionLine key={caution.type} caution={caution} />
                 ))}
               </ul>
@@ -236,7 +379,7 @@ export default function DetailPanel({ machine }) {
       ) : (
         <>
           <h3 className="chrome-detail__name" data-testid={`detail-name-${stepId}`}>
-            {detail.name}
+            {headerFor(tab, detail)}
           </h3>
           {/* NOT A <dl>. The value comes before its label in the DOM because
               it comes before it in the grid -- right-aligned figure, then
@@ -255,17 +398,21 @@ export default function DetailPanel({ machine }) {
               differently and the figures still share one column; they are no
               longer reordered to do it. See GROUPS above. */}
           <div className="chrome-detail__body">
-            {groupsOf(detail).map((group, index) => (
-              <Group
-                key={group.id ?? group.label ?? `group-${index}`}
-                group={group}
-                stepId={stepId}
-                scrollTarget={detail.scrollTo != null && group.id === detail.scrollTo}
-              />
-            ))}
-            {detail.cautions.length ? (
+            {body ? (
+              <PanelRows body={body} stepId={stepId} />
+            ) : (
+              groupsOf(detail).map((group, index) => (
+                <Group
+                  key={group.id ?? group.label ?? `group-${index}`}
+                  group={group}
+                  stepId={stepId}
+                  scrollTarget={detail.scrollTo != null && group.id === detail.scrollTo}
+                />
+              ))
+            )}
+            {cautions.length ? (
               <ul className="chrome-detail__cautions" data-testid={`detail-cautions-${stepId}`}>
-                {detail.cautions.map((caution) => (
+                {cautions.map((caution) => (
                   <CautionLine key={caution.type} caution={caution} />
                 ))}
               </ul>

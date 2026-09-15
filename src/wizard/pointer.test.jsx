@@ -369,6 +369,22 @@ const tokenColour = (token) =>
     return colour
   }, token)
 
+/**
+ * A NUMERIC TOKEN'S VALUE, off the page, the way tokenColour reads a colour.
+ *
+ * BECAUSE A LEVEL IS index.css's TO CHOOSE. The committed opacity was asserted
+ * here as the literal 0.4, which is a second copy of --pattern-committed, and
+ * it broke the day the scale was raised to 0.55 -- with nothing about the
+ * access point having changed. What this file has to say about a committed
+ * point is that it is drawn at the COMMITTED LEVEL, whatever that is; the
+ * number is the stylesheet's business and is asserted there.
+ */
+const tokenNumber = (token) =>
+  evaluate(
+    (name) => Number(getComputedStyle(document.documentElement).getPropertyValue(name).trim()),
+    token
+  )
+
 /* ---------------------------------------------------------------------------
    ORDER, AND WHY THERE IS ONLY ONE PAGE
    ---------------------------------------------------------------------------
@@ -520,8 +536,9 @@ describeIf('the checkbox takes a real click in both directions', () => {
       ).map((definition) => definition.id)
     )
     // TREES JOINED BY EXISTING, and has its own section below. So did
-    // STRUCTURES, whose placed tabs carry the × as well.
-    expect(registered).toEqual(['landform', 'water', 'trees', 'structures'])
+    // STRUCTURES, whose placed tabs carry the × as well, and FENCING, whose
+    // tab is a fence TYPE and whose box toggles every loop of it.
+    expect(registered).toEqual(['landform', 'water', 'trees', 'structures', 'fencing'])
   })
 
   for (const [where, viewport] of STAGES) {
@@ -533,6 +550,74 @@ describeIf('the checkbox takes a real click in both directions', () => {
       await resize(ROOMY)
     })
   }
+
+  /**
+   * ...AND WITH THE DETAIL PANEL OPEN, WHICH IS A STATE THE BOX NOW HAS.
+   *
+   * The panel is a floating card in the map's top-right corner and the strip
+   * is in the bottom row, so on paper they never meet -- layout.test.jsx
+   * measures exactly that and does it at four viewport heights. What layout
+   * cannot answer is the question this file exists for: whether the browser
+   * agrees about which element is at a coordinate. The panel is a positioned
+   * card over the same overlay; "they do not overlap" and "the box still takes
+   * the press" are two different claims and only one of them has been made.
+   *
+   * IT IS ALSO A NEW STATE. The panel used to open on a click and say the same
+   * kind of thing at any width; it now repeats the tab's OWN ROWS above its
+   * break, so it grows with the strip's content rather than independently of
+   * it, and the squeezed stage is where a growing card finds a control.
+   *
+   * AND THE PANEL ITSELF OFFERS NOTHING TO PRESS, which is asserted rather
+   * than assumed -- "any panel control" has an answer, and the answer is that
+   * under the shared format there are none. A step that adds one joins this
+   * case by failing it.
+   */
+  liveIt('keeps the box pressable with the detail panel open, at both widths', async () => {
+    const [first] = await shownBoxes()
+    expect(first, 'landform has a tab to focus').toBeDefined()
+
+    for (const [where, viewport] of STAGES) {
+      await resize(viewport)
+      // THE PANEL OPENS ON A REAL PRESS of the tab body, which is the gesture.
+      await press(`tab-focus-${first}`)
+      const open = await evaluate(() => document.querySelector('.chrome-detail') !== null)
+      expect(open, `${where}: the panel opened`).toBe(true)
+
+      // IT IS THE SHARED FORMAT that is on screen -- the rows grid, with the
+      // tab's own rows repeated above a break.
+      expect(
+        await evaluate(() => document.querySelectorAll('.chrome-detail__rows hr').length),
+        `${where}: the panel shows the format's break`
+      ).toBe(1)
+
+      // NOTHING IN THE PANEL IS A CONTROL. No button, no input, no link, and
+      // nothing given a role or a tabindex that makes it one.
+      expect(
+        await evaluate(() =>
+          [
+            ...document.querySelectorAll(
+              '.chrome-detail button, .chrome-detail input, .chrome-detail select, ' +
+                '.chrome-detail textarea, .chrome-detail a[href], .chrome-detail [tabindex], ' +
+                '.chrome-detail [role="button"], .chrome-detail [onclick]'
+            ),
+          ].map((el) => el.tagName)
+        ),
+        `${where}: the detail panel offers nothing to press`
+      ).toEqual([])
+
+      // AND THE BOX IS STILL THE ELEMENT AT ITS OWN CENTRE, both ways, with
+      // the panel on screen the whole time.
+      await pressableBothWays('landform', first, `${where} with the panel open`)
+      expect(
+        await evaluate(() => document.querySelector('.chrome-detail') !== null),
+        `${where}: the panel is still open after the presses`
+      ).toBe(true)
+
+      // Let go of the focus, so the next width starts from the same place.
+      await press(`tab-focus-${first}`)
+    }
+    await resize(ROOMY)
+  })
 })
 
 /* ===========================================================================
@@ -868,7 +953,7 @@ describeIf('the trees checkbox and ×', () => {
     expect(committedAccess, 'the committed access point is still on the map').toBeDefined()
     expect(committedAccess.colour).toBe(await tokenColour('--ink'))
     expect(committedAccess.colour).toBe(await tokenColour('--road'))
-    expect(committedAccess.opacity).toBeCloseTo(0.4, 5)
+    expect(committedAccess.opacity).toBeCloseTo(await tokenNumber('--pattern-committed'), 5)
     const ochre = await tokenColour('--ochre')
     expect(atTrees.some((m) => m.colour === ochre)).toBe(false)
   })
@@ -1031,7 +1116,7 @@ describeIf('the structures checkbox and ×', () => {
     expect(livePin.opacity).toBe(1)
     const committedAccess = atStructures.find((m) => m.kind === 'access point (committed)')
     expect(committedAccess.colour).toBe(await tokenColour('--ink'))
-    expect(committedAccess.opacity).toBeCloseTo(0.4, 5)
+    expect(committedAccess.opacity).toBeCloseTo(await tokenNumber('--pattern-committed'), 5)
     expect(committedAccess.colour).not.toBe(livePin.colour)
   })
 
@@ -1151,6 +1236,90 @@ describeIf('the structures checkbox and ×', () => {
     expect(await placedIds()).toEqual([])
     expect(await topAt('place-structures')).toMatchObject({ hits: true })
     expect(await evaluate(() => document.querySelector('[data-testid="place-structures"]').disabled)).toBe(false)
+  })
+})
+
+/* ===========================================================================
+   4c. THE FENCING CHECKBOX -- A TAB THAT IS A FENCE TYPE
+   ===========================================================================
+   The sixth step's tab is a GROUP: one box toggles every loop of a fence
+   type. The strip is the same strip, so the claim is the same claim -- the
+   box is topmost at its own centre in both states, at both widths -- asked
+   of a tab whose id is not a feature id and whose box moves several. The
+   fencing step is reached from wherever the page is: structures, generated
+   with three candidates and no placed site, is committed whole.
+   =========================================================================== */
+
+describeIf('the fencing checkbox', () => {
+  async function reachFencing() {
+    if ((await cursorStep()) === 'fencing') return
+    if ((await cursorStep()) !== 'structures') {
+      await reachTrees()
+      if ((await statusOf('trees')) !== 'generated') await generate('trees')
+      await commit('trees')
+    }
+    if ((await statusOf('structures')) !== 'generated') await generate('structures')
+    await commit('structures')
+    expect(await cursorStep()).toBe('fencing')
+  }
+
+  liveIt('reaches the fencing step and generates, with no tool at all', async () => {
+    await reachFencing()
+    expect(await evaluate(() => window.__probe.cursor.armed)).toBeNull()
+    expect(await evaluate(() => window.__probe.cursor.tools)).toEqual(['select'])
+    await generate('fencing')
+    expect(await statusOf('fencing')).toBe('generated')
+    const tabs = await shownTabs()
+    expect(tabs.length, 'one tab per candidate fence type').toBeGreaterThanOrEqual(1)
+    expect(tabs.length).toBeLessThanOrEqual(3)
+    // EVERY TAB IS A TYPE, NOT A FEATURE: its id is a fence type, its box
+    // carries every feature of that type.
+    const types = await evaluate(() =>
+      window.__probe.state.steps.fencing.proposals.candidate_fence_types
+    )
+    expect(tabs).toEqual(types)
+    expect((await shownBoxes()).length).toBe(tabs.length)
+    // [5] THE MARKERS THAT SHARE THIS MAP: the committed access point and
+    // the committed site pins, each in its settled colour, nothing live.
+    const markers = await assertPointMarkersDistinct('fencing')
+    expect(markers.find((m) => m.kind.startsWith('access point')).kind).toBe('access point (committed)')
+    expect(markers.some((m) => m.kind.includes('(live)'))).toBe(false)
+  })
+
+  for (const [where, viewport] of STAGES) {
+    liveIt(`every type's box, un-checked and checked by the mouse, on ${where}`, async () => {
+      await resize(viewport)
+      for (const tabId of await shownBoxes()) {
+        await pressableBothWays('fencing', tabId, where)
+        // AND THE BOX MOVED THE WHOLE TYPE: the selection holds every one of
+        // its feature ids once it is back on.
+        const ids = await evaluate(
+          (type) =>
+            window.__probe.state.steps.fencing.proposals.fence_types.find((b) => b.fence_type === type).feature_ids,
+          tabId
+        )
+        const selected = await evaluate(() => window.__probe.selectDraft(window.__probe.state, 'fencing').selectedFeatureIds)
+        for (const id of ids) expect(selected).toContain(id)
+      }
+      await resize(ROOMY)
+    })
+  }
+
+  liveIt('leaves the whole type out of the commit body when its box is off, and puts it all back', async () => {
+    const [tabId] = await shownBoxes()
+    const ids = await evaluate(
+      (type) => window.__probe.state.steps.fencing.proposals.fence_types.find((b) => b.fence_type === type).feature_ids,
+      tabId
+    )
+    expect(ids.length).toBeGreaterThan(0)
+    const before = JSON.parse(await commitBody('fencing'))
+    for (const id of ids) expect(before.features.features.map((f) => f.id)).toContain(id)
+    await press(`tab-check-${tabId}`)
+    const off = JSON.parse(await commitBody('fencing'))
+    for (const id of ids) expect(off.features.features.map((f) => f.id)).not.toContain(id)
+    await press(`tab-check-${tabId}`)
+    const back = JSON.parse(await commitBody('fencing'))
+    expect(back.features.features.map((f) => f.id).sort()).toEqual(before.features.features.map((f) => f.id).sort())
   })
 })
 

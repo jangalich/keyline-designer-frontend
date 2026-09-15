@@ -1972,8 +1972,9 @@ describe('12. the commit body reads the step being committed', () => {
 
   it('raises for a step the registry does not carry', () => {
     const state = { steps: {}, drafts: {} }
-    // 'fencing', not 'structures': structures has a definition as of its branch.
-    expect(() => buildCommitBody(state, 'fencing', registryProposalFeatures)).toThrow(/fencing/)
+    // A step no branch registers: every step in the pipeline's order has a
+    // definition now (fencing was the last), so the case is an invented id.
+    expect(() => buildCommitBody(state, 'irrigation', registryProposalFeatures)).toThrow(/irrigation/)
   })
 })
 
@@ -1981,18 +1982,22 @@ describe('12. the commit body reads the step being committed', () => {
    13. THE DISPLAY-ONLY SMOOTHED OUTLINE
    ===========================================================================
 
-   Production and tree zones are unions of 5 m DEM cells, so their edges are
-   pixel boundaries: an unbroken right-angle staircase. The printed layout map
-   has never drawn that -- it smooths the same shape first -- so this map was
-   the one disagreeing about what a zone looks like. The server now ships that
-   smoothed ring beside the geometry, under
+   A production zone is a union of 5 m DEM cells, so its edge is a pixel
+   boundary: an unbroken right-angle staircase. The printed layout map has
+   never drawn that -- it smooths the same shape first -- so this map was the
+   one disagreeing about what a zone looks like. The server ships that smoothed
+   ring beside the geometry, under
    `properties.display_only_smoothed_outline`, computed by the SAME function
    the PDF uses.
 
-   WHAT THIS SECTION ASSERTS IS THAT THE MAP DRAWS IT, and that nothing else
-   does. Water survey zones are clipped envelopes and roads are LineStrings --
-   neither is a cell union, neither carries the field, and both must render
-   exactly what they always did.
+   WHAT THIS SECTION ASSERTS IS THAT THE MAP DRAWS IT WHEN IT IS THERE, and
+   that nothing else does. The field is synthesised here rather than taken off
+   a real payload, so what is under test is the renderer's substitution and not
+   which layers happen to ship the property today. Water survey zones are
+   clipped envelopes, roads are LineStrings, and tree candidates are cell
+   unions the layout map itself draws unsmoothed -- none of the three carries
+   the field on the wire, and all three must render exactly what they always
+   did.
    =========================================================================== */
 
 /** The property name the wire carries, matching display_outline.py's own. */
@@ -2154,13 +2159,15 @@ describe('13. the display-only smoothed outline', () => {
     const mentions = files.filter((file) => readFileSync(file, 'utf8').includes(DISPLAY_ONLY_OUTLINE))
     expect(mentions.map((file) => path.relative(SRC, file))).toEqual(['map/layers.jsx'])
 
-    // AND THE LINE RENDERER DOES NOT READ IT. A road is a LineString and has
-    // no staircase; its path is built straight off `feature.geometry`.
+    // AND THE LINE RENDERER DOES NOT NAME IT. A road is a LineString and has
+    // no staircase. The line renderer does draw through drawnAs() now -- a
+    // FENCE line is drawn with its own display-only line, the second wire
+    // name that function reads -- but no line feature carries the smoothed
+    // outline, and the renderer never spells it.
     const layers = codeOf('layers.jsx')
     const lineLayer = layers.slice(layers.indexOf('function LineLayer'))
     expect(lineLayer).not.toContain(DISPLAY_ONLY_OUTLINE)
-    expect(lineLayer).not.toContain('drawnAs')
-    expect(lineLayer).toContain('lineLatLngs(feature.geometry)')
+    expect(lineLayer).toContain('lineLatLngs(drawnAs(feature, layer).geometry)')
 
     // NOR DOES THE GEOMETRY MODULE the clamp and the cautions live in.
     const zoneGeometry = readFileSync(path.join(SRC, 'zoneGeometry.js'), 'utf8')

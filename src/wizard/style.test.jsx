@@ -422,12 +422,19 @@ describe('2. measured values', () => {
     // either in a .chrome-tab__value (a measurement) or in the .chrome-tab__name
     // (the rank), and both are the data face. A figure that escaped into a
     // prose span is what this catches.
+    //
+    // THE SCORE'S DENOMINATOR IS NOT AN EXCEPTION TO THIS, because it is not on
+    // the strip. Landform's score row declares `denominator: 100` and the strip
+    // renders "score"; the PANEL renders "/100 score", off the same row. See
+    // panelFormat.denominated(). The rule here stays strict, which is why the
+    // split is worth having.
     for (const tab of ui.container.querySelectorAll('.chrome-tab__body')) {
       for (const child of tab.children) {
         if (!/\d/.test(child.textContent)) continue
         expect(
           child.classList.contains('chrome-tab__value') ||
-            child.classList.contains('chrome-tab__name')
+            child.classList.contains('chrome-tab__name'),
+          `a figure in ${child.className}: "${child.textContent}"`
         ).toBe(true)
       }
     }
