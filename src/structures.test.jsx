@@ -85,9 +85,9 @@ import {
   SITE_ORIGIN_PLACED,
   STEP_DEFINITIONS,
   STRUCTURES_STEP,
-  STRUCTURE_FACTORS,
   STRUCTURE_SITE_INPUT,
   STRUCTURE_SITE_LAYER,
+  aspectPhrase,
   defineStep,
   gateStatement,
   isPlacedSite,
@@ -97,12 +97,13 @@ import {
   registryProposalFeatures,
   roadNetworks,
   roadProximitySource,
-  structureFactorsByWeight,
   structureSiteFootprint,
   structureSiteName,
   structureSites,
   violatedGates,
+  violatedRuleRows,
 } from './wizard/stepDefinitions'
+import { breakLabel, denominated, isBreak, panelBody } from './wizard/shell/panelFormat.js'
 import { MACHINE_STATES } from './wizard/useStepMachine.js'
 import { resetStepCatalog } from './wizard/stepCatalog.jsx'
 import WizardShell from './wizard/WizardShell.jsx'
@@ -454,6 +455,34 @@ describe('1. end to end against the real backend', () => {
         candidates.map((f) => f.id).sort()
       )
 
+      // [3] ft to road IS A MEASUREMENT ON THIS PARCEL, and it is asserted
+      // because it was not. Every reported distance used to run from the
+      // 0.1-acre PAD; the road-proximity constraint tunes candidates to sit
+      // close to a road, shapely returns 0.0 for geometries that intersect,
+      // and the pad intersected the road by construction -- so the tab's
+      // headline figure read 0.0 on nine of eleven clearing footprints here.
+      // It is measured from the site's own point now. A zero would be that
+      // bug back, so nothing on this parcel may read one.
+      const roadFeet = candidates.map((f) => f.properties.distance_to_road_ft)
+      for (const feet of roadFeet) {
+        expect(typeof feet, 'the tier is selected_road_corridor, so it is measured').toBe('number')
+        expect(feet, 'ft to road is not 0.0 on any candidate').toBeGreaterThan(0)
+      }
+      // AND IT REACHES THE STRIP AS A FIGURE, not as a dash and not as a zero.
+      for (const feature of candidates) {
+        const values = [...ui.find(`tab-focus-${feature.id}`).querySelectorAll('.chrome-tab__value')]
+        expect(values.map((n) => n.textContent)).toEqual([
+          Number(feature.properties.distance_to_road_ft).toFixed(0),
+          Number(feature.properties.suitability_score).toFixed(1),
+        ])
+        expect(values[0].textContent).not.toBe('0')
+      }
+      // THE TAB'S LABELS: the measurement, then the score, bare -- the
+      // denominator is the panel's.
+      expect(
+        [...ui.find(`tab-focus-${candidates[0].id}`).querySelectorAll('.chrome-tab__label')].map((n) => n.textContent)
+      ).toEqual(['ft to road', 'score'])
+
       // [9] THE ROAD TIER, LIVE: a road was committed, so the distances are
       // to it, and the bar says so.
       expect(roadProximitySource(ui.structures)).toBe('selected_road_corridor')
@@ -502,21 +531,24 @@ describe('1. end to end against the real backend', () => {
       expect(ui.find('structures-notice')).toBeNull()
       expect(ui.find(`notice-violates-${clean.id}-structures`)).toBeNull()
 
-      // THE PANEL FOR THE PLACED SITE: the same fields as a generated one,
-      // the rank as a comparison, the rules it clears.
+      // THE PANEL FOR THE PLACED SITE: the same rows as a generated one,
+      // through the shared format, and no caution run -- it breaks nothing.
       await ui.focus(clean.id)
       expect(ui.text('detail-name-structures')).toBe(`Placed 1 · would rank ${clean.properties.rank}`)
-      expect(ui.text('detail-value-score')).toBe(clean.properties.suitability_score.toFixed(1))
-      expect(ui.text('detail-value-rank')).toContain(`would sit ${clean.properties.rank}th among the 3 generated sites`)
-      expect(ui.text('detail-value-rank')).toContain('a comparison, not a measurement')
-      expect(ui.text('detail-value-road measured to')).toBe('the road you committed')
-      expect(ui.text('detail-value-clears')).toBe('every siting rule the generated sites clear')
+      expect(ui.text('detail-value-/100 score')).toBe(clean.properties.suitability_score.toFixed(1))
+      expect(ui.text('detail-value-ft to road')).toBe(Number(clean.properties.distance_to_road_ft).toFixed(0))
+      expect(ui.text('detail-value-aspect')).toBe(`${clean.properties.dominant_aspect} facing`)
+      expect(clean.properties.aspect_available).toBe(true)
+      expect(ui.text('detail-value-position')).toBe(clean.properties.elevation_position)
+      expect(ui.text('detail-value-avg slope %')).toBe(clean.properties.avg_slope_pct.toFixed(1))
+      expect(ui.text('detail-value-solar rating')).toBe(clean.properties.solar_rating)
+      expect(ui.find('detail-heading-structures')).toBeNull()
       expect(ui.find('detail-cautions-structures')).toBeNull()
-      const weights = ui.structures.summary.factor_weights_pct
-      const merits = ui.find('detail-fields-merits')
-      for (const factor of STRUCTURE_FACTORS) {
-        expect(merits.textContent).toContain(`${factor.label} · ${weights[factor.key].toFixed(0)}% of the score`)
-      }
+      // [7] RANK IS ON THE TAB AND NOT IN THE PANEL, and neither is the
+      // parcel-level prime-farmland flag or any of the four factors.
+      expect(ui.find('detail-value-rank')).toBeNull()
+      expect(ui.find('detail-value-prime farmland')).toBeNull()
+      expect(ui.find('detail-fields-merits')).toBeNull()
       await ui.focus(null)
 
       // [3] OFF THE PARCEL: refused in a sentence, nothing placed, the tool
@@ -547,9 +579,13 @@ describe('1. end to end against the real backend', () => {
       expect(violates.textContent).toContain('Placed 2 scores')
       expect(violates.textContent).toContain('sits under existing tree canopy')
       await ui.focus(canopy.id)
-      const rules = ui.find('detail-fields-rules')
-      expect(rules.textContent).toContain('sits under existing tree canopy')
-      expect(ui.text('detail-value-score')).toBe(canopy.properties.suitability_score.toFixed(1))
+      // THE CAUTION RUN, LAST: the heading, then one term per broken gate.
+      const heading = ui.find('detail-heading-structures')
+      expect(heading.textContent).toMatch(/^siting rules? broken$/)
+      const broken = [...ui.find('detail-rows-structures').querySelectorAll('[data-row="term"]')]
+      expect(broken.map((node) => node.textContent)).toContain('sits under existing tree canopy')
+      expect(broken).toHaveLength(canopy.properties.constraints_violated.length)
+      expect(ui.text('detail-value-/100 score')).toBe(canopy.properties.suitability_score.toFixed(1))
       await ui.focus(null)
       // [10] AND NO CAUTION MARKER, for either placed site: this step records
       // no crossings, and a broken siting rule is a fact on the panel.
@@ -649,11 +685,17 @@ describe('1. end to end against the real backend', () => {
       // THE REHYDRATION CAVEAT, MEASURED. A pad against the boundary is
       // CLIPPED when it is scored, and the rehydrator derives it again
       // UNCLIPPED -- so the server-side site dict's area can differ from the
-      // scored one. What this client ever shows is the feature's own
-      // property, which the document stores as committed: replace the canopy
-      // site with one on the edge, commit, reopen, and the area on the panel
-      // is the scored (clipped) figure both times, never the pad's nominal
-      // tenth of an acre. The discrepancy is not visible here.
+      // scored one. What this client ever holds is the FEATURE'S OWN
+      // properties, which the document stores as committed and hands back on
+      // reopen: replace the canopy site with one on the edge, commit, reopen,
+      // and every measurement is the scored one, byte for byte, never the
+      // pad's nominal tenth of an acre and never a re-derivation.
+      //
+      // THE PAD'S ACREAGE IS NO LONGER A PANEL ROW -- every pad is the same
+      // tenth of an acre unless the boundary clipped it, which is not a
+      // question a reader brings to one site -- so the claim is made where it
+      // actually lives, on the feature. What the PANEL shows through the
+      // round trip is asserted on the rows it has.
       await ui.expand()
       await ui.click(`tab-remove-${canopy.id}`)
       expect(ui.placed).toHaveLength(1)
@@ -662,25 +704,42 @@ describe('1. end to end against the real backend', () => {
       const edge = ui.placed[1]
       expect(edge.properties.footprint_area_acres).toBeLessThan(0.1)
       expect(edge.properties.footprint_area_acres).toBeGreaterThan(0)
-      const scoredArea = edge.properties.footprint_area_acres.toFixed(2)
+      const scoredArea = edge.properties.footprint_area_acres
       await ui.focus(edge.id)
-      expect(ui.text('detail-value-pad acres')).toBe(scoredArea)
+      const edgePanel = [
+        ui.text('detail-value-/100 score'),
+        ui.text('detail-value-ft to road'),
+        ui.text('detail-value-aspect'),
+        ui.text('detail-value-position'),
+        ui.text('detail-value-avg slope %'),
+        ui.text('detail-value-solar rating'),
+      ]
       await ui.focus(null)
       await ui.click('commit-structures')
       await ui.waitFor('structures to commit again', () => selectStepStatus(ui.state, 'structures') === COMMITTED)
       const storedEdge = selectStepFeatures(ui.state, 'structures').features.find((f) => f.id === edge.id)
-      expect(storedEdge.properties.footprint_area_acres).toBe(edge.properties.footprint_area_acres)
+      expect(storedEdge.properties.footprint_area_acres).toBe(scoredArea)
       await ui.run((_, c) => c.open('structures'))
       await ui.click('edit-structures')
       await ui.click('reopen-confirm-yes-structures')
       await ui.waitFor('structures to reopen again', () => selectStepStatus(ui.state, 'structures') === GENERATED)
       await ui.waitFor('the reopened payload again', () => ui.structures != null && ui.state.drafts.structures !== undefined)
+      const rehydrated = ui.placed.find((f) => f.id === edge.id)
+      expect(rehydrated.properties.footprint_area_acres).toBe(scoredArea)
       await ui.focus(edge.id)
-      expect(ui.text('detail-value-pad acres')).toBe(scoredArea)
+      expect([
+        ui.text('detail-value-/100 score'),
+        ui.text('detail-value-ft to road'),
+        ui.text('detail-value-aspect'),
+        ui.text('detail-value-position'),
+        ui.text('detail-value-avg slope %'),
+        ui.text('detail-value-solar rating'),
+      ]).toEqual(edgePanel)
       await ui.focus(null)
       console.log(
-        `STRUCTURES REHYDRATION: edge pad scored at ${edge.properties.footprint_area_acres} acres, ` +
-          `stored at ${storedEdge.properties.footprint_area_acres}, panel shows ${scoredArea} before and after reopen`
+        `STRUCTURES REHYDRATION: edge pad scored at ${scoredArea} acres, ` +
+          `stored at ${storedEdge.properties.footprint_area_acres}, and the panel reads ` +
+          `${JSON.stringify(edgePanel)} before and after reopen`
       )
 
       // [8] COMMIT NONE: every box off, the button renames itself, the
@@ -700,7 +759,10 @@ describe('1. end to end against the real backend', () => {
         `STRUCTURES LIVE: ${candidates.length} generated (${candidates.map((f) => f.properties.suitability_score).join(', ')}); ` +
           `placed clean ${clean.properties.suitability_score} would rank ${clean.properties.rank}; ` +
           `placed canopy ${canopy.properties.suitability_score} would rank ${canopy.properties.rank} ` +
-          `breaking ${JSON.stringify(canopy.properties.constraints_violated)}; road tier selected_road_corridor (asserted above)`
+          `breaking ${JSON.stringify(canopy.properties.constraints_violated)}; road tier selected_road_corridor (asserted above); ` +
+          `ft to road ${JSON.stringify(roadFeet)} on the generated candidates and ` +
+          `${clean.properties.distance_to_road_ft} / ${canopy.properties.distance_to_road_ft} on the placed ones — ` +
+          'none 0.0, which is what this read before the distances moved to the point'
       )
       await ui.unmount()
     }
@@ -757,12 +819,31 @@ function candidate(id, rank, centre, extra = {}) {
       shading_score: 0.75,
       production_proximity_score: 0.5,
       avg_slope_pct: 5.2,
+      // THREE SPELLINGS OF ONE DIRECTION. `aspect` is the 16-point
+      // abbreviation the report quotes; `dominant_aspect` is the same bearing
+      // as production's own 8-point WHOLE WORD, which is what the panel
+      // prints; `aspect_degrees` is what both were derived from.
+      // `aspect_available` false would mean the ground faces nowhere well
+      // enough to name, and the word would be null rather than absent.
       aspect: 'NE',
+      dominant_aspect: 'northeast',
+      aspect_available: true,
       aspect_degrees: 50.0,
+      // THE PANEL'S TWO BANDED WORDS AND THE FIGURES THEY BAND -- both words
+      // are the backend's (SOLAR_RATING_BANDS; production's imported
+      // ELEVATION_POSITION_BANDS), and both figures ride beside them for the
+      // report. The panel renders the words and never the cuts.
+      solar_value: 91.5,
+      solar_rating: 'excellent',
+      elevation_percentile_of_parcel: 80.3,
+      elevation_position: 'upper field',
       footprint_area_acres: 0.1,
       distance_to_road_ft: 45.9,
       road_proximity_source: 'selected_road_corridor',
       distance_to_production_zone_ft: 12.0,
+      // NEGATIVE INSIDE A BLOCK, positive outside, 0.0 on the edge, null with
+      // no blocks. On the wire for the narrative; never in the panel.
+      signed_distance_to_production_ft: 12.0,
       production_zone_relationship: 'adjacent',
       distance_to_water_zone_ft: 300.5,
       constraints_satisfied: [
@@ -825,8 +906,22 @@ function structuresPayload({
 } = {}) {
   const features = [
     candidate(SITE_1, 1, [-74.012, 40.7215]),
-    candidate(SITE_2, 2, [-74.006, 40.7225]),
-    candidate(SITE_3, 3, [-73.996, 40.7135]),
+    // THREE DIFFERENT BAND WORDS ACROSS THE THREE CANDIDATES, so a test that
+    // asserts the panel renders the word cannot pass by rendering a constant.
+    candidate(SITE_2, 2, [-74.006, 40.7225], {
+      solar_value: 81.4,
+      solar_rating: 'great',
+      elevation_position: 'mid field',
+      elevation_percentile_of_parcel: 51.0,
+    }),
+    candidate(SITE_3, 3, [-73.996, 40.7135], {
+      solar_value: 62.0,
+      solar_rating: 'good',
+      elevation_position: 'lower field',
+      elevation_percentile_of_parcel: 11.4,
+      signed_distance_to_production_ft: -32.8,
+      production_zone_relationship: 'inside',
+    }),
   ]
     .slice(0, candidates)
     .map((feature) => ({
@@ -845,13 +940,50 @@ function structuresPayload({
     summary: {
       site_found: features.length > 0,
       candidate_count: features.length,
+      // PROMOTED TO A STEP-LEVEL KEY, beside candidate_count. It is true of
+      // the whole run, and with ft-to-road the tab's headline figure its
+      // meaning depends entirely on it. The same string stays in `gates`,
+      // where the report reads it: one value in two places by design.
+      road_proximity_source: source,
       gates: {
         existing_canopy_excluded: true,
         water_zone_excluded: true,
         tree_zone_exclusion_checked: treeZones,
         road_proximity_source: source,
         prime_farmland_checked: true,
+        hydric_gate_checked: true,
+        floodplain_gate_checked: true,
+        drainage_gates_checked: ['outside_hydric_soil', 'outside_floodplain'],
       },
+      // EVERY BAND SET THIS STEP PUBLISHES, so the frontend holds no
+      // threshold -- and the score's own axis, which is what the panel's
+      // "/100 score" is read off. LANDFORM'S SPELLING (`scales.range[1]`) at
+      // a DIFFERENT DEPTH: build_structures_payload forwards the narrative
+      // whole under `summary`, and the scales block rides the narrative.
+      scales: {
+        range: [0.0, 100.0],
+        direction: 'higher_is_better',
+        applies_to: ['score', 'factors.*'],
+        solar_rating: {
+          range: [0.0, 100.0],
+          direction: 'higher_is_better',
+          bands: { fair: [0.0, 60.0], good: [60.0, 78.0], great: [78.0, 90.0], excellent: [90.0, 100.0] },
+          band_bounds: 'lower_inclusive_upper_exclusive_last_band_inclusive',
+          composed_of: ['aspect_score', 'shading_score'],
+          weight_of_composite_pct: 50.0,
+          not_a: 'rank_among_candidates',
+          calibration: 'unvalidated_starting_values',
+          applies_to: ['solar_value', 'solar_rating'],
+        },
+        elevation_position: {
+          range: [0.0, 100.0],
+          direction: 'higher_is_upslope',
+          bands: { 'lower field': [0.0, 33.3], 'mid field': [33.3, 66.7], 'upper field': [66.7, 100.0] },
+          band_bounds: 'lower_inclusive_upper_exclusive_last_band_inclusive',
+          applies_to: ['elevation_percentile_of_parcel', 'elevation_position'],
+        },
+      },
+      no_candidates: null,
       selected_site: null,
       max_candidates: 3,
       max_placed: maxPlaced,
@@ -859,6 +991,7 @@ function structuresPayload({
         shading_is_rough_proxy: true,
         road_proximity_source: source,
         tree_zone_exclusion_available: treeZones,
+        drainage_gates_checked: ['outside_hydric_soil', 'outside_floodplain'],
         spacing_meters: 25.0,
         max_structure_footprint_acres: 0.1,
       },
@@ -982,6 +1115,17 @@ const contextOver = (proposals, draft = {}) => ({
   proposals,
   draft: { selectedFeatureIds: [], drawnFeatures: [], inputs: {}, ...draft },
 })
+
+/**
+ * THE PANEL'S BODY AS THE PANEL COMPOSES IT -- the tab's own rows, the
+ * format's rule, then the step's. trees.test.jsx's helper, and it is the
+ * whole point of the shared format that the same three lines read any step.
+ */
+const bodyFor = (payload, featureId = SITE_1, draft = {}) => {
+  const context = contextOver(payload, draft)
+  const tab = STRUCTURES_STEP.tabs(context).find((entry) => entry.id === featureId)
+  return panelBody(tab, STRUCTURES_STEP.detail(context, featureId).rows)
+}
 
 /** Inside the fixture parcel, away from everything. [lat, lng]. */
 const INSIDE = [40.7245, -74.015]
@@ -1151,6 +1295,56 @@ describe('4. a site that breaks a siting rule is scored, placed, and told what i
     expect(gateStatement('some_new_gate')).toBe('fails the rule the server calls some_new_gate')
   })
 
+  /**
+   * [test 5] THE TWO DRAINAGE GATES ARE TWO, AND THE PANEL NAMES WHICH.
+   *
+   * This is the test the backend's split exists for. The step used to receive
+   * roads' COMBINED hydric-plus-floodplain union, and one union could only
+   * ever have produced one sentence -- roads' own "wet ground" -- which could
+   * not have told a user which ground they were standing on. They are separate
+   * hard gates on the wire now, a site can break either or both, and a reader
+   * deciding whether to put a building somewhere needs to know whether the
+   * soil drains badly or the water arrives from somewhere else.
+   */
+  it('[test 5] tells hydric soil and the floodplain apart, as two grounds and not one', () => {
+    const hydric = gateStatement('outside_hydric_soil')
+    const floodplain = gateStatement('outside_floodplain')
+
+    // TWO DIFFERENT STATEMENTS, neither the server's raw name.
+    expect(hydric).not.toBe(floodplain)
+    expect(hydric).not.toMatch(/outside_|the server calls/)
+    expect(floodplain).not.toMatch(/outside_|the server calls/)
+    // EACH NAMES ITS OWN GROUND, and neither borrows the other's noun.
+    expect(hydric).toContain('hydric')
+    expect(floodplain).toContain('floodplain')
+    expect(hydric).not.toContain('floodplain')
+    expect(floodplain).not.toContain('hydric')
+    // "wet (hydric) soil" IS THE APP'S EXISTING WORD for the first of them --
+    // the exclusion layer's own label, which landform's cautions print.
+    expect(hydric).toContain('wet (hydric) soil')
+
+    // BOTH, ON ONE SITE: the panel names which, in the wire's order.
+    const both = placedSite(pointToGeoJSON(INSIDE), {
+      id: 'p-wet',
+      score: 51.3,
+      violated: ['outside_hydric_soil', 'outside_floodplain'],
+    })
+    const context = contextOver(structuresPayload(), { drawnFeatures: [both], selectedFeatureIds: ['p-wet'] })
+    const terms = STRUCTURES_STEP.detail(context, 'p-wet').rows.filter((row) => row.kind === 'term')
+    expect(terms.map((row) => row.value)).toEqual([hydric, floodplain])
+
+    // AND EITHER ALONE, so neither is only ever seen beside the other.
+    for (const [gate, statement] of [['outside_hydric_soil', hydric], ['outside_floodplain', floodplain]]) {
+      const one = placedSite(pointToGeoJSON(INSIDE_2), { id: `p-${gate}`, violated: [gate] })
+      const rows = STRUCTURES_STEP.detail(
+        contextOver(structuresPayload(), { drawnFeatures: [one] }),
+        `p-${gate}`
+      ).rows
+      expect(rows.filter((row) => row.kind === 'term').map((row) => row.value)).toEqual([statement])
+      expect(breakLabel(rows.find((row) => isBreak(row)))).toBe('siting rule broken')
+    }
+  })
+
   it('places it with a tab, a notice and a panel group -- not a rejection', async () => {
     const { ui } = await generatedStructures({
       score: (point) => ({ body: { feature: placedSite(point, { rank: 4, score: 59.2, violated: VIOLATED }) } }),
@@ -1180,15 +1374,24 @@ describe('4. a site that breaks a siting rule is scored, placed, and told what i
         'tree canopy; it is farther from a road than the siting rule allows.'
     )
 
-    // THE PANEL: the score AND the rules, stated as facts.
+    // THE PANEL: the score AND the rules, stated as facts, the rules LAST.
     await ui.focus(site.id)
     expect(ui.text('detail-name-structures')).toBe('Placed 1 · would rank 4')
-    expect(ui.text('detail-value-score')).toBe('59.2')
-    const rules = ui.find('detail-fields-rules')
-    expect(ui.text('detail-group-rules')).toBe('The siting rules')
-    expect(ui.text('detail-value-breaks rule 1')).toBe('sits under existing tree canopy')
-    expect(ui.text('detail-value-breaks rule 2')).toBe('is farther from a road than the siting rule allows')
-    expect(rules.textContent).not.toMatch(/error|reject|refus/i)
+    expect(ui.text('detail-value-/100 score')).toBe('59.2')
+    const rows = ui.find('detail-rows-structures')
+    expect(ui.text('detail-heading-structures')).toBe('siting rules broken')
+    const terms = [...rows.querySelectorAll('[data-row="term"]')].map((node) => node.textContent)
+    expect(terms).toEqual([
+      'sits under existing tree canopy',
+      'is farther from a road than the siting rule allows',
+    ])
+    // LAST IN THE BODY: nothing follows the caution run.
+    const children = [...rows.children]
+    const lastTerm = ui.find('detail-term-is farther from a road than the siting rule allows')
+    expect(children.indexOf(lastTerm.parentElement)).toBe(children.length - 1)
+    // AND NOT AN ERROR TREATMENT ANYWHERE IN IT: the site was placed and
+    // scored, which is the whole divergence from trees.
+    expect(rows.textContent).not.toMatch(/error|reject|refus/i)
     expect(ui.find('detail-cautions-structures')).toBeNull()
 
     // NOT AN ERROR ANYWHERE: the step has none, the feature is in the commit.
@@ -1215,13 +1418,22 @@ describe('4. a site that breaks a siting rule is scored, placed, and told what i
       'Placed 1 scores 44.0 and breaks a siting rule the generated sites clear: it averages more than 20% slope.'
     )
     expect(notices.find((n) => n.key === 'violates-p-2')).toBeUndefined()
+    // [test 6] A CLEAN PLACED SITE CARRIES NO CAUTION RUN, and neither does a
+    // generated candidate -- for two different reasons that render the same.
+    // The placed one has `constraints_violated: []`, a real answer; the
+    // generated one never carries the key at all, because the gates are HARD
+    // for it. A row saying it cleared them would be a sentence about nothing.
     const detail = STRUCTURES_STEP.detail(context, 'p-2')
-    expect(detail.groups.find((g) => g.id === 'rules').fields).toEqual([
-      { label: 'clears', value: 'every siting rule the generated sites clear' },
-    ])
-    // A generated candidate carries no rules group: it cleared every gate by
-    // construction and has nothing to put in one.
-    expect(STRUCTURES_STEP.detail(context, SITE_1).groups.find((g) => g.id === 'rules')).toBeUndefined()
+    expect(detail.rows.filter((row) => row.kind === 'term')).toEqual([])
+    expect(detail.rows.filter((row) => isBreak(row))).toEqual([])
+    expect(detail.rows[detail.rows.length - 1].label).toBe('solar rating')
+    const generated = STRUCTURES_STEP.detail(context, SITE_1)
+    expect(generated.rows.filter((row) => row.kind === 'term')).toEqual([])
+    expect(generated.rows.filter((row) => isBreak(row))).toEqual([])
+    expect(violatedGates(registryProposalFeatures(payload, 'structures')[0])).toEqual([])
+    expect(
+      registryProposalFeatures(payload, 'structures')[0].properties
+    ).not.toHaveProperty('constraints_violated')
   })
 })
 
@@ -1263,35 +1475,41 @@ describe('5. a placed site and a generated candidate sharing a rank read apart',
     // The generated ranks are never renumbered by a placed site landing.
     expect(structureSites(ui.structures).map((f) => f.properties.rank)).toEqual([1, 2, 3])
 
-    // AND THE PANELS: the rank row is a comparison on one and a slot on the other.
+    // AND THE PANELS SAY IT IN THEIR HEADERS, which is where the identity
+    // lives under the shared format -- the panel takes the TAB'S OWN NAME
+    // rather than restating it, so the strip and the panel cannot disagree
+    // about which of two sites at rank 2 is being read.
     await ui.focus(placed.id)
-    expect(ui.text('detail-value-rank')).toBe(
-      'would sit 2nd among the 3 generated sites — a comparison, not a measurement; a tie goes to the generated site'
-    )
-    expect(ui.text('detail-value-origin')).toContain('placed by you')
+    expect(ui.text('detail-name-structures')).toBe('Placed 1 · would rank 2')
     await ui.focus(generated.id)
-    expect(ui.text('detail-value-rank')).toBe('2nd of the 3 generated sites — a place in the run’s ranking, not a measurement')
-    expect(ui.text('detail-value-origin')).toContain('suggested by the pipeline')
-    // Neither rank is set as a measured figure.
-    expect(ui.find('detail-value-rank').className).toBe('chrome-detail__value')
+    expect(ui.text('detail-name-structures')).toBe('Site 2')
+    // AND NEITHER CARRIES A `rank` ROW OR AN `origin` ONE. Rank is a
+    // comparison against the shortlist and not a measurement of the spot; the
+    // header already says which kind of site this is.
+    expect(ui.find('detail-value-rank')).toBeNull()
+    expect(ui.find('detail-value-origin')).toBeNull()
     await ui.unmount()
   })
 
-  it('carries three rows: identity, score, and the road distance -- the one siting fact outside the score', () => {
+  it('[test 2] carries three rows: identity, the road distance, then the score', () => {
     const payload = structuresPayload()
     const placed = placedSite(pointToGeoJSON(INSIDE), { rank: 2, score: 68.0, id: 'p-1' })
     placed.properties.distance_to_road_ft = 12.4
     const tabs = STRUCTURES_STEP.tabs(contextOver(payload, { drawnFeatures: [placed], selectedFeatureIds: [SITE_1, 'p-1'] }))
     expect(tabs.map((t) => t.name)).toEqual(['Site 1', 'Site 2', 'Site 3', 'Placed 1 · would rank 2'])
+    // THE MEASUREMENT FIRST, THEN THE SCORE -- the shape every other scored
+    // step's strip takes, and the score's denominator is declared here and
+    // printed only by the panel.
     for (const tab of tabs) {
-      expect(tab.rows.map((r) => r.label)).toEqual(['score', 'ft to road'])
+      expect(tab.rows.map((r) => r.label)).toEqual(['ft to road', 'score'])
+      expect(tab.rows[1].denominator).toBe(100)
       expect(tab.checkbox).toBe(true)
     }
-    expect(tabs[0].rows[0].value).toBe('69.0')
-    expect(tabs[0].rows[1].value).toBe('46')
+    expect(tabs[0].rows[0].value).toBe('46')
+    expect(tabs[0].rows[1].value).toBe('69.0')
     expect(tabs[3].rows).toEqual([
-      { value: '68.0', label: 'score' },
       { value: '12', label: 'ft to road' },
+      { value: '68.0', label: 'score', denominator: 100 },
     ])
     expect(tabs[3]).toMatchObject({ drawn: true, removable: true, selected: true })
     expect(tabs[1].selected).toBe(false)
@@ -1503,12 +1721,14 @@ describe('8. committing several sites succeeds; committing none succeeds', () =>
     expect(ui.placed).toHaveLength(1)
     expect(ui.placed[0]).toEqual(placed)
     expect(selectDraft(ui.state, 'structures').selectedFeatureIds.sort()).toEqual([SITE_1, 'p-home'].sort())
-    // WHAT THE PANEL SHOWS IS THE FEATURE'S OWN STORED PROPERTY -- the clipped
-    // area it was scored over -- and nothing re-derived from the point.
+    // WHAT THE PANEL SHOWS IS THE FEATURE'S OWN STORED PROPERTIES -- what it
+    // was scored with -- and nothing re-derived from the point. The clipped
+    // pad it was scored over rides the feature and is not a panel row.
+    expect(ui.placed[0].properties.footprint_area_acres).toBe(0.084)
     await ui.focus('p-home')
-    expect(ui.text('detail-value-pad acres')).toBe('0.08')
-    expect(ui.text('detail-value-score')).toBe('61.5')
-    expect(ui.text('detail-value-origin')).toContain('placed by you')
+    expect(ui.text('detail-name-structures')).toBe('Placed 1 · would rank 4')
+    expect(ui.text('detail-value-/100 score')).toBe('61.5')
+    expect(ui.text('detail-value-solar rating')).toBe('excellent')
     expect(ui.all('.leaflet-structures--structures-placed-pane .site-pin--placed')).toHaveLength(1)
     await ui.unmount()
   })
@@ -1536,12 +1756,22 @@ describe('8. committing several sites succeeds; committing none succeeds', () =>
    =========================================================================== */
 
 describe('9. road_proximity_source renders its consequence for all three values', () => {
-  it('reads the tier off the run flags, then the gates, and nothing else', () => {
+  it('[test 8] reads the tier off the promoted key, then the run flags, then the gates', () => {
     expect(ROAD_PROXIMITY_SOURCES).toEqual(['selected_road_corridor', 'real_mapped_road', 'unavailable'])
     for (const source of ROAD_PROXIMITY_SOURCES) {
       expect(roadProximitySource(structuresPayload({ source }))).toBe(source)
+      // THE PROMOTED STEP-LEVEL KEY, which is where the backend put it when
+      // ft-to-road became the tab's headline figure.
+      expect(roadProximitySource({ summary: { road_proximity_source: source } })).toBe(source)
+      // And the two places it also still rides, either of which answers alone.
+      expect(roadProximitySource({ summary: { run_flags: { road_proximity_source: source } } })).toBe(source)
       expect(roadProximitySource({ summary: { gates: { road_proximity_source: source } } })).toBe(source)
+      // THREE SENTENCES, ONE PER VALUE, each saying what follows for the user.
+      const consequence = ROAD_PROXIMITY_CONSEQUENCE[source]
+      expect(consequence.text.length).toBeGreaterThan(40)
+      expect(['advisory', 'caution']).toContain(consequence.tone)
     }
+    expect(Object.keys(ROAD_PROXIMITY_CONSEQUENCE).sort()).toEqual([...ROAD_PROXIMITY_SOURCES].sort())
     expect(roadProximitySource(null)).toBeNull()
     expect(roadProximitySource({ summary: {} })).toBeNull()
     expect(roadProximitySource({ summary: { run_flags: { road_proximity_source: 'something_else' } } })).toBeNull()
@@ -1575,26 +1805,29 @@ describe('9. road_proximity_source renders its consequence for all three values'
       await ui.focus(site.id)
       if (source === 'selected_road_corridor') {
         expect(expected.tone).toBe('advisory')
-        expect(labels).toEqual(['score', 'ft to road'])
-        expect(values[1]).toBe('46')
-        expect(ui.text('detail-value-road measured to')).toBe('the road you committed')
+        expect(labels).toEqual(['ft to road', 'score'])
+        expect(values[0]).toBe('46')
+        expect(notice.textContent).toContain('the road you committed')
+        expect(notice.textContent).toContain('not a road that has been built yet')
       } else if (source === 'real_mapped_road') {
         expect(expected.tone).toBe('caution')
         expect(notice.textContent).toContain('No road was committed')
         expect(notice.textContent).toContain('farm roads already mapped')
-        expect(labels).toEqual(['score', 'ft to farm road'])
-        expect(values[1]).toBe('46')
-        expect(ui.text('detail-value-road measured to')).toBe('an existing farm road on the map — no road was committed')
+        expect(labels).toEqual(['ft to farm road', 'score'])
+        expect(values[0]).toBe('46')
       } else {
         expect(expected.tone).toBe('caution')
         expect(notice.textContent).toContain('switched off')
         expect(notice.textContent).toContain('reads as unmeasured')
-        expect(labels).toEqual(['score', 'ft to road'])
+        expect(labels).toEqual(['ft to road', 'score'])
         // NULL IS AN EM DASH AND NEVER A ZERO.
-        expect(values[1]).toBe('—')
+        expect(values[0]).toBe('—')
         expect(ui.text('detail-value-ft to road')).toBe('—')
-        expect(ui.text('detail-value-road measured to')).toBe('no road — none committed, none mapped, rule not applied')
       }
+      // THE TIER IS SAID ONCE, AT STEP LEVEL, AND NEVER IN THE PANEL: it is
+      // true of every candidate in the run, and a row repeating it down every
+      // panel is the same sentence as many times as there are sites.
+      expect(ui.find('detail-value-road measured to')).toBeNull()
       await ui.unmount()
     })
   }
@@ -1655,6 +1888,368 @@ describe('10. no caution markers render on this step', () => {
     expect(ui.placed[0].properties).not.toHaveProperty('cautions')
     // The scrim IS there, on this step as on every step.
     expect(ui.all('.stack-layer--kind-scrim path')).toHaveLength(1)
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   11. THE PANEL THROUGH THE SHARED FORMAT -- the sixth and last migration
+   =========================================================================== */
+
+describe('11. the panel renders through the shared format', () => {
+  it('[test 1] declares rows, in declared order, with one break and no label', () => {
+    const detail = STRUCTURES_STEP.detail(contextOver(structuresPayload()), SITE_1)
+    // THE SHARED FORMAT, not groups and not fields. With this there is no
+    // step-specific panel rendering left anywhere in the build.
+    expect(detail.groups).toBeUndefined()
+    expect(detail.fields).toBeUndefined()
+    expect(Array.isArray(detail.rows)).toBe(true)
+
+    const body = bodyFor(structuresPayload())
+    // ONE FLAT LIST WITH ONE BREAK IN IT, in the order the panel draws it.
+    expect(body.map((row) => (row.panelBreak ? `--- ${row.label ?? ''}` : `${row.value} | ${row.label ?? ''}`))).toEqual([
+      '46 | ft to road',
+      '69.0 | /100 score',
+      '--- ',
+      'northeast facing | aspect',
+      'upper field | position',
+      '5.2 | avg slope %',
+      'excellent | solar rating',
+    ])
+
+    // ONE BREAK, AND IT IS THE FORMAT'S OWN -- drawn between the tab's rows
+    // and the step's without being asked. This step declares none.
+    const breaks = body.filter((row) => isBreak(row))
+    expect(breaks).toHaveLength(1)
+    expect(breakLabel(breaks[0])).toBeNull()
+    expect(STRUCTURES_STEP.detail(contextOver(structuresPayload()), SITE_1).rows.filter(isBreak)).toEqual([])
+
+    // NO HEADING, WHICH IS THE DEFAULT. Trees earned the one label in the
+    // build because three bare terms say nothing about what they are; every
+    // row here labels itself, and a heading over them would say what the
+    // reader can already see.
+    expect(body.every((row) => breakLabel(row) == null)).toBe(true)
+
+    // THE TWO FACES, and the categoricals are not in the number track.
+    const kinds = body.filter((row) => !isBreak(row)).map((row) => row.kind)
+    expect(kinds).toEqual(['measured', 'measured', 'categorical', 'categorical', 'measured', 'categorical'])
+  })
+
+  it('[test 2] the tab says "score" and "ft to road"; the panel adds "/100"', () => {
+    const context = contextOver(structuresPayload())
+    const tab = STRUCTURES_STEP.tabs(context).find((entry) => entry.id === SITE_1)
+
+    // TWO MEASURED ROWS, the measurement first and the score second -- the
+    // shape every other scored step's strip takes.
+    expect(tab.rows.map((row) => row.label)).toEqual(['ft to road', 'score'])
+    expect(tab.rows.map((row) => row.value)).toEqual(['46', '69.0'])
+
+    // THE STRIP'S LABEL IS THE BARE WORD; the denominator is declared beside
+    // it and rendered only by the panel -- one declaration, two renderings.
+    const scoreRow = tab.rows[1]
+    expect(scoreRow.denominator).toBe(100)
+    expect(denominated(scoreRow.label, scoreRow.denominator)).toBe('/100 score')
+    expect(bodyFor(structuresPayload()).find((row) => row.value === '69.0').label).toBe('/100 score')
+    // AND ft to road CARRIES NONE: feet are not out of anything.
+    expect(tab.rows[0].denominator).toBeUndefined()
+    expect(bodyFor(structuresPayload()).find((row) => row.value === '46').label).toBe('ft to road')
+
+    // THE 100 IS THE PAYLOAD'S, IN LANDFORM'S OWN SPELLING (`scales.range[1]`)
+    // AT A DIFFERENT DEPTH -- `summary.scales`, because
+    // build_structures_payload forwards the narrative whole under `summary`
+    // and the scales block rides the narrative. THE FIFTH SHAPE, and
+    // scoreDenominator() learned nothing: the carrier has been an argument
+    // since roads, whose block rides each network.
+    const payload = structuresPayload()
+    expect(payload.summary.scales.range[1]).toBe(100)
+    expect(payload.scales).toBeUndefined()
+
+    // AND A PAYLOAD WITHOUT ONE PRINTS NOTHING IT CANNOT BACK.
+    const unscaled = structuresPayload()
+    delete unscaled.summary.scales
+    const bare = STRUCTURES_STEP.tabs(contextOver(unscaled)).find((e) => e.id === SITE_1).rows[1]
+    expect(bare.denominator).toBeUndefined()
+    expect(denominated(bare.label, bare.denominator)).toBe('score')
+  })
+
+  /**
+   * [test 4] THE SOLAR RATING IS A CATEGORICAL, RENDERED AND NEVER DERIVED.
+   *
+   * The bands are on the wire (summary.scales.solar_rating.bands) with their
+   * cuts and their bound convention; the panel prints the word the backend
+   * banded. A frontend holding the cuts is a second copy of a calibration the
+   * backend's own comment calls unvalidated starting values.
+   */
+  it('[test 4] renders the backend’s solar rating word, and holds no threshold', () => {
+    const payload = structuresPayload()
+    // THREE SITES, THREE WORDS: a panel rendering a constant would pass one
+    // of these and fail the other two.
+    expect(bodyFor(payload, SITE_1).find((row) => row.label === 'solar rating').value).toBe('excellent')
+    expect(bodyFor(payload, SITE_2).find((row) => row.label === 'solar rating').value).toBe('great')
+    expect(bodyFor(payload, SITE_3).find((row) => row.label === 'solar rating').value).toBe('good')
+
+    // A CATEGORICAL, not a figure: it takes the value position and stays out
+    // of the number track.
+    expect(bodyFor(payload, SITE_1).find((row) => row.label === 'solar rating').kind).toBe('categorical')
+
+    // NULL IS AN EM DASH, AND IS NEVER RECOMPUTED from the value the wire
+    // still carries beside the word.
+    const missing = structuresPayload()
+    missing.structure_sites.features[0].properties.solar_rating = null
+    expect(missing.structure_sites.features[0].properties.solar_value).toBe(91.5)
+    expect(bodyFor(missing, SITE_1).find((row) => row.label === 'solar rating').value).toBe('—')
+
+    // AND A WORD THIS SIDE HAS NEVER HEARD OF IS RENDERED AS SENT, which is
+    // what "no threshold here" means when the bands are next tuned.
+    const retuned = structuresPayload()
+    retuned.structure_sites.features[0].properties.solar_rating = 'outstanding'
+    expect(bodyFor(retuned, SITE_1).find((row) => row.label === 'solar rating').value).toBe('outstanding')
+
+    // `solar_value` IS ON THE WIRE AND NOT IN THE PANEL. The distribution is
+    // tight WITHIN a parcel and wide BETWEEN parcels, so the word separates
+    // parcels honestly while the number carries the detail -- production's
+    // own argument for shipping the elevation percentile beside its word.
+    const labels = bodyFor(payload, SITE_1).map((row) => row.label ?? '')
+    expect(labels).not.toContain('solar value')
+    expect(bodyFor(payload, SITE_1).map((row) => row.value)).not.toContain('91.5')
+
+    // NO BAND NAME AND NO CUT IS WRITTEN IN THIS APP. Every client module is
+    // read, COMMENTS STRIPPED, for the four words: what would break the panel
+    // is a band name in CODE -- a literal to compare against, a lookup keyed
+    // by one, a default -- and the panel's words reach it only as data off
+    // the payload. (scoreBandName()'s own note names one of them in prose to
+    // explain the rule it obeys, which is the opposite of holding it.)
+    const files = [
+      'wizard/stepDefinitions.js',
+      'wizard/shell/DetailPanel.jsx',
+      'wizard/shell/panelFormat.js',
+      'wizard/shell/TabStrip.jsx',
+      'wizard/stepCatalog.jsx',
+      'session/SessionStore.jsx',
+      'App.css',
+      'index.css',
+    ]
+    for (const file of files) {
+      const code = readFileSync(path.join(SRC, file), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '')
+      for (const band of ['fair', 'good', 'great', 'excellent']) {
+        expect(code, `${file} spells no band name`).not.toMatch(
+          new RegExp(`['"\`]${band}['"\`]`, 'i')
+        )
+      }
+    }
+    // AND NOT THE CUTS -- 60, 78, 90 -- anywhere in the structures section,
+    // comment included: a cut in a comment is a copy that goes stale too.
+    const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
+    const section = source.slice(source.indexOf('   THE STRUCTURES STEP\n'), source.indexOf('   THE FENCING STEP\n'))
+    for (const cut of ['60', '78', '90']) {
+      expect(section.match(new RegExp(`\\b${cut}(\\.0)?\\b`, 'g')) ?? [], `no ${cut} cut`).toEqual([])
+    }
+    // AND THE CODE READS NEITHER the band constant nor the figure the word
+    // bands. The comment above the rows NAMES `solar_value`, to say why it is
+    // not shown; naming a field in order to explain its absence is the
+    // opposite of reading it.
+    const structuresCode = section.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    expect(structuresCode).not.toMatch(/SOLAR_RATING_BANDS|solar_value|\.bands\b/)
+    expect(structuresCode).toContain('p.solar_rating ?? EM_DASH')
+    // The band block IS on the wire, which is what makes the absence a
+    // reading rather than a gap.
+    expect(Object.keys(payload.summary.scales.solar_rating.bands)).toEqual(['fair', 'good', 'great', 'excellent'])
+  })
+
+  /**
+   * THE ASPECT ROW IS LANDFORM'S ROW, THROUGH LANDFORM'S FUNCTION.
+   *
+   * It rendered as ONE LETTER before this: the row read `p.aspect`, which is
+   * the wire's 16-point ABBREVIATION ("S", "NNW"), and the panel sets every
+   * line below its header in lower case -- so a south-facing site's aspect
+   * said "s". The backend ships the 8-point whole word beside it now, under
+   * production's own two field names, and this side reads the pair it already
+   * knew how to read.
+   */
+  it('[test 4] says "northeast facing", not the abbreviation, off one function with landform', () => {
+    const payload = structuresPayload()
+    const aspect = bodyFor(payload, SITE_1).find((row) => row.label === 'aspect')
+
+    expect(aspect.value).toBe('northeast facing')
+    expect(aspect.kind).toBe('categorical')
+    // NOT THE ABBREVIATION, in any casing -- which is the whole defect.
+    expect(aspect.value).not.toBe('NE')
+    expect(aspect.value).not.toBe('ne')
+    // A PHRASE, NOT A COMPOUND: "northeast-facing" is an adjective waiting
+    // for a noun it never gets.
+    expect(aspect.value).not.toMatch(/-facing/)
+
+    // ONE FUNCTION, TWO PANELS. The structures row IS aspectPhrase(), the
+    // same call landform's panel makes, so the two steps cannot come to say
+    // this field differently.
+    const p = registryProposalFeatures(payload, 'structures')[0].properties
+    expect(aspectPhrase(p)).toBe(aspect.value)
+    expect(aspectPhrase({ dominant_aspect: 'south', aspect_available: true })).toBe('south facing')
+    const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
+    const section = source.slice(source.indexOf('   THE STRUCTURES STEP\n'), source.indexOf('   THE FENCING STEP\n'))
+    expect(section).toContain("categoricalRow(aspectPhrase(p), 'aspect')")
+
+    // PRODUCTION'S 8-POINT VOCABULARY, NOT THE WIRE'S 16-POINT ONE. This is
+    // the reason the word ships from the backend rather than being expanded
+    // here: a client-side table would say "north-northwest facing" one panel
+    // along from production's "north facing" about the same kind of fact.
+    // NO COMPASS TABLE EXISTS ON THIS SIDE -- the finer points are not
+    // spelled anywhere in the app.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    for (const finer of ['north-northwest', 'east-southeast', 'south-southeast', 'west-northwest']) {
+      expect(code, `no ${finer} anywhere on this side`).not.toContain(finer)
+    }
+    for (const abbreviation of ['NNW', 'ESE', 'SSE', 'WNW', 'NNE', 'SSW', 'WSW', 'ENE']) {
+      expect(code, `no ${abbreviation} table on this side`).not.toMatch(
+        new RegExp(`['"\`]${abbreviation}['"\`]`)
+      )
+    }
+
+    // GROUND THAT FACES NOWHERE GETS AN EM DASH, never a fabricated
+    // direction: `aspect_available` false is the backend saying there is no
+    // well-defined downhill direction here, and a word invented for it would
+    // be a fact about the land nobody established.
+    const flat = structuresPayload()
+    Object.assign(flat.structure_sites.features[0].properties, {
+      dominant_aspect: null,
+      aspect_available: false,
+      aspect: 'flat',
+      aspect_degrees: null,
+    })
+    expect(bodyFor(flat, SITE_1).find((row) => row.label === 'aspect').value).toBe('—')
+    // AND THE DEGREES ARE NOT BANDED INTO ONE either, when the wire still
+    // carries them and the flag says no.
+    const unflagged = structuresPayload()
+    Object.assign(unflagged.structure_sites.features[0].properties, {
+      dominant_aspect: null,
+      aspect_available: false,
+      aspect_degrees: 181.0,
+    })
+    expect(bodyFor(unflagged, SITE_1).find((row) => row.label === 'aspect').value).toBe('—')
+  })
+
+  it('[tests 5, 6] the caution run is last, only when non-empty, and a generated candidate has none', () => {
+    const payload = structuresPayload()
+    const breaking = placedSite(pointToGeoJSON(INSIDE), {
+      id: 'p-breaks',
+      score: 59.2,
+      violated: ['outside_hydric_soil', 'within_road_proximity_buffer'],
+    })
+    const clean = placedSite(pointToGeoJSON(INSIDE_2), { id: 'p-clean', score: 66.6 })
+    const draft = { drawnFeatures: [breaking, clean], selectedFeatureIds: ['p-breaks', 'p-clean'] }
+
+    // LAST: the run sits under everything the panel says about the ground.
+    const body = bodyFor(payload, 'p-breaks', draft)
+    expect(body.map((row) => (row.panelBreak ? `--- ${row.label ?? ''}` : `${row.value} | ${row.label ?? ''}`))).toEqual([
+      '46 | ft to road',
+      '59.2 | /100 score',
+      '--- ',
+      'northeast facing | aspect',
+      'upper field | position',
+      '5.2 | avg slope %',
+      'excellent | solar rating',
+      '--- siting rules broken',
+      'sits on wet (hydric) soil, which drains badly | ',
+      'is farther from a road than the siting rule allows | ',
+    ])
+    // TERMS, not value-and-label pairs: a broken rule is a name on a list and
+    // the heading over it is what says what the list is.
+    const terms = body.filter((row) => row.kind === 'term')
+    expect(terms).toHaveLength(2)
+    for (const term of terms) expect(term).not.toHaveProperty('label')
+    expect(body[body.length - 1]).toBe(terms[1])
+
+    // [test 6] A CLEAN PLACED SITE AND A GENERATED CANDIDATE BOTH RENDER
+    // NOTHING -- no heading, no second rule, and the panel ends at the solar
+    // rating. Two different reasons, one rendering: the placed one's
+    // `constraints_violated` is [], and the generated one never carries the
+    // key, because the gates are hard for it.
+    for (const id of ['p-clean', SITE_1]) {
+      const rows = bodyFor(payload, id, draft)
+      expect(rows.filter((row) => isBreak(row))).toHaveLength(1)
+      expect(rows.some((row) => breakLabel(row) != null)).toBe(false)
+      expect(rows.some((row) => row.kind === 'term')).toBe(false)
+      expect(rows[rows.length - 1].label).toBe('solar rating')
+    }
+
+    // THE ROWS COME OFF ONE FUNCTION, and it answers nothing for an empty or
+    // absent list -- the singular heading when there is exactly one.
+    expect(violatedRuleRows([])).toEqual([])
+    expect(violatedRuleRows(null)).toEqual([])
+    expect(violatedRuleRows(undefined)).toEqual([])
+    expect(breakLabel(violatedRuleRows(['outside_floodplain'])[0])).toBe('siting rule broken')
+    expect(breakLabel(violatedRuleRows(['outside_floodplain', 'outside_hydric_soil'])[0])).toBe('siting rules broken')
+    // "RULE(S)" IS A FORM FIELD, never a heading.
+    for (const row of violatedRuleRows(['outside_floodplain'])) {
+      expect(String(breakLabel(row) ?? '')).not.toMatch(/\(s\)/i)
+    }
+  })
+
+  it('[tests 1, 5] and the panel in the DOM is that body, with the rules under the second rule', async () => {
+    const { ui } = await generatedStructures()
+    await ui.focus(SITE_1)
+
+    expect(ui.text('detail-name-structures')).toBe('Site 1')
+    const rows = ui.find('detail-rows-structures')
+    expect(rows).not.toBeNull()
+    // ONE GRID FOR THE WHOLE BODY -- the tab's rows and the step's together,
+    // which is what holds one decimal point down the panel.
+    expect(ui.text('detail-value-ft to road')).toBe('46')
+    expect(ui.text('detail-value-/100 score')).toBe('69.0')
+    // THE WHOLE WORD AND "facing", NEVER THE ABBREVIATION. `aspect` on the
+    // wire is "NE"; a panel that printed it showed "ne", and on a due-south
+    // site a single letter, because every line below the header is set in
+    // lower case. This is landform's row through landform's own function.
+    expect(ui.text('detail-value-aspect')).toBe('northeast facing')
+    expect(ui.text('detail-value-position')).toBe('upper field')
+    expect(ui.text('detail-value-avg slope %')).toBe('5.2')
+    expect(ui.text('detail-value-solar rating')).toBe('excellent')
+    // ONE RULE AND NO HEADING on a site that breaks nothing.
+    expect([...rows.children].filter((node) => node.tagName === 'HR')).toHaveLength(1)
+    expect(ui.find('detail-heading-structures')).toBeNull()
+    // AND THE OLD GROUP CONTAINERS ARE GONE FROM THE DOM WITH IT.
+    expect(ui.find('detail-fields-structures')).toBeNull()
+    expect(ui.find('detail-fields-ground')).toBeNull()
+    expect(ui.find('detail-fields-distances')).toBeNull()
+    await ui.unmount()
+  })
+
+  it('[test 5] renders both drainage gates in the DOM, told apart', async () => {
+    const { ui } = await generatedStructures({
+      score: (point) => ({
+        body: {
+          feature: placedSite(point, {
+            score: 51.3,
+            violated: ['outside_hydric_soil', 'outside_floodplain'],
+          }),
+        },
+      }),
+    })
+    await ui.place(INSIDE)
+    const site = ui.placed[0]
+    await ui.focus(site.id)
+
+    const heading = ui.find('detail-heading-structures')
+    expect(heading.tagName).toBe('H4')
+    expect(heading.textContent).toBe('siting rules broken')
+    const rows = ui.find('detail-rows-structures')
+    const children = [...rows.children]
+    const hrs = children.filter((node) => node.tagName === 'HR')
+    expect(hrs).toHaveLength(2)
+    expect(children.indexOf(heading)).toBe(children.indexOf(hrs[1]) + 1)
+
+    // THE TWO GROUNDS, DISTINGUISHABLE, each in its own term.
+    const terms = [...rows.querySelectorAll('[data-row="term"]')].map((node) => node.textContent)
+    expect(terms).toHaveLength(2)
+    expect(terms[0]).toContain('wet (hydric) soil')
+    expect(terms[1]).toContain('floodplain')
+    expect(terms[0]).not.toBe(terms[1])
+    // NOT A CROSSING AND NOT A CAUTION LIST: this step records no crossings,
+    // so the panel's own caution list stays empty and no marker is drawn.
+    expect(ui.find('detail-cautions-structures')).toBeNull()
+    expect(ui.all('.caution-marker')).toHaveLength(0)
     await ui.unmount()
   })
 })
@@ -1942,7 +2537,7 @@ describe('12. what the definition declares, and the sweep', () => {
     expect(MARKERS['access point, committed']).toBe('--ink')
   })
 
-  it('writes down no weight, no floor and no slope ceiling of its own; every figure comes off the wire', () => {
+  it('writes down no weight, no floor, no slope ceiling and no band cut of its own; every figure comes off the wire', () => {
     const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
     const section = source
       // ...and closes where the NEXT section opens: fencing follows it now.
@@ -1954,50 +2549,71 @@ describe('12. what the definition declares, and the sweep', () => {
     // slope ceiling is 20. None is written here, in any form.
     expect(section.match(/\b(25|40|20|0\.25|0\.4)\b/g) ?? []).toEqual([])
     expect(section).not.toMatch(/SCORE_WEIGHT|MIN_SUITABILITY|MAX_SOLAR_SLOPE/)
-    // The weights come off the payload, in weight order.
-    const weights = { slope: 10.0, aspect: 50.0, shading: 30.0, production_proximity: 10.0 }
-    expect(structureFactorsByWeight(weights).map((f) => f.key)).toEqual(['aspect', 'shading', 'slope', 'production_proximity'])
-    const detail = STRUCTURES_STEP.detail(contextOver(structuresPayload({ weights })), SITE_1)
-    const merits = detail.groups.find((g) => g.id === 'merits').fields
-    expect(merits.map((f) => f.label)).toEqual([
-      'sun-facing · 50% of the score',
-      'open to the sky · 30% of the score',
-      'gentle ground · 10% of the score',
-      'at the edge of production ground · 10% of the score',
-    ])
-    // Factor scores are printed as sent: 0-1 at three places.
-    expect(merits.map((f) => f.value)).toEqual(['0.900', '0.750', '0.812', '0.500'])
-    for (const field of merits) expect(field.measured).toBe(true)
+    // NOR THE SCORE'S OWN SCALE: the denominator is read off the payload.
+    expect(section.match(/\b100\b/g) ?? []).toEqual([])
+    expect(section).toContain('scoreDenominator(proposals?.summary)')
+    // The weights are still READ -- by the notices, where the share of every
+    // score a rough reading carries is a step-level fact -- off the payload.
+    const shading = STRUCTURES_STEP.notices(
+      contextOver(structuresPayload({ weights: { slope: 10.0, aspect: 50.0, shading: 30.0, production_proximity: 10.0 } }))
+    ).find((n) => n.key === 'shading-proxy')
+    expect(shading.text.map((p) => p.measure ?? p).join('')).toContain('30% of every score')
   })
 
-  it('reads rank and the prime-farmland flag as what they are: not measurements of the spot', () => {
+  it('[test 7] keeps rank, prime farmland, the four factors and the signed production distance out of the panel', () => {
     const payload = structuresPayload({ prime: true })
-    const detail = STRUCTURES_STEP.detail(contextOver(payload), SITE_1)
-    const site = detail.groups.find((g) => g.id === 'site').fields
-    expect(site.find((f) => f.label === 'rank').measured).toBeUndefined()
-    expect(site.find((f) => f.label === 'rank').value).toContain('not a measurement')
-    expect(site.find((f) => f.label === 'score')).toMatchObject({ value: '69.0', measured: true })
-    expect(site.find((f) => f.label === 'pad acres')).toMatchObject({ value: '0.10', measured: true })
-    const ground = detail.groups.find((g) => g.id === 'ground').fields
-    expect(ground.find((f) => f.label === 'prime farmland').value).toBe(
-      'found somewhere on this parcel — a parcel-level flag, not this spot’s'
-    )
-    expect(ground.find((f) => f.label === 'prime farmland').measured).toBeUndefined()
-    // Never checked is not "no".
-    const unchecked = candidate(SITE_1, 1, [-74.0, 40.72])
-    delete unchecked.properties.prime_farmland_conflict
-    delete unchecked.properties.prime_farmland_note
-    const detailUnchecked = STRUCTURES_STEP.detail(
-      contextOver({ ...payload, structure_sites: { type: 'FeatureCollection', features: [unchecked] } }),
-      SITE_1
-    )
-    expect(detailUnchecked.groups.find((g) => g.id === 'ground').fields.find((f) => f.label === 'prime farmland').value).toBe('not checked')
-    // The full set: slope, aspect, shading, the three distances, the pad.
-    const labels = detail.groups.flatMap((g) => g.fields.map((f) => f.label))
-    for (const label of ['avg slope %', 'aspect °', 'facing', 'ft to road', 'ft to production ground', 'ft to water zone', 'pad acres']) {
-      expect(labels).toContain(label)
+    const body = bodyFor(payload, SITE_1)
+    const labels = body.map((row) => row.label ?? '')
+    const values = body.map((row) => row.value)
+
+    // RANK IS A COMPARISON AGAINST THE SHORTLIST, not a measurement of the
+    // spot -- and the TAB already carries it, in the name.
+    expect(labels).not.toContain('rank')
+    expect(body.some((row) => String(row.value).includes('would sit'))).toBe(false)
+    expect(STRUCTURES_STEP.tabs(contextOver(payload)).find((t) => t.id === SITE_1).name).toBe('Site 1')
+
+    // PRIME FARMLAND IS PARCEL-LEVEL SSURGO inherited from the run: every
+    // site carries the same answer, so it is said ONCE, at step level.
+    expect(labels).not.toContain('prime farmland')
+    expect(body.some((row) => String(row.value).includes('parcel-level flag'))).toBe(false)
+    expect(
+      STRUCTURES_STEP.notices(contextOver(payload)).find((n) => n.key === 'prime-farmland')
+    ).toBeDefined()
+
+    // THE FOUR SCORING FACTORS, consistent with the other five steps. Not
+    // their labels, not their shares, and not the figures themselves --
+    // 0.812 / 0.900 / 0.750 / 0.500 on this payload.
+    for (const label of ['gentle ground', 'sun-facing', 'open to the sky', 'at the edge of production ground']) {
+      expect(labels.some((l) => l.startsWith(label)), `no ${label} row`).toBe(false)
     }
-    expect(labels.filter((l) => l.includes('open to the sky'))).toHaveLength(1)
+    expect(labels.some((l) => l.includes('% of the score'))).toBe(false)
+    for (const gone of ['0.812', '0.900', '0.750', '0.500']) expect(values).not.toContain(gone)
+
+    // THE SIGNED PRODUCTION DISTANCE. Settled when the fields were specced:
+    // the NARRATIVE reads it, the panel does not. Site 3's is negative -- it
+    // sits inside a block -- which is the one reading that could not be
+    // mistaken for the unsigned figure, so it is the one asserted absent.
+    const inside = bodyFor(payload, SITE_3)
+    expect(inside.map((row) => row.label ?? '')).not.toContain('ft to production ground')
+    expect(inside.map((row) => row.value)).not.toContain('-33')
+    expect(inside.some((row) => String(row.value).includes('-'))).toBe(false)
+    // ON THE WIRE, WHICH IS WHAT MAKES ITS ABSENCE A PANEL DECISION.
+    const site3 = registryProposalFeatures(payload, 'structures')[2]
+    expect(site3.properties.signed_distance_to_production_ft).toBe(-32.8)
+    expect(site3.properties.production_zone_relationship).toBe('inside')
+
+    // AND THE REST OF WHAT LEFT: the pad's acreage and the other two
+    // distances. Every pad is the same tenth of an acre unless clipped.
+    for (const label of ['pad acres', 'aspect \u00b0', 'facing', 'ft to production ground', 'ft to water zone', 'origin']) {
+      expect(labels).not.toContain(label)
+    }
+    // ALL OF IT IS STILL ON THE WIRE.
+    const p = registryProposalFeatures(payload, 'structures')[0].properties
+    expect(p.footprint_area_acres).toBe(0.1)
+    expect(p.aspect_degrees).toBe(50.0)
+    expect(p.distance_to_water_zone_ft).toBe(300.5)
+    expect(p.prime_farmland_conflict).toBe(true)
+    expect(payload.summary.factor_weights_pct).toMatchObject({ shading: 25.0 })
   })
 
   it('names no step in the shell, the stack or the tools, and imports the new tool from the draw gesture alone', () => {

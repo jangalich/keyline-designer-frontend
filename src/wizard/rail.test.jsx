@@ -175,6 +175,9 @@ async function renderRail({ resume = false } = {}) {
     cursorRow: () => rows().find((li) => li.getAttribute('data-cursor') === 'true')?.dataset.stepId,
     statusWord: (stepId) =>
       container.querySelector(`[data-testid="rail-${stepId}"] .chrome-rail__status`)?.textContent,
+    /** The name the rail shows on one row -- the step's own title. */
+    nameOf: (stepId) =>
+      container.querySelector(`[data-testid="rail-${stepId}"] .chrome-rail__name`)?.textContent,
     async unmount() {
       await React.act(async () => root.unmount())
       container.remove()
@@ -197,6 +200,31 @@ afterEach(() => vi.restoreAllMocks())
    =========================================================================== */
 
 describe('1. the rail at the boundary step', () => {
+  /**
+   * [test 9] EVERY ROW'S NAME IS TITLE CASE, and the boundary's was the one
+   * that was not. A rail row is a NAME on a list of names -- Landform, Water,
+   * Roads, Trees, Structures, Fencing -- and "Property boundary" read as the
+   * odd one out rather than as the only two-word name among them.
+   */
+  it('[test 9] names the boundary step "Property Boundary", in the case every other row takes', async () => {
+    installFetch({ catalogue: STEP_ORDER })
+    const ui = await renderRail()
+
+    expect(ui.nameOf(BOUNDARY_STEP_ID)).toBe('Property Boundary')
+
+    // AND IT IS TITLE CASE BY THE SAME RULE THE OTHERS ARE, not by a
+    // stylesheet: every word of every rail name begins with a capital, which
+    // is a claim about the titles the definitions declare.
+    for (const stepId of [BOUNDARY_STEP_ID, ...STEP_ORDER]) {
+      const name = ui.nameOf(stepId)
+      expect(name, `${stepId} has a name`).toBeTruthy()
+      for (const word of name.split(' ')) {
+        expect(word[0], `${stepId}: "${word}" is capitalised`).toBe(word[0].toUpperCase())
+      }
+    }
+    await ui.unmount()
+  })
+
   it('renders every step with no session, boundary current and the rest not reachable', async () => {
     installFetch({ catalogue: STEP_ORDER })
     const ui = await renderRail()

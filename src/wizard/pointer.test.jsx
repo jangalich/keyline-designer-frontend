@@ -1070,10 +1070,26 @@ describeIf('the structures checkbox and ×', () => {
     expect(await evaluate(() => window.__probe.cursor.armed)).toBeNull()
     await generate('structures')
     expect(await statusOf('structures')).toBe('generated')
-    expect((await shownBoxes()).length, 'the fixture yields three structure sites').toBe(3)
+    // AS MANY BOXES AS THE RUN PRODUCED CANDIDATES, read off the payload
+    // rather than written down. This asserted THREE -- solar's MAX_CANDIDATES,
+    // which is a CEILING and not a yield -- and went red the day the backend
+    // split the drainage gates and moved the road gate to the site's point,
+    // which left this fixture with two clearing sites. What this file is
+    // about is that every box that IS on the strip can be hit; how many the
+    // parcel earns is the pipeline's answer, and one worth reading rather
+    // than restating.
+    const candidateCount = await evaluate(
+      () =>
+        window.__probe.registryProposalFeatures(
+          window.__probe.selectStepProposals(window.__probe.state, 'structures'),
+          'structures'
+        ).length
+    )
+    expect(candidateCount, 'the fixture yields at least two structure sites').toBeGreaterThanOrEqual(2)
+    expect((await shownBoxes()).length, 'a box per generated site').toBe(candidateCount)
     expect(await evaluate(() => window.__probe.cursor.armed)).toBeNull()
 
-    // [1] THREE PINS, EACH THE SILHOUETTE TWICE AND NOTHING INSIDE. [2] OCHRE,
+    // [1] A PIN PER SITE, EACH THE SILHOUETTE TWICE AND NOTHING INSIDE. [2] OCHRE,
     // and the same size on screen at two zooms. [4] The committed access
     // point beside them is ink at committed muting. [5] The two kinds on
     // this map paint in two colours -- the pair the rule exists for.
@@ -1084,7 +1100,7 @@ describeIf('the structures checkbox and ×', () => {
         box: el.getBoundingClientRect().width + 'x' + el.getBoundingClientRect().height,
       }))
     )
-    expect(pins).toHaveLength(3)
+    expect(pins).toHaveLength(candidateCount)
     for (const pin of pins) {
       expect(pin.paths).toEqual(['path', 'path'])
       expect(pin.d).toBe(1)
@@ -1111,7 +1127,7 @@ describeIf('the structures checkbox and ×', () => {
 
     const atStructures = await assertPointMarkersDistinct('structures')
     const livePin = atStructures.find((m) => m.kind === 'site pin (live)')
-    expect(livePin.count).toBe(3)
+    expect(livePin.count).toBe(candidateCount)
     expect(livePin.colour).toBe(await tokenColour('--ochre'))
     expect(livePin.opacity).toBe(1)
     const committedAccess = atStructures.find((m) => m.kind === 'access point (committed)')

@@ -33,20 +33,25 @@
  *
  * TWO SHAPES A DETAIL MAY DECLARE, AND ONE OF THEM IS THE SHARED FORMAT
  *
- * `rows: [...]` IS THE SHARED FORMAT and it is where all six steps are going.
- * The arrangement -- header, the tab's own rows, a break, the step's rows, the
- * cautions -- is panelFormat.js's, and a step supplies values and labels and
- * nothing else. Production declares it. See panelFormat.js for every rule and
- * for why each one is a rule.
+ * `rows: [...]` IS THE SHARED FORMAT, and every step with measurements to show
+ * declares it: production, water, roads, trees and structures. The arrangement
+ * -- header, the tab's own rows, a break, the step's rows, the cautions -- is
+ * panelFormat.js's, and a step supplies values and labels and nothing else. See
+ * panelFormat.js for every rule and for why each one is a rule.
  *
- * `fields`/`groups` IS WHAT THE REMAINING FOUR STILL DECLARE, and the
- * paragraphs below are its notes. It is not a second format so much as the
- * format before it was one: each of them arrived with its own arrangement of
- * the same facts, which is the drift this branch exists to stop. Each migrates
- * on its own branch, against the format production now carries; a group is
- * exactly one run of rows between two breaks, so nothing loses a distinction
- * when it moves. Production declared the format and WATER IS THE SECOND, which
- * is the one that mattered -- see below.
+ * `fields`/`groups` IS WHAT FENCING ALONE STILL DECLARES, and the paragraphs
+ * below are its notes. It is not a second format so much as the format before
+ * it was one: each step arrived with its own arrangement of the same facts,
+ * which is the drift that work exists to stop. Each migrated on its own branch,
+ * against the format production first carried; a group is exactly one run of
+ * rows between two breaks, so nothing lost a distinction when it moved.
+ * Production declared the format and WATER WAS THE SECOND, which is the one
+ * that mattered -- see below. STRUCTURES WAS THE LAST of the five panels with a
+ * measurement set to arrange.
+ *
+ * FENCING'S IS A PLACEHOLDER, NOT A HOLDOUT: a length and a description it does
+ * not have yet, with its own panel still to be settled. So this renderer stays
+ * -- one caller, and the day fencing declares rows it can go with it.
  *
  * ONE PANEL RENDERS BOTH, which is the point -- a step that has not migrated
  * yet is still rendered by this file and not by itself.
@@ -82,9 +87,11 @@
  * not a labelled group; it was declared order plus a break, which is what
  * panelFormat gives every step. TREES THEN EARNED THE LABEL that water could
  * not: a break may carry a heading now (labelledBreak), and MARGINAL BENEFITS
- * is the first and only one in the build -- a claim about three bare terms that
- * the terms do not make themselves. The label is still an exception rather than
- * the group label coming back; see panelFormat's rule 5 for the bar it has to
+ * was the first in the build -- a claim about three bare terms that the terms
+ * do not make themselves. SITING RULES BROKEN is the second and last, on
+ * structures, over the opposite kind of run and passing the same test. The
+ * label is still an exception rather than the group label coming back -- two
+ * headings in six panels; see panelFormat's rule 5 for the bar it has to
  * clear, which water's four groups and roads' two runs both failed.
  *
  * WHAT THE GROUP DOES NOT DO IS RE-SORT. Inside a group the fields render in
