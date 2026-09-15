@@ -11,6 +11,12 @@
  * toggle at all, and this one has none. The gesture that closes it is a click
  * on bare map, which is where the thing it was describing lives.
  *
+ * AND ABSENT ON A STEP THAT DECLARES NO PANEL -- `detail: null`, which FENCING
+ * declares and nothing else does. Same rule one level up: a step with nothing
+ * to say below the break has no panel at all rather than a container holding
+ * the tab's own two lines again. See the guard in the component, and
+ * stepDefinitions' schema note on `detail` for why null is not the default.
+ *
  * TWO THINGS IT SHOWS, AND ONLY ONE AT A TIME:
  *
  *   A FOCUSED FEATURE   The fields the tab had no room for -- a tab is a name
@@ -31,30 +37,37 @@
  * two render through one component.
  *
  *
- * TWO SHAPES A DETAIL MAY DECLARE, AND ONE OF THEM IS THE SHARED FORMAT
+ * THE SHARED FORMAT, AND ONE RENDERER LEFT OVER FROM BEFORE IT
  *
- * `rows: [...]` IS THE SHARED FORMAT, and every step with measurements to show
- * declares it: production, water, roads, trees and structures. The arrangement
- * -- header, the tab's own rows, a break, the step's rows, the cautions -- is
+ * `rows: [...]` IS THE SHARED FORMAT, AND IT IS NOW THE ONLY SHAPE ANY STEP
+ * DECLARES: production, water, roads, trees and structures, each migrated on
+ * its own branch, and fencing declares no panel at all. The arrangement --
+ * header, the tab's own rows, a break, the step's rows, the cautions -- is
  * panelFormat.js's, and a step supplies values and labels and nothing else. See
  * panelFormat.js for every rule and for why each one is a rule.
  *
- * `fields`/`groups` IS WHAT FENCING ALONE STILL DECLARES, and the paragraphs
- * below are its notes. It is not a second format so much as the format before
- * it was one: each step arrived with its own arrangement of the same facts,
- * which is the drift that work exists to stop. Each migrated on its own branch,
- * against the format production first carried; a group is exactly one run of
- * rows between two breaks, so nothing lost a distinction when it moved.
+ * `fields`/`groups` IS THE FORMAT BEFORE IT WAS ONE, and the paragraphs below
+ * are its notes, kept because they are the record of what the migration cost
+ * and what it found. Each step arrived with its own arrangement of the same
+ * facts, which is the drift that work existed to stop; a group is exactly one
+ * run of rows between two breaks, so nothing lost a distinction when it moved.
  * Production declared the format and WATER WAS THE SECOND, which is the one
  * that mattered -- see below. STRUCTURES WAS THE LAST of the five panels with a
  * measurement set to arrange.
  *
- * FENCING'S IS A PLACEHOLDER, NOT A HOLDOUT: a length and a description it does
- * not have yet, with its own panel still to be settled. So this renderer stays
- * -- one caller, and the day fencing declares rows it can go with it.
+ * FENCING WAS THE SIXTH AND IT DID NOT MIGRATE: it OPTED OUT, because a step
+ * with one measurement already on its tab has nothing to put below the break.
+ * The placeholder panel it used to declare -- the length, and a description
+ * nobody had written -- is withdrawn rather than carried across.
  *
- * ONE PANEL RENDERS BOTH, which is the point -- a step that has not migrated
- * yet is still rendered by this file and not by itself.
+ * SO NO STEP CALLS Group() ANY MORE, AND THE RENDERER STAYS ANYWAY, because
+ * one caller is left and it is not a step: wizard/layoutHarness.jsx's
+ * `?detail=N` case, which deals N rows round four groups to measure the
+ * panel's height cap and the strip's position against it (wizard/layout.test
+ * .jsx counts `.chrome-detail__group`). THAT IS AN OPEN ITEM AND IT IS WRITTEN
+ * DOWN HERE RATHER THAN SOLVED IN PASSING: retiring it means porting a browser
+ * layout case onto the shared format, which is its own piece of work and not
+ * fencing's to do on the way past.
  *
  *
  * GROUPS, AND WHY THE FLAT LIST COULD NOT CARRY THE SECOND STEP
@@ -91,7 +104,7 @@
  * do not make themselves. SITING RULES BROKEN is the second and last, on
  * structures, over the opposite kind of run and passing the same test. The
  * label is still an exception rather than the group label coming back -- two
- * headings in six panels; see panelFormat's rule 5 for the bar it has to
+ * headings in five panels; see panelFormat's rule 5 for the bar it has to
  * clear, which water's four groups and roads' two runs both failed.
  *
  * WHAT THE GROUP DOES NOT DO IS RE-SORT. Inside a group the fields render in
@@ -252,6 +265,9 @@ function PanelRows({ body, stepId }) {
  *
  * A flat `fields` IS one unlabelled group. Normalising here rather than at
  * every call site is what keeps the two shapes from becoming two renderers.
+ *
+ * NO STEP REACHES THIS. Every step with a panel declares `rows` and fencing
+ * declares none; the one caller left is the layout harness. See the header.
  */
 function groupsOf(detail) {
   if (Array.isArray(detail.groups)) return detail.groups.filter((group) => group.fields?.length)
@@ -325,6 +341,26 @@ export default function DetailPanel({ machine }) {
   const { focusedFeatureId } = useWizardCursor()
   const { points, cautions: liveCautions } = useDrawingProgress()
   const { definition, stepId } = machine
+
+  // A STEP MAY DECLARE NO PANEL, AND FENCING IS THE ONE THAT DOES.
+  //
+  // `detail: null` on the step, and this file renders NOTHING for it -- no
+  // container, no header, in every state, gesture included. Not an empty
+  // panel: an empty box in the top-right corner of a map is the thing this
+  // component's header opens by refusing, and a panel that exists to repeat
+  // the two lines already on the tab is that box with figures in it.
+  //
+  // IT IS TESTED FOR BEFORE THE GESTURE BRANCH, not after, because the
+  // declaration is about the STEP and not about what is on screen. Fencing
+  // arms no drawing tool, so the two orderings cannot differ today -- which
+  // is exactly why the order has to be the one that stays right if it ever
+  // does.
+  //
+  // NULL AND ABSENT ARE DIFFERENT DECLARATIONS. defineStep defaults `detail`
+  // to `() => null` and the boundary step takes that default: it has no
+  // features to focus, but it is where a ring is drawn, and the gesture
+  // branch below is its panel. See stepDefinitions' schema note on `detail`.
+  if (definition.detail == null) return null
 
   // THE GESTURE WINS. A ring going down is the most current thing on screen,
   // and the panel following the focus while the user draws would be describing

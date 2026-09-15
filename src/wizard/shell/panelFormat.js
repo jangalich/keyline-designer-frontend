@@ -1,26 +1,34 @@
 /**
- * panelFormat.js  —  THE DETAIL PANEL'S FORMAT. ALL SIX STEPS, ONE COPY.
+ * panelFormat.js  —  THE DETAIL PANEL'S FORMAT. ONE COPY, FIVE PANELS.
  *
- * WHAT THIS IS FOR. The panel is being made consistent across the six steps,
- * and the failure mode that work exists to fix is each step arriving with its
- * own arrangement of the same facts. So the arrangement is declared ONCE, here,
+ * WHAT THIS IS FOR. The panel was made consistent across the steps, and the
+ * failure mode that work existed to fix is each step arriving with its own
+ * arrangement of the same facts. So the arrangement is declared ONCE, here,
  * and a step declares a LIST OF ROWS against it. Every rule below is the
  * panel's; a step supplies values and labels and nothing else.
  *
- * EVERY STEP WITH MEASUREMENTS TO SHOW NOW DECLARES AGAINST IT -- production,
+ * EVERY STEP WITH MEASUREMENTS TO SHOW DECLARES AGAINST IT -- production,
  * water, roads, trees and structures, in that order, each on its own branch.
- * Fencing is the one panel still on `groups`, and it has no measurement set to
- * migrate: a length and a placeholder, pending its own settling. THE FORMAT
- * HELD ACROSS ALL FIVE and grew exactly two things while it did -- the
- * denominator (water), and the labelled break with the TERM row under it
+ * THE FORMAT HELD ACROSS ALL FIVE and grew exactly two things while it did --
+ * the denominator (water), and the labelled break with the TERM row under it
  * (trees). Structures, the last of them, needed neither: the fifth kind of
  * panel this format has been asked to arrange came out of the constructors
  * that were already here.
  *
+ * AND THE SIXTH STEP HAS NO PANEL, WHICH IS THE SERIES' LAST FINDING. Fencing
+ * declares `detail: null` and DetailPanel renders nothing for it. It is the
+ * format's own rule applied to a step the rule rules out: above the break is
+ * what the tab showed, below it is explanation, and fencing has ONE
+ * measurement -- a length, already on the tab -- and no explanation. Its rows
+ * would have been the tab's two lines and a hairline over nothing. So the
+ * count is five panels and one opt-out, not six panels; the thing that made
+ * the format worth having is the same thing that says where it should stop.
+ *
  * WHERE THE TWO HALVES LIVE. This file owns the FORMAT -- what a row is, what a
  * break is, which face each row takes, and how a panel's body is composed out
  * of a step's declaration. DetailPanel.jsx owns the DOM, and it is the only
- * renderer: one panel, six steps. Neither half is a step's to reimplement.
+ * renderer: one panel, five steps that have one. Neither half is a step's to
+ * reimplement.
  *
  * NO REACT IN HERE, deliberately. stepDefinitions.js imports the row
  * constructors and it is not a React module; a component in this file would put
@@ -79,7 +87,7 @@
  *      TO EARN A LABEL, for a run that is the opposite kind of statement --
  *      the siting rules a placed site BREAKS -- and by the same test: each row
  *      is a plain fact about the spot, and nothing in the words says it is a
- *      rule this site fails. Two headings in six panels is the rate the bar
+ *      rule this site fails. Two headings in five panels is the rate the bar
  *      was set to produce.
  *
  *      THE LABEL IS THE EXCEPTION AND THE BARE RULE IS THE DEFAULT, and that
@@ -103,9 +111,9 @@
  *      across it (see panelBody) -- a labelled break draws the same hairline
  *      and puts a line of prose under it. Nothing is nested, nothing sizes its
  *      own columns, and the decimal point still runs from the first figure to
- *      the last. The `groups: [{label, fields}]` shape DetailPanel still
- *      renders for fencing -- the one step left on it, whose panel is a
- *      placeholder pending its own settling -- is the thing this is not.
+ *      the last. The `groups: [{label, fields}]` shape DetailPanel can still
+ *      render -- no step declares it now; see that file's header for the one
+ *      caller left -- is the thing this is not.
  *
  *      LOWER CASE HERE, UPPER CASE ON SCREEN, like every other word below the
  *      header: the step declares 'marginal benefits' and the stylesheet sets
