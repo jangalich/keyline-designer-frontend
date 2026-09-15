@@ -60,7 +60,7 @@ import {
   isBreak,
   panelBody,
 } from './wizard/shell/panelFormat.js'
-import TabStrip, { COLLAPSED_TAB_CAP, collapsedTabs } from './wizard/shell/TabStrip.jsx'
+import TabStrip, { COLLAPSED_TAB_CAP, TAB_COLUMNS, collapsedTabs } from './wizard/shell/TabStrip.jsx'
 import { selectionAfterCheck, selectionFollowingFocus } from './wizard/tabs.js'
 import { LANDFORM_STEP } from './wizard/stepDefinitions'
 import WizardShell from './wizard/WizardShell.jsx'
@@ -335,8 +335,53 @@ describe('1. end to end against the real backend', () => {
       const { embankment, excavated } = zonesByType(payload)
       expect(embankment.length).toBeGreaterThan(0)
       expect(excavated.length).toBeGreaterThan(0)
-      expect(payload.summary.embankment_zone_count).toBe(embankment.length)
-      expect(payload.summary.excavated_zone_count).toBe(excavated.length)
+
+      // THE COLLECTION IS THE PRESENTED SET; THE COUNTS ARE EVERY SURVIVOR,
+      // AND THE TWO ARE DIFFERENT NUMBERS ON PURPOSE.
+      //
+      // This used to assert them equal, which held only while the payload
+      // carried every surviving zone. build_water_payload() is now the one
+      // place in the pipeline that NARROWS for presentation -- it ships the
+      // top few of each type and keeps `summary`'s per-type counts as the
+      // PIPELINE's answer, deliberately, so a panel can read "2 of 5" rather
+      // than claim the shipped pair is the whole embankment reading. An
+      // equality here would have been the client asserting that nothing was
+      // withheld, which is the opposite of what the wire says.
+      //
+      // WHAT IS ASSERTED INSTEAD IS THE RELATIONSHIP, and it is the one that
+      // would actually break: presented never exceeds survivors, the two
+      // types' presented counts are what the collection carries, and what is
+      // missing is NAMED rather than merely absent.
+      const presentation = payload.summary.presentation
+      expect(payload.summary.embankment_zone_count).toBeGreaterThanOrEqual(embankment.length)
+      expect(payload.summary.excavated_zone_count).toBeGreaterThanOrEqual(excavated.length)
+      expect(presentation.survivor_counts.embankment).toBe(payload.summary.embankment_zone_count)
+      expect(presentation.survivor_counts.excavated).toBe(payload.summary.excavated_zone_count)
+      expect(presentation.presented_counts.embankment).toBe(embankment.length)
+      expect(presentation.presented_counts.excavated).toBe(excavated.length)
+      expect(presentation.presented_count).toBe(embankment.length + excavated.length)
+      expect(presentation.presented_zone_ids).toHaveLength(presentation.presented_count)
+
+      // "NOT ON THE WIRE" IS A STATED FACT, NEVER AN ABSENCE -- the reason a
+      // narrowed collection is safe at all. Every survivor is either present
+      // or named as withheld, and the withheld ids are real ids rather than a
+      // count standing in for them.
+      const survivors =
+        presentation.survivor_counts.embankment + presentation.survivor_counts.excavated
+      expect(presentation.withheld_count).toBe(survivors - presentation.presented_count)
+      expect(presentation.withheld_zone_ids).toHaveLength(presentation.withheld_count)
+      expect(presentation.withheld_feature_ids).toHaveLength(presentation.withheld_count)
+      for (const id of presentation.withheld_feature_ids) {
+        expect(payload.survey_zones.features.some((f) => f.id === id)).toBe(false)
+      }
+      // AND THE RULE THAT PRODUCED THE SET SAYS SO IN WORDS, off the payload.
+      expect(typeof presentation.rule_applied).toBe('string')
+      // eslint-disable-next-line no-console
+      console.log(
+        `WATER PRESENTATION  ${presentation.rule_applied} -- presented ` +
+          `${presentation.presented_count} of ${survivors} survivor(s), ` +
+          `withheld ${presentation.withheld_count}`
+      )
 
       // A TAB PER ZONE ENVELOPE, AND ONLY PER ENVELOPE. The collection also
       // carries every member footprint; none of them is a proposal, a tab or
@@ -1762,6 +1807,32 @@ describe('the collapsed strip keeps the focused tab', () => {
     }
   })
 
+  /**
+   * THE LIVE HALF OF THE COLLAPSED-STRIP CLAIM -- and the parcel stopped
+   * reaching the collapsed strip, which is a finding rather than a reason to
+   * weaken the test.
+   *
+   * WHAT CHANGED UNDER IT. This test used to focus "the last zone, past the
+   * cap" and assert the strip had been hiding it. That held while the payload
+   * carried every surviving zone -- six or eight on the reference parcel.
+   * build_water_payload() now NARROWS to the presented set (see the e2e
+   * section), and the rule presents two of each type, so the reference parcel
+   * ships exactly TAB_COLUMNS tabs and `overflowing` is false: water's strip
+   * does not collapse any more and has no hidden tab to reveal.
+   *
+   * SO THE OVERFLOW IS READ OFF THE DATA RATHER THAN ASSUMED, and the branch
+   * that runs is PRINTED. A conditional assertion that can go quietly vacuous
+   * is worse than no assertion, so the condition is itself asserted: the
+   * presented count is held against TAB_COLUMNS, which is what makes the
+   * no-overflow branch the correct one today and what will fail here first if
+   * the presentation rule ever ships more.
+   *
+   * AND THE CLAIM THAT DOES NOT DEPEND ON IT IS THE ONE THAT MATTERS HERE:
+   * focusing a zone marks its tab, marks exactly one, and the panel follows.
+   * collapsedTabs() itself -- the function the bug was in -- is covered
+   * exhaustively by the synthetic tests above, which do not need a parcel to
+   * produce more tabs than a row holds.
+   */
   liveIt('keeps every visible tab and marks the focused one, clicking a zone on the map', async () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)
@@ -1769,22 +1840,39 @@ describe('the collapsed strip keeps the focused tab', () => {
     const zones = surveyZoneFeatures(ui.water)
     const before = ui.all('[data-tab-id]').length
     expect(before).toBeGreaterThan(0)
+    expect(before).toBe(zones.length)
 
-    // THE ZONE THE OLD STRIP COULD NOT SHOW: the last one, past the cap.
-    const hidden = zones[zones.length - 1]
-    expect(ui.find(`tab-${hidden.id}`)).toBeNull()
+    // DOES THIS PAYLOAD OVERFLOW A ROW? The strip's own rule, read off the
+    // tab count -- not guessed, and not assumed either way.
+    const overflowing = zones.length > TAB_COLUMNS
+    // eslint-disable-next-line no-console
+    console.log(
+      `WATER STRIP  ${zones.length} presented tab(s), TAB_COLUMNS ${TAB_COLUMNS} -- ` +
+        `${overflowing ? 'COLLAPSED: the last tab is hidden until focused' : 'NOT collapsed: every tab is on screen'}`
+    )
+    if (!overflowing) {
+      // THE REASON, ASSERTED. The presented set is what the narrowing sends,
+      // and it is the thing that would have to change for the other branch to
+      // run again.
+      expect(ui.water.summary.presentation.presented_count).toBe(zones.length)
+      expect(zones.length).toBeLessThanOrEqual(TAB_COLUMNS)
+    }
 
-    await ui.focus(hidden.id)
+    const target = zones[zones.length - 1]
+    // A COLLAPSED STRIP HIDES THE LAST TAB; AN UNCOLLAPSED ONE SHOWS IT.
+    expect(ui.find(`tab-${target.id}`) === null).toBe(overflowing)
+
+    await ui.focus(target.id)
 
     // THE STRIP PERSISTS at the same footprint...
     expect(ui.all('[data-tab-id]').length).toBe(before)
-    // ...the focused tab is now one of them, and it is MARKED ACTIVE...
-    const tab = ui.find(`tab-${hidden.id}`)
+    // ...the focused tab is one of them, and it is MARKED ACTIVE...
+    const tab = ui.find(`tab-${target.id}`)
     expect(tab).not.toBeNull()
     expect(tab.getAttribute('data-focused')).toBe('true')
     expect(ui.all('.chrome-tab--focused')).toHaveLength(1)
     // ...and the panel is describing that same zone.
-    expect(ui.text(`detail-name-water`)).toBe(surveyZoneName(hidden.properties))
+    expect(ui.text(`detail-name-water`)).toBe(surveyZoneName(target.properties))
 
     // SELECTING ANOTHER REPLACES IT rather than adding a second mark.
     await ui.focus(zones[0].id)

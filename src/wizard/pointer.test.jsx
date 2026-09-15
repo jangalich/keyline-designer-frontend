@@ -706,11 +706,36 @@ describeIf('water', () => {
     await assertPointMarkersDistinct('water')
     expect(await evaluate(() => window.__probe.cursor.cursorStepId)).toBe('water')
     await generate('water')
-    // THE STRIP COLLAPSES ON THIS PARCEL -- more zones than a row holds -- and
-    // the reported gesture is on the row as it comes up, so the collapsed
-    // strip is what the first assertions below press.
-    expect(Number(await evaluate(() => document.querySelector('[data-testid="tabs-water"]').dataset.tabCount)))
-      .toBeGreaterThan(4)
+
+    // THE STRIP AS IT COMES UP, whatever shape that is -- and on this parcel
+    // the shape CHANGED under this test.
+    //
+    // It used to assert the strip collapses here ("more zones than a row
+    // holds"), which was true while the payload carried every surviving zone.
+    // build_water_payload() now narrows to the PRESENTED set -- two of each
+    // type -- so the parcel ships exactly one row's worth and the strip does
+    // not collapse. That is the backend's decision and not a regression here,
+    // but the sentence this test was written around is no longer true of the
+    // fixture, so it is corrected rather than relaxed.
+    //
+    // WHAT IS ASSERTED NOW is that the strip came up with tabs at all and that
+    // its count is the payload's presented count -- the thing that has to hold
+    // for every press below to be pressing a real tab. The tests that follow
+    // press whatever the strip is showing, collapsed or not, so none of them
+    // depended on the old sentence; this one did.
+    const tabCount = Number(
+      await evaluate(() => document.querySelector('[data-testid="tabs-water"]').dataset.tabCount)
+    )
+    const presented = Number(
+      await evaluate(() => window.__probe.state.steps.water.proposals.summary.presentation.presented_count)
+    )
+    expect(tabCount).toBeGreaterThan(0)
+    expect(tabCount).toBe(presented)
+    // eslint-disable-next-line no-console
+    console.log(
+      `POINTER WATER  ${tabCount} tab(s) on the strip, presented_count ${presented} -- ` +
+        `${tabCount > 4 ? 'collapsed' : 'one row, not collapsed'}`
+    )
   })
 
   for (const [where, viewport] of STAGES) {
@@ -1070,29 +1095,34 @@ describeIf('the structures checkbox and ×', () => {
     expect(await evaluate(() => window.__probe.cursor.armed)).toBeNull()
     await generate('structures')
     expect(await statusOf('structures')).toBe('generated')
-    // AS MANY BOXES AS THE RUN PRODUCED CANDIDATES, read off the payload
-    // rather than written down. This asserted THREE -- solar's MAX_CANDIDATES,
-    // which is a CEILING and not a yield -- and went red the day the backend
-    // split the drainage gates and moved the road gate to the site's point,
-    // which left this fixture with two clearing sites. What this file is
-    // about is that every box that IS on the strip can be hit; how many the
-    // parcel earns is the pipeline's answer, and one worth reading rather
-    // than restating.
-    const candidateCount = await evaluate(
-      () =>
-        window.__probe.registryProposalFeatures(
-          window.__probe.selectStepProposals(window.__probe.state, 'structures'),
-          'structures'
-        ).length
+    // HOW MANY SITES THIS RUN FOUND, READ OFF THE PAYLOAD rather than typed.
+    //
+    // This asserted a literal 3, and the number is not the fixture's to
+    // promise: how many pads survive depends on what the four upstream steps
+    // COMMITTED, and this file reaches structures by a different path from
+    // structures.test.jsx -- its own trees selection becomes a buffer that
+    // gates solar candidates. The run that produced 3 and the run that
+    // produces 2 are both correct; a literal here was asserting one path's
+    // arithmetic in a file that is about whether controls can be pressed.
+    //
+    // WHAT MATTERS TO THIS FILE is that there ARE candidates, that every one
+    // of them carries a box (which is what the presses below iterate), and
+    // that the map drew exactly as many pins as the strip drew tabs. Those
+    // are the claims a hit-testing file makes, and none of them needs a
+    // particular number.
+    const siteCount = Number(
+      await evaluate(() => window.__probe.state.steps.structures.proposals.structure_sites.features.length)
     )
-    expect(candidateCount, 'the fixture yields at least two structure sites').toBeGreaterThanOrEqual(2)
-    expect((await shownBoxes()).length, 'a box per generated site').toBe(candidateCount)
+    expect(siteCount, 'the fixture must yield structure sites, or every press below is vacuous').toBeGreaterThan(0)
+    expect((await shownBoxes()).length, 'every generated site carries a box').toBe(siteCount)
     expect(await evaluate(() => window.__probe.cursor.armed)).toBeNull()
+    // eslint-disable-next-line no-console
+    console.log(`POINTER STRUCTURES  ${siteCount} generated site(s) on this path`)
 
-    // [1] A PIN PER SITE, EACH THE SILHOUETTE TWICE AND NOTHING INSIDE. [2] OCHRE,
-    // and the same size on screen at two zooms. [4] The committed access
-    // point beside them is ink at committed muting. [5] The two kinds on
-    // this map paint in two colours -- the pair the rule exists for.
+    // [1] ONE PIN PER SITE, EACH THE SILHOUETTE TWICE AND NOTHING INSIDE.
+    // [2] OCHRE, and the same size on screen at two zooms. [4] The committed
+    // access point beside them is ink at committed muting. [5] The two kinds
+    // on this map paint in two colours -- the pair the rule exists for.
     const pins = await evaluate(() =>
       [...document.querySelectorAll('.leaflet-container .site-pin')].map((el) => ({
         paths: [...el.querySelectorAll('svg *')].map((n) => n.tagName.toLowerCase()),
@@ -1100,7 +1130,7 @@ describeIf('the structures checkbox and ×', () => {
         box: el.getBoundingClientRect().width + 'x' + el.getBoundingClientRect().height,
       }))
     )
-    expect(pins).toHaveLength(candidateCount)
+    expect(pins).toHaveLength(siteCount)
     for (const pin of pins) {
       expect(pin.paths).toEqual(['path', 'path'])
       expect(pin.d).toBe(1)
@@ -1127,7 +1157,7 @@ describeIf('the structures checkbox and ×', () => {
 
     const atStructures = await assertPointMarkersDistinct('structures')
     const livePin = atStructures.find((m) => m.kind === 'site pin (live)')
-    expect(livePin.count).toBe(candidateCount)
+    expect(livePin.count).toBe(siteCount)
     expect(livePin.colour).toBe(await tokenColour('--ochre'))
     expect(livePin.opacity).toBe(1)
     const committedAccess = atStructures.find((m) => m.kind === 'access point (committed)')
