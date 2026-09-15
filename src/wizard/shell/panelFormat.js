@@ -7,6 +7,16 @@
  * and a step declares a LIST OF ROWS against it. Every rule below is the
  * panel's; a step supplies values and labels and nothing else.
  *
+ * EVERY STEP WITH MEASUREMENTS TO SHOW NOW DECLARES AGAINST IT -- production,
+ * water, roads, trees and structures, in that order, each on its own branch.
+ * Fencing is the one panel still on `groups`, and it has no measurement set to
+ * migrate: a length and a placeholder, pending its own settling. THE FORMAT
+ * HELD ACROSS ALL FIVE and grew exactly two things while it did -- the
+ * denominator (water), and the labelled break with the TERM row under it
+ * (trees). Structures, the last of them, needed neither: the fifth kind of
+ * panel this format has been asked to arrange came out of the constructors
+ * that were already here.
+ *
  * WHERE THE TWO HALVES LIVE. This file owns the FORMAT -- what a row is, what a
  * break is, which face each row takes, and how a panel's body is composed out
  * of a step's declaration. DetailPanel.jsx owns the DOM, and it is the only
@@ -65,7 +75,12 @@
  *      AND A BREAK MAY CARRY A LABEL, WHICH TREES IS THE FIRST TO EARN.
  *      `labelledBreak('marginal benefits')` is the same rule with a heading
  *      over the run under it; `PANEL_BREAK` is the unlabelled singleton and is
- *      still what three of the four steps declare.
+ *      still what most declared breaks are. STRUCTURES IS THE SECOND AND LAST
+ *      TO EARN A LABEL, for a run that is the opposite kind of statement --
+ *      the siting rules a placed site BREAKS -- and by the same test: each row
+ *      is a plain fact about the spot, and nothing in the words says it is a
+ *      rule this site fails. Two headings in six panels is the rate the bar
+ *      was set to produce.
  *
  *      THE LABEL IS THE EXCEPTION AND THE BARE RULE IS THE DEFAULT, and that
  *      ordering is the whole finding water left behind. Water went into this
@@ -89,7 +104,8 @@
  *      and puts a line of prose under it. Nothing is nested, nothing sizes its
  *      own columns, and the decimal point still runs from the first figure to
  *      the last. The `groups: [{label, fields}]` shape DetailPanel still
- *      renders for the unmigrated steps is the thing this is not.
+ *      renders for fencing -- the one step left on it, whose panel is a
+ *      placeholder pending its own settling -- is the thing this is not.
  *
  *      LOWER CASE HERE, UPPER CASE ON SCREEN, like every other word below the
  *      header: the step declares 'marginal benefits' and the stylesheet sets
@@ -189,11 +205,20 @@ export const CATEGORICAL = 'categorical'
  * Both are a pair with a hole in it, and a term is not a pair. It spans every
  * track and starts at the same left edge every other value does.
  *
- * TREES IS THE FIRST AND MAY NOT BE THE LAST. Its terms are the benefits the
+ * TREES WAS THE FIRST AND STRUCTURES IS THE SECOND, which is the evidence that
+ * this face was a kind and not a one-off. Trees' terms are the benefits the
  * backend's own gate rule awarded (tree_zone_candidates.marginal_benefits); what
  * this side knows is that each is a word, that the list came in a declared
  * order, and that an empty list means the zone earned none. NOT ONE OF THOSE
  * WORDS IS WRITTEN DOWN IN THIS APP, here included -- see the step.
+ *
+ * STRUCTURES' ARE THE OPPOSITE STATEMENT IN THE SAME SHAPE: the siting rules a
+ * placed site BREAKS, one term each, under a heading that says so. The two runs
+ * are set identically and that is deliberate rather than an oversight -- a
+ * placed site that breaks a gate is scored and committable, not refused, so a
+ * warning treatment on those rows would contradict the step's own posture. What
+ * a term IS stays the same in both: a name on a list, whose list is named above
+ * it.
  */
 export const TERM = 'term'
 

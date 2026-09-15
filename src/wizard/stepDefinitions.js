@@ -1437,7 +1437,12 @@ const BOUNDARY_RESTART = stepButton({
 
 export const BOUNDARY_STEP = defineStep({
   id: BOUNDARY_STEP_ID,
-  title: 'Property boundary',
+  // TITLE CASE, LIKE EVERY OTHER ROW ON THE RAIL. A step's title is a NAME --
+  // the rail is a list of them and the one-word titles beside it (Landform,
+  // Water, Roads, Trees, Structures, Fencing) are all capitalised, so a
+  // sentence-cased two-word title read as the odd one out rather than as the
+  // only multi-word name.
+  title: 'Property Boundary',
   blurb: 'Trace the property outline. Everything after this is measured against it.',
   // TWO DECLARATIONS OF ONE RING, because the ring MOVES on commit and the
   // two halves of that are drawn differently. Before the commit it is the
@@ -4793,8 +4798,10 @@ export const ROAD_PROXIMITY_SOURCES = Object.freeze([
  * rather than a boolean. All three are said, because all three change what
  * "close to a road" meant when these sites were scored:
  *
- *   selected_road_corridor  the road they committed. The plain case, said
- *                           once so the other two read as departures from it.
+ *   selected_road_corridor  the road they committed -- which is a ROUTE, not
+ *                           a road that exists on the ground yet. The plain
+ *                           case, said once so the other two read as
+ *                           departures from it.
  *   real_mapped_road        THEY COMMITTED NO ROAD, and the step did not
  *                           silently drop the constraint -- it fell back to
  *                           the farm roads already on the map. A site "near a
@@ -4804,11 +4811,21 @@ export const ROAD_PROXIMITY_SOURCES = Object.freeze([
  *                           no site was checked for road access, and the
  *                           road distance reads as unmeasured everywhere.
  *                           The bigger caveat, and it is said as one.
+ *
+ * ALL THREE SAY WHICH ROAD, AND THAT IS THE WHOLE POINT OF THE LINE. `ft to
+ * road` is the TAB'S headline figure now (see tabs()), and a figure's meaning
+ * is not in the figure: 240 ft to a corridor nobody has built is a different
+ * fact from 240 ft to the driveway that is there today, and under
+ * `unavailable` it is not a fact at all. The panel used to carry a per-site
+ * `road measured to` row saying this; it is true of EVERY candidate in the
+ * run, so it belongs here, once, and not repeated down every panel.
  */
 export const ROAD_PROXIMITY_CONSEQUENCE = Object.freeze({
   selected_road_corridor: Object.freeze({
     tone: 'advisory',
-    text: 'Road distance is measured to the road you committed.',
+    text:
+      'Distances to a road are measured to the road you committed — a route chosen on this ' +
+      'parcel, not a road that has been built yet.',
   }),
   real_mapped_road: Object.freeze({
     tone: 'caution',
@@ -4826,13 +4843,6 @@ export const ROAD_PROXIMITY_CONSEQUENCE = Object.freeze({
   }),
 })
 
-/** What a road distance is a distance TO, by tier -- the panel's reading. */
-const ROAD_MEASURED_TO = Object.freeze({
-  selected_road_corridor: 'the road you committed',
-  real_mapped_road: 'an existing farm road on the map — no road was committed',
-  unavailable: 'no road — none committed, none mapped, rule not applied',
-})
-
 /** The tab's label for the same figure, in the words the tier allows. */
 const ROAD_TAB_LABEL = Object.freeze({
   selected_road_corridor: 'ft to road',
@@ -4840,52 +4850,29 @@ const ROAD_TAB_LABEL = Object.freeze({
   unavailable: 'ft to road',
 })
 
-/**
- * THE FOUR FACTORS, AS MERITS -- trees' arrangement over solar's names.
- * `key` is the payload's own name under `summary.factor_weights_pct`;
- * `score` is the property each feature carries the factor's credit under
- * (0-1, the pipeline's own scale, three places). The labels are this side's
- * and read as what the spot HAS that earned it credit, beside the score
- * they explain. No factor here has a gate: all four are read off the DEM
- * and the committed ground every generate has, so a factor row is always a
- * measurement -- what is a rough reading is said at step level instead
- * (`shading_is_rough_proxy`, see the notices).
+/*
+ * THE FOUR SCORING FACTORS ARE NOT IN THIS FILE, and their absence is the
+ * decision rather than an omission. `slope_score`, `aspect_score`,
+ * `shading_score` and `production_proximity_score` ride every feature and
+ * their shares ride `summary.factor_weights_pct`; this step used to render
+ * all four as panel rows with the share on each label, and trees' branch
+ * argued the case against that for every step at once (see TREES_STEP.detail):
+ * a weighted composite decomposed into four rescaled figures and four
+ * percentages is eight numbers that need a sentence to mean anything, and a
+ * panel 15rem wide has room for neither the sentence nor the eight. Five
+ * steps had already stopped showing them; this is the sixth, and the panel
+ * says what the spot IS rather than how its number was arrived at.
+ *
+ * THE WEIGHTS ARE STILL READ HERE, by notices() -- `shading_is_rough_proxy`
+ * names the share of every score that a rough reading carries, which is a
+ * step-level fact and the one thing the decomposition was really buying. And
+ * all of it stays on the wire for the report, which has the room.
  */
-export const STRUCTURE_FACTORS = Object.freeze([
-  Object.freeze({ key: 'slope', score: 'slope_score', label: 'gentle ground' }),
-  Object.freeze({ key: 'aspect', score: 'aspect_score', label: 'sun-facing' }),
-  Object.freeze({ key: 'shading', score: 'shading_score', label: 'open to the sky' }),
-  Object.freeze({
-    key: 'production_proximity',
-    score: 'production_proximity_score',
-    label: 'at the edge of production ground',
-  }),
-])
 
-/** The factors in the order of the share each carries, heaviest first. Off the payload. */
-export function structureFactorsByWeight(weights) {
-  return [...STRUCTURE_FACTORS].sort((a, b) => (weights?.[b.key] ?? 0) - (weights?.[a.key] ?? 0))
-}
-
-/** A factor score is 0-1 at three places on the wire; printed as sent. */
-const FACTOR_DP = 3
-/** Whole feet: the three distances. */
+/** Whole feet: the distance to a road. */
 const DISTANCE_DP = 0
-/** A pad is a tenth of an acre; one place would print every pad the same. */
-const AREA_DP = 2
 const COUNT_DP_STRUCTURES = 0
 const WEIGHT_DP_STRUCTURES = 0
-
-/** One factor row for one site: the credit in the figure column, the share on the label. */
-export function structureFactorField(factor, properties, weights) {
-  const weight = weights?.[factor.key]
-  const share = weight == null ? '' : ` · ${measure(weight, WEIGHT_DP_STRUCTURES)}% of the score`
-  return {
-    label: `${factor.label}${share}`,
-    value: measure(properties?.[factor.score], FACTOR_DP),
-    measured: true,
-  }
-}
 
 /**
  * THE SITING RULES, IN THE USER'S TERMS. `constraints_violated` names the
@@ -4901,6 +4888,22 @@ const GATE_STATEMENTS = Object.freeze([
   [/^outside_water_candidate_zone$/, () => 'sits on the committed water ground'],
   [/^outside_tree_zone_candidate_buffer$/, () => 'sits inside a committed tree zone’s clearance'],
   [/^within_road_proximity_buffer$/, () => 'is farther from a road than the siting rule allows'],
+  // THE TWO DRAINAGE GATES, AND THEY ARE TWO. The backend used to hand this
+  // step roads' COMBINED hydric-plus-floodplain union, which could only ever
+  // have produced one statement -- "wet ground", roads' own word for the
+  // union, which is exactly as much as one union can say. They are separate
+  // gates on the wire now (`outside_hydric_soil`, `outside_floodplain`), a
+  // site can break either or both, and these are two different pieces of
+  // ground to be standing on: a hydric map unit is soil that drains badly,
+  // and a floodplain is water arriving from somewhere else. A reader deciding
+  // whether to put a building there needs to know WHICH, so the two sentences
+  // say it, and neither borrows the other's noun.
+  //
+  // "wet (hydric) soil" IS THE APP'S EXISTING WORD for the first of them --
+  // the exclusion layer's own label, which landform's cautions already print
+  // -- so the same ground is called the same thing in two panels.
+  [/^outside_hydric_soil$/, () => 'sits on wet (hydric) soil, which drains badly'],
+  [/^outside_floodplain$/, () => 'sits in the mapped floodplain'],
   [/^max_slope<=(\d+(?:\.\d+)?)pct$/, (pct) => `averages more than ${pct}% slope`],
   [/^suitability_score>=(\d+(?:\.\d+)?)$/, (floor) => `scores below the floor of ${floor}`],
 ])
@@ -4913,14 +4916,44 @@ export function gateStatement(name) {
   return `fails the rule the server calls ${name}`
 }
 
-/** 1st, 2nd, 3rd, 4th … */
-function ordinal(n) {
-  const value = Number(n)
-  if (!Number.isFinite(value)) return '—'
-  const mod100 = value % 100
-  const suffix =
-    mod100 >= 11 && mod100 <= 13 ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[value % 10] ?? 'th'
-  return `${value}${suffix}`
+/**
+ * THE SITING RULES A PLACED SITE BREAKS, AS THE PANEL'S LAST RUN -- a heading
+ * and the terms under it, or NOTHING AT ALL. marginalBenefitRows()'s shape,
+ * for the opposite kind of statement, off the same two constructors.
+ *
+ * ONLY WHEN NON-EMPTY, and the empty case is a real answer rather than a gap:
+ * a placed site that clears every gate carries `constraints_violated: []` and
+ * the panel ends at the solar rating -- no heading, no rule, and no row saying
+ * it cleared them, which is a sentence about nothing. A GENERATED CANDIDATE
+ * NEVER CARRIES THE KEY AT ALL, because the gates are HARD for it: it cleared
+ * every one by construction or it would not be in the payload. Both reach here
+ * as an empty list and both render nothing, which is right for both.
+ *
+ * IT IS A HEADING RATHER THAN A BARE RULE, and this is the second one in the
+ * build after trees' -- so panelFormat's rule 5 is worth restating against it.
+ * The bar is that the heading makes a claim the rows do not make, and these
+ * rows do not make it: "sits under existing tree canopy" is a FACT about the
+ * spot, set exactly like "upper field" three rows above it, and nothing in the
+ * words says it is a rule this site fails. SITING RULES BROKEN is what says
+ * that, and it is not recoverable from the terms. Water and roads both went
+ * looking for a heading and neither could state what one would add; this one
+ * states it in three words.
+ *
+ * AND IT IS NOT AN ERROR TREATMENT. A placed site that breaks a gate is
+ * SCORED and COMMITTABLE -- that is the whole divergence from trees, and the
+ * backend scored a canopy-block site at 59.2 while naming two broken gates.
+ * So the run takes the panel's ordinary term face and not the caution ochre:
+ * colouring it as a failure would contradict the posture the step took when
+ * it placed the site rather than refusing it. What the run reports is part of
+ * what the score came with.
+ */
+export function violatedRuleRows(violated) {
+  const broken = violated ?? []
+  if (!broken.length) return []
+  return [
+    labelledBreak(`siting rule${plural(broken.length)} broken`),
+    ...broken.map((name) => termRow(gateStatement(name))),
+  ]
 }
 
 /** The generated candidates a structures payload carries, in rank order. */
@@ -4986,14 +5019,30 @@ function capSentence(cap, already = false) {
 }
 
 /**
- * Which tier answered the road constraint for this run, off the payload:
- * `summary.run_flags` first (the four run-level flags the structures entry
- * surfaces), the narrative's gate block otherwise, null when the payload
- * carries neither.
+ * Which tier answered the road constraint for this run, off the payload.
+ *
+ * THREE PLACES CARRY IT AND THEY ARE ONE VALUE, not three. The backend
+ * PROMOTED it to a step-level narrative key (`summary.road_proximity_source`)
+ * when ft-to-road became the tab's headline figure -- it is true of the whole
+ * run, and the panel renders it as a run-level notice -- and deliberately left
+ * the same string in `gates`, which is where the report reads it, and in
+ * `run_flags`, which is where this client first found it. So this reads the
+ * promoted key FIRST and keeps the other two behind it: a payload built
+ * before the promotion still answers, and one built after it is read where its
+ * own author put the value.
+ *
+ * null when the payload carries none of the three, and null for a word that
+ * is not one of the three: an unknown tier is a tier this side cannot state
+ * the consequence of, and a notice is worth nothing if it cannot say what
+ * follows.
  */
 export function roadProximitySource(proposals) {
   const summary = proposals?.summary ?? {}
-  const value = summary.run_flags?.road_proximity_source ?? summary.gates?.road_proximity_source ?? null
+  const value =
+    summary.road_proximity_source ??
+    summary.run_flags?.road_proximity_source ??
+    summary.gates?.road_proximity_source ??
+    null
   return ROAD_PROXIMITY_SOURCES.includes(value) ? value : null
 }
 
@@ -5001,20 +5050,6 @@ export function roadProximitySource(proposals) {
 export function violatedGates(feature) {
   const violated = feature?.properties?.constraints_violated
   return Array.isArray(violated) ? violated : []
-}
-
-/**
- * THE PRIME-FARMLAND FLAG IS NOT A MEASUREMENT OF THE SPOT. It is
- * parcel-level SSURGO -- "prime soil was found somewhere in this boundary"
- * -- and every site on the parcel carries the same answer, a placed one by
- * inheritance from the run. The reading says so, and an absent key is "not
- * checked" rather than "no".
- */
-function primeFarmlandReading(properties) {
-  if (!('prime_farmland_conflict' in (properties ?? {}))) return 'not checked'
-  return properties.prime_farmland_conflict
-    ? 'found somewhere on this parcel — a parcel-level flag, not this spot’s'
-    : 'none found on this parcel — a parcel-level flag, not this spot’s'
 }
 
 /**
@@ -5354,26 +5389,60 @@ export const STRUCTURES_STEP = documentStep({
 
   /**
    * ONE TAB PER SITE -- the generated candidates in rank order, then the
-   * placed sites in the order placed. THREE ROWS: the identity, the
-   * composite score, and the distance to the road.
+   * placed sites in the order placed. THREE ROWS: the identity, the distance
+   * to the road, and the composite score.
    *
    * THE IDENTITY ROW TELLS THE TWO KINDS APART AT EQUAL RANK -- see
-   * structureSiteName. THE SECOND MEASURED ROW IS THE ROAD DISTANCE, and
-   * not the slope or the pad's acreage: slope is already inside the score
-   * (a factor), and every pad is the same tenth of an acre unless the
-   * boundary clipped it. Road access is the one siting fact the score does
+   * structureSiteName. THE MEASURED ROW BESIDE THE SCORE IS THE ROAD
+   * DISTANCE, and not the slope or the pad's acreage: slope is already inside
+   * the score (a factor), and every pad is the same tenth of an acre unless
+   * the boundary clipped it. Road access is the one siting fact the score does
    * not carry -- it is a GATE, not a factor -- and the one whose meaning the
    * tier caveat changes, so it earns the row. Whole feet; the label says
    * which road the tier allows it to (ROAD_TAB_LABEL), and it prints an em
    * dash under the `unavailable` tier, where the pipeline sent null.
+   *
+   * AND IT ONLY BECAME A MEASUREMENT IN THE BACKEND'S LAST BRANCH. This row
+   * read 0.0 on nine of eleven clearing footprints on the reference parcel,
+   * and the cause was not a rounding one: the distance was taken from the
+   * 0.1-acre PAD, the road-proximity constraint tunes candidates to sit close
+   * to a road, and shapely returns 0.0 both for geometries that touch and for
+   * one that contains another -- so the pad intersected the road by
+   * construction and the headline figure answered zero. It is measured from
+   * the site's own POINT now, the locator the user actually sees, and on the
+   * reference parcel it spreads over 8.6-98.4 ft. structures.test.jsx asserts
+   * the spread is non-zero, because "it reads 0.0" is what this looked like
+   * when it was broken.
+   *
+   * THE MEASUREMENT BEFORE THE SCORE, which is the shape every other scored
+   * step's strip takes -- landform's and trees' acres, water's, roads' length.
+   * What the tab is scanned FOR is the score; what makes the score mean
+   * something is the thing it is a score OF, and that reads first.
+   *
+   * THE SCORE ROW DECLARES A DENOMINATOR AND DOES NOT PRINT ONE. The strip
+   * shows "score"; the panel, repeating this same row below its header, shows
+   * "/100 score", and both come off this one declaration through
+   * panelFormat's denominated().
+   *
+   * AND THE CARRIER IS `summary`, WHICH IS THE FIFTH SHAPE scoreDenominator()
+   * has met -- the SAME SPELLING as landform's and trees' (`scales.range[1]`,
+   * one scored value on the payload so the block describes it directly) at a
+   * DIFFERENT DEPTH. build_structures_payload() forwards build_narrative_data()
+   * whole under `summary`, and the scales block rides the narrative, so it
+   * arrives at `summary.scales` rather than at the payload root. THE READER
+   * LEARNED NOTHING, because the carrier has been an argument since roads --
+   * whose block rides each NETWORK -- and a fifth shape absorbed by an
+   * argument that already exists is the evidence that the argument was the
+   * right one. No `100` is written on this side.
    */
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
     const source = roadProximitySource(proposals)
     const roadLabel = ROAD_TAB_LABEL[source] ?? 'ft to road'
+    const denominator = scoreDenominator(proposals?.summary)
     const rows = (properties) => [
-      { value: measure(properties?.suitability_score), label: 'score' },
       { value: measure(properties?.distance_to_road_ft, DISTANCE_DP), label: roadLabel },
+      { value: measure(properties?.suitability_score), label: 'score', denominator },
     ]
 
     const tabs = structureSites(proposals).map((feature) => ({
@@ -5400,25 +5469,125 @@ export const STRUCTURES_STEP = documentStep({
   },
 
   /**
-   * WHAT THE DETAIL PANEL SAYS ABOUT ONE SITE -- THE SAME FIELDS FOR BOTH
-   * KINDS, off one property block, because the server measures a placed
-   * site with exactly the code that measures a generated one.
+   * WHAT THE DETAIL PANEL SAYS ABOUT ONE SITE -- THE SAME ROWS FOR BOTH
+   * KINDS, off one property block, because the server measures a placed site
+   * with exactly the code that measures a generated one.
    *
-   *   THE SITE       the score; the rank, AS A COMPARISON and not a figure
-   *                  (it is a place in the shortlist for a candidate and
-   *                  where it would sit for a placed site); the pad's
-   *                  acreage; which kind of site this is.
-   *   THE GROUND     slope, aspect, facing -- and the prime-farmland flag,
-   *                  stated as the parcel-level reading it is.
-   *   DISTANCES      the three, in whole feet, each labelled by what it is a
-   *                  distance to; the road's says which tier answered.
-   *   WHAT EARNED THE SCORE
-   *                  the four factors, weighted off the payload.
-   *   THE SITING RULES, on a placed site only: which it breaks, as facts, or
-   *                  that it clears them all. A generated candidate cleared
-   *                  every gate by construction and carries no such list.
+   * DECLARED AGAINST THE SHARED FORMAT -- `rows`, not `groups`. THE SIXTH AND
+   * LAST STEP TO MOVE: panelFormat.js owns the arrangement and this owns the
+   * fields, and with this there is no step-specific panel rendering left
+   * anywhere in the build.
    *
-   * `cautions` IS [] FOR BOTH KINDS. This step records no crossings.
+   *     Site 1
+   *      240                        ft to road
+   *       89                        /100 score
+   *     ────────────────────────────────
+   *     south                       aspect
+   *     upper field                 position
+   *      4.2                        avg slope %
+   *     excellent                   solar rating
+   *
+   * TWO RUNS, ONE BREAK, NO LABEL. The rule is the format's own, drawn
+   * between the tab's rows and this list without being asked (panelBody); this
+   * step declares none of its own on a site that breaks nothing. Above it:
+   * which site this is and how it compares. Below it: what this ground is.
+   *
+   * AND NO HEADING, WHICH IS THE DEFAULT RATHER THAN A LOSS. Trees is the one
+   * step that earned one, because three bare benefit terms say nothing about
+   * what kind of statement they are. Every row here labels itself: `aspect`,
+   * `position`, `avg slope %`, `solar rating` are four questions with four
+   * answers, and a heading over them would say what the reader can already
+   * see. That is panelFormat's rule 5 applied in the direction it is usually
+   * applied in.
+   *
+   * CATEGORICALS FIRST, THEN THE FIGURE -- the format's rule 4 -- EXCEPT for
+   * the solar rating, which closes the run under a measured row. The order is
+   * deliberate and it is the reading order rather than the type order: aspect
+   * and position say WHERE this ground is, the slope says what it is LIKE, and
+   * the solar rating is the judgement those three add up to. Production makes
+   * the same departure at the bottom of its own list for its own reason (its
+   * pending rows sit last), and the format allows it in the same way: the
+   * panel renders rows in DECLARED order and does not sort.
+   *
+   * THE SOLAR RATING IS THE BACKEND'S WORD, RENDERED AND NEVER DERIVED. It
+   * bands `solar_value` -- the two SOLAR factors, aspect and shading,
+   * together -- and the bands are on the wire under
+   * `summary.scales.solar_rating.bands`, with their cuts and their bound
+   * convention. NOT ONE BAND NAME OR CUT IS WRITTEN IN THIS APP, here
+   * included, which is the rule every other banded value on every other step
+   * already obeys (production's elevation position, water's suitability
+   * grade). A frontend holding the cuts is a second copy of a calibration the
+   * backend's own comment calls unvalidated starting values, in the one place
+   * a reader would never think to check, and it would keep confidently
+   * printing the old word the day they are tuned against a real property.
+   * structures.test.jsx greps this file for the four names and the cuts.
+   *
+   * `solar_value` ITSELF IS NOT SHOWN, and the number is on the wire beside
+   * the word for the reason production's elevation percentile is: the
+   * distribution is TIGHT WITHIN a parcel and WIDE BETWEEN parcels, so the
+   * word separates parcels honestly while the number carries the detail. On
+   * the reference parcel all three candidates face north-north-west and score
+   * 40.0, 40.2 and 40.9 -- one word, three figures that differ in the first
+   * decimal, and a column of them would invite a reader to rank three sites by
+   * a difference that is not a difference. The figure earns its row the day
+   * the word is seen to under-discriminate on a real parcel, and it is there
+   * to promote when it does.
+   *
+   * `position` IS THE ELEVATION ONE -- `elevation_position`, production's own
+   * imported bands, under the word production's and trees' panels already use
+   * for the same kind of fact. Null renders an em dash and is never recomputed
+   * from the percentile the wire carries beside it: on a parcel with no relief
+   * "upper" and "lower" name nothing, and the backend sends null there
+   * deliberately.
+   *
+   * `aspect` IS THE BARE COMPASS WORD the backend sends, not a phrase and not
+   * the degrees. `aspect_degrees` stays on the wire for the report; a heading
+   * in degrees and a compass word in one 15rem column is two figures for one
+   * fact, and the word is the one a person standing on the land would use.
+   *
+   *
+   * WHAT DOES NOT APPEAR, AND WHY EACH IS A DECISION:
+   *
+   *   `rank` and the PRIME-FARMLAND FLAG are not measurements of this spot.
+   *     Rank is a comparison against the shortlist -- and for a placed site,
+   *     where it WOULD sit in one -- which the TAB already says in its name
+   *     ("Site 2", "Placed 1 · would rank 2"), and saying it twice in two
+   *     wordings is how two spellings of one fact come apart. Prime farmland
+   *     is parcel-level SSURGO inherited from the run: every site on the
+   *     parcel carries the same answer, so it is said ONCE at step level
+   *     (see notices) where it cannot read as a finding about one spot.
+   *
+   *   THE FOUR SCORING FACTORS, consistent with the other five steps -- see
+   *     the note where they used to be read from.
+   *
+   *   THE PAD'S ACREAGE and the DISTANCES TO PRODUCTION AND WATER. Every pad
+   *     is the same tenth of an acre unless the boundary clipped it, and the
+   *     two remaining distances are inside the score as the production
+   *     proximity factor or are not a siting question the user asked. The
+   *     road distance is the one that stayed, and it stayed on the TAB.
+   *
+   *   `signed_distance_to_production_ft` -- NEGATIVE inside a block, positive
+   *     outside, zero on the edge, null with no blocks. Settled when the
+   *     fields were specced: it exists because the NARRATIVE reads it, where
+   *     the old unsigned edge distance made a site well inside a block read
+   *     as though it were that far outside one. It is noted here so its
+   *     absence is not mistaken for an oversight.
+   *
+   *   `road measured to` -- which tier the road distance was measured
+   *     against. True of every candidate in the run, so it is a step-level
+   *     notice now (ROAD_PROXIMITY_CONSEQUENCE) rather than a row repeated
+   *     down every panel.
+   *
+   *
+   * AND LAST, ONLY WHEN THERE IS ONE: THE SITING RULES THIS SITE BREAKS. A
+   * placed site that breaks a gate is scored and committable with the gates it
+   * broke named -- that is the divergence from trees -- and the run says which
+   * (violatedRuleRows). A generated candidate never has one: the gates are
+   * hard for it.
+   *
+   * `cautions` IS [] FOR BOTH KINDS. This step records no crossings, so there
+   * is nothing for the panel's own caution list to hold; the broken rules are
+   * rows, not cautions, because they have no acreage and are not crossings.
    */
   detail: ({ proposals, draft }, featureId) => {
     const placedIndex = draft.drawnFeatures.findIndex((feature) => feature.id === featureId)
@@ -5427,92 +5596,19 @@ export const STRUCTURES_STEP = documentStep({
     if (!feature) return null
 
     const p = feature.properties ?? {}
-    const summary = proposals?.summary ?? {}
-    const weights = summary.factor_weights_pct ?? {}
-    const generatedCount = structureSites(proposals).length
-    const source = roadProximitySource(proposals)
-    const isPlaced = placed != null
-
-    const groups = [
-      {
-        id: 'site',
-        label: null,
-        fields: [
-          { label: 'score', value: measure(p.suitability_score), measured: true },
-          {
-            label: 'rank',
-            value: isPlaced
-              ? `would sit ${ordinal(p.rank)} among the ${generatedCount} generated site${plural(generatedCount)} — a comparison, not a measurement; a tie goes to the generated site`
-              : `${ordinal(p.rank)} of the ${generatedCount} generated site${plural(generatedCount)} — a place in the run’s ranking, not a measurement`,
-          },
-          { label: 'pad acres', value: measure(p.footprint_area_acres, AREA_DP), measured: true },
-          {
-            label: 'origin',
-            value: isPlaced
-              ? 'placed by you, and scored where it landed with the same measurements as the generated sites'
-              : 'suggested by the pipeline; it clears every siting rule by construction',
-          },
-        ],
-      },
-      {
-        id: 'ground',
-        label: 'The ground',
-        fields: [
-          { label: 'avg slope %', value: measure(p.avg_slope_pct), measured: true },
-          { label: 'aspect °', value: measure(p.aspect_degrees), measured: true },
-          { label: 'facing', value: p.aspect ?? '—' },
-          { label: 'prime farmland', value: primeFarmlandReading(p) },
-        ],
-      },
-      {
-        id: 'distances',
-        label: 'Distances',
-        fields: [
-          {
-            label: ROAD_TAB_LABEL[source] ?? 'ft to road',
-            value: measure(p.distance_to_road_ft, DISTANCE_DP),
-            measured: true,
-          },
-          { label: 'road measured to', value: ROAD_MEASURED_TO[source] ?? '—' },
-          {
-            label: 'ft to production ground',
-            value: measure(p.distance_to_production_zone_ft, DISTANCE_DP),
-            measured: true,
-          },
-          { label: 'production ground', value: p.production_zone_relationship ?? '—' },
-          {
-            label: 'ft to water zone',
-            value: measure(p.distance_to_water_zone_ft, DISTANCE_DP),
-            measured: true,
-          },
-        ],
-      },
-      {
-        id: 'merits',
-        label: 'What earned the score',
-        fields: structureFactorsByWeight(weights).map((factor) =>
-          structureFactorField(factor, p, weights)
-        ),
-      },
-    ]
-
-    if (isPlaced) {
-      const violated = violatedGates(feature)
-      groups.push({
-        id: 'rules',
-        label: 'The siting rules',
-        fields: violated.length
-          ? violated.map((name, index) => ({
-              label: `breaks rule ${index + 1}`,
-              value: gateStatement(name),
-            }))
-          : [{ label: 'clears', value: 'every siting rule the generated sites clear' }],
-      })
-    }
 
     return {
-      name: structureSiteName(feature, isPlaced ? placedIndex : null),
-      groups,
+      // The fallback only; the panel prefers the tab's own name, and the two
+      // are minted by one function so they cannot disagree.
+      name: structureSiteName(feature, placed ? placedIndex : null),
+      rows: [
+        categoricalRow(p.aspect ?? EM_DASH, 'aspect'),
+        categoricalRow(p.elevation_position ?? EM_DASH, 'position'),
+        measuredRow(measure(p.avg_slope_pct), 'avg slope %'),
+        categoricalRow(p.solar_rating ?? EM_DASH, 'solar rating'),
+        // THE HEADING AND THE BROKEN RULES, OR NOTHING. See violatedRuleRows().
+        ...violatedRuleRows(violatedGates(feature)),
+      ],
       cautions: [],
     }
   },
