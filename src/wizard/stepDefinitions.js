@@ -586,38 +586,6 @@ export function measure(value, dp = MEASURE_DP) {
   return value == null ? EM_DASH : Number(value).toFixed(dp)
 }
 
-/**
- * The international foot, which is the only one on this map. The backend holds
- * the same number as METERS_PER_FOOT and divides by it in `_feet()`; this is
- * that constant, not a rounded reading of it.
- */
-export const METERS_PER_FOOT = 0.3048
-
-/**
- * A metre measurement, in feet -- `feet(properties.pinch_binding_height_m)`.
- *
- * THE BACKEND CONVERTS WHERE IT CAN, AND THIS IS WHERE IT CANNOT. Its rule is
- * that a length it ships for display ships already in feet beside the metric
- * measurement it came from (`depression_depth_max_ft` next to
- * `depression_depth_max_m`), because two consumers converting one metre value
- * is two chances to forget. The shoulder heights are outside that rule by the
- * backend's own note on them -- they ship in metres "because no consumer prints
- * them yet" -- and this panel is now the consumer that does. So the conversion
- * is here, once, behind a name, rather than as a literal at a call site.
- *
- * IF A `pinch_binding_height_ft` EVER REACHES THE WIRE, this goes and the row
- * reads it, the way the depth row already reads the backend's. One conversion
- * point is the rule; which side of the wire it sits on is not.
- *
- * NULL SURVIVES AS NULL, so `measure()` downstream still prints an em dash for
- * a measurement that was never taken. A missing height converted to 0.0 ft
- * would be a reading nobody took, and this panel's whole em-dash discipline is
- * that NOT KNOWN never renders as a number.
- */
-export function feet(meters) {
-  return meters == null ? null : meters / METERS_PER_FOOT
-}
-
 /* ---------------------------------------------------------------------------
    WHAT A RESET COSTS, and the two readings every step's answer is built from
    ---------------------------------------------------------------------------
@@ -3229,7 +3197,7 @@ export const WATER_STEP = documentStep({
    *     "contributing acres" -- the catchment at the wettest cell, which is
    *     the only reading a basin has.
    *
-   *     THE DEPTH IT HAS.  Embankment: `pinch_binding_height_m`, "binding
+   *     THE DEPTH IT HAS.  Embankment: `pinch_binding_height_ft`, "binding
    *     shoulder height ft" -- how high the LOWER of the two shoulders stands
    *     above the channel at the dam site, which is what limits how far a pool
    *     can rise before it spills around the abutment. Excavated:
@@ -3261,8 +3229,8 @@ export const WATER_STEP = documentStep({
    *
    * AND THE WIRE CANNOT MAKE EITHER DECISION FOR US, which is why both
    * dispatches are here. Two of the four fields really are embankment-only on
-   * the feature -- `pinch_catchment_acres` and `pinch_binding_height_m` are
-   * both inside _zone_feature_properties' embankment branch -- so those halves
+   * the feature -- `pinch_catchment_acres` and the binding-shoulder pair are
+   * all inside _zone_feature_properties' embankment branch -- so those halves
    * would work by accident. The other two are set on BOTH types and would not:
    *
    *     `depression_depth_max_ft` is unconditional, and an embankment zone's
@@ -3358,8 +3326,8 @@ export const WATER_STEP = documentStep({
         // vocabulary, which is why they share a position rather than sitting in
         // two.
         //
-        // THE EMBANKMENT'S IS THE BINDING SHOULDER. `pinch_binding_height_m` is
-        // how high the LOWER of the dam site's two shoulders stands above the
+        // THE EMBANKMENT'S IS THE BINDING SHOULDER. `pinch_binding_height_ft`
+        // is how high the LOWER of the dam site's two shoulders stands above the
         // channel -- the binding side, not the mean and not the deeper side --
         // and it is the ceiling on the pool because water spills around the
         // lower abutment first. It is the measurement the backend's enclosure
@@ -3375,19 +3343,18 @@ export const WATER_STEP = documentStep({
         // hollow inside a compartment that is going to be filled by a dam, not
         // a depth anyone would dig.
         //
-        // BOTH IN FEET, FROM DIFFERENT SIDES OF THE WIRE, and that asymmetry is
-        // the backend's rather than ours: it ships the depression depth already
-        // converted beside its metric original, and ships the shoulder height in
-        // metres because until now nothing printed it. See feet() for why the
-        // second conversion lives here and what would retire it.
+        // BOTH IN FEET, AND BOTH CONVERTED ON THE WIRE, which is the backend's
+        // rule rather than a coincidence of these two rows: a length it ships
+        // for display ships already in feet, because two consumers converting
+        // one metre value is two chances to forget. `pinch_binding_height_ft`
+        // rides beside the metric `pinch_binding_height_m` the enclosure gate
+        // is read on -- this side prints the converted one and never does the
+        // arithmetic, the same as every other figure on this panel.
         //
         // THE UNIT RIDES THE LABEL on both. "4.1 feet" in the figure column
         // widens it for every row that has a word in it.
         embankment
-          ? measuredRow(
-              measure(feet(properties.pinch_binding_height_m)),
-              'binding shoulder height ft'
-            )
+          ? measuredRow(measure(properties.pinch_binding_height_ft), 'binding shoulder height ft')
           : measuredRow(measure(properties.depression_depth_max_ft), 'max depth ft'),
         PANEL_BREAK,
         // THE THREE CROSSINGS, IN THE BACKEND'S OWN ORDER rather than in an

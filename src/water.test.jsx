@@ -45,7 +45,6 @@ import { API_URL } from './session/apiClient'
 import {
   STEP_DEFINITIONS,
   WATER_STEP,
-  feet,
   isSurveyZone,
   measure,
   registryProposalFeatures,
@@ -2543,7 +2542,7 @@ describe('the panel', () => {
     const embankment = fixtureZone({
       ...shared,
       pinch_catchment_acres: 31.24,
-      pinch_binding_height_m: 2.27,
+      pinch_binding_height_ft: 7.4,
     })
     const excavated = fixtureZone({
       ...shared,
@@ -2563,32 +2562,33 @@ describe('the panel', () => {
     expect(valueOf(proposals, excavated.id, 'contributing acres')).toBe('2.4')
     expect(valueOf(proposals, excavated.id, 'max depth ft')).toBe('4.1')
 
-    // THE SHOULDER HEIGHT IS THE ONE ROW THIS SIDE CONVERTS, and the assertion
-    // is on the FEET, because a panel that printed the metric number under a
-    // label ending in "ft" is exactly the failure a unit on the label invites.
-    // 2.27 m / 0.3048 = 7.447 ft, and measure()'s one decimal place makes it
-    // 7.4 -- not 2.3, which is what a missing conversion would print.
+    // THE SHOULDER HEIGHT ROW READS THE WIRE'S CONVERTED FIELD, and this is
+    // the assertion that says so: the fixture carries 2.27 m and 7.4 ft, and
+    // the panel prints 7.4. A row that had reached for the metres would print
+    // 2.3 under a label ending in "ft" -- exactly the failure a unit on the
+    // label invites, and the reason this side does no arithmetic at all.
     expect(valueOf(proposals, embankment.id, 'binding shoulder height ft')).toBe('7.4')
-    // THE CONVERSION ITSELF, at the international foot the backend divides by.
-    // Pinned apart from the row so a rounded factor cannot hide inside one
-    // decimal place: 3 m is 9.8 ft, and 3.2808 would put it at 9.84.
-    expect(feet(3)).toBeCloseTo(9.8425, 4)
-    expect(feet(0)).toBe(0)
+    // AND THE METRES ARE ON THE FEATURE AND UNREAD, which is what makes the
+    // line above a choice rather than the only thing available. They ride the
+    // wire for the enclosure gate's sake (min_binding_shoulder_m is in metres
+    // and a refusal has to be checkable in one unit); the panel is not their
+    // consumer.
+    expect(embankment.properties.pinch_binding_height_m).toBe(2.27)
 
     // AND A MISSING MEASUREMENT IS AN EM DASH, never a zero -- on every one of
     // these rows. A pond site with no depth reading is not a pond site with no
     // depth, a compartment whose pinch catchment was not measured is not one
     // that holds nothing, and a dam site with no shoulder reading is not one
-    // with no shoulder. THE CONVERSION MUST NOT BREAK THAT: feet(null) is null
-    // rather than 0, so the em dash survives the extra step this row takes.
+    // with no shoulder. THE CONVERSION MUST NOT BREAK THAT EITHER: _feet()
+    // returns None for None rather than 0.0, so an unmeasured shoulder reaches
+    // this side as null and still renders as an em dash.
     const noDepth = fixtureZone({ zone_id: 7, survey_type: 'excavated', depression_depth_max_ft: null })
     expect(valueOf(payloadOf([noDepth]), noDepth.id, 'max depth ft')).toBe('—')
     const noCatchment = fixtureZone({ zone_id: 8, pinch_catchment_acres: null })
     expect(
       valueOf(payloadOf([noCatchment]), noCatchment.id, 'contributing acres at dam site')
     ).toBe('—')
-    const noShoulder = fixtureZone({ zone_id: 9, pinch_binding_height_m: null })
-    expect(feet(null)).toBeNull()
+    const noShoulder = fixtureZone({ zone_id: 9, pinch_binding_height_ft: null })
     expect(
       valueOf(payloadOf([noShoulder]), noShoulder.id, 'binding shoulder height ft')
     ).toBe('—')
@@ -3090,12 +3090,13 @@ function fixtureZone(overrides) {
       // PANEL dispatches on type, and a fixture that withheld the field would
       // let a panel pass by rendering an em dash instead of by omitting a row.
       pinch_catchment_acres: 31.2,
-      // METRES ON THE WIRE, and the panel is the side that converts -- the
-      // backend ships this one unconverted because until that panel row there
-      // was no consumer printing it. 2.27 m is the deepest binding shoulder
-      // the reference property measured anywhere, so the fixture's figure is
-      // a real reading rather than a round number: 7.4 ft in the panel.
+      // BOTH UNITS ON THE WIRE, which is what the backend ships: the metres
+      // the enclosure gate is read on, beside the converted reading the panel
+      // prints. 2.27 m is the deepest binding shoulder the reference property
+      // measured anywhere, so the fixture's figure is a real reading rather
+      // than a round number, and 7.4 is _feet()'s own rounding of it.
       pinch_binding_height_m: 2.27,
+      pinch_binding_height_ft: 7.4,
       representative_elevation_m: 312.4,
       canopy_overlap_pct: 0.0,
       road_overlap_pct: 0.0,
