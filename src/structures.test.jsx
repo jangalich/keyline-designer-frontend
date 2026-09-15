@@ -87,6 +87,7 @@ import {
   STRUCTURES_STEP,
   STRUCTURE_SITE_INPUT,
   STRUCTURE_SITE_LAYER,
+  aspectPhrase,
   defineStep,
   gateStatement,
   isPlacedSite,
@@ -536,7 +537,8 @@ describe('1. end to end against the real backend', () => {
       expect(ui.text('detail-name-structures')).toBe(`Placed 1 · would rank ${clean.properties.rank}`)
       expect(ui.text('detail-value-/100 score')).toBe(clean.properties.suitability_score.toFixed(1))
       expect(ui.text('detail-value-ft to road')).toBe(Number(clean.properties.distance_to_road_ft).toFixed(0))
-      expect(ui.text('detail-value-aspect')).toBe(clean.properties.aspect)
+      expect(ui.text('detail-value-aspect')).toBe(`${clean.properties.dominant_aspect} facing`)
+      expect(clean.properties.aspect_available).toBe(true)
       expect(ui.text('detail-value-position')).toBe(clean.properties.elevation_position)
       expect(ui.text('detail-value-avg slope %')).toBe(clean.properties.avg_slope_pct.toFixed(1))
       expect(ui.text('detail-value-solar rating')).toBe(clean.properties.solar_rating)
@@ -817,7 +819,15 @@ function candidate(id, rank, centre, extra = {}) {
       shading_score: 0.75,
       production_proximity_score: 0.5,
       avg_slope_pct: 5.2,
+      // THREE SPELLINGS OF ONE DIRECTION. `aspect` is the 16-point
+      // abbreviation the report quotes; `dominant_aspect` is the same bearing
+      // as production's own 8-point WHOLE WORD, which is what the panel
+      // prints; `aspect_degrees` is what both were derived from.
+      // `aspect_available` false would mean the ground faces nowhere well
+      // enough to name, and the word would be null rather than absent.
       aspect: 'NE',
+      dominant_aspect: 'northeast',
+      aspect_available: true,
       aspect_degrees: 50.0,
       // THE PANEL'S TWO BANDED WORDS AND THE FIGURES THEY BAND -- both words
       // are the backend's (SOLAR_RATING_BANDS; production's imported
@@ -1901,7 +1911,7 @@ describe('11. the panel renders through the shared format', () => {
       '46 | ft to road',
       '69.0 | /100 score',
       '--- ',
-      'NE | aspect',
+      'northeast facing | aspect',
       'upper field | position',
       '5.2 | avg slope %',
       'excellent | solar rating',
@@ -2048,6 +2058,78 @@ describe('11. the panel renders through the shared format', () => {
     expect(Object.keys(payload.summary.scales.solar_rating.bands)).toEqual(['fair', 'good', 'great', 'excellent'])
   })
 
+  /**
+   * THE ASPECT ROW IS LANDFORM'S ROW, THROUGH LANDFORM'S FUNCTION.
+   *
+   * It rendered as ONE LETTER before this: the row read `p.aspect`, which is
+   * the wire's 16-point ABBREVIATION ("S", "NNW"), and the panel sets every
+   * line below its header in lower case -- so a south-facing site's aspect
+   * said "s". The backend ships the 8-point whole word beside it now, under
+   * production's own two field names, and this side reads the pair it already
+   * knew how to read.
+   */
+  it('[test 4] says "northeast facing", not the abbreviation, off one function with landform', () => {
+    const payload = structuresPayload()
+    const aspect = bodyFor(payload, SITE_1).find((row) => row.label === 'aspect')
+
+    expect(aspect.value).toBe('northeast facing')
+    expect(aspect.kind).toBe('categorical')
+    // NOT THE ABBREVIATION, in any casing -- which is the whole defect.
+    expect(aspect.value).not.toBe('NE')
+    expect(aspect.value).not.toBe('ne')
+    // A PHRASE, NOT A COMPOUND: "northeast-facing" is an adjective waiting
+    // for a noun it never gets.
+    expect(aspect.value).not.toMatch(/-facing/)
+
+    // ONE FUNCTION, TWO PANELS. The structures row IS aspectPhrase(), the
+    // same call landform's panel makes, so the two steps cannot come to say
+    // this field differently.
+    const p = registryProposalFeatures(payload, 'structures')[0].properties
+    expect(aspectPhrase(p)).toBe(aspect.value)
+    expect(aspectPhrase({ dominant_aspect: 'south', aspect_available: true })).toBe('south facing')
+    const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
+    const section = source.slice(source.indexOf('   THE STRUCTURES STEP\n'), source.indexOf('   THE FENCING STEP\n'))
+    expect(section).toContain("categoricalRow(aspectPhrase(p), 'aspect')")
+
+    // PRODUCTION'S 8-POINT VOCABULARY, NOT THE WIRE'S 16-POINT ONE. This is
+    // the reason the word ships from the backend rather than being expanded
+    // here: a client-side table would say "north-northwest facing" one panel
+    // along from production's "north facing" about the same kind of fact.
+    // NO COMPASS TABLE EXISTS ON THIS SIDE -- the finer points are not
+    // spelled anywhere in the app.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    for (const finer of ['north-northwest', 'east-southeast', 'south-southeast', 'west-northwest']) {
+      expect(code, `no ${finer} anywhere on this side`).not.toContain(finer)
+    }
+    for (const abbreviation of ['NNW', 'ESE', 'SSE', 'WNW', 'NNE', 'SSW', 'WSW', 'ENE']) {
+      expect(code, `no ${abbreviation} table on this side`).not.toMatch(
+        new RegExp(`['"\`]${abbreviation}['"\`]`)
+      )
+    }
+
+    // GROUND THAT FACES NOWHERE GETS AN EM DASH, never a fabricated
+    // direction: `aspect_available` false is the backend saying there is no
+    // well-defined downhill direction here, and a word invented for it would
+    // be a fact about the land nobody established.
+    const flat = structuresPayload()
+    Object.assign(flat.structure_sites.features[0].properties, {
+      dominant_aspect: null,
+      aspect_available: false,
+      aspect: 'flat',
+      aspect_degrees: null,
+    })
+    expect(bodyFor(flat, SITE_1).find((row) => row.label === 'aspect').value).toBe('—')
+    // AND THE DEGREES ARE NOT BANDED INTO ONE either, when the wire still
+    // carries them and the flag says no.
+    const unflagged = structuresPayload()
+    Object.assign(unflagged.structure_sites.features[0].properties, {
+      dominant_aspect: null,
+      aspect_available: false,
+      aspect_degrees: 181.0,
+    })
+    expect(bodyFor(unflagged, SITE_1).find((row) => row.label === 'aspect').value).toBe('—')
+  })
+
   it('[tests 5, 6] the caution run is last, only when non-empty, and a generated candidate has none', () => {
     const payload = structuresPayload()
     const breaking = placedSite(pointToGeoJSON(INSIDE), {
@@ -2064,7 +2146,7 @@ describe('11. the panel renders through the shared format', () => {
       '46 | ft to road',
       '59.2 | /100 score',
       '--- ',
-      'NE | aspect',
+      'northeast facing | aspect',
       'upper field | position',
       '5.2 | avg slope %',
       'excellent | solar rating',
@@ -2116,7 +2198,11 @@ describe('11. the panel renders through the shared format', () => {
     // which is what holds one decimal point down the panel.
     expect(ui.text('detail-value-ft to road')).toBe('46')
     expect(ui.text('detail-value-/100 score')).toBe('69.0')
-    expect(ui.text('detail-value-aspect')).toBe('NE')
+    // THE WHOLE WORD AND "facing", NEVER THE ABBREVIATION. `aspect` on the
+    // wire is "NE"; a panel that printed it showed "ne", and on a due-south
+    // site a single letter, because every line below the header is set in
+    // lower case. This is landform's row through landform's own function.
+    expect(ui.text('detail-value-aspect')).toBe('northeast facing')
     expect(ui.text('detail-value-position')).toBe('upper field')
     expect(ui.text('detail-value-avg slope %')).toBe('5.2')
     expect(ui.text('detail-value-solar rating')).toBe('excellent')

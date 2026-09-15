@@ -1885,6 +1885,15 @@ function scoreDenominator(carrier, quantity) {
  * is a hyphenated adjective waiting for a noun it never gets; the panel's value
  * position holds a reading, and the reading is "south facing".
  *
+ * TWO STEPS READ IT NOW -- production and structures, the two panels with an
+ * `aspect` row -- off the same two field names. Structures' scorer publishes
+ * `dominant_aspect` and `aspect_available` because this function is what reads
+ * them: the alternative was a second compass vocabulary on this side, in a
+ * finer 16-point spelling, saying "north-northwest facing" one panel along
+ * from production's "north facing" about the same kind of fact. One function
+ * and one reading is the whole point; a step that grows an aspect row grows
+ * the two fields rather than a phrase of its own.
+ *
  * THE FLAG IS WHY THIS IS A FUNCTION. `aspect_available` false means the ground
  * is too flat for a well-defined downhill direction, and STEP 4's aspect_factor
  * is then the neutral 1.0 it defaults to rather than a measurement. Without the
@@ -5540,10 +5549,32 @@ export const STRUCTURES_STEP = documentStep({
    * "upper" and "lower" name nothing, and the backend sends null there
    * deliberately.
    *
-   * `aspect` IS THE BARE COMPASS WORD the backend sends, not a phrase and not
-   * the degrees. `aspect_degrees` stays on the wire for the report; a heading
-   * in degrees and a compass word in one 15rem column is two figures for one
-   * fact, and the word is the one a person standing on the land would use.
+   * `aspect` IS aspectPhrase(), WHICH IS LANDFORM'S ROW -- one function, one
+   * reading, on the two panels that carry this field. "south facing", off the
+   * backend's own 8-point word and its `aspect_available` flag, with an em
+   * dash where the ground faces nowhere well enough to name.
+   *
+   * IT RENDERED AS ONE LETTER BEFORE THIS. The row was `p.aspect`, which is
+   * `aspect_label` on the wire -- the 16-POINT ABBREVIATION, "S" or "NNW" --
+   * and the panel sets every line below its header in lower case, so a
+   * south-facing site's aspect read "s". Not wrong, exactly: unreadable, and
+   * in the one register the panel never uses. Every other value in this panel
+   * is a word.
+   *
+   * THE FIX WENT WHERE THE VOCABULARY LIVES, which is the same call trees'
+   * denominator made. Expanding "NNW" here would have put a 16-entry compass
+   * table in the client AND said "north-northwest facing" where production
+   * says "north facing" about the same kind of fact one panel along -- two
+   * vocabularies for one field, which is the drift the shared format exists
+   * to stop. solar_suitability already had `_compass_word()` (it writes the
+   * narrative's own prose with it); the wire now carries its answer as
+   * `dominant_aspect` beside `aspect_available`, under production's two
+   * names. So this side reads the pair it already knew how to read, and the
+   * abbreviation stays on the wire for the report that quotes it.
+   *
+   * `aspect_degrees` stays on the wire too: degrees and a compass word in one
+   * 15rem column is two readings of one fact, and the word is the one a
+   * person standing on the land would use.
    *
    *
    * WHAT DOES NOT APPEAR, AND WHY EACH IS A DECISION:
@@ -5602,7 +5633,7 @@ export const STRUCTURES_STEP = documentStep({
       // are minted by one function so they cannot disagree.
       name: structureSiteName(feature, placed ? placedIndex : null),
       rows: [
-        categoricalRow(p.aspect ?? EM_DASH, 'aspect'),
+        categoricalRow(aspectPhrase(p), 'aspect'),
         categoricalRow(p.elevation_position ?? EM_DASH, 'position'),
         measuredRow(measure(p.avg_slope_pct), 'avg slope %'),
         categoricalRow(p.solar_rating ?? EM_DASH, 'solar rating'),
