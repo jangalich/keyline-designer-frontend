@@ -469,7 +469,9 @@ import {
   PANEL_BREAK,
   categoricalRow,
   dropsAtZero,
+  labelledBreak,
   measuredRow,
+  termRow,
 } from './shell/panelFormat.js'
 import {
   COMMITTING,
@@ -4221,14 +4223,29 @@ export const TREES_SHAPE = Object.freeze({
 /**
  * THE FOUR FACTORS, AS MERITS.
  *
+ * WHERE THESE ARE READ NOW: the NOTICES, and nothing else. The panel used to
+ * carry one row per factor and no longer does -- see TREES_STEP.detail for why
+ * the decomposition left it -- so what survives here is the step-level
+ * statement a false gate produces: "no zone was credited for wet ground -- N%
+ * of every score -- and that row reads as unmeasured". That sentence needs a
+ * factor's NAME and its SHARE, which is what this table and the payload's
+ * weights are for; the share is the payload's own figure and no weight is
+ * written down on this side, here or anywhere in this section.
+ *
  * `key` is the payload's own name for the factor -- the key under
  * `selection.factor_weights_pct` and under each zone row's `factors` -- and
  * `gate` is the flag under `summary.gates` (and on every feature) that says
  * whether the factor was MEASURED. `label` is this side's, and it is the
- * whole editorial decision of this panel: each names what the ground HAS
- * that earned it credit. "Wet ground" and "steep ground" would be defects on
- * landform's panel; here they are the two heaviest merits, and the wording
- * has to read that way beside the score they explain.
+ * whole editorial decision: each names what the ground HAS that earned it
+ * credit. "Wet ground" and "steep ground" would be defects on landform's
+ * panel; here they are the two heaviest merits, and the wording has to read
+ * that way in a sentence about the score they explain.
+ *
+ * NO BENEFIT NAME IS IN THIS TABLE OR ANYWHERE NEAR IT. A factor is what was
+ * SCORED; a marginal benefit is what a scored factor IMPLIES, and the mapping
+ * between the two -- with its availability gate -- is the backend's alone. See
+ * marginalBenefitRows(). Putting a benefit beside a factor key here is exactly
+ * the drift trees.test.jsx greps to prevent.
  *
  * SLOPE HAS NO GATE, and that is the payload's fact rather than an
  * omission: the slope factor is read off the DEM every generate has, and
@@ -4250,37 +4267,49 @@ export const TREE_FACTORS = Object.freeze([
 const WEIGHT_DP = 0
 const COUNT_DP_TREES = 0
 
-/** The factors in the order of the share each carries, heaviest first. Off the payload. */
-export function treeFactorsByWeight(weights) {
-  return [...TREE_FACTORS].sort(
-    (a, b) => (weights?.[b.key] ?? 0) - (weights?.[a.key] ?? 0)
-  )
-}
-
 /**
- * ONE FACTOR ROW FOR ONE ZONE -- and the sentinel path, which IS here.
+ * WHAT THIS GROUND IS GOOD FOR, AS THE PANEL'S ROWS -- a heading and the terms
+ * under it, or NOTHING AT ALL.
  *
- * soil_marginality_factor defaults to the backend's _NEUTRAL_FACTOR_VALUE
- * (0.5) when the prime-farmland data was unavailable, and the other two
- * network-fetched factors do the same. A neutral 0.5 is INDISTINGUISHABLE
- * from a measured 0.5 unless the gate is read -- which is exactly why the
- * gates are on the wire. So a factor whose gate is false renders an EM DASH,
- * never its neutral default and never the 50 the row would otherwise print.
- * Water's overlap sentinels, the same discipline.
+ * THE LIST IS THE BACKEND'S AND THIS SIDE HOLDS NONE OF IT. `marginal_benefits`
+ * arrives as plain strings in a declared, stable order
+ * (tree_zone_candidates.MARGINAL_BENEFIT_FACTOR_SOURCES), and every decision
+ * that produced them stays there: WHICH factor implies which benefit, and the
+ * GATE -- a benefit is earned only when its factor is above zero AND that
+ * factor's data was genuinely fetched. Three of the four factors fall back to a
+ * neutral 0.5 when their source could not be reached, and 0.5 is above zero, so
+ * a rule applied on this side would award benefits off data nobody has. That is
+ * the same null-is-not-zero discipline the figures obey, moved from "print an
+ * em dash" to "do not claim the benefit", and it is not a rule this file can
+ * apply because the flags it turns on are not what the panel receives.
  *
- * The weight rides the label because the panel's field is a value and a
- * label and nothing else, and the row's FIGURE is the credit: "78.0 |
- * wet ground · N% of the score". Read off the payload, never written here.
+ * SO WHAT IS WRITTEN HERE IS: a list, in order, as words. NOT ONE BENEFIT NAME,
+ * anywhere in this app, in code OR in a comment -- which is why the note above
+ * names none and the panel sketch in TREES_STEP.detail draws them as
+ * placeholders. A frontend that spelled one would be one edit away from
+ * deciding when to show it -- the mapping is three lines and the gate is four,
+ * and the day a benefit is added on the backend this panel would silently show
+ * the old set. trees.test.jsx greps every client module for the terms to keep
+ * it that way.
+ *
+ * THE HEADING AGREES WITH THE COUNT, and that is the whole of what this side
+ * says about the list. "MARGINAL BENEFIT(S)" is a form field; this heading is
+ * the only one in any panel in the build and it is on every scored tree zone,
+ * so it is read more than any other single line down here.
+ *
+ * AN EMPTY LIST RENDERS NOTHING -- no heading and no rule, so the panel ends at
+ * the median slope. The key is ALWAYS PRESENT on the wire, so an empty list is
+ * a real answer ("this zone earned none") rather than a gap, and there is
+ * nothing for the panel to tell absent from empty. A heading over no rows would
+ * be the panel asking a question the payload already answered.
  */
-export function treeFactorField(factor, zone, gates, weights) {
-  const measuredHere = factor.gate == null || gates?.[factor.gate] !== false
-  const weight = weights?.[factor.key]
-  const share = weight == null ? '' : ` · ${measure(weight, WEIGHT_DP)}% of the score`
-  return {
-    label: `${factor.label}${share}`,
-    value: measuredHere ? measure(zone?.factors?.[factor.key]) : measure(null),
-    measured: true,
-  }
+export function marginalBenefitRows(benefits) {
+  const earned = benefits ?? []
+  if (!earned.length) return []
+  return [
+    labelledBreak(`marginal benefit${plural(earned.length)}`),
+    ...earned.map((benefit) => termRow(benefit)),
+  ]
 }
 
 /**
@@ -4494,6 +4523,31 @@ export const TREES_STEP = documentStep({
    */
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
+    /* THE SCORE ROW DECLARES A DENOMINATOR AND DOES NOT PRINT ONE -- the shape
+       the three steps before this one take. The strip shows "score"; the panel,
+       repeating this same row below its header, shows "/N score", and both come
+       off this one declaration through panelFormat's denominated().
+
+       AND ON THIS PAYLOAD IT IS undefined, WHICH IS A FINDING RATHER THAN A
+       BUG HERE. scoreDenominator() reads the top of the backend's OWN published
+       scale, in whichever of three spellings the payload uses, and the trees
+       payload publishes no `scales` block at all -- build_trees_payload()
+       forwards build_narrative_data() whole, and that block carries
+       candidate_count, search_space, selection, gates and zones. So the reader
+       needed no fourth spelling; it found a fourth CASE, which is a step whose
+       scale is not on the wire, and the function's own rule then applies: a
+       denominator this side cannot back is worse than none, so the label falls
+       back to plain "score" in both places.
+
+       THE 100 IS NOT TYPED HERE, and the temptation is real because
+       tree_zone_candidates.SUITABILITY_SCORE_SCALE is 100 and the score really
+       is on that scale today. A 100 written on this side is a second copy of
+       the backend's published scale in the one place a reader would never think
+       to check, and the day the pipeline rescales, this panel keeps confidently
+       printing the old denominator against the new figure. The call stays, so
+       the panel says "/100 score" the day trees publishes its scale and says
+       nothing it cannot back until then. */
+    const denominator = scoreDenominator(proposals)
 
     const tabs = (proposals?.zones ?? []).map((zone) => ({
       id: zone.feature_id,
@@ -4502,7 +4556,7 @@ export const TREES_STEP = documentStep({
       selected: selected.has(zone.feature_id),
       rows: [
         { value: measure(zone.area_acres), label: 'acres' },
-        { value: measure(zone.score), label: 'score' },
+        { value: measure(zone.score), label: 'score', denominator },
       ],
     }))
 
@@ -4516,7 +4570,7 @@ export const TREES_STEP = documentStep({
         selected: selected.has(feature.id),
         rows: [
           { value: measure(feature.properties?.acres), label: 'acres' },
-          { value: measure(null), label: 'score' },
+          { value: measure(null), label: 'score', denominator },
         ],
       })
     })
@@ -4527,29 +4581,112 @@ export const TREES_STEP = documentStep({
   /**
    * WHAT THE DETAIL PANEL SAYS ABOUT ONE ZONE.
    *
-   * A CANDIDATE: the figures the tab had no room for, then WHAT EARNED THE
-   * SCORE -- one row per factor, the credit it earned in the figure column
-   * and its share of the score on the label, both off the payload. The
-   * floor the zone cleared is the payload's `min_suitability_score`. Nothing
-   * numeric on this panel is written in this file.
+   * DECLARED AGAINST THE SHARED FORMAT -- `rows`, not `groups`. panelFormat.js
+   * owns the arrangement and this owns the fields, as landform's, water's and
+   * roads' do; between them there is no trees-specific rendering anywhere.
    *
-   * A DRAWN ZONE CARRIES NO FACTORS AT ALL, and the panel shows the ABSENCE.
-   * The backend does not score a drawn zone -- a zone scoring below the
-   * floor would read as scored badly rather than unscored -- so there is no
-   * factor group here, not a group of zeros and not a group of dashes (a
-   * dash is what an UNMEASURED factor prints on a scored zone, and a drawn
-   * zone is a different fact). One categorical row says so in words.
+   *     Zone 1
+   *      0.2                        acres
+   *     67.8                        score
+   *     ────────────────────────────────
+   *     south                       where in the parcel
+   *     upper field                 position
+   *     13.0                        median slope %
+   *     ────────────────────────────────
+   *     MARGINAL BENEFITS
+   *     <the first term the wire sent>
+   *     <the second>
+   *     <the third, at most>
+   *
+   * TWO RUNS AND ONE DECLARED BREAK, and this step's is the first in the build
+   * that carries a HEADING. The first rule is the format's own, drawn between
+   * the tab's rows and this list without being asked (panelBody); the second is
+   * the labelledBreak marginalBenefitRows() returns. Above it: where this ground
+   * is and what it is like. Below it: what it is GOOD FOR.
+   *
+   * AND THAT SECOND RUN IS WHY THE LABEL WAS EARNED HERE AND NOT BEFORE. Water
+   * and roads both asked for one and neither could say what it would add -- a
+   * heading over three length rows says what the reader can already see. Three
+   * bare terms say nothing about themselves at all: what kind of statement they
+   * are, or why they are under a tree zone's measurements. MARGINAL BENEFITS is
+   * that, and it is not recoverable from the rows. See panelFormat's rule 5.
+   *
+   * CATEGORICALS FIRST, THEN MEASURED VALUES -- the format's rule 4, applied to
+   * the first run. The benefits are neither; see termRow.
+   *
+   *
+   * WHAT LEFT THIS PANEL, AND IT IS THE POINT OF THE BRANCH RATHER THAN A
+   * TIDY-UP: the four FACTOR VALUES with their weights, and the SCORE FLOOR.
+   *
+   * The panel now answers "what is this zone good for" instead of "how was this
+   * number computed", which is the posture the other five steps already take --
+   * landform dropped slope_factor, size_factor and aspect_factor for the same
+   * reason and says so at its own row list. A weighted composite decomposed
+   * into four rescaled figures and four percentages is eight numbers that need
+   * a sentence to mean anything, and a panel 15rem wide has room for neither
+   * the sentence nor the eight.
+   *
+   * ALL OF IT STAYS ON THE WIRE for the report, which has the room: the factor
+   * values under each zone's `factors`, the weights under
+   * `selection.factor_weights_pct`, the floor under
+   * `selection.min_suitability_score`. Nothing was withdrawn, and the weights
+   * are still read HERE -- by notices(), where a factor whose data never
+   * arrived is named with the share of every score it would have carried. That
+   * is the one thing the decomposition was really buying and it is a
+   * step-level fact, not a per-zone one.
+   *
+   * AND THE SENTINEL PATH WENT WITH THE ROWS. A factor whose gate was false
+   * used to print an em dash here rather than its neutral 0.5; there is no
+   * factor row to hold now, and the SAME discipline is what the benefits list
+   * is built on -- marginal_benefits() will not award a benefit off a factor
+   * whose data was never fetched. The rule did not go away, it moved to the
+   * side that holds the flags. See marginalBenefitRows().
+   *
+   *
+   * TWO POSITION ROWS, BECAUSE THERE ARE TWO POSITIONS AND THEY ARE DIFFERENT
+   * FACTS. This panel used to show one row labelled `position` carrying
+   * `position_in_parcel`, and the other was not shown at all.
+   *
+   *   `position_in_parcel`   WHERE ON THE MAP -- a compass word, or "center",
+   *                          measured on the zone's drawn geometry against the
+   *                          parcel. It is what tells three tree zones apart on
+   *                          a map whose legend labels only the class.
+   *   `elevation_position`   WHERE IN THE PARCEL'S ELEVATION RANGE -- "upper
+   *                          field", "mid field", "lower field". Production's
+   *                          own ELEVATION_POSITION_BANDS, imported by the tree
+   *                          scorer rather than redeclared.
+   *
+   * `position` IS THE ELEVATION ONE, which is what production's panel has
+   * always meant by the word, so the two steps say the same word about the same
+   * kind of fact. The compass one takes the longer label, because the short one
+   * was already spoken for and "position" meaning two things across two panels
+   * is exactly the drift the shared format exists to stop.
+   *
+   * NEITHER IS COMPUTED HERE. The bands live on the backend precisely so the
+   * tool and the report agree about the same ground, and
+   * `elevation_percentile_of_parcel` is on the wire beside the word for the
+   * report to quote -- it is not this panel's to band. Null renders an em dash
+   * and never a default word: on a parcel with no relief "upper" and "lower"
+   * name nothing a reader could tell from a measurement, and the backend sends
+   * null there deliberately.
+   *
+   * A DRAWN ZONE CARRIES NO FACTORS AND NO BENEFITS AT ALL, and the panel shows
+   * the ABSENCE. The backend does not score a drawn zone -- a zone scoring below
+   * the floor would read as scored badly rather than unscored -- so there is no
+   * benefits run here, not an empty one and not a run of dashes. One categorical
+   * row says so in words. Its acres and its em-dash score come off the tab, like
+   * every other feature's.
    */
   detail: ({ proposals, draft }, featureId) => {
     const drawn = draft.drawnFeatures.find((feature) => feature.id === featureId)
     if (drawn) {
       return {
+        // The fallback only; the panel prefers the tab's own name, which is
+        // "Drawn 1" and carries which one of several it is.
         name: 'Drawn tree zone',
-        fields: [
-          { label: 'acres', value: measure(drawn.properties?.acres), measured: true },
-          { label: 'score', value: measure(null), measured: true },
-          { label: 'scoring', value: 'not scored: drawn by hand, no factor measured' },
-          { label: 'confidence', value: drawn.properties?.confidence ?? '—' },
+        rows: [
+          categoricalRow('not scored: drawn by hand, no factor measured', 'scoring'),
+          categoricalRow(drawn.properties?.confidence ?? EM_DASH, 'confidence'),
         ],
         cautions: drawn.properties?.cautions ?? [],
       }
@@ -4557,31 +4694,20 @@ export const TREES_STEP = documentStep({
 
     const zone = treeZoneRow(proposals, featureId)
     if (!zone) return null
-    const summary = proposals?.summary ?? {}
-    const weights = summary.selection?.factor_weights_pct ?? {}
-    const gates = summary.gates ?? {}
 
     return {
       name: `Zone ${zone.rank}`,
-      groups: [
-        {
-          id: 'zone',
-          label: null,
-          fields: [
-            { label: 'acres', value: measure(zone.area_acres), measured: true },
-            { label: 'score', value: measure(zone.score), measured: true },
-            { label: 'score floor', value: measure(summary.selection?.min_suitability_score), measured: true },
-            { label: 'avg slope %', value: measure(zone.avg_slope_pct), measured: true },
-            { label: 'position', value: zone.position_in_parcel ?? '—' },
-          ],
-        },
-        {
-          id: 'merits',
-          label: 'What earned the score',
-          fields: treeFactorsByWeight(weights).map((factor) =>
-            treeFactorField(factor, zone, gates, weights)
-          ),
-        },
+      rows: [
+        categoricalRow(zone.position_in_parcel ?? EM_DASH, 'where in the parcel'),
+        categoricalRow(zone.elevation_position ?? EM_DASH, 'position'),
+        // THE MEDIAN, NOT THE MEAN -- production's and water's row, under the
+        // name all three publish it by. `avg_slope_pct` is still on the wire
+        // and is what slope_factor was computed from; the panel says what the
+        // ground is LIKE and one figure does that, and a mean and a median in
+        // one 15rem column is two figures a reader has to tell apart.
+        measuredRow(measure(zone.slope_median_pct), 'median slope %'),
+        // THE HEADING AND THE TERMS, OR NOTHING. See marginalBenefitRows().
+        ...marginalBenefitRows(zone.marginal_benefits),
       ],
       // A candidate is carved out of the search space, which is the parcel
       // LESS the committed claims -- so it cannot cross either ground.

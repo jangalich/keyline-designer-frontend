@@ -2602,6 +2602,93 @@ describeIf('the zone patterns, rendered', () => {
   }, SLOW)
 
   /**
+   * WOULD THE TREE HATCH TAKE PRODUCTION'S SCREEN? MEASURED, AND NOT APPLIED.
+   *
+   * THE GAP IS DELIBERATE AND IT IS RECORDED IN TWO PLACES -- TREATMENT_MARKS'
+   * `tree` row and trees.test.jsx, which asserts the asymmetry rather than
+   * letting it be noticed. Production's hatch carries a screen (--rule at 0.12)
+   * and the tree hatch, which is the SAME RULING MIRRORED, carries none. This
+   * test does not close that gap; it produces the number the branch that closes
+   * it would decide on, which is what production's own sweep did before its
+   * screen shipped.
+   *
+   * TREES HAS PRODUCTION'S PROBLEM AND HAS IT WORSE, which is why the question
+   * is open at all. Production's ruling sits on the eligible highlight during
+   * landform and on bare imagery only from water onward; trees declares no
+   * highlight at all, so its ruling is on bare imagery from its own step. And
+   * over closed canopy the mark and the ground are the SAME HUE -- --tree is a
+   * mid-tone green -- which is a pairing nothing else in this build has.
+   *
+   * WHAT IS REPORTED, per level and over both grounds:
+   *
+   *   hatch          the tree ruling as it SHIPS, bare. There is no unscreened
+   *                  cell because the shipped mark is the unscreened one.
+   *   alone          the candidate screen with the ruling lifted off -- the
+   *                  wash on its own, which is the number that says whether a
+   *                  screen has stopped being a ground.
+   *   rules-on-screen  the ruling differenced against ITS OWN screen rather
+   *                  than against bare ground, which is the only reading
+   *                  directly comparable with the bare hatch: the screen works
+   *                  if the same rules read for MORE on it than on imagery.
+   *
+   * THE TWO BOUNDS ARE STATED AND NOT ASSERTED, for the same reason the sweep
+   * is a report: the 0.004 visibility floor for the mark, and the declared wash
+   * (water's committed embankment) for whether a screen has become a layer.
+   *
+   * WHAT IS ASSERTED IS THAT NOTHING WAS APPLIED. The shipped tree tile carries
+   * no screen pass, at every level -- so a future branch that adds one has to
+   * come here and change this line deliberately, which is the whole point of
+   * asserting an absence.
+   */
+  it('measures what a screen would do for the tree hatch, and reports it without applying one', async () => {
+    const ALPHAS = ['03', '06', '12', '2']
+    // The bounds these numbers are read against, both stated rather than held.
+    const declaredWash = await addedInkOver(page, 'canopy', 'survey-embankment', 'committed')
+
+    for (const ground of ['canopy', 'soil']) {
+      for (const state of ['committed', 'active', 'focused']) {
+        const bareSwatch = await swatchOf(page, `ground-${ground}-bare`)
+        const hatchSwatch = await swatchOf(page, `ground-${ground}-tree-${state}`)
+        const hatch = meanAbsDifference(hatchSwatch, bareSwatch)
+        const hatchSpread = textureSpread(crop(hatchSwatch, 8))
+        for (const alpha of ALPHAS) {
+          const id = `treescreen-rule-${alpha}`
+          const bothSwatch = await swatchOf(page, `ground-${ground}-${id}-${state}`)
+          const aloneSwatch = await swatchOf(page, `ground-${ground}-${id}-${state}-alone`)
+          const both = meanAbsDifference(bothSwatch, bareSwatch)
+          const alone = meanAbsDifference(aloneSwatch, bareSwatch)
+          const overScreen = meanAbsDifference(bothSwatch, aloneSwatch)
+          // eslint-disable-next-line no-console
+          console.log(
+            `    tree-screen  ${ground.padEnd(6)} ${state.padEnd(9)} ` +
+              `--rule 0.${alpha.padEnd(2)}  ` +
+              `alone ${alone.toFixed(4)}  hatch ${hatch.toFixed(4)}  ` +
+              `both ${both.toFixed(4)}  |  rules-on-screen ${overScreen.toFixed(4)} ` +
+              `(${(overScreen / hatch).toFixed(2)}x the bare rules)  ` +
+              `spread ${textureSpread(crop(bothSwatch, 8)).toFixed(4)} vs ${hatchSpread.toFixed(4)}`
+          )
+        }
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.log(
+      `    tree-screen  bounds: visibility floor 0.004, declared wash ${declaredWash.toFixed(4)} ` +
+        `(a screen at or above it has become a layer of its own)`
+    )
+
+    // AND NOTHING WAS APPLIED. The shipped tree tile has no screen pass in it,
+    // at any level. Asserted off the DEF rather than off a picture, because the
+    // claim is about what the mark IS.
+    const screens = await page.evaluate(() =>
+      ['committed', 'active', 'focused'].map(() => {
+        const def = document.getElementById('zone-pattern-tree')
+        return def ? def.querySelectorAll('[data-pass="screen"]').length : -1
+      })
+    )
+    expect(screens, 'the tree hatch still ships uncased -- measured, not applied').toEqual([0, 0, 0])
+  }, SLOW)
+
+  /**
    * THE SHIPPED SCREEN: THE BLOCK CLEARS THE FLOOR, AND THE SCREEN IS NOT A
    * LAYER OF ITS OWN.
    *

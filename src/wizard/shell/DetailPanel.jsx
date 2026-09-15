@@ -80,9 +80,12 @@
  * are ("water delivery", "median slope %" / "production overlap %", "also
  * excavated 2"). So the schema gap this note records was real and the fix was
  * not a labelled group; it was declared order plus a break, which is what
- * panelFormat gives every step. Trees is where an optional break LABEL may
- * still be earned -- its MARGINAL BENEFITS heading is a claim the rows under
- * it do not make themselves.
+ * panelFormat gives every step. TREES THEN EARNED THE LABEL that water could
+ * not: a break may carry a heading now (labelledBreak), and MARGINAL BENEFITS
+ * is the first and only one in the build -- a claim about three bare terms that
+ * the terms do not make themselves. The label is still an exception rather than
+ * the group label coming back; see panelFormat's rule 5 for the bar it has to
+ * clear, which water's four groups and roads' two runs both failed.
  *
  * WHAT THE GROUP DOES NOT DO IS RE-SORT. Inside a group the fields render in
  * DECLARED order, and a measured field and a prose one may sit next to each
@@ -123,11 +126,11 @@
  * front of the backend's measurement.
  */
 
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 
 import { useDrawingProgress } from '../../map/DrawingProgress.jsx'
 import { useWizardCursor } from '../WizardCursor.jsx'
-import { MEASURED, headerFor, isBreak, panelBody } from './panelFormat.js'
+import { MEASURED, TERM, breakLabel, headerFor, isBreak, panelBody } from './panelFormat.js'
 
 /**
  * THE CAUTIONS WORTH A LINE. A caution at exactly zero acres is the checker
@@ -167,18 +170,57 @@ function CautionLine({ caution }) {
  * size their columns independently and `42.9` above the rule would stop lining
  * up with `3.2` below it, which is the whole thing the column is for.
  *
- * THE TWO FACES ARE SET DIFFERENTLY AND THEY HAVE TO BE. A measured value takes
- * the number track: mono, tabular figures, right-aligned. A categorical takes
- * the same left edge and the slack beside it, in the prose face, OUT of the
- * track -- see panelFormat.js for what forcing a word into it costs.
+ * THE THREE FACES ARE SET DIFFERENTLY AND THEY HAVE TO BE. A measured value
+ * takes the number track: mono, tabular figures, right-aligned. A categorical
+ * takes the same left edge and the slack beside it, in the prose face, OUT of
+ * the track -- see panelFormat.js for what forcing a word into it costs. A TERM
+ * takes every track, because it has no label to leave a hole where.
+ *
+ * A LABELLED BREAK IS THE RULE AND THEN A HEADING, IN THAT ORDER AND AS TWO
+ * NODES. An <hr> cannot contain text and a heading cannot draw the panel's
+ * hairline, so the one declaration renders as both -- which also keeps the rule
+ * identical to every unlabelled break rather than a second thing that looks
+ * like one. Both span the whole grid, so the body is still ONE grid and the
+ * heading does not sit in a column.
+ *
+ * THE HEADING IS AN <h4> UNDER THE PANEL'S <h3>. It is a real heading -- it
+ * says what the rows below it ARE, which is a claim they do not make -- and the
+ * document outline should carry it. That is the difference from
+ * `.chrome-detail__group`, which is deliberately not a heading element: a group
+ * label divides one list, and there is one heading in that panel and it is the
+ * feature's name. This one is the case that note was leaving room for.
  */
 function PanelRows({ body, stepId }) {
   return (
     <div className="chrome-detail__rows" data-testid={`detail-rows-${stepId}`}>
-      {body.map((row, index) =>
-        isBreak(row) ? (
-          <hr key={`break-${index}`} className="chrome-detail__break" data-testid={`detail-break-${stepId}`} />
-        ) : (
+      {body.map((row, index) => {
+        if (isBreak(row)) {
+          const label = breakLabel(row)
+          return (
+            <Fragment key={`break-${index}`}>
+              <hr className="chrome-detail__break" data-testid={`detail-break-${stepId}`} />
+              {label ? (
+                <h4 className="chrome-detail__heading" data-testid={`detail-heading-${stepId}`}>
+                  {label}
+                </h4>
+              ) : null}
+            </Fragment>
+          )
+        }
+        if (row.kind === TERM) {
+          return (
+            <p
+              key={`${row.value}-${index}`}
+              className="chrome-detail__row"
+              data-row={row.kind}
+            >
+              <span className="chrome-detail__term" data-testid={`detail-term-${row.value}`}>
+                {row.value}
+              </span>
+            </p>
+          )
+        }
+        return (
           <p key={`${row.label}-${index}`} className="chrome-detail__row" data-row={row.kind}>
             <span
               className={
@@ -193,7 +235,7 @@ function PanelRows({ body, stepId }) {
             <span className="chrome-detail__row-label">{row.label}</span>
           </p>
         )
-      )}
+      })}
     </div>
   )
 }

@@ -81,10 +81,28 @@ const STATUS_WORDS = {
  *                    before it is committed. This is exactly what those rows
  *                    said before this branch, unchanged.
  *
- *   'not yet'        A step that is built and that you cannot get to, because
- *                    something before it is not committed. New, and only
- *                    because the rows it applies to are new: before this
- *                    branch nothing unreachable was ever on screen.
+ *   'pending'        A step that is built and that you cannot get to, because
+ *                    something before it is not committed.
+ *
+ *                    IT WAS 'not yet', AND THAT READ AS A REFUSAL. "Not yet" is
+ *                    an answer to a request, and the reader has not made one --
+ *                    they are looking down a list of what this design is made
+ *                    of. On the row under the cursor it reads as an instruction
+ *                    ("do the one above first"), which is true; four rows down
+ *                    it reads as the app declining something, which is not.
+ *                    'pending' states the row's condition and asks nothing of
+ *                    anyone.
+ *
+ *                    AND IT NAMES NO BLOCKER, WHICH IS THE OTHER HALF. The
+ *                    obvious alternative is to say what is in the way, and this
+ *                    rail cannot: a step's blocker is not always the row above
+ *                    it. Trees consumes production, water AND roads, so the row
+ *                    that unblocks it is whichever of three is outstanding, and
+ *                    a word that implied "the one above" would be wrong on
+ *                    exactly the rows a reader is most likely to check. The
+ *                    reachability set knows the answer and the WORD does not
+ *                    have to -- which is why this one carries no knowledge of
+ *                    the graph at all.
  *
  *   done / ready     A step you can act on, as it always read.
  *
@@ -94,7 +112,7 @@ const STATUS_WORDS = {
  */
 function statusWord({ registered, reachable, status }) {
   if (!registered) return 'not built yet'
-  if (!reachable) return 'not yet'
+  if (!reachable) return 'pending'
   return STATUS_WORDS[status] ?? ''
 }
 
