@@ -165,6 +165,42 @@ export const ELIGIBLE_OPACITY = 0.32
 /** Committed geometry is settled: no dash, no fill weight, and no click to make. */
 const COMMITTED_FILL_OPACITY = 0.12
 
+/**
+ * A COMMITTED LINE OR RING IS DRAWN BARE -- NO CASING.
+ *
+ * THE CASING IS FOR THE STEP IN HAND. It is a white stroke under a coloured
+ * one, and what it buys is a line that survives any ground the imagery puts
+ * under it (see LINE_WEIGHT). That is worth its cost while a line is a
+ * DECISION BEING MADE -- a road being chosen, a boundary being traced -- and
+ * it is the wrong trade once the decision is settled: by the fencing step
+ * five committed layers blanket the parcel, and a white casing under every
+ * one of them is five marks all insisting on themselves behind the one the
+ * reader is actually working on.
+ *
+ * IT ALSO TOOK THE FENCE'S OWN SIGNATURE. The fence ships as a bare hairline
+ * (ProductionHatchPattern's fence row), and a committed road or boundary in
+ * a white casing reads as the same KIND of thing at a glance -- pale line,
+ * soft edge -- which is exactly the distinction the fence's colour and weight
+ * were chosen to make. Bare committed geometry gives the casing back its
+ * meaning: a cased line is live.
+ *
+ * BAND, NOT STATE, AND THE TWO COINCIDE HERE. MapLayerStack draws every
+ * settled band with no `interactive` and no focus, so a committed feature can
+ * never be the focused one -- band 'committed' and state 'committed' are the
+ * same set for these layers. The band is what is read because the band is
+ * what the declaration says.
+ *
+ * WHAT IT COSTS IS MEASURED, NOT ASSUMED. See index.css's --road note and
+ * layout.test.jsx's BELOW_THE_VISIBILITY_FLOOR: a committed road drawn bare
+ * falls under the 0.004 floor over closed canopy, which is the ground the
+ * casing was introduced for, and that is a declared exception rather than a
+ * discovery waiting to happen.
+ */
+function casingWeightFor(mark, isCommitted) {
+  if (isCommitted) return 0
+  return mark?.casing ?? CASING_WEIGHT
+}
+
 
 /**
  * A layer, drawn. The renderer is picked by `kind`; within `polygon`, the
@@ -230,6 +266,12 @@ function RingLayer({ layer, interactive, onLayerClick }) {
   const closed = layer.ring.length >= 3
   const Shape = closed ? Polygon : Polyline
   const takesClicks = Boolean(interactive && onLayerClick)
+  // THE RING IS A LINE FOR THIS PURPOSE. A boundary being traced is cased; the
+  // committed parcel edge, which is context under every step after it, is
+  // not. See casingWeightFor(). A ring declares no treatment and so no mark,
+  // which is why the first argument is null -- the fallback is the road's
+  // pair, which is what this ring has always drawn.
+  const casingWeight = casingWeightFor(null, layer.band === 'committed')
 
   return (
     <>
@@ -239,11 +281,13 @@ function RingLayer({ layer, interactive, onLayerClick }) {
           class once, in _initPath, from the options the path was CONSTRUCTED
           with. An `interactive: false` inside pathOptions is read by nothing
           and the path still takes every click. */}
-      <Shape
-        positions={layer.ring}
-        interactive={false}
-        pathOptions={{ color: halo, weight: CASING_WEIGHT, fill: false }}
-      />
+      {casingWeight > 0 ? (
+        <Shape
+          positions={layer.ring}
+          interactive={false}
+          pathOptions={{ color: halo, weight: casingWeight, fill: false }}
+        />
+      ) : null}
       {/* THE WHOLE RING IS THE HIT AREA, INTERIOR INCLUDED, and it has exactly
           one caller: DeleteGesture's RingDelete, which mounts this over an
           editable ring while `delete` is ARMED. A clear-the-boundary gesture
@@ -888,8 +932,13 @@ function patternLevelFor(state) {
 }
 
 /**
- * HOW HEAVY A MARK'S FILL IS IN THIS STATE -- the tint scale for a wash, the
+ * HOW HEAVY A MARK'S INK IS IN THIS STATE -- the tint scale for a wash, the
  * pattern scale for everything else.
+ *
+ * IT IS A FILL FOR A ZONE AND A STROKE FOR A LINE, and the answer is the same
+ * question either way: how present this mark is at this level. LineLayer asks
+ * it too, which is what puts a haloed LINE on the same rule as a haloed hatch
+ * without either renderer restating it.
  *
  * THE BRANCH IS ON THE MARK'S KIND, not on the treatment's name. A step added
  * later declares a kind in one table and inherits whichever scale that kind
@@ -905,14 +954,15 @@ function patternLevelFor(state) {
  * outline are on ONE scale, which is also what makes the three levels hold
  * for it in the same proportions they hold for a hatch.
  */
-function fillLevelFor(mark, state) {
+function markLevelFor(mark, state) {
   if (mark?.kind === 'tint') return tintLevel(stateName(state))
   // A MARK WHOSE FOCUS IS A HALO KEEPS ITS ACTIVE INK AT FOCUS, and that is
-  // the whole of what the halo bought. The mark itself changed -- the fill
-  // points at a tile whose every rule is lit (see ProductionHatchPattern's
-  // haloTile) -- so raising the level on top of it would be saying focus
-  // twice and spending the top of the scale to do it. A focused block inks
-  // exactly what an active one does; the glow is the difference.
+  // the whole of what the halo bought. The mark itself changed -- a hatch's
+  // fill points at a tile whose every rule is lit (ProductionHatchPattern's
+  // haloTile), a line gets a blurred stroke under its casing (LineLayer) --
+  // so raising the level on top of it would be saying focus twice and
+  // spending the top of the scale to do it. A focused mark inks exactly what
+  // an active one does; the glow is the difference.
   if (focusIsAHalo(mark) && state.isFocused) return patternLevel('active')
   return patternLevel(stateName(state))
 }
@@ -941,7 +991,7 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
   // other treatment hands back the same mark in every state and this argument
   // changes nothing for it.
   const mark = treatment ? zoneMark(treatment, { focused: isFocused }) : null
-  const fillOpacity = fillLevelFor(mark, state)
+  const fillOpacity = markLevelFor(mark, state)
 
   if (isDrawn) {
     // A DRAWN ZONE'S OUTLINE IS THE ACCENT'S, WHATEVER ITS MARK, and it is not
@@ -973,14 +1023,14 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
     //
     // ONE BRANCH FOR BOTH KINDS, and the two differences between them are
     // both already resolved: `mark.fill` is a colour for a tint and a paint
-    // server for a stipple, and fillLevelFor() picks the scale each fill is
+    // server for a stipple, and markLevelFor() picks the scale each fill is
     // legible on. A third mark that draws its own edge inherits this by
     // saying so in marksItsOwnEdge(), not by adding an arm here.
     //
     // TWO SCALES, ONE STATE. The line is ink at full strength and takes the
     // pattern levels; a wash is a screen and takes the tint levels, while a
     // dot field is ink too and stays on the pattern levels (see
-    // fillLevelFor). So a committed zone keeps a legible boundary while an
+    // markLevelFor). So a committed zone keeps a legible boundary while an
     // embankment zone's wash falls back to context, which is what a committed
     // layer is.
     return {
@@ -1055,6 +1105,16 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
   const isCommitted = layer.band === 'committed'
   const mark = layer.treatment ? zoneMark(layer.treatment) : null
   const color = mark?.stroke ?? ink
+  // THE WEIGHTS ARE THE MARK'S WHERE THE MARK DECLARES THEM, and the road's
+  // otherwise. LINE_WEIGHT and CASING_WEIGHT were argued for the road, which
+  // is the line this map drew first; the fence is thinner and says so in its
+  // own row rather than by moving the pair both lines read.
+  const weight = mark?.weight ?? LINE_WEIGHT
+  // ZERO FROM EITHER DIRECTION: the mark may declare no casing (the fence
+  // does) and the committed band has none whatever the mark says. Inside,
+  // `??` and not `||`, so a declared 0 survives rather than collapsing into
+  // the road's 4 and quietly re-casing a line that asked not to be.
+  const casingWeight = casingWeightFor(mark, isCommitted)
   const features = visibleFeatures(layer, focusedFeatureId)
 
   return (
@@ -1062,7 +1122,12 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
       {features.map((feature) => {
         const isFocused = isFocusedFeature(layer, feature, focusedFeatureId)
         const rejection = rejections[feature.id] ?? null
-        const level = rejection ? 1 : patternLevelFor({ isFocused, isCommitted })
+        // A HALOED LINE KEEPS ITS ACTIVE INK AT FOCUS -- markLevelFor's rule,
+        // asked here so a line and a hatch answer focus the same way.
+        const level = rejection ? 1 : markLevelFor(mark, { isFocused, isCommitted })
+        // THE GLOW, AND ONLY WHEN THE MARK SAYS FOCUS WITH ONE. A rejection
+        // owns the whole mark (see styleFor) and never glows.
+        const glow = !rejection && isFocused && focusIsAHalo(mark) ? mark.halo : null
         // THE DISPLAY GEOMETRY, which for a fence is its simplified, trimmed
         // line and for a road is its own LineString. See drawnAs(): nothing
         // but this renderer sees the substitution, and the casing below is
@@ -1078,24 +1143,47 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
         )
         return (
           <Fragment key={key}>
-            {/* THE CASING, FIRST AND UNDER. */}
+            {/* THE GLOW, FIRST AND UNDER EVERYTHING -- a light AROUND the
+                line, so it belongs beneath the casing and the ink it lights,
+                exactly where the haloed hatch tile puts its own pass.
+                BLURRED IN App.css, on `road--glow`: the blur radius is a
+                rendering number and the stylesheet is where this build keeps
+                those (see .stack-layer--kind-highlight); the colour, width
+                and alpha are the MARK's, because those are what a second
+                haloed line would want to differ in. */}
+            {glow ? (
+              <Polyline
+                positions={positions}
+                interactive={false}
+                color={glow.colour}
+                weight={glow.width}
+                opacity={glow.alpha}
+                className={`${className} road--glow`}
+              />
+            ) : null}
+            {/* THE CASING, UNDER THE LINE -- WHERE THERE IS ONE. A mark may
+                declare `casing: 0` and get no pass at all (the fence does);
+                a zero-weight path would still be a node in the DOM and in
+                every count of what is drawn. */}
             {/* OPTIONS AS PROPS, NOT `pathOptions`: react-leaflet applies
                 pathOptions through Leaflet's setStyle, which never touches
                 the class -- a className given that way is silently dropped.
                 The key above remounts on every change that matters. */}
-            <Polyline
-              positions={positions}
-              interactive={false}
-              color={halo}
-              weight={CASING_WEIGHT}
-              opacity={level}
-              className={`${className} road--casing`}
-            />
+            {casingWeight > 0 ? (
+              <Polyline
+                positions={positions}
+                interactive={false}
+                color={halo}
+                weight={casingWeight}
+                opacity={level}
+                className={`${className} road--casing`}
+              />
+            ) : null}
             <Polyline
               positions={positions}
               interactive={interactive}
               color={rejection ? readToken('--alert') : color}
-              weight={LINE_WEIGHT}
+              weight={weight}
               opacity={level}
               className={className}
               eventHandlers={
@@ -1211,6 +1299,7 @@ const RENDERERS = {
 export {
   LINE_WEIGHT,
   CASING_WEIGHT,
+  casingWeightFor,
   PinLayer,
   RingLayer,
   ScrimLayer,

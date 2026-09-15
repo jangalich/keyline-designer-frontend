@@ -1822,25 +1822,35 @@ describeIf('the zone patterns, rendered', () => {
   }, 60_000)
 
   /**
-   * THE FENCE'S OWN FLOOR, ON THIS SWATCH ONLY. A fence is a PALE line (--rule)
-   * on a --halo casing: against mid-grey the casing is most of the ink and
-   * the line adds little over it, so the focused state cannot swing against
-   * grey the way the road's dark core does (2.64x). Measured at 1.41x for
-   * --rule, and 1.22x for the rejected --ink-muted (a mid-grey line on a
-   * mid-grey ground, which is the mid-value trap in one number). On IMAGERY
-   * the fence's committed-to-active step is the road's own -- 1.28x over
-   * canopy, 1.26x over soil, against the road's 1.23x -- and the ground
-   * tests below hold it there like every other mark. Every other treatment
-   * keeps the scale's own floor. See the --fence note in index.css.
+   * THE FENCE'S OWN FLOOR IS GONE, BECAUSE THE FENCE NO LONGER SAYS FOCUS
+   * WITH A LEVEL. It is in FOCUS_IS_A_HALO below, with production, and the
+   * exception it used to need is the record of why.
    *
-   * 1.05, AND THE 1.41x ABOVE IS THE READING AT THE OLD SCALE. Raising
-   * --pattern-active to 0.75 took the fence to 1.13x -- which index.css's
-   * record of the first attempt at this scale PREDICTED to the second decimal,
-   * and this is that prediction confirmed rather than a new discovery. The
-   * fence is the weakest case by construction (a pale line over its own
-   * casing, where the casing is most of the ink), so it has least room to give
-   * and gives it first. The floor is set below the measured reading and above
-   * nothing: a fence whose focused state stopped stepping at all still fails.
+   * WHAT IT SAID. A fence is a PALE line (--rule) on a --halo casing: against
+   * mid-grey the casing is most of the ink and the line adds little over it,
+   * so the focused state could not swing against grey the way the road's dark
+   * core does (2.64x). It measured 1.41x -- and 1.22x for the rejected
+   * --ink-muted, a mid-grey line on a mid-grey ground, which is the mid-value
+   * trap in one number -- and the floor was set to 1.05 to catch a level that
+   * had stopped stepping at all. Raising --pattern-active to 0.75 then took
+   * it to 1.13x, which index.css's record of the first attempt at that scale
+   * had predicted to the second decimal.
+   *
+   * WHAT IT COST AND WHO PAID IT. That exception was the build's weakest
+   * state step, held open for one mark because the lever had nothing left to
+   * give. The halo gives the mark a second KIND of ink instead of more of the
+   * same, which is the move production made for the same reason -- and the
+   * measured result is 5.88x on this swatch, 5.96x over canopy and 5.83x over
+   * soil. The exception map is empty now, and the right way to read that is
+   * that nothing in the build says focus with a level it cannot afford.
+   *
+   * THE STEP IS THAT LARGE PARTLY BECAUSE THE BASE IS SMALL. The fence ships
+   * UNCASED, so an unfocused one inks very little and a glow is most of what
+   * a focused one is -- which is the same fact the ground test below records
+   * as the fence sitting under the visibility floor at its unfocused levels.
+   * A big ratio over a small base is not the same claim as a big ratio over
+   * a large one, and both readings are printed so neither can be quoted
+   * without the other. See the --fence note in index.css.
    */
   /**
    * THE FLOOR EVERY OTHER TREATMENT KEEPS, AND WHY IT IS 1.25 AND NOT 1.5.
@@ -1859,16 +1869,29 @@ describeIf('the zone patterns, rendered', () => {
    * still catches a level that stopped stepping while asserting nothing the
    * scale cannot deliver.
    */
-  const STATE_STEP_FLOOR = { fence: 1.05 }
+  // EMPTY, AND KEPT. Every treatment now meets the default -- the one mark
+  // that could not is a halo -- so this map holds no exception. It stays
+  // because the next mark that cannot reach the floor should have to be
+  // written in here, where the note above says what an entry costs.
+  const STATE_STEP_FLOOR = {}
   const STATE_STEP_DEFAULT = 1.25
 
   /**
    * THE ONE MARK THIS MEASURE CANNOT ASK THE QUESTION OF, AND WHY.
    *
-   * PRODUCTION'S FOCUS IS A HALO NOW, not a level: the focused block inks
-   * exactly what an active one does and a glow in --oxide is laid around each
-   * rule (index.css's halo exception). Every other treatment still steps its
-   * opacity, and for those this test is unchanged.
+   * TWO MARKS SAY FOCUS WITH A HALO, not with a level: production's focused
+   * block inks exactly what an active one does with a glow in --oxide laid
+   * around each rule, and a focused FENCE does the same with a blurred --halo
+   * stroke under its casing (index.css's halo exception, and the --fence
+   * note). Every other treatment still steps its opacity, and for those this
+   * test is unchanged.
+   *
+   * THE FENCE IS HERE BECAUSE IT COULD NOT AFFORD THE LEVEL, which is the
+   * note above this one, and the glow is a white one on a mid-grey swatch --
+   * so unlike production's oxide it has nothing to hide against and the
+   * difference measure sees it plainly. It is still asserted as the glow's
+   * own ink rather than as a ratio, because the two levels are equal by
+   * design for both marks and a ratio of two equal things is 1.
    *
    * MID-GREY CANNOT SEE THAT GLOW, AND IT IS THE MID-VALUE TRAP THIS FILE
    * ALREADY HAS ONE RECORD OF -- the fence's rejected --ink-muted line, a
@@ -1888,7 +1911,62 @@ describeIf('the zone patterns, rendered', () => {
    * which is the honest form of "an indicator you cannot see is not an
    * indicator" for a mark that adds ink rather than opacity.
    */
-  const FOCUS_IS_A_HALO = ['production']
+  const FOCUS_IS_A_HALO = ['production', 'fence']
+
+  /**
+   * WHAT DOES NOT MEET THE VISIBILITY FLOOR, NAMED HERE ONCE, BY TREATMENT AND
+   * BY STATE, SO EVERY TEST THAT ASSERTS THE FLOOR EXEMPTS IT IN THE SAME
+   * BREATH AS SAYING WHY.
+   *
+   * TWO DECISIONS PUT THINGS IN THIS LIST AND BOTH WERE DELIBERATE.
+   *
+   * 1. THE FENCE SHIPS UNCASED. It was a 2px line on a 4px --halo casing,
+   *    then a 1px hairline on a 3px casing; the casing was removed and what
+   *    ships is one bare 1px line in --rule. Putting the road's casing back is
+   *    worth 7.3x over canopy and 12.3x over soil, and without it:
+   *
+   *        mid-grey  committed 0.0020   active 0.0028   focused 0.0163
+   *        canopy    committed 0.0039   active 0.0054   focused 0.0319
+   *        soil      committed 0.0008   active 0.0011   focused 0.0062
+   *
+   * 2. THE COMMITTED BAND DROPS THE CASING, for every line and ring that
+   *    carried one -- roads and the property boundary. A cased line is the
+   *    step in hand; settled geometry is drawn bare (layers.jsx's
+   *    casingWeightFor). The cost falls almost entirely on ONE GROUND, and it
+   *    is the ground the casing was introduced for:
+   *
+   *                         bare      with the casing back
+   *        road    canopy     0.0005                0.0190      38x
+   *                soil       0.0096                0.0099      1.02x
+   *        ring    canopy     0.0019                0.0212      11x
+   *                soil       0.0073                0.0077      1.05x
+   *
+   *    Over bare soil a dark line needs no casing and never did. OVER CLOSED
+   *    CANOPY A COMMITTED ROAD IS EFFECTIVELY GONE -- 0.0005 against a 0.004
+   *    floor, an eighth of it -- and the committed parcel edge is under the
+   *    floor with it. That is the trade, and it is written here rather than
+   *    left to be discovered on a wooded parcel.
+   *
+   * WHAT IS STILL ASSERTED, AND IT IS NOT NOTHING. Every exempt mark must
+   * still add ink (> 0) at every level on every ground; the levels must still
+   * order; the ACTIVE road is still held to the floor with its casing, and the
+   * boundary ring BEING TRACED is too -- it is the one shape a person places
+   * by hand, and a line they cannot see is a boundary they cannot check. The
+   * fence's FOCUSED state is still held to the floor everywhere. And what a
+   * casing WOULD be worth is measured on every run rather than remembered, so
+   * the cost of both decisions stays a live number.
+   *
+   * WHAT IS NOT ASSERTED is the exempt treatment-and-state against 0.004,
+   * because it does not meet it. The reading is not dropped, the assertion is
+   * -- and it is dropped HERE, by name, rather than by loosening 0.004 for
+   * everyone or by quietly removing a treatment from SWATCH_TREATMENTS. A
+   * third entry should be as hard to add as these two were: an entry means a
+   * mark the map draws and a reader may not see. See index.css's --road and
+   * --fence notes.
+   */
+  const BELOW_THE_VISIBILITY_FLOOR = { fence: ['committed', 'active'], road: ['committed'] }
+  const belowTheFloor = (treatment, state) =>
+    (BELOW_THE_VISIBILITY_FLOOR[treatment] ?? []).includes(state)
 
   it('tells the focused state from the active one at whole-parcel size', async () => {
     for (const treatment of SWATCH_TREATMENTS) {
@@ -1939,6 +2017,16 @@ describeIf('the zone patterns, rendered', () => {
       // STILL THERE. A committed layer is context for the step in hand, not a
       // layer that has been turned off -- and from the roads step onward
       // several of them share the map.
+      if (belowTheFloor(treatment, 'committed')) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `    ink  ${treatment.padEnd(18)} committed ${committed.toFixed(4)} ` +
+            `${committed < 0.004 ? 'is BELOW' : 'clears'} the 0.004 floor on this swatch ` +
+            `-- exempt, see BELOW_THE_VISIBILITY_FLOOR`
+        )
+        expect(committed, `${treatment}: committed still adds ink`).toBeGreaterThan(0)
+        continue
+      }
       expect(committed, `${treatment}: committed is still visible`).toBeGreaterThan(0.004)
     }
   }, SLOW)
@@ -2368,10 +2456,28 @@ describeIf('the zone patterns, rendered', () => {
             `(committed/active ${(committed / active).toFixed(2)}x  ` +
             `focused/active ${(focused / active).toFixed(2)}x)`
         )
-        expect(
-          committed,
-          `${treatment} committed must be legible over ${ground}`
-        ).toBeGreaterThan(0.004)
+        if (belowTheFloor(treatment, 'committed')) {
+          // THE DECLARED EXCEPTION. See BELOW_THE_VISIBILITY_FLOOR for the
+          // readings and the argument; the marker below is so a run's output
+          // says which grounds it actually fell under.
+          // eslint-disable-next-line no-console
+          console.log(
+            `         ${ground.padEnd(6)} ${treatment.padEnd(18)} committed ` +
+              `${committed < 0.004 ? 'is BELOW' : 'clears'} the 0.004 floor -- exempt`
+          )
+          expect(committed, `${treatment} committed still adds ink over ${ground}`).toBeGreaterThan(0)
+          if (!belowTheFloor(treatment, 'focused')) {
+            expect(
+              focused,
+              `${treatment} focused must be legible over ${ground} even where the rest is not`
+            ).toBeGreaterThan(0.004)
+          }
+        } else {
+          expect(
+            committed,
+            `${treatment} committed must be legible over ${ground}`
+          ).toBeGreaterThan(0.004)
+        }
         expect(
           committed,
           `${treatment} committed must stay quieter than active over ${ground}`
@@ -2882,26 +2988,72 @@ describeIf('the zone patterns, rendered', () => {
     }
   }, SLOW)
 
-  it('keeps a road legible over canopy and soil, and the casing is what does it', async () => {
+  /**
+   * THE ROAD, AND THE PROPERTY BOUNDARY RING BESIDE IT, IN THE ONE TEST --
+   * because they are now one rule. The COMMITTED band drops the casing
+   * (layers.jsx's casingWeightFor), and both of these are lines that used to
+   * carry one there.
+   *
+   * THE ACTIVE ROAD IS STILL THE ORIGINAL CLAIM AND IT STILL HOLDS: a bare
+   * --ink line is lost over closed canopy and the casing is what carries it,
+   * by more than 5x. That measurement is the reason the casing exists, and it
+   * is also, read the other way, exactly what dropping it on the committed
+   * band costs.
+   *
+   * SO THE COMMITTED ROW IS REPORTED RATHER THAN ASSERTED AGAINST THE FLOOR.
+   * See BELOW_THE_VISIBILITY_FLOOR for the readings, the argument, and what
+   * IS still asserted.
+   */
+  it('keeps an active road legible over canopy and soil by its casing, and prices what the committed band gave up', async () => {
     for (const ground of ['canopy', 'soil']) {
-      for (const state of ['committed', 'active']) {
-        const cased = await addedInkOver(page, ground, 'road', state)
-        const uncased = await addedInkOver(page, ground, 'road', `${state}-uncased`)
+      // THE ACTIVE ROAD, cased as it ships, against the bare line beside it.
+      const cased = await addedInkOver(page, ground, 'road', 'active')
+      const uncased = await addedInkOver(page, ground, 'road', 'active-uncased')
+      // eslint-disable-next-line no-console
+      console.log(
+        `    ink  ${ground.padEnd(6)} road active    ` +
+          `cased ${cased.toFixed(4)}  uncased ${uncased.toFixed(4)}  ` +
+          `(cased/uncased ${(cased / uncased).toFixed(2)}x)`
+      )
+      expect(cased, `road active must be legible over ${ground}`).toBeGreaterThan(0.004)
+      if (ground === 'canopy') {
+        expect(uncased, `the bare line is lost over ${ground}`).toBeLessThan(0.004)
+        expect(cased / uncased, `the casing is what carries the road over ${ground}`).toBeGreaterThan(5)
+      }
+
+      // THE COMMITTED ROAD, bare as it ships, against the casing it gave up.
+      const committed = await addedInkOver(page, ground, 'road', 'committed')
+      const recased = await addedInkOver(page, ground, 'road', 'committed-cased')
+      // eslint-disable-next-line no-console
+      console.log(
+        `    ink  ${ground.padEnd(6)} road committed ` +
+          `bare ${committed.toFixed(4)}  with a casing ${recased.toFixed(4)}  ` +
+          `(the casing dropped is worth ${(recased / committed).toFixed(2)}x)  ` +
+          `${committed < 0.004 ? 'BELOW the 0.004 floor' : 'clears the floor'}`
+      )
+      expect(committed, `a committed road still adds ink over ${ground}`).toBeGreaterThan(0)
+      expect(recased, `a casing would add ink to a committed road over ${ground}`).toBeGreaterThan(committed)
+      expect(committed, `road committed must stay quieter than active over ${ground}`).toBeLessThan(cased)
+
+      // THE PROPERTY BOUNDARY RING, the other line the band rule reaches.
+      // Its EDGE alone -- the parcel wash is a different question, see
+      // BOUNDARY_RING_CELLS.
+      for (const state of ['active', 'committed']) {
+        const bare = await addedInkOver(page, ground, 'boundary-ring', state)
+        const withCasing = await addedInkOver(page, ground, 'boundary-ring', `${state}-cased`)
         // eslint-disable-next-line no-console
         console.log(
-          `    ink  ${ground.padEnd(6)} road ${state.padEnd(9)} ` +
-            `cased ${cased.toFixed(4)}  uncased ${uncased.toFixed(4)}  ` +
-            `(cased/uncased ${(cased / uncased).toFixed(2)}x)`
+          `    ink  ${ground.padEnd(6)} boundary ring ${state.padEnd(9)} ` +
+            `as drawn ${bare.toFixed(4)}  with a casing ${withCasing.toFixed(4)}  ` +
+            `${bare < 0.004 ? 'BELOW the 0.004 floor' : 'clears the floor'}`
         )
-        expect(cased, `road ${state} must be legible over ${ground}`).toBeGreaterThan(0.004)
-        if (ground === 'canopy') {
-          expect(uncased, `the bare line is lost over ${ground}`).toBeLessThan(0.004)
-          expect(cased / uncased, `the casing is what carries the road over ${ground}`).toBeGreaterThan(5)
-        }
+        expect(bare, `the boundary ring ${state} still adds ink over ${ground}`).toBeGreaterThan(0)
       }
-      const committed = await addedInkOver(page, ground, 'road', 'committed')
-      const active = await addedInkOver(page, ground, 'road', 'active')
-      expect(committed, `road committed must stay quieter than active over ${ground}`).toBeLessThan(active)
+      // THE RING BEING TRACED IS CASED AND MUST BE LEGIBLE. It is the one
+      // shape the user is placing by hand, on ground they have not measured
+      // yet, and a line they cannot see is a boundary they cannot check.
+      const tracing = await addedInkOver(page, ground, 'boundary-ring', 'active')
+      expect(tracing, `the boundary being traced must be legible over ${ground}`).toBeGreaterThan(0.004)
     }
   }, SLOW)
 
@@ -2909,75 +3061,120 @@ describeIf('the zone patterns, rendered', () => {
    * THE FENCE IS THE OTHER LINE, AND ITS COLOUR WAS MEASURED BEFORE IT WAS
    * CHOSEN. Two palette tokens were candidates: --rule (#ddd6c8, the hairline)
    * and --ink-muted (#8a8477, the caption colour). The harness draws both
-   * exactly as the shipped mark is drawn -- the road's cased line at each
-   * level, and the bare line beside it -- over canopy and over bare soil.
-   * This reports `addedInkOver` for every combination, so the choice in
-   * index.css quotes numbers rather than a hunch, and holds the SHIPPED
-   * fence mark (whichever token --fence resolves to) to the same floor every
-   * other mark meets.
+   * exactly as the shipped mark is drawn -- the bare hairline at each level,
+   * and the same line with the road's casing put back beside it -- over
+   * canopy and over bare soil. This reports `addedInkOver` for every
+   * combination, so the choice in index.css quotes numbers rather than a
+   * hunch.
    *
    * WHAT THE MEASUREMENT WAS EXPECTED TO SHOW, stated so it can be confirmed
    * or refuted: --rule is close in value to bare soil and washes out there
-   * while reading strongly over canopy; --ink-muted is mid-value, the worst
-   * case for imagery -- the trap the road's old umber hit, carried entirely
-   * by its casing over canopy -- and risks reading as a washed-out road.
+   * while reading better over canopy; --ink-muted is mid-value, the worst
+   * case for imagery -- the trap the road's old umber hit -- and risks
+   * reading as a washed-out road.
+   *
+   *
+   * THE FENCE IS THE ONE MARK ON THIS MAP BELOW THE VISIBILITY FLOOR, AND
+   * THAT IS A DECISION RATHER THAN A DEFECT. IT IS ALSO NOT A SMALL ONE.
+   *
+   * The mark shipped CASED -- a pale line on a --halo casing, like the road's
+   * -- and the casing was what carried it: 5.5x the bare line over canopy and
+   * 9.0x over soil. The casing was removed by instruction, so what ships is
+   * one uncased hairline, and these are its readings against the 0.004 floor
+   * every other mark on this surface meets:
+   *
+   *                        shipped (bare)     with the road's casing back
+   *     canopy  committed        0.0039                     0.0283
+   *             active           0.0054                     0.0376
+   *             focused          0.0319                     0.0540
+   *     soil    committed        0.0008                     0.0096
+   *             active           0.0011                     0.0129
+   *             focused          0.0062                     0.0160
+   *
+   * SO: below the floor on bare soil by 4-5x at both unfocused levels, and
+   * just under it over canopy when committed. A committed fence on pale
+   * ground is, by this measure, not reliably visible. FOCUS IS THE EXCEPTION
+   * -- the glow takes it to 0.0319 over canopy and 0.0062 over soil, both
+   * clear -- so the fence a reader is looking at is legible and the ones they
+   * are not may not be.
+   *
+   * WHAT IS ASSERTED INSTEAD. The floor is not quietly dropped and the
+   * reading is not quietly stopped: every number above is printed on every
+   * run, the FOCUSED mark is still held to the floor on both grounds, the
+   * three levels must still order correctly, and the casing's worth is still
+   * a live measurement (the `-cased` cells) rather than a number remembered
+   * in a comment. What is NOT asserted is the committed and active mark
+   * against 0.004, because it does not meet it and a test that pretended
+   * otherwise would be the only thing here saying so.
    */
-  it('measures both fence colour candidates over both grounds, and holds the shipped fence mark to the floor', async () => {
+  it('measures both fence colour candidates over both grounds, and reports what the uncased mark costs', async () => {
     const table = {}
     for (const candidate of ['fence-rule', 'fence-ink-muted']) {
       table[candidate] = {}
       for (const ground of ['canopy', 'soil']) {
         for (const state of ['committed', 'active']) {
-          const cased = await addedInkOver(page, ground, candidate, state)
-          const uncased = await addedInkOver(page, ground, candidate, `${state}-uncased`)
-          table[candidate][`${ground}-${state}`] = { cased, uncased }
+          const bare = await addedInkOver(page, ground, candidate, state)
+          const cased = await addedInkOver(page, ground, candidate, `${state}-cased`)
+          table[candidate][`${ground}-${state}`] = { bare, cased }
           // eslint-disable-next-line no-console
           console.log(
             `    ink  ${ground.padEnd(6)} ${candidate.padEnd(16)} ${state.padEnd(9)} ` +
-              `cased ${cased.toFixed(4)}  uncased ${uncased.toFixed(4)}  ` +
-              `(cased/uncased ${(cased / uncased).toFixed(2)}x)`
+              `bare ${bare.toFixed(4)}  cased ${cased.toFixed(4)}  ` +
+              `(a casing would be worth ${(cased / bare).toFixed(2)}x)`
           )
         }
       }
     }
-    // BOTH CANDIDATES WERE MEASURED, on both grounds, with and without the
-    // casing: eight numbers each, every one a real reading.
+    // BOTH CANDIDATES WERE MEASURED, on both grounds, bare and cased: eight
+    // numbers each, every one a real reading.
     for (const candidate of Object.keys(table)) {
       expect(Object.keys(table[candidate])).toHaveLength(4)
       for (const reading of Object.values(table[candidate])) {
+        expect(reading.bare).toBeGreaterThan(0)
         expect(reading.cased).toBeGreaterThan(0)
-        expect(reading.uncased).toBeGreaterThan(0)
       }
     }
-    // THE CANDIDATES' BARE LINES DISAGREE ABOUT WHICH GROUND IS HARD, which is
-    // the whole reason a cased line has two passes: --rule's bare line is
-    // stronger over canopy than over soil, --ink-muted's bare line is weaker
-    // over canopy than --rule's.
-    expect(table['fence-rule']['canopy-committed'].uncased).toBeGreaterThan(
-      table['fence-rule']['soil-committed'].uncased
+    // THE CANDIDATES' BARE LINES DISAGREE ABOUT WHICH GROUND IS HARD, which
+    // is the whole reason a casing is a lever at all: --rule's bare line is
+    // stronger over canopy than over soil, and stronger over canopy than
+    // --ink-muted's.
+    expect(table['fence-rule']['canopy-committed'].bare).toBeGreaterThan(
+      table['fence-rule']['soil-committed'].bare
     )
-    expect(table['fence-ink-muted']['canopy-committed'].uncased).toBeLessThan(
-      table['fence-rule']['canopy-committed'].uncased
+    expect(table['fence-ink-muted']['canopy-committed'].bare).toBeLessThan(
+      table['fence-rule']['canopy-committed'].bare
     )
 
-    // THE SHIPPED MARK, under its own name, over both grounds at both levels:
-    // legible, quieter when committed, and the casing adds ink.
+    // THE SHIPPED MARK, under its own name, over both grounds at all three
+    // levels -- and the casing it no longer carries, beside each reading.
     for (const ground of ['canopy', 'soil']) {
-      for (const state of ['committed', 'active']) {
-        const cased = await addedInkOver(page, ground, 'fence', state)
-        const uncased = await addedInkOver(page, ground, 'fence', `${state}-uncased`)
+      const read = {}
+      for (const state of ['committed', 'active', 'focused']) {
+        read[state] = await addedInkOver(page, ground, 'fence', state)
+        const cased = await addedInkOver(page, ground, 'fence', `${state}-cased`)
         // eslint-disable-next-line no-console
         console.log(
           `    ink  ${ground.padEnd(6)} fence (shipped)  ${state.padEnd(9)} ` +
-            `cased ${cased.toFixed(4)}  uncased ${uncased.toFixed(4)}  ` +
-            `(cased/uncased ${(cased / uncased).toFixed(2)}x)`
+            `bare ${read[state].toFixed(4)}  with a casing ${cased.toFixed(4)}  ` +
+            `(the casing dropped is worth ${(cased / read[state]).toFixed(2)}x)  ` +
+            `${read[state] < 0.004 ? 'BELOW the 0.004 floor' : 'clears the floor'}`
         )
-        expect(cased, `fence ${state} must be legible over ${ground}`).toBeGreaterThan(0.004)
-        expect(cased, `the casing adds ink to the fence over ${ground}`).toBeGreaterThan(uncased)
+        // THE MARK IS THERE AT ALL, at every level, on both grounds. This is
+        // the floor the uncased fence can meet, and it is a much weaker claim
+        // than 0.004 -- which is the point of stating it separately.
+        expect(read[state], `fence ${state} must add ink over ${ground}`).toBeGreaterThan(0)
+        // AND THE CASING WOULD STILL BE WORTH SOMETHING -- the cost of the
+        // decision, live rather than remembered.
+        expect(cased, `a casing would add ink to the fence over ${ground}`).toBeGreaterThan(read[state])
       }
-      const committed = await addedInkOver(page, ground, 'fence', 'committed')
-      const active = await addedInkOver(page, ground, 'fence', 'active')
-      expect(committed, `fence committed must stay quieter than active over ${ground}`).toBeLessThan(active)
+      // THE THREE LEVELS STILL ORDER. Quiet, quieter, loudest -- which is
+      // what the scale is, whatever the absolute readings are.
+      expect(read.committed, `fence committed stays quieter than active over ${ground}`).toBeLessThan(read.active)
+      expect(read.active, `fence active stays quieter than focused over ${ground}`).toBeLessThan(read.focused)
+      // THE FOCUSED MARK IS HELD TO THE FLOOR, on both grounds. The fence a
+      // reader is looking at has to be visible even though the ones they are
+      // not may be under it.
+      expect(read.focused, `a focused fence must be legible over ${ground}`).toBeGreaterThan(0.004)
     }
     // AND IT IS NOT THE ROAD'S COLOUR: the two lines on this map are told
     // apart by value, so the shipped token must resolve to something other
@@ -2987,6 +3184,85 @@ describeIf('the zone patterns, rendered', () => {
       return { fence: read('--fence'), road: read('--road') }
     })
     expect(tokens.fence).not.toBe(tokens.road)
+  }, MANY_PAGES)
+
+  /**
+   * THE FENCE'S FOCUS IS A HALO NOW, AND THE GLOW'S TOKEN IS MEASURED THE WAY
+   * ITS LINE COLOUR WAS.
+   *
+   * WHY IT CHANGED. index.css's --fence note recorded one cost: the fence's
+   * focused state was 1.41x its active state on mid-grey, under the 1.5x
+   * every pattern mark meets, because a pale line over a white casing cannot
+   * swing against grey the way a dark core does. That is the same wall
+   * production hit, and the halo is what production did about it -- a second
+   * KIND of ink around the mark instead of more of the same, with the core
+   * coming back down to the active level.
+   *
+   * WHICH TOKEN, AND THE ANSWER CHANGED WHEN THE CASING WENT. Three are
+   * drawn -- --fence (the mark's own ink, production's rule applied
+   * literally), --halo (white) and --ink (the dark end of the scale).
+   *
+   * --halo SHIPPED WHILE THE LINE WAS CASED, on the argument that white was
+   * what carried this mark over both grounds, which is what the casing was
+   * for. THE CASING IS GONE and that argument went with it: a white glow
+   * under a bare pale line is the casing back in soft focus, which is the
+   * pass the mark just dropped. So the glow is --fence, and that is also
+   * production's own rule rather than an exception to it -- the block glows
+   * at its own ruling, and a fence glows in --rule.
+   *
+   * THE INK MEASURE PREFERS THE OTHER TWO AND IS NOT THE WHOLE QUESTION.
+   * Against a base this small, a white or a dark glow simply contrasts more
+   * with the ground: --halo reads 7.24x/12.35x and --ink 21.31x over soil
+   * against --fence's 5.96x/5.83x. What the numbers are asked for here is
+   * whether the CHOSEN glow is a real step and clears the floor, and it is
+   * (5.96x over canopy, 5.83x over soil, 0.0319 and 0.0062 absolute, both
+   * clear). The other two stay in the sweep because the reasoning that
+   * produced them is sound and will come back.
+   *
+   * AND THE CONTROL IS THE UNHALOED CELL: the focused mark with the glow pass
+   * lifted off, whose core is at the ACTIVE level. Two claims come off it --
+   * what the glow is worth (haloed vs unhaloed) and that focus costs the
+   * scale nothing (unhaloed vs the active cell).
+   */
+  it('measures the fence focus halo against three glow tokens, and holds the shipped one to a real step', async () => {
+    const table = {}
+    for (const candidate of ['fenceglow-halo', 'fenceglow-fence', 'fenceglow-ink']) {
+      table[candidate] = {}
+      for (const ground of ['canopy', 'soil']) {
+        table[candidate][ground] = await addedInkOver(page, ground, candidate, 'focused')
+      }
+    }
+    for (const ground of ['canopy', 'soil']) {
+      const active = await addedInkOver(page, ground, 'fence', 'active')
+      const shipped = await addedInkOver(page, ground, 'fence', 'focused')
+      const unhaloed = await addedInkOver(page, ground, 'fence', 'focused-unhaloed')
+      // eslint-disable-next-line no-console
+      console.log(
+        `    halo ${ground.padEnd(6)} fence  active ${active.toFixed(4)}  ` +
+          `focused ${shipped.toFixed(4)} (${(shipped / active).toFixed(2)}x)  ` +
+          `unhaloed ${unhaloed.toFixed(4)}  ` +
+          Object.entries(table)
+            .map(([id, row]) => `${id.replace('fenceglow-', '')} ${row[ground].toFixed(4)} (${(row[ground] / active).toFixed(2)}x)`)
+            .join('  ')
+      )
+      // THE GLOW IS WORTH SOMETHING, on both grounds: the pass is what the
+      // focused cell has that the unhaloed one does not.
+      expect(shipped, `the fence glow must add ink over ${ground}`).toBeGreaterThan(unhaloed)
+      // FOCUS COSTS THE SCALE NOTHING. With the glow lifted off, a focused
+      // fence inks what an active one does -- the core came down to the
+      // active level and the glow is the whole of the difference.
+      expect(Math.abs(unhaloed - active), `an unhaloed focused fence reads as an active one over ${ground}`)
+        .toBeLessThan(0.0005)
+      // AND THE STEP IS A REAL ONE, on the imagery floors every other mark
+      // meets. The mid-grey step has its own floor in the swatch test above.
+      expect(shipped / active, `focus must be a visible step over ${ground}`).toBeGreaterThan(1.3)
+      expect(shipped, `a focused fence must be legible over ${ground}`).toBeGreaterThan(0.004)
+    }
+    // ALL THREE CANDIDATES WERE READ, on both grounds -- six numbers, every
+    // one a real reading, so the choice recorded in index.css is a choice.
+    for (const candidate of Object.keys(table)) {
+      for (const reading of Object.values(table[candidate])) expect(reading).toBeGreaterThan(0)
+    }
   }, MANY_PAGES)
 
   it('lets production-committed and water-committed share the map readably', async () => {

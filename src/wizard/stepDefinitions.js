@@ -161,15 +161,39 @@
  *
  *   detail(context,    What the DETAIL PANEL shows for one feature, or null
  *          featureId)  when this step has nothing to say about that id:
- *                      {name, fields: [{label, value, measured}], cautions}.
+ *                      {name, rows: [...], cautions}. See panelFormat.js for
+ *                      the row constructors and every rule the arrangement
+ *                      follows.
  *
- *                      THE FIELDS ARE THE ONES THE TAB HAD NO ROOM FOR. A tab
- *                      is three rows; the panel is where the rest of what the
- *                      pipeline measured goes. `cautions` are carried through
- *                      as the payload shipped them -- {type, label, acres} --
- *                      because a caution's LABEL IS THE LAYER'S OWN WORDS and
- *                      re-writing it client-side would put this app's
- *                      vocabulary in front of the backend's.
+ *                      THE ROWS ARE THE ONES THE TAB HAD NO ROOM FOR. A tab
+ *                      is a name and two figures; the panel is where the rest
+ *                      of what the pipeline measured goes. `cautions` are
+ *                      carried through as the payload shipped them -- {type,
+ *                      label, acres} -- because a caution's LABEL IS THE
+ *                      LAYER'S OWN WORDS and re-writing it client-side would
+ *                      put this app's vocabulary in front of the backend's.
+ *
+ *                      `detail: null`  THE STEP HAS NO PANEL. Not an empty
+ *                      one: DetailPanel renders NOTHING, in every state, and
+ *                      the container is absent from the DOM. FENCING IS THE
+ *                      ONE STEP THAT DECLARES IT and the only one that should
+ *                      need to -- see FENCING_STEP for the argument.
+ *
+ *                      THAT IS NOT THE SAME AS OMITTING IT, and the
+ *                      difference is load-bearing rather than pedantic. The
+ *                      default is `() => null`: a step that HAS a panel and
+ *                      nothing to say about the id it was handed. The
+ *                      BOUNDARY step omits `detail` and that is right -- it
+ *                      has no features to focus, but it is the step where a
+ *                      shape is DRAWN, and the panel's other half is the
+ *                      in-flight vertex count and the ring's live cautions,
+ *                      which is a panel about a gesture and not about a
+ *                      feature. Collapsing the two would have taken that away
+ *                      from every drawing step that never declared a detail.
+ *
+ *                      SO: null means "no panel here"; omitted means "a panel,
+ *                      with nothing to say about a focused feature". defineStep
+ *                      refuses any other value.
  *
  *   Panel              RESERVED, and filled by nothing in this branch. It was
  *                      the step's body inside the panel column, and the panel
@@ -403,10 +427,10 @@
  *      over a draft layer of a step that declares this, and a vertex tool
  *      otherwise; the shell learns nothing about buildings.
  *
- * NO FIELD THE FENCING STEP ADDED -- the sixth and last definition -- and
- * three things the schema could not say, recorded in the posture the others
- * are, because the point of the last definition is to find out which of the
- * schema's shapes were general:
+ * ONE FIELD THE FENCING STEP ADDED -- the sixth and last definition, and the
+ * field is an OPT-OUT -- and three things the schema could not say, recorded
+ * in the posture the others are, because the point of the last definition is
+ * to find out which of the schema's shapes were general:
  *
  *  15. A LINE LAYER DRAWN WITH A DISPLAY GEOMETRY. A fence feature's drawn
  *      line is not its ring: the server ships `display_only_fence_line`,
@@ -434,6 +458,18 @@
  *      blocked) has no word for "absent by design", and `advisory` is the
  *      nearest. The backend's `generated` flag is data, read by the
  *      definition, and needed no schema.
+ *
+ *  18. A STEP MAY DECLARE NO DETAIL PANEL -- `detail: null`. The ONE field
+ *      the fencing step added, and it was added by SUBTRACTION: fencing has a
+ *      single measurement, its length, and the length is already on the tab.
+ *      The panel's own format puts the tab's rows above the break and
+ *      explanation below it, so a fencing panel would be the tab's two lines
+ *      repeated with nothing under the rule -- an empty container, which is
+ *      the failure the panel was built to refuse (see DetailPanel's header).
+ *      NULL IS NOT THE DEFAULT AND MUST NOT BE: the default is `() => null`,
+ *      which is a step that HAS a panel and nothing to say about one id, and
+ *      the boundary step lives on it for the drawing half. See the schema
+ *      note on `detail`.
  *
  *  AND ONE THING THAT NEEDED NO WORD. Nothing in the schema says a step is
  *  LAST. Committing fencing calls the same `advance()` every commit calls;
@@ -1140,6 +1176,8 @@ export function defineStep(definition) {
     buttons = {},
     notices = () => [],
     tabs = () => [],
+    /* NO PANEL, OR A PANEL WITH NOTHING TO SAY ABOUT THIS ID -- and the two
+       are DIFFERENT DECLARATIONS. See the schema note on `detail`. */
     detail = () => null,
     Panel = null,
     groupOf = null,
@@ -1178,6 +1216,18 @@ export function defineStep(definition) {
   }
   if (groupOf !== null && typeof groupOf !== 'function') {
     throw new Error(`Step '${id}' declares a non-function \`groupOf\`.`)
+  }
+  // `detail: null` IS A DECLARATION AND ANYTHING ELSE NON-FUNCTION IS A
+  // MISTAKE. The opt-out is worth exactly as much as the refusal beside it:
+  // without this, a step that meant to declare no panel and wrote `detail:
+  // false` would get the same silence as one that declared it properly, and
+  // the difference between the two would surface as a missing panel nobody
+  // could account for.
+  if (detail !== null && typeof detail !== 'function') {
+    throw new Error(
+      `Step '${id}' declares a \`detail\` that is neither a function nor null. ` +
+        'Null is the declaration for "this step has no detail panel".'
+    )
   }
   if (accumulate !== null) {
     for (const field of ['inputKey', 'inputsList', 'candidates', 'candidateKey']) {
@@ -5675,6 +5725,13 @@ export const STRUCTURES_STEP = documentStep({
    TABS ARE TWO LINES: the type and its length. Not three. Length is the
    only measurement this step has, and a third row would invent one.
 
+   AND THERE IS NO DETAIL PANEL AT ALL -- `detail: null`, the only step in
+   the build that declares it. The length is the one measurement and it is
+   already on the tab; the panel format's rule is that below the break goes
+   EXPLANATION, and this step has none. Selecting a type takes the tab's
+   active state and opens nothing. See the declaration at the bottom of this
+   definition for the whole argument, and schema note 18.
+
    THE MAP DRAWS THE DISPLAY LINE, NOT THE RING. Each fence feature carries
    `display_only_fence_line`: its ring angular-simplified and, for a zone
    ring, trimmed where it runs on top of another drawn ring -- the two
@@ -5694,13 +5751,6 @@ export const STRUCTURES_STEP = documentStep({
 export const FENCE_LINE_LAYER = 'perimeter_fencing'
 export const FENCE_TYPE_PROPERTY = 'fence_type'
 
-/**
- * THE DETAIL PANEL'S PLACEHOLDER. The official panel format for a fence is
- * being settled separately; until it is, the panel says the length -- the
- * one thing this step measures -- and this.
- */
-export const FENCE_DESCRIPTION_PLACEHOLDER = 'Fence description TBD'
-
 const FENCE_LENGTH_DP = 0
 const COUNT_DP_FENCING = 0
 
@@ -5717,18 +5767,6 @@ export function fenceTypeBlocks(proposals) {
 /** The tabs: the types the backend flagged as candidates. */
 export function candidateFenceTypes(proposals) {
   return fenceTypeBlocks(proposals).filter((block) => block.candidate === true)
-}
-
-/** The block behind a focused id -- a type id (a tab) or one of its feature ids (a loop on the map). */
-export function fenceTypeBlock(proposals, focusedId) {
-  if (focusedId == null) return null
-  return (
-    fenceTypeBlocks(proposals).find(
-      (block) =>
-        block.fence_type === focusedId ||
-        (Array.isArray(block.feature_ids) && block.feature_ids.includes(focusedId))
-    ) ?? null
-  )
 }
 
 /**
@@ -5835,7 +5873,29 @@ export const FENCING_STEP = documentStep({
 
   /**
    * WHAT ONLY THIS STEP KNOWS IS WORTH SAYING: which types have NO tab and
-   * why -- in the backend's own words -- with the two absences told apart.
+   * why -- in the backend's own words.
+   *
+   * THE NOTICE NAMES THE TYPE AND THE REASON SAYS THE REST, and that split is
+   * the whole of the wording rule. This side owns ONE fact the reason does
+   * not carry: which candidate is missing from the strip. Everything after it
+   * is the backend's sentence, verbatim.
+   *
+   * IT USED TO STATE THE ABSENCE AS WELL, and for `generated_nothing` that
+   * was the reason said twice: "Water area fencing was generated and produced
+   * no fence loop. The water zone pass ran and produced no fence loop." One
+   * of those two sentences was written here about a flag, the other arrived
+   * from the pipeline that set the flag, and the second is the one worth
+   * reading -- boundary's says what the clip actually found. So the sentence
+   * written here is gone and the reason carries the explanation alone.
+   *
+   * THE TWO ABSENCES ARE STILL TOLD APART, in the `key` -- which is what the
+   * bar renders them under and what a test can address -- and in the reason,
+   * which is different prose for the two cases because they are different
+   * findings ("the step was committed with no zone" is an upstream decision
+   * the reader can go and change; "the pass ran and produced no loop" is not).
+   * They are not told apart by a stem this file writes, because a stem this
+   * file writes cannot know which of those two a reader is looking at without
+   * saying what the reason already says.
    */
   notices: ({ proposals }) => {
     if (!proposals) return []
@@ -5847,10 +5907,10 @@ export const FENCING_STEP = documentStep({
       lines.push({
         key: `${absence}-${block.fence_type}`,
         tone: 'advisory',
-        text:
-          absence === 'nothing_to_fence'
-            ? `No ${label.toLowerCase()} — there was nothing to fence. ${block.reason ?? ''}`.trim()
-            : `${label} was generated and produced no fence loop. ${block.reason ?? ''}`.trim(),
+        // LOWER CASE AFTER "No", because the label is a name in title case
+        // and the sentence it is in is this file's. The REASON is not
+        // touched, in case or in anything else.
+        text: `No ${label.toLowerCase()}. ${block.reason ?? ''}`.trim(),
       })
     }
     return lines
@@ -5878,28 +5938,33 @@ export const FENCING_STEP = documentStep({
   },
 
   /**
-   * WHAT THE DETAIL PANEL SAYS ABOUT ONE TYPE: its length, and a
-   * placeholder. The official panel format is being settled separately.
-   * `cautions` IS [] -- this step records no crossings.
+   * NO DETAIL PANEL. NOT AN EMPTY ONE -- NONE. Selecting a fence type opens
+   * nothing, and `detail: null` is the declaration that says so; DetailPanel
+   * renders no container at all for this step, in any selection state.
+   *
+   * WHY, AND IT IS THE PANEL FORMAT'S OWN RULE APPLIED HONESTLY. The format
+   * puts the TAB'S ROWS above the break and EXPLANATION below it. Fencing has
+   * one measurement -- a length -- and it is already on the tab; there is no
+   * second reading, no ground it sits on, no crossing it makes. A panel here
+   * would be the tab's two lines repeated with a hairline over nothing, which
+   * is an empty container with figures in it.
+   *
+   * THE PLACEHOLDER IS WITHDRAWN, NOT DEFERRED. This step used to declare a
+   * length and 'Fence description TBD' against its own settling. An empty
+   * panel that exists to hold prose nobody has written is worse than no
+   * panel: it takes the top-right corner of the map, invites a click and
+   * answers with a placeholder. If the descriptions are ever written they can
+   * bring the panel back with them -- `detail: null` becomes a `rows` list and
+   * nothing else in the build has to move.
+   *
+   * SO A CLICK ON A FENCE TYPE DOES ONE THING: the tab takes its active
+   * state. The type's geometry is drawn or not by its CHECKBOX, which is a
+   * different control answering a different question, and the focus does not
+   * touch it. THAT IS A DELIBERATE DIVERGENCE FROM THE OTHER FIVE, where a
+   * click opens a panel, and it is recorded here so it reads as a decision
+   * and not as a detail() someone forgot to write.
    */
-  detail: ({ proposals }, focusedId) => {
-    const block = fenceTypeBlock(proposals, focusedId)
-    if (!block) return null
-    return {
-      name: String(block.label ?? block.fence_type),
-      groups: [
-        {
-          id: 'fence',
-          label: null,
-          fields: [
-            { label: 'feet', value: measure(block.total_length_ft, FENCE_LENGTH_DP), measured: true },
-            { label: 'description', value: FENCE_DESCRIPTION_PLACEHOLDER },
-          ],
-        },
-      ],
-      cautions: [],
-    }
-  },
+  detail: null,
 })
 
 

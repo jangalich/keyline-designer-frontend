@@ -2415,3 +2415,32 @@
 .road--casing {
   pointer-events: visibleStroke;
 }
+
+/* THE FOCUS GLOW ON A LINE, BLURRED. LineLayer draws this pass under the
+   line -- and under its casing, where it has one -- when a line's mark says
+   focus with a halo (today: the fence, which has no casing); the colour, the
+   width and the alpha are the mark's and arrive as pathOptions like every
+   other line property. WHAT IS HERE IS THE BLUR, and only because
+   a Leaflet path cannot take a filter through pathOptions -- the same reason
+   the eligible highlight's blur is a stylesheet rule and not a layer option.
+
+   IT IS WHAT MAKES THE PASS A GLOW RATHER THAN A CASING. Unblurred, a wide
+   translucent stroke under a narrow one is a hard band with two edges, which
+   is a casing -- and on the fence it would be the very pass that mark was
+   just stripped of, put back under another name. Blurred, the band has no
+   edge of its own and the line sits in a soft field of its own colour.
+
+   2px, AGAINST THE 1px THE HIGHLIGHT CARRIES, and the difference is what each
+   blur is for. The highlight's radius is capped by GROUND: bleed past one DEM
+   cell would offer ground the gates refuse, so it is held under the grain of
+   the data. A focus glow means nothing on the ground at all -- it says which
+   line you are reading -- so its radius is chosen for the eye, and at 2px on
+   a 5px stroke the band's own edges are gone while the glow still sits
+   inside the few pixels a reader is looking at.
+
+   NOT will-change. The highlight blurs a whole pane and pans with the map;
+   this is one path, present only while something is focused. */
+.road--glow {
+  filter: blur(2px);
+  pointer-events: none;
+}

@@ -21,6 +21,13 @@
  * server runs either way, over a payload in the backend's own shape
  * (step_orchestrator.build_fencing_payload).
  *
+ * AND FENCING HAS NO DETAIL PANEL. Not an empty one -- none: `detail: null`
+ * on the definition, and DetailPanel renders no container at all for this
+ * step, in any selection state. Fencing has ONE measurement, its length, and
+ * it is already on the tab; the shared panel format puts explanation below
+ * the break and this step has none. It is the only step in the build that
+ * opts out, and section 8's third test is what holds that line.
+ *
  * Sections (the branch's numbered tests in brackets):
  *   1  [1]  END TO END: five steps committed -> generate -> up to three
  *           tabs -> commit a subset -> the document carries the whole of
@@ -35,11 +42,14 @@
  *   6  [5]  Fence lines draw the display geometry; lengths come from the
  *           real geometry; the commit sends the real geometry.
  *   7  [6]  Committing a type commits every loop of it.
- *   8  [8]  Completing fencing leaves the rail complete with no forward
+ *   8       NO DETAIL PANEL: no container in any selection state; a click
+ *           takes the tab's active state and nothing else; and the OTHER
+ *           five steps still open theirs, through the same renderer.
+ *   9  [8]  Completing fencing leaves the rail complete with no forward
  *           action (offline, over a fully committed document).
- *   9  [9]  Real-pointer hit-testing is in wizard/pointer.test.jsx, which
+ *  10  [9]  Real-pointer hit-testing is in wizard/pointer.test.jsx, which
  *           derives its cases from the registry and grew a fencing section.
- *  10       THE SCHEMA: what the definition declares, the mark, the token,
+ *  11       THE SCHEMA: what the definition declares, the mark, the token,
  *           and the sweep. [7] The colour measurements are in
  *           wizard/layout.test.jsx, which renders both candidates.
  */
@@ -70,7 +80,6 @@ import { API_URL } from './session/apiClient'
 import {
   ACCESS_POINT_INPUT,
   COMMIT_BUTTON,
-  FENCE_DESCRIPTION_PLACEHOLDER,
   FENCE_LINE_LAYER,
   FENCING_STEP,
   GENERATE_BUTTON,
@@ -79,7 +88,6 @@ import {
   STEP_DEFINITIONS,
   candidateFenceTypes,
   fenceTypeAbsence,
-  fenceTypeBlock,
   fenceTypeBlocks,
   fenceTypeOf,
   measure,
@@ -88,7 +96,7 @@ import {
 } from './wizard/stepDefinitions'
 import { MACHINE_STATES, STEP_COMMITTED } from './wizard/useStepMachine.js'
 import { resetStepCatalog } from './wizard/stepCatalog.jsx'
-import { selectionAfterCheck } from './wizard/tabs.js'
+import { selectionAfterCheck, tabIsFocused } from './wizard/tabs.js'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
 import MapLayerStack from './map/MapLayerStack.jsx'
@@ -97,6 +105,7 @@ import { StackLayer } from './map/layers.jsx'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
 import { zoneMark } from './ProductionHatchPattern.jsx'
 import { readToken } from './geo.js'
+import captured from './fixtures/landform-session.json'
 import rings from './fixtures/rings.json'
 
 const SRC = path.dirname(fileURLToPath(import.meta.url))
@@ -220,6 +229,10 @@ async function renderApp({ center = BOUNDARY[0], zoom = 17 } = {}) {
         if (!(layer instanceof L.Polyline) || layer instanceof L.Polygon) return
         const className = layer.options.className ?? ''
         if (!className.includes('road--fence') || className.includes('road--casing')) return
+        // THE GLOW IS NOT A FENCE LINE. A focused fence draws a third,
+        // blurred pass under its casing (LineLayer); counting it would make
+        // "how many fences are drawn" depend on what is focused.
+        if (className.includes('road--glow')) return
         const pane = layer.options.pane ?? ''
         if (paneClass && pane !== paneClass) return
         out.push({ pane, positions: layer.getLatLngs() })
@@ -448,8 +461,11 @@ describe('1. end to end against the real backend', () => {
       }
       expect(trimmedSomewhere, 'the display line differs from the ring somewhere').toBe(true)
       // AND EVERY DRAWN LINE HAS ITS CASING UNDER IT.
-      expect(ui.all(`.leaflet-${candidatePane}-pane path.road--casing`)).toHaveLength(drawable.length)
-      expect(ui.all(`.leaflet-${candidatePane}-pane path.road--fence:not(.road--casing)`)).toHaveLength(drawable.length)
+      // ONE PATH PER DRAWN LINE, AND NO CASING UNDER IT.
+      expect(ui.all(`.leaflet-${candidatePane}-pane path.road--casing`)).toHaveLength(0)
+      expect(
+        ui.all(`.leaflet-${candidatePane}-pane path.road--fence:not(.road--glow)`)
+      ).toHaveLength(drawable.length)
 
       // [5] LENGTHS COME FROM THE REAL GEOMETRY. The tab's number is the
       // backend's sum over the real rings, which a haversine over the raw
@@ -464,13 +480,15 @@ describe('1. end to end against the real backend', () => {
       }
       expect(disagreements, 'a trimmed type reports a longer length than it draws').toBeGreaterThan(0)
 
-      // THE PANEL: length, and the placeholder.
+      // NO PANEL, ON THE REAL PAYLOAD. Focusing a type takes the tab's active
+      // state and opens NOTHING -- see section 8 for the whole argument and
+      // for the states this one click only samples.
       await ui.click('tab-focus-boundary')
-      expect(ui.text('detail-name-fencing')).toBe(candidates.find((b) => b.fence_type === 'boundary').label)
-      expect(ui.text('detail-value-feet')).toBe(measure(candidates.find((b) => b.fence_type === 'boundary').total_length_ft, 0))
-      expect(ui.text('detail-value-description')).toBe(FENCE_DESCRIPTION_PLACEHOLDER)
-      expect(ui.find('detail-cautions-fencing')).toBeNull()
+      expect(ui.find('tab-boundary').dataset.focused).toBe('true')
+      expect(ui.container.querySelector('.chrome-detail')).toBeNull()
+      expect(ui.all('[data-testid^="detail-"]')).toHaveLength(0)
       await ui.click('tab-focus-boundary')
+      expect(ui.find('tab-boundary').dataset.focused).toBe('false')
 
       // [6] UN-TICK ONE TYPE: every loop of it leaves the selection, the
       // commit body, and the map -- and only those.
@@ -582,8 +600,11 @@ describe('2. boundary fencing alone, against the real backend', () => {
     for (const type of ['water_zone_exclusion', 'tree_zone_exclusion']) {
       const notice = ui.find(`notice-nothing_to_fence-${type}-fencing`)
       expect(notice, `${type} absence is named`).not.toBeNull()
-      expect(notice.textContent).toContain('nothing to fence')
-      expect(notice.textContent).toContain(blocks[type].reason)
+      // THE TYPE'S NAME, THEN THE BACKEND'S REASON, and nothing this side
+      // wrote about the flag -- see FENCING_STEP.notices.
+      expect(notice.textContent).toBe(
+        `No ${String(blocks[type].label).toLowerCase()}. ${blocks[type].reason}`
+      )
       expect(ui.find(`notice-generated_nothing-${type}-fencing`)).toBeNull()
     }
     const boundaryFeatures = registryProposalFeatures(ui.fencing, 'fencing')
@@ -675,10 +696,10 @@ function fencingPayload({ water = 'candidate', trees = 'candidate' } = {}) {
   const types = [block('boundary', 'Boundary fencing', { total_length_ft: total(boundary), feature_ids: [boundary.id] })]
   if (water === 'candidate') {
     features.push(waterFeature)
-    types.push(block('water_zone_exclusion', 'Water zone fencing', { total_length_ft: total(waterFeature), feature_ids: [waterFeature.id] }))
+    types.push(block('water_zone_exclusion', 'Water area fencing', { total_length_ft: total(waterFeature), feature_ids: [waterFeature.id] }))
   } else if (water === 'nothing_to_fence') {
     types.push(
-      block('water_zone_exclusion', 'Water zone fencing', {
+      block('water_zone_exclusion', 'Water area fencing', {
         generated: false,
         candidate: false,
         loop_count: 0,
@@ -689,7 +710,7 @@ function fencingPayload({ water = 'candidate', trees = 'candidate' } = {}) {
       })
     )
   } else if (water === 'generated_nothing') {
-    const generatedNothing = block('water_zone_exclusion', 'Water zone fencing', {
+    const generatedNothing = block('water_zone_exclusion', 'Water area fencing', {
       generated: true,
       candidate: false,
       loop_count: 0,
@@ -766,10 +787,24 @@ describe('3. a type with nothing to fence renders no tab, distinguishable from o
     const emptyNotices = FENCING_STEP.notices(contextOver(empty))
     expect(absentNotices.map((n) => n.key)).toEqual(['nothing_to_fence-water_zone_exclusion'])
     expect(emptyNotices.map((n) => n.key)).toEqual(['generated_nothing-water_zone_exclusion'])
-    expect(absentNotices[0].text).toContain('nothing to fence')
-    expect(absentNotices[0].text).toContain(absentWater.reason)
-    expect(emptyNotices[0].text).toContain('produced no fence loop')
-    expect(emptyNotices[0].text).toContain(emptyWater.reason)
+    // THE NOTICE NAMES THE TYPE AND THE REASON SAYS THE REST, VERBATIM. That
+    // is the whole of the wording: this side owns the one fact the reason
+    // cannot carry -- which candidate is missing from the strip -- and adds
+    // no sentence of its own about the flag.
+    expect(absentNotices[0].text).toBe(`No water area fencing. ${absentWater.reason}`)
+    expect(emptyNotices[0].text).toBe(`No water area fencing. ${emptyWater.reason}`)
+    // AND NOTHING IS SAID TWICE. The old generated_nothing line was "Water
+    // area fencing was generated and produced no fence loop." in front of a
+    // reason reading "The water zone pass ran and produced no fence loop" --
+    // one finding, stated by this file and then again by the pipeline that
+    // found it. The notice may not restate its own reason.
+    for (const notice of [absentNotices[0], emptyNotices[0]]) {
+      const lead = notice.text.slice(0, notice.text.indexOf('.') + 1)
+      expect(lead).toBe('No water area fencing.')
+      expect(notice.text.slice(lead.length).trim()).toBe(
+        notice.text.includes(absentWater.reason) ? absentWater.reason : emptyWater.reason
+      )
+    }
     expect(absentNotices[0].text).not.toBe(emptyNotices[0].text)
     expect(FENCING_STEP.notices(contextOver(fencingPayload()))).toEqual([])
     // AND A CANDIDATE IS NEVER AN ABSENCE, whatever its length.
@@ -843,7 +878,7 @@ describe('5. tabs are two lines', () => {
    =========================================================================== */
 
 describe('6. fence lines draw the display geometry, and lengths come from the real geometry', () => {
-  it('draws each display line as the fence mark with its casing, nothing for a null line, and two parts for a severed zone', async () => {
+  it('draws each display line as a bare fence hairline, nothing for a null line, and two parts for a severed zone', async () => {
     const payload = fencingPayload()
     const features = registryProposalFeatures(payload, 'fencing')
     const ui = await renderLayer(payload, features.map((f) => f.id))
@@ -866,15 +901,20 @@ describe('6. fence lines draw the display geometry, and lengths come from the re
     const severed = byPositions.get(JSON.stringify(coordsOf(tree2.properties[DISPLAY_LINE])))
     expect(Array.isArray(severed.positions[0])).toBe(true)
     expect(severed.positions).toHaveLength(2)
-    // CASED, IN THE FENCE MARK, ON THE HALO.
-    expect(ui.all('path.road--casing')).toHaveLength(3)
-    expect(ui.all('path.road--fence:not(.road--casing)')).toHaveLength(3)
-    for (const path of ui.all('path.road--fence:not(.road--casing)')) {
+    // UNCASED, AND THAT IS THE ASSERTION. The road is a cased line and the
+    // fence declares `casing: 0`, so the mark is ONE path per drawn line and
+    // there is no halo pass under it -- not a zero-weight one, none. See the
+    // fence row in ProductionHatchPattern, and index.css's --fence note for
+    // what the casing was worth and what dropping it costs.
+    expect(ui.all('path.road--casing')).toHaveLength(0)
+    const lines = ui.all('path.road--fence:not(.road--glow)')
+    expect(lines).toHaveLength(3)
+    for (const path of lines) {
       expect(path.getAttribute('stroke')).toBe(readToken('--fence'))
+      expect(Number(path.getAttribute('stroke-width'))).toBe(1)
     }
-    for (const path of ui.all('path.road--casing')) {
-      expect(path.getAttribute('stroke')).toBe(readToken('--halo'))
-    }
+    // NOTHING FOCUSED, SO NO GLOW EITHER: the third pass is focus's alone.
+    expect(ui.all('path.road--glow')).toHaveLength(0)
     await ui.unmount()
   })
 
@@ -882,12 +922,11 @@ describe('6. fence lines draw the display geometry, and lengths come from the re
     const payload = fencingPayload()
     const features = registryProposalFeatures(payload, 'fencing')
     const tabs = FENCING_STEP.tabs(contextOver(payload))
+    // THE TAB IS THE ONLY SURFACE THE LENGTH HAS. There is no panel to read
+    // it off a second time -- which is the reason there is no panel.
     for (const block of candidateFenceTypes(payload)) {
       const tab = tabs.find((t) => t.id === block.fence_type)
       expect(tab.rows[0].value).toBe(measure(block.total_length_ft, 0))
-      expect(FENCING_STEP.detail(contextOver(payload), block.fence_type).groups[0].fields[0].value).toBe(
-        measure(block.total_length_ft, 0)
-      )
     }
     // THE WATER RING IS FOUR SIDES AND DRAWS THREE: a tab reading the display
     // line would show three quarters of the length the tab shows.
@@ -969,26 +1008,197 @@ describe('7. committing a type commits every loop of it', () => {
     expect(ofType(buildCommitBody(stateWith(off), 'fencing', registryProposalFeatures), 'tree_zone_exclusion')).toHaveLength(0)
   })
 
-  it('focuses a type from a loop: clicking a fence on the map focuses its type, and the panel reads the type', () => {
+  it('focuses a type from a loop: a fence clicked on the map marks its TYPE active, through the tab and nothing else', () => {
+    // THE LOOP-TO-TYPE MAPPING IS THE TAB'S `featureIds`, and it always was:
+    // `groupOf` puts every loop under its type and tabIsFocused() reads the
+    // list. The step's own block lookup existed only to fill the panel, and
+    // went with it -- so this reads the mapping where the strip reads it,
+    // which is the one that decides what a click does.
     const payload = fencingPayload()
     expect(FENCING_STEP.groupOf).toBe(fenceTypeOf)
-    expect(fenceTypeBlock(payload, 'perimeter-fencing-tree-zone-2').fence_type).toBe('tree_zone_exclusion')
-    expect(fenceTypeBlock(payload, 'tree_zone_exclusion').fence_type).toBe('tree_zone_exclusion')
-    expect(fenceTypeBlock(payload, 'nothing')).toBeNull()
-    const detail = FENCING_STEP.detail(contextOver(payload), 'perimeter-fencing-tree-zone-2')
-    expect(detail.name).toBe('Tree zone fencing')
-    expect(detail.groups[0].fields.map((f) => f.label)).toEqual(['feet', 'description'])
-    expect(detail.groups[0].fields[1].value).toBe(FENCE_DESCRIPTION_PLACEHOLDER)
-    expect(detail.cautions).toEqual([])
-    expect(FENCING_STEP.detail(contextOver(payload), 'nothing')).toBeNull()
+    const tabs = FENCING_STEP.tabs(contextOver(payload))
+    const trees = tabs.find((t) => t.id === 'tree_zone_exclusion')
+    // A LOOP OF THE TYPE focuses the type's tab, and only that tab.
+    expect(tabs.filter((t) => tabIsFocused(t, 'perimeter-fencing-tree-zone-2')).map((t) => t.id)).toEqual([
+      'tree_zone_exclusion',
+    ])
+    // ITS SIBLING LOOP does the same -- one tab, two loops.
+    expect(tabs.filter((t) => tabIsFocused(t, 'perimeter-fencing-tree-zone-1')).map((t) => t.id)).toEqual([
+      'tree_zone_exclusion',
+    ])
+    expect(trees.featureIds).toContain('perimeter-fencing-tree-zone-1')
+    // THE TYPE ID ITSELF is the tab, which is what a click on the tab sends.
+    expect(tabs.filter((t) => tabIsFocused(t, 'tree_zone_exclusion')).map((t) => t.id)).toEqual([
+      'tree_zone_exclusion',
+    ])
+    // AND AN ID THIS STEP DOES NOT CARRY focuses nothing.
+    expect(tabs.filter((t) => tabIsFocused(t, 'nothing'))).toEqual([])
+    // WHAT THE FOCUS DOES NOT DO IS OPEN A PANEL. See section 8.
+    expect(FENCING_STEP.detail).toBeNull()
   })
 })
 
 /* ===========================================================================
-   8. THE END OF THE FLOW
+   8. NO DETAIL PANEL — the one step in the build that declares none
+   ===========================================================================
+   NOT AN EMPTY PANEL. NO PANEL. `detail: null` on the definition, and
+   DetailPanel renders no container at all for this step, in every selection
+   state. The argument is the panel format's own: above the break is what the
+   tab showed, below it is explanation, and fencing has ONE measurement -- a
+   length, already on the tab -- and nothing to explain.
+
+   THE THIRD TEST IN HERE IS THE GUARD AGAINST OVERREACH. Making the panel
+   optional is a change to shared machinery, and the cheapest way to make the
+   first two pass is something that suppresses the panel more broadly than
+   fencing. So the same renderer is driven over a step that HAS one, in the
+   same shell, and has to open it.
    =========================================================================== */
 
-describe('8. completing fencing leaves the rail complete with no forward action', () => {
+describe('8. fencing has no detail panel at all', () => {
+  it('renders NO container, in every selection state, and it is absent from the DOM rather than hidden', async () => {
+    // THE DECLARATION. Null, not a function that returns null: the first is
+    // "this step has no panel", the second is "this step has a panel and
+    // nothing to say about that id". See stepDefinitions' note on `detail`.
+    expect(FENCING_STEP.detail).toBeNull()
+
+    const ui = await renderStrip(fencingPayload())
+    const loops = registryProposalFeatures(ui.fencing, 'fencing').map((f) => f.id)
+    expect(loops.length).toBeGreaterThan(1)
+
+    /* ABSENT, NOT HIDDEN, and the difference is the whole point -- a hidden
+       box still takes the corner in the layout tree and still answers a
+       query. So the assertion is on the DOM: no element carrying the panel's
+       class, and no testid the panel mints. */
+    const noPanel = (where) => {
+      expect(ui.find('detail-fencing'), where).toBeNull()
+      expect(ui.container.querySelector('.chrome-detail'), where).toBeNull()
+      expect(ui.container.querySelector('.chrome-detail__body'), where).toBeNull()
+      expect(ui.all('[data-testid^="detail-"]').map((n) => n.dataset.testid), where).toEqual([])
+      // NOT A NODE OF THE PANEL ANYWHERE, under any of its classes -- which
+      // is what rules out "rendered and then turned off", the shape a
+      // `hidden` attribute or a display rule would leave behind.
+      expect(ui.all('[class*="chrome-detail"]').map((n) => n.className), where).toEqual([])
+    }
+
+    // NOTHING FOCUSED.
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+    noPanel('with nothing focused')
+
+    // A TAB FOCUSED -- the click a user makes.
+    await ui.click('tab-focus-boundary')
+    expect(ui.cursor.focusedFeatureId).toBe('boundary')
+    noPanel('with a tab focused')
+
+    // EVERY OTHER TAB IN TURN, so this is not one type's accident.
+    for (const tab of ui.all('[data-tab-id]')) {
+      await ui.focus(tab.dataset.tabId)
+      noPanel(`with ${tab.dataset.tabId} focused`)
+    }
+
+    // A LOOP FOCUSED -- what a click on a fence LINE on the map sends, which
+    // is a feature id and not a tab id.
+    for (const id of loops) {
+      await ui.focus(id)
+      noPanel(`with the loop ${id} focused`)
+    }
+
+    // AN ID THIS STEP DOES NOT CARRY, which is the state that would have
+    // rendered a header over nothing if the guard read the detail's return
+    // value instead of the declaration.
+    await ui.focus('not-a-fence')
+    noPanel('with an unknown id focused')
+
+    // AND BACK TO NOTHING.
+    await ui.focus(null)
+    noPanel('back with nothing focused')
+    await ui.unmount()
+  })
+
+  it('takes the tab active state on a click and changes nothing else -- the geometry is the checkbox’s', async () => {
+    const ui = await renderStrip(fencingPayload())
+    const tabIds = ui.all('[data-tab-id]').map((li) => li.dataset.tabId)
+    const checkedNow = () => tabIds.map((id) => ui.find(`tab-${id}`).dataset.checked)
+    const drawnNow = () => ui.fencePaths('fencing--fencing-candidates').length
+    const focusedNow = () => tabIds.filter((id) => ui.find(`tab-${id}`).dataset.focused === 'true')
+
+    const checkedBefore = checkedNow()
+    const drawnBefore = drawnNow()
+    const selectedBefore = [...selectDraft(ui.state, 'fencing').selectedFeatureIds].sort()
+    expect(focusedNow()).toEqual([])
+    expect(drawnBefore).toBeGreaterThan(0)
+
+    // ONE CLICK: the tab is active, and it is the ONLY tab that is.
+    await ui.click('tab-focus-water_zone_exclusion')
+    expect(focusedNow()).toEqual(['water_zone_exclusion'])
+    expect(ui.find('tab-water_zone_exclusion').className).toContain('chrome-tab--focused')
+
+    // AND NOTHING ELSE MOVED. Not the commit decision, not what is drawn,
+    // not a panel -- the three things a click on a tab body could plausibly
+    // have been wired to.
+    expect(checkedNow()).toEqual(checkedBefore)
+    expect([...selectDraft(ui.state, 'fencing').selectedFeatureIds].sort()).toEqual(selectedBefore)
+    expect(drawnNow()).toBe(drawnBefore)
+    expect(ui.container.querySelector('.chrome-detail')).toBeNull()
+
+    // CLICKING IT AGAIN LETS THE FOCUS GO, and still nothing else moved.
+    await ui.click('tab-focus-water_zone_exclusion')
+    expect(focusedNow()).toEqual([])
+    expect(checkedNow()).toEqual(checkedBefore)
+    expect(drawnNow()).toBe(drawnBefore)
+    expect(ui.container.querySelector('.chrome-detail')).toBeNull()
+
+    // THE CHECKBOX IS THE CONTROL THAT DRAWS, and it is a different one. Its
+    // click takes the type off the map and leaves the focus alone -- which is
+    // what makes "selecting a type does nothing but go active" a statement
+    // about the FOCUS rather than about the strip being inert.
+    await ui.click('tab-focus-water_zone_exclusion')
+    await ui.click('tab-check-water_zone_exclusion')
+    expect(ui.find('tab-water_zone_exclusion').dataset.checked).toBe('false')
+    expect(drawnNow()).toBeLessThan(drawnBefore)
+    expect(focusedNow()).toEqual(['water_zone_exclusion'])
+    expect(ui.container.querySelector('.chrome-detail')).toBeNull()
+    await ui.unmount()
+  })
+
+  it('leaves every other step its panel: fencing is the only definition that opts out, and a step with one still opens it', async () => {
+    /* THE GUARD AGAINST OVERREACH, IN TWO HALVES.
+
+       THE DECLARATIONS. Exactly one step in the registry declares no panel.
+       Every other one -- the boundary included, which omits `detail` and
+       takes defineStep's `() => null` for the DRAWING half of the panel --
+       still carries a function, and a change that made the opt-out the
+       default would show up here as a second name in this list. */
+    expect(STEP_DEFINITIONS.filter((d) => d.detail === null).map((d) => d.id)).toEqual(['fencing'])
+    for (const definition of STEP_DEFINITIONS.filter((d) => d.id !== 'fencing')) {
+      expect(typeof definition.detail, definition.id).toBe('function')
+    }
+
+    /* AND THE RENDERER. A declaration nothing renders proves nothing, so the
+       same DetailPanel, in the same shell, over a step that HAS a panel: the
+       production step, on the captured session, with one block focused. It
+       has to open, with the shared format's rows in it. */
+    const ui = await renderProductionStrip()
+    expect(ui.cursor.cursorStepId).toBe('landform')
+    expect(ui.container.querySelector('.chrome-detail')).toBeNull()
+
+    await ui.click('tab-focus-production-area-2')
+    expect(ui.find('detail-landform')).not.toBeNull()
+    expect(ui.container.querySelector('.chrome-detail')).not.toBeNull()
+    // THE SHARED FORMAT, NOT JUST A BOX: the header is the tab's own name,
+    // and the body is the one grid panelFormat composes.
+    expect(ui.text('detail-name-landform')).toBe('Block 1')
+    expect(ui.find('detail-rows-landform')).not.toBeNull()
+    expect(ui.find('detail-break-landform')).not.toBeNull()
+    expect(ui.text('detail-value-aspect')).toBeTruthy()
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   9. THE END OF THE FLOW
+   =========================================================================== */
+
+describe('9. completing fencing leaves the rail complete with no forward action', () => {
   it('lands the cursor on fencing, committed, with every row done and only the way back in on offer', async () => {
     // A FULLY COMMITTED DOCUMENT, through the store's own resume path.
     const document_ = committedDocument()
@@ -1040,10 +1250,10 @@ describe('8. completing fencing leaves the rail complete with no forward action'
 })
 
 /* ===========================================================================
-   10. THE SCHEMA: what the definition declares, the mark, the token, the sweep
+   11. THE SCHEMA: what the definition declares, the mark, the token, the sweep
    =========================================================================== */
 
-describe('10. what the definition declares, and the sweep', () => {
+describe('11. what the definition declares, and the sweep', () => {
   it('is registered sixth and last, select-only, multi-select, grouped by fence type', () => {
     expect(STEP_DEFINITIONS.map((d) => d.id)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees', 'structures', 'fencing'])
     expect(FENCING_STEP.selection).toEqual({ mode: 'multiple', follows: null })
@@ -1053,6 +1263,8 @@ describe('10. what the definition declares, and the sweep', () => {
     expect(FENCING_STEP.placement).toBeNull()
     expect(FENCING_STEP.accumulate).toBeNull()
     expect(FENCING_STEP.groupOf).toBe(fenceTypeOf)
+    // THE OPT-OUT, DECLARED. Null is the declaration; see section 8.
+    expect(FENCING_STEP.detail).toBeNull()
     expect(FENCING_STEP.proposalCollection).toBe('fence_lines')
     expect(FENCING_STEP.generate.label).toBe('Generate fencing')
     expect(FENCING_STEP.generate.params({ inputs: {} })).toBeNull()
@@ -1086,7 +1298,7 @@ describe('10. what the definition declares, and the sweep', () => {
     expect(LAYER_KINDS).not.toContain('fence')
   })
 
-  it('is a cased line in --fence, which is --rule and not --road, and the choice is written beside the token with both measurements', () => {
+  it('is a bare hairline in --fence, which is --rule and not --road, and every choice is written beside the token with its measurements', () => {
     const mark = zoneMark('fence')
     expect(mark.kind).toBe('line')
     expect(mark.fill).toBeNull()
@@ -1096,11 +1308,23 @@ describe('10. what the definition declares, and the sweep', () => {
     expect(readToken('--fence')).not.toBe(readToken('--ochre'))
     const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
     expect(css).toMatch(/^\s*--fence:\s*var\(--rule\);/m)
-    const note = css.slice(css.indexOf("THE FENCE MARK'S COLOUR"), css.indexOf('--fence: var(--rule)'))
+    const note = css.slice(css.indexOf('THE FENCE MARK:'), css.indexOf('--fence: var(--rule)'))
     expect(note.length).toBeGreaterThan(500)
     for (const candidate of ['--rule', '--ink-muted']) expect(note).toContain(candidate)
     for (const ground of ['canopy', 'soil']) expect(note).toContain(ground)
     expect(note).toContain('#D4A017')
+    // AND THE THREE CHOICES MADE SINCE, each beside its own numbers: the
+    // hairline, the casing dropped, and the glow's token measured against the
+    // two that were not chosen.
+    expect(note).toContain('1px')
+    expect(note).toContain('0.004')
+    // THE FLOOR EXCEPTION IS NAMED IN THE NOTE, not only in the test that
+    // stopped asserting it. A mark below the visibility floor every other
+    // mark meets is the kind of thing that has to be written where the colour
+    // is chosen, or the next reader restores a casing nobody asked for -- or
+    // takes one off something else on the strength of this precedent.
+    expect(note).toContain('BELOW THE VISIBILITY FLOOR')
+    for (const glow of ['--halo', '--fence', '--ink']) expect(note).toContain(glow)
     // NO COLOUR LITERAL BELOW :root: the token is a var() reference, and
     // every colour in App.css is one too.
     const appCss = readFileSync(path.join(SRC, 'App.css'), 'utf8')
@@ -1194,6 +1418,41 @@ async function renderStrip(payload) {
   return ui
 }
 
+/**
+ * THE PRODUCTION STEP'S SHELL, no server -- the SAME two doors renderStrip
+ * goes through, pointed at the captured landform session instead.
+ *
+ * IT IS HERE AND NOT IN landform.test.jsx BECAUSE OF WHAT IT GUARDS. Section
+ * 8's third test needs a step that still OPENS a panel, rendered by the same
+ * DetailPanel that now renders nothing for fencing, in the same shell and in
+ * the same file -- so that an over-broad suppression fails beside the test it
+ * was written to pass. A green assertion in another suite would say the same
+ * thing and would not be read at the same time.
+ */
+async function renderProductionStrip() {
+  const document_ = JSON.parse(JSON.stringify(captured.document_generated))
+  // THE CAPTURE PREDATES THE `step_order` CONTRACT and the store refuses a
+  // document without one. The order is the registry's, which is the order
+  // this file already drives the live flow in.
+  document_.step_order = [...STEP_ORDER]
+  globalThis.fetch = vi.fn(async (rawUrl, init = {}) => {
+    const url = new URL(rawUrl)
+    if (url.pathname === '/api/steps') return { ok: true, status: 200, json: async () => ({ step_order: [...STEP_ORDER] }) }
+    if (url.pathname.endsWith('/steps/landform/layers')) return { ok: true, status: 200, json: async () => captured.payload }
+    if (url.pathname.startsWith('/api/sessions/')) return { ok: true, status: 200, json: async () => document_ }
+    throw new Error(`no route for ${init.method ?? 'GET'} ${url.pathname}`)
+  })
+  const ui = await renderApp()
+  await ui.run((a) => a.resume(document_.session_id))
+  await ui.waitFor('the resume', () => Boolean(ui.state.sessionId), 5000)
+  await ui.waitFor(
+    'the landform payload',
+    () => ui.state.steps.landform?.proposals != null && ui.state.drafts.landform !== undefined,
+    5000
+  )
+  return ui
+}
+
 /** One editable fence layer over a payload, on a bare map. */
 async function renderLayer(payload, selectedFeatureIds) {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -1230,6 +1489,10 @@ async function renderLayer(payload, selectedFeatureIds) {
         if (!(l instanceof L.Polyline) || l instanceof L.Polygon) return
         const className = l.options.className ?? ''
         if (!className.includes('road--fence') || className.includes('road--casing')) return
+        // THE GLOW IS NOT A FENCE LINE. A focused fence draws a third,
+        // blurred pass under its casing (LineLayer); counting it would make
+        // "how many fences are drawn" depend on what is focused.
+        if (className.includes('road--glow')) return
         out.push({ positions: l.getLatLngs() })
       })
       return out
