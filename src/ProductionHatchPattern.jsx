@@ -461,14 +461,51 @@ const TREATMENT_MARKS = [
      rule has always been about. Trees gains that rule by becoming a hatch;
      production has always had it.
 
-     AND IT CARRIES NO SCREEN, WHILE PRODUCTION'S DOES -- a DELIBERATE GAP in
-     this branch, recorded rather than left to be noticed. Trees has
-     production's problem and has it worse: it declares NO eligible highlight
-     at all, so its hatch sits on bare imagery from its own step onward rather
-     than only downstream, and --tree is a mid-tone green over canopy that is
-     also green. The reason it is bare here is scope -- a screen changes what a
-     mark covers and this branch is production's. layout.test.jsx has the
-     measurements a trees branch would take the decision on. See hatchScreen(). */
+     AND IT CARRIES NO SCREEN, WHILE PRODUCTION'S DOES -- a DELIBERATE GAP,
+     recorded rather than left to be noticed. Trees was expected to have
+     production's problem and to have it worse: it declares NO eligible
+     highlight at all, so its hatch sits on bare imagery from its own step
+     onward rather than only downstream, and --tree is a mid-tone green over
+     canopy that is also green.
+
+     THE TREES BRANCH MEASURED IT AND THE ANSWER IS NO -- SWEPT, NOT APPLIED.
+     layout.test.jsx now carries the sweep ("measures what a screen would do
+     for the tree hatch"), --rule at four alphas over both grounds at all three
+     levels, and it prints on every run. The readings, over canopy:
+
+                       bare ruling   with --rule 0.12    the screen alone
+         committed        0.0187      0.0564 (3.02x)          0.0431
+         active           0.0254      0.0768 (3.02x)          0.0588
+         focused          0.0340      0.1027 (3.02x)          0.0784
+
+     WHAT SETTLES IT IS THE FIRST COLUMN, NOT THE SECOND. The screen lifts the
+     tree block about as much as it lifts production's (3.0x against 4.1x) and
+     costs about the same -- the ruling's own contrast falls to 0.71x its bare
+     reading on the screen, where production's falls to 0.72x, and the numbers
+     are that close because it is the same screen under the same ruling.
+
+     THE DIFFERENCE IS THAT TREES HAS NO DEFICIT TO FIX. Production's screen
+     exists because its committed hatch measured 0.0122 over closed canopy --
+     three times a 0.004 floor, and reported in use as "barely visible". The
+     tree hatch measures 0.0187 on the same ground at the same level: HALF AGAIN
+     production's, and 4.7x the floor. The hue collision the paragraph above
+     feared does not bite, because the two greens differ in VALUE -- --tree
+     holds 3.06:1 over --halo and trees.test.jsx asserts it -- and value is what
+     both the ink measure and the eye use at this size.
+
+     SO THE COST WOULD BE PAID FOR NOTHING. At 0.12 the screen alone reads
+     0.0431 over canopy, 64% of the quietest DECLARED wash in the build
+     (water's committed embankment, 0.0679), and the ruling's texture spread
+     falls from 0.0327 to 0.0232. And it would STACK: three committed screens
+     already take 22.8% of an opaque cover over canopy and 30.6% over soil, and
+     a tree zone is committed ground by the two steps after it -- this would be
+     the fourth, on a parcel that may carry five layers by fencing.
+
+     THE GAP IS THEREFORE A DECISION NOW AND NOT A SCOPE NOTE, and trees.test
+     .jsx still asserts the asymmetry off this row so closing it stays
+     deliberate. WHAT WOULD REOPEN IT: the bare ruling falling toward the floor
+     on a ground this sweep does not carry, or --tree moving darker. Re-run the
+     sweep; do not re-derive it. See hatchScreen() and screenNode(). */
   { treatment: 'tree', kind: 'hatch', token: '--tree', spacing: 8, weight: 1, rise: 'down' },
   /* THE STRUCTURE MARK: A PIN, in --ochre.
 

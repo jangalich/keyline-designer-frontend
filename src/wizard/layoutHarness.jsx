@@ -668,6 +668,47 @@ const UNSCREENED = ['committed', 'active', 'focused'].map((state) => ({
 }))
 
 /**
+ * THE SCREEN TREES DOES NOT HAVE: --rule, SWEPT UNDER THE TREE HATCH.
+ *
+ * MEASURED, NOT APPLIED. The tree mark ships bare (TREATMENT_MARKS' `tree` row
+ * declares no `screen`) and this branch does not change that -- what these
+ * cells buy is the NUMBER the decision would be taken on, so the next branch
+ * that wants to close the gap re-runs a sweep rather than re-deriving one.
+ * Production's own screen was chosen from exactly this shape of sweep.
+ *
+ * WHY THE QUESTION IS OPEN AT ALL. Trees has production's problem and has it
+ * WORSE. Production's hatch sits on the eligible highlight during its own step
+ * and on bare imagery only downstream; trees declares NO highlight, so its
+ * ruling is on bare imagery from the moment it is drawn. And --tree is a
+ * mid-tone green over closed canopy, which is also green -- the one pairing of
+ * mark and ground in this build where the two are the same hue.
+ *
+ * ONE TOKEN, FOUR ALPHAS. The colour is not what is being asked: --rule is what
+ * production landed on and the rule that settled it is that A SCREEN IS NEVER
+ * IN ITS OWN MARK'S COLOUR (screenNode), which rules out --tree here for the
+ * same reason it ruled out --oxide there. The alphas bracket the two the build
+ * already carries -- 0.03, where the dot field's sweep found its ceiling, and
+ * 0.12, where production's landed -- with one below and one above.
+ *
+ * TWO CELLS PER LEVEL, like production's sweep: the hatch ON the screen, and
+ * the SCREEN ALONE. The second is what decides it -- a screen heavy enough to
+ * read as a layer of its own has stopped being a ground and become a wash over
+ * the zone, which is a mark nobody declared.
+ *
+ * THE BARE TREE HATCH NEEDS NO CELL OF ITS OWN: the mark as shipped IS the
+ * unscreened one, and it is already on the page three times as
+ * `tree-committed`, `tree-active` and `tree-focused`.
+ */
+const TREE_SCREEN_CANDIDATES = []
+for (const alpha of [0.03, 0.06, 0.12, 0.2]) {
+  const id = `treescreen-rule-${String(alpha).replace('0.', '')}`
+  for (const state of ['committed', 'active', 'focused']) {
+    const base = { treatment: 'tree', id, screenToken: '--rule', screenAlpha: alpha, state }
+    TREE_SCREEN_CANDIDATES.push(base, { ...base, screenOnly: true })
+  }
+}
+
+/**
  * PRODUCTION'S FOCUSED TILE WITH ITS HALO LIFTED OFF -- the one cell the halo
  * is measured against.
  *
@@ -1313,6 +1354,7 @@ const GROUND_CELLS = () => [
   ...HALO_SHIP_CANDIDATES,
   ...FENCE_CANDIDATES,
   ...HATCH_SCREEN_CANDIDATES,
+  ...TREE_SCREEN_CANDIDATES,
   ...UNSCREENED,
   ...UNHALOED,
   ...STIPPLE_SCREEN_CANDIDATES,

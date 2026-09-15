@@ -54,7 +54,7 @@
  *  11       THE SCHEMA: what the definition declares, and the sweep.
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -95,17 +95,16 @@ import {
   registryProposalFeatures,
   roadNetworks,
   treeCrossingGrounds,
-  treeFactorField,
-  treeFactorsByWeight,
 } from './wizard/stepDefinitions'
 import { MACHINE_STATES } from './wizard/useStepMachine.js'
+import { breakLabel, denominated, isBreak, panelBody } from './wizard/shell/panelFormat.js'
 import { resetStepCatalog } from './wizard/stepCatalog.jsx'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
 import MapLayerStack from './map/MapLayerStack.jsx'
 import { composeLayerStack, resolveLayer } from './map/layerStack.js'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
-import { injectZonePatterns, marksItsOwnEdge, zoneMark } from './ProductionHatchPattern.jsx'
+import { injectZonePatterns, marksItsOwnEdge, zoneMark, zoneTreatmentSpec } from './ProductionHatchPattern.jsx'
 import { toMultiPolygon } from './geo.js'
 import { CAUTION_MIN_ACRES, cautionsFor, clampToBoundary, exclusionGrounds } from './zoneGeometry.js'
 import captured from './fixtures/landform-session.json'
@@ -387,7 +386,14 @@ describe('1. end to end against the real backend', () => {
       // THE PAYLOAD IS THE BACKEND'S OWN SHAPE, exactly (test_trees_step.py
       // asserts the same five keys), and the candidates it carries are what
       // the strip tabs.
-      expect(Object.keys(ui.trees).sort()).toEqual(['crossing_grounds', 'search_space', 'summary', 'tree_zones', 'zones'])
+      expect(Object.keys(ui.trees).sort()).toEqual([
+        'crossing_grounds',
+        'scales',
+        'search_space',
+        'summary',
+        'tree_zones',
+        'zones',
+      ])
       // ALL FOUR GROUNDS, from the server, in its words, each with geometry.
       const shipped = ui.trees.crossing_grounds
       expect(shipped.map((g) => g.type)).toEqual(['production', 'water', 'road', 'canopy'])
@@ -433,16 +439,68 @@ describe('1. end to end against the real backend', () => {
         candidates.map((f) => f.id).sort()
       )
 
-      // THE PANEL FOR ONE ZONE: the merits, weighted off the payload.
+      // THE PANEL FOR ONE ZONE, OFF THE REAL PAYLOAD: two positions, the
+      // median slope, and whatever benefits the server's own gate rule
+      // awarded -- rendered as sent, with nothing derived here.
       const first = ui.trees.zones[0]
       await ui.focus(first.feature_id)
       expect(ui.text('detail-name-trees')).toBe(`Zone ${first.rank}`)
-      const weights = ui.trees.summary.selection.factor_weights_pct
-      const merits = ui.find('detail-fields-merits')
-      expect(merits).not.toBeNull()
-      for (const factor of TREE_FACTORS) {
-        expect(merits.textContent).toContain(`${factor.label} · ${weights[factor.key].toFixed(0)}% of the score`)
+
+      // THE FACTOR BREAKDOWN IS GONE FROM THE PANEL, and the weights it read
+      // are still on the wire for the report and for the step's notices.
+      expect(ui.find('detail-fields-merits')).toBeNull()
+      expect(ui.find('detail-value-score floor')).toBeNull()
+      expect(ui.trees.summary.selection.factor_weights_pct).toBeTruthy()
+      expect(ui.trees.summary.selection.min_suitability_score).not.toBeUndefined()
+      expect(first.factors).toBeTruthy()
+
+      // TWO POSITION ROWS, EACH CARRYING THE SERVER'S OWN WORD. Null renders
+      // an em dash -- a real answer on a parcel with no relief -- so both
+      // readings are asserted against what the wire actually sent.
+      expect(ui.text('detail-value-where in the parcel')).toBe(first.position_in_parcel ?? '—')
+      expect(ui.text('detail-value-position')).toBe(first.elevation_position ?? '—')
+      expect(ui.text('detail-value-median slope %')).toBe(Number(first.slope_median_pct).toFixed(1))
+
+      // THE BENEFITS, VERBATIM AND IN THE WIRE'S ORDER, UNDER ONE HEADING --
+      // and NO section at all when the server awarded none. The key is always
+      // present, so this branches on the list rather than on its absence.
+      expect(Array.isArray(first.marginal_benefits)).toBe(true)
+      const panelTerms = [...ui.find('detail-rows-trees').querySelectorAll('[data-row="term"]')].map(
+        (node) => node.textContent
+      )
+      expect(panelTerms).toEqual(first.marginal_benefits)
+      const heading = ui.find('detail-heading-trees')
+      if (first.marginal_benefits.length) {
+        expect(heading.textContent).toBe(
+          `marginal benefit${first.marginal_benefits.length === 1 ? '' : 's'}`
+        )
+      } else {
+        expect(heading).toBeNull()
       }
+      // eslint-disable-next-line no-console
+      console.log(
+        `TREE PANEL  Zone ${first.rank}  where ${first.position_in_parcel} / position ` +
+          `${first.elevation_position} / median slope ${first.slope_median_pct}  ` +
+          `benefits ${JSON.stringify(first.marginal_benefits)}`
+      )
+
+      // AND THE SCORE'S DENOMINATOR, OFF THE REAL PAYLOAD. The server publishes
+      // the axis at the payload ROOT in landform's own spelling, so the tab
+      // says "score" and the panel says "/100 score" off one declaration --
+      // asserted against the SERVER's block, not the fixture, because that is
+      // the claim. No 100 is written on this side.
+      expect(ui.trees.summary.scales).toBeUndefined()
+      const top = ui.trees.scales.range[1]
+      expect(top).toBeGreaterThan(0)
+      expect(ui.text(`tab-focus-${first.feature_id}`)).not.toContain(`/${top} score`)
+      expect(ui.text('detail-value-/100 score')).toBe(Number(first.score).toFixed(1))
+      expect(Math.round(top)).toBe(100)
+      // AND THE BANDS AND THE BENEFIT WORDS RIDE THE SAME BLOCK, so nothing
+      // downstream has to hold a threshold or a closed set of its own.
+      expect(Object.keys(ui.trees.scales.elevation_position.bands).sort()).toEqual(
+        ['lower field', 'mid field', 'upper field']
+      )
+      expect(ui.trees.scales.marginal_benefits.values).toContain(...first.marginal_benefits.slice(0, 1))
       await ui.focus(null)
 
       // A SUBSET: un-check the first candidate.
@@ -627,7 +685,7 @@ function candidate(id, rank, geometry, extra = {}) {
  * `tree_zones`, the tabular `zones` keyed by feature id, the narrative's
  * step-level block under `summary`, and the search space.
  */
-function treesPayload({ gates, weights, candidates = 2, grounds = GROUNDS } = {}) {
+function treesPayload({ gates, weights, candidates = 2, grounds = GROUNDS, rows } = {}) {
   const features = [
     candidate(ZONE_A, 1, box(-74.0, -73.99, 40.722, 40.728)),
     candidate(ZONE_B, 2, box(-73.99, -73.985, 40.712, 40.716), { tree_suitability_score: 41.0, area_acres: 0.4 }),
@@ -635,19 +693,32 @@ function treesPayload({ gates, weights, candidates = 2, grounds = GROUNDS } = {}
   const factor_weights_pct = weights ?? { hydric_overlap: 40, slope: 30, soil_marginality: 20, stream_proximity: 10 }
   return {
     tree_zones: { type: 'FeatureCollection', features },
-    zones: features.map((f) => ({
+    zones: features.map((f, index) => ({
       feature_id: f.id,
       rank: f.properties.rank,
       position_in_parcel: f.properties.rank === 1 ? 'north' : 'south-east',
       area_acres: f.properties.area_acres,
       score: f.properties.tree_suitability_score,
       avg_slope_pct: f.properties.avg_slope_pct,
+      // THE THREE THE MERGED TREES BACKEND SHIPS. `slope_median_pct` beside the
+      // mean, under the name production and water publish it by;
+      // `elevation_position` as production's own imported band words, with the
+      // percentile beside it for the report; and `marginal_benefits` as plain
+      // strings in MARGINAL_BENEFIT_FACTOR_SOURCES' declared order.
+      //
+      // THE KEY IS ALWAYS PRESENT, empty list and all, which is why no test
+      // here ever has to tell absent from empty.
+      slope_median_pct: f.properties.rank === 1 ? 13.0 : 9.4,
+      elevation_percentile_of_parcel: f.properties.rank === 1 ? 81.0 : 44.0,
+      elevation_position: f.properties.rank === 1 ? 'upper field' : 'mid field',
+      marginal_benefits: ['erosion control', 'nutrient deposition', 'stream protection'],
       factors: {
         hydric_overlap: f.properties.hydric_overlap_factor * 100,
         slope: f.properties.slope_factor * 100,
         soil_marginality: f.properties.soil_marginality_factor * 100,
         stream_proximity: f.properties.stream_proximity_factor * 100,
       },
+      ...(rows?.[index] ?? {}),
     })),
     summary: {
       candidate_count: features.length,
@@ -670,6 +741,32 @@ function treesPayload({ gates, weights, candidates = 2, grounds = GROUNDS } = {}
         soil_marginality_data_available: true,
         hydric_data_available: true,
         stream_data_available: true,
+      },
+    },
+    // HOW TO READ EVERY SCORED VALUE, at the payload ROOT and not in
+    // `summary` -- tree_zone_candidates._SCALES, lifted by
+    // build_trees_payload(). Landform's spelling: `range[1]` is the top.
+    scales: {
+      range: [0.0, 100.0],
+      direction: 'higher_is_better',
+      applies_to: ['score', 'factors.*'],
+      calibration: 'unvalidated_starting_values',
+      higher_is_better_means: 'more_marginal_for_production_and_better_for_tree_cover',
+      elevation_position: {
+        range: [0.0, 100.0],
+        direction: 'higher_is_upslope',
+        bands: { 'lower field': [0.0, 33.3], 'mid field': [33.3, 66.7], 'upper field': [66.7, 100.0] },
+        band_bounds: 'lower_inclusive_upper_exclusive_last_band_inclusive',
+        applies_to: ['elevation_percentile_of_parcel', 'elevation_position'],
+      },
+      // THE WORDS, AS A CLOSED SET, off the server. They are payload data
+      // here exactly as the per-zone lists are; the client renders what it
+      // is handed and holds no copy -- section 4 greps for that.
+      marginal_benefits: {
+        values: ['erosion control', 'nutrient deposition', 'stream protection'],
+        order: 'as_emitted',
+        empty_means: 'this_zone_earned_none',
+        applies_to: ['marginal_benefits'],
       },
     },
     search_space: {
@@ -1066,49 +1163,124 @@ describe('3. a drawn zone on hydric, steep ground records no caution for either'
 })
 
 /* ===========================================================================
-   4. THE SENTINEL PATH IS IN THE FACTOR ROWS
+   4. THE GATE RULE IS THE BACKEND'S, AND THIS SIDE HOLDS NONE OF IT
+   ===========================================================================
+   [test 4] The sentinel path used to live in the FACTOR ROWS here: a factor
+   whose availability gate was false printed an em dash rather than its neutral
+   0.5, because a neutral 0.5 and a measured 0.5 are indistinguishable without
+   the flag. The factor rows have left the panel, and the same discipline is now
+   what the BENEFITS list is built on -- marginal_benefits() will not award a
+   benefit off a factor whose data was never fetched.
+
+   SO THE RULE DID NOT GO AWAY, IT MOVED TO THE SIDE THAT HOLDS THE FLAGS, and
+   what this section asserts is that it stayed there. The temptation is real and
+   specific: the mapping is three lines, the gate is four, and a frontend that
+   knew the benefit names would eventually derive one -- at which point a
+   benefit added on the backend would silently not appear, and a neutral
+   fallback would silently claim one.
    =========================================================================== */
 
-describe('4. a factor whose gate is false renders an em dash', () => {
-  it('never prints the neutral default as a measurement', () => {
-    // THE BACKEND'S OWN CASE: prime-farmland data unavailable, so
-    // soil_marginality_factor is _NEUTRAL_FACTOR_VALUE (0.5) and the row
-    // would read 50.0 -- indistinguishable from a measured 50.0 without the
-    // gate. The payload says the gate is false; the row says nothing.
-    const payload = treesPayload({
-      gates: { soil_marginality_data_available: false, hydric_data_available: true, stream_data_available: true },
-    })
-    payload.zones[0].factors.soil_marginality = 50
-    payload.tree_zones.features[0].properties.soil_marginality_factor = 0.5
-    payload.tree_zones.features[0].properties.soil_marginality_data_available = false
-
-    const detail = TREES_STEP.detail(contextOver(payload), ZONE_A)
-    const merits = detail.groups.find((g) => g.id === 'merits')
-    const soil = merits.fields.find((f) => f.label.startsWith('poor farmland'))
-    expect(soil.value).toBe('—')
-    expect(soil.measured).toBe(true)
-    expect(soil.value).not.toBe('50.0')
-    expect(soil.value).not.toBe('0.5')
-    // The measured factors still print.
-    expect(merits.fields.find((f) => f.label.startsWith('wet ground')).value).toBe('60.0')
-    expect(merits.fields.find((f) => f.label.startsWith('steep ground')).value).toBe('48.0')
-
-    // EVERY GATE, INDEPENDENTLY. Each false flag blanks exactly its own row.
-    for (const factor of TREE_FACTORS.filter((f) => f.gate)) {
-      const gates = { soil_marginality_data_available: true, hydric_data_available: true, stream_data_available: true }
-      gates[factor.gate] = false
-      const rows = TREES_STEP.detail(contextOver(treesPayload({ gates })), ZONE_A).groups.find((g) => g.id === 'merits').fields
-      for (const row of rows) {
-        const own = row.label.startsWith(factor.label)
-        expect(row.value === '—', `${row.label} with ${factor.gate}=false`).toBe(own)
+describe('4. no benefit name and no factor-to-benefit mapping exists client-side', () => {
+  /** Every module this app ships, tests excluded -- the client, as it runs. */
+  const clientSources = () => {
+    const files = []
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (/\.jsx?$/.test(entry.name) && !/\.test\.jsx?$/.test(entry.name)) files.push(full)
       }
     }
-    // SLOPE HAS NO GATE and is always a measurement.
-    expect(TREE_FACTORS.find((f) => f.key === 'slope').gate).toBeNull()
-    expect(treeFactorField(TREE_FACTORS[1], { factors: { slope: 0 } }, {}, {}).value).toBe('0.0')
+    walk(SRC)
+    return files.map((file) => [path.relative(SRC, file), readFileSync(file, 'utf8')])
+  }
+
+  it('spells no benefit name anywhere in the client, in code or in a comment', () => {
+    // THE THREE TERMS, verbatim from tree_zone_candidates' own constants. Not
+    // scoped to stepDefinitions: a name in ANY module is a name this side
+    // holds, and the next mapping would be written wherever it was found.
+    const BENEFITS = ['erosion control', 'nutrient deposition', 'stream protection']
+    const offenders = []
+    for (const [file, source] of clientSources()) {
+      for (const benefit of BENEFITS) {
+        if (source.toLowerCase().includes(benefit)) offenders.push(`${file}: "${benefit}"`)
+      }
+    }
+    expect(offenders, 'a benefit name in the client is a mapping waiting to be written').toEqual([])
   })
 
-  it('says so at the step level too, in consequence terms and keyed on the flag', () => {
+  it('spells no factor-to-benefit mapping: no backend factor key reaches the client at all', () => {
+    // THE PATCH KEYS marginal_benefits() reads -- the left-hand side of the
+    // mapping. The client knows the NARRATIVE keys (`hydric_overlap` under
+    // `factors` and `factor_weights_pct`, which the notices need) and must
+    // never learn the scorer's own, which are what the gate rule is written
+    // against.
+    const FACTOR_KEYS = [
+      'slope_factor',
+      'soil_marginality_factor',
+      'hydric_overlap_factor',
+      'stream_proximity_factor',
+    ]
+    // CODE, NOT PROSE. A comment may name the scorer's key -- landform's row
+    // list says which factors it dropped, and this step's says the same -- and
+    // a mapping cannot be written in one. What may not happen is a factor key
+    // being READ, which is the first line of any rule.
+    const offenders = []
+    for (const [file, source] of clientSources()) {
+      const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+      for (const key of FACTOR_KEYS) {
+        if (code.includes(key)) offenders.push(`${file}: ${key}`)
+      }
+    }
+    expect(offenders).toEqual([])
+
+    // AND THE GATE FLAGS ARE READ FOR ONE THING ONLY. They are on the wire and
+    // the step DOES read them -- in `notices`, to say a factor was never
+    // measured -- so their absence cannot be the assertion. What can be is that
+    // no CODE in the trees section carries the neutral fallback the gate rule
+    // turns on: a 0.5 compared against, or a threshold of any kind over a
+    // factor value. The comments explain the rule at length and are not it.
+    const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
+    const section = source.slice(source.indexOf('   THE TREES STEP\n'), source.indexOf('   THE STRUCTURES STEP\n'))
+    expect(section.length).toBeGreaterThan(1000)
+    const code = section.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(code).not.toMatch(/0\.5\b/)
+    expect(code).not.toMatch(/NEUTRAL_FACTOR/)
+    // AND `marginal_benefits` IS READ EXACTLY ONCE, straight onto the rows.
+    expect(code.match(/marginal_benefits/g) ?? []).toHaveLength(1)
+  })
+
+  it('renders whatever the wire says, which is what a side holding no mapping can do', () => {
+    // THE PROOF THE GREPS CANNOT GIVE. A client with a mapping could only
+    // render the three names it knew; this one renders a benefit no version of
+    // the backend has ever emitted, in the order it arrived, because it reads
+    // a list and applies no rule to it.
+    const payload = treesPayload({ rows: [{ marginal_benefits: ['soil armour', 'shade'] }] })
+    const detail = TREES_STEP.detail(contextOver(payload), ZONE_A)
+    const terms = detail.rows.filter((row) => row.kind === 'term').map((row) => row.value)
+    expect(terms).toEqual(['soil armour', 'shade'])
+
+    // AND IT APPLIES NO GATE OF ITS OWN: every gate false, a benefit still
+    // listed. The backend would not have sent one -- that is the point. This
+    // side does not second-guess the list it was handed.
+    const gated = treesPayload({
+      gates: {
+        soil_marginality_data_available: false,
+        hydric_data_available: false,
+        stream_data_available: false,
+      },
+      rows: [{ marginal_benefits: ['erosion control'] }],
+    })
+    const stillThere = TREES_STEP.detail(contextOver(gated), ZONE_A)
+    expect(stillThere.rows.filter((row) => row.kind === 'term').map((row) => row.value)).toEqual([
+      'erosion control',
+    ])
+  })
+
+  it('says at the step level which factors were never measured, in consequence terms', () => {
+    // THE ONE PLACE THE FACTORS ARE STILL READ, and the reason the gate flags
+    // are on this side at all: a false flag is a STEP-level fact about every
+    // score, not a per-zone one, and it names the share it cost.
     const payload = treesPayload({
       gates: { soil_marginality_data_available: false, hydric_data_available: false, stream_data_available: true },
     })
@@ -1124,6 +1296,10 @@ describe('4. a factor whose gate is false renders an em dash', () => {
     expect(text).toContain('40% of every score')
     // The share is a MEASURED part, off the payload, not prose.
     expect(hydric.text.some((part) => part.measure === '40')).toBe(true)
+    // SLOPE HAS NO GATE and so has no consequence line -- the DEM is
+    // fetch-or-raise and there is no run in which it could be missing.
+    expect(TREE_FACTORS.find((f) => f.key === 'slope').gate).toBeNull()
+    expect(keys.some((key) => key.startsWith('unchecked-') && key.includes('slope'))).toBe(false)
   })
 })
 
@@ -1131,24 +1307,33 @@ describe('4. a factor whose gate is false renders an em dash', () => {
    5. A DRAWN ZONE SHOWS ABSENCE, NOT ZEROS
    =========================================================================== */
 
-describe('5. a drawn zone shows its factors absent', () => {
-  it('renders no factor group, no zero, and says why', () => {
+describe('5. a drawn zone shows its scoring absent', () => {
+  it('renders no benefits run, no zero, and says why', () => {
     const drawn = TREES_SHAPE.close({ points: CLEAR, parcel: RING, references: {} }).feature
     const detail = TREES_STEP.detail(contextOver(treesPayload(), { drawnFeatures: [drawn] }), drawn.id)
     expect(detail.name).toBe('Drawn tree zone')
+    // The shared format, like a candidate's -- one panel, one arrangement.
     expect(detail.groups).toBeUndefined()
-    const labels = detail.fields.map((f) => f.label)
+    expect(detail.fields).toBeUndefined()
+    // NO BENEFITS RUN AT ALL: no heading, no rule, no terms. A drawn zone was
+    // never scored, so it earned nothing -- which is a different fact from a
+    // scored zone that earned none, and neither is a row of dashes.
+    expect(detail.rows.some((row) => row.panelBreak)).toBe(false)
+    expect(detail.rows.some((row) => row.kind === 'term')).toBe(false)
     for (const factor of TREE_FACTORS) {
-      expect(labels.some((label) => label.startsWith(factor.label)), `no ${factor.label} row`).toBe(false)
+      expect(
+        detail.rows.some((row) => String(row.label ?? '').startsWith(factor.label)),
+        `no ${factor.label} row`
+      ).toBe(false)
     }
-    for (const field of detail.fields) {
-      expect(field.value).not.toBe('0.0')
-      expect(field.value).not.toBe('0')
+    for (const row of detail.rows) {
+      expect(row.value).not.toBe('0.0')
+      expect(row.value).not.toBe('0')
     }
-    expect(detail.fields.find((f) => f.label === 'score').value).toBe('—')
-    expect(detail.fields.find((f) => f.label === 'scoring').value).toMatch(/not scored/)
-    expect(detail.fields.find((f) => f.label === 'acres').measured).toBe(true)
-    // And the tab prints the same absence.
+    expect(detail.rows.find((row) => row.label === 'scoring').value).toMatch(/not scored/)
+    // AND ITS ACRES AND EM-DASH SCORE COME OFF THE TAB, not off this list --
+    // the format's rule 2, so the two cannot come to disagree.
+    expect(detail.rows.some((row) => row.label === 'acres' || row.label === 'score')).toBe(false)
     const tab = TREES_STEP.tabs(contextOver(treesPayload(), { drawnFeatures: [drawn] })).find((t) => t.id === drawn.id)
     expect(tab.rows.find((r) => r.label === 'score').value).toBe('—')
     expect(tab).toMatchObject({ drawn: true, checkbox: true, removable: true })
@@ -1159,9 +1344,10 @@ describe('5. a drawn zone shows its factors absent', () => {
     await ui.draw(CLEAR)
     const drawn = selectDraft(ui.state, 'trees').drawnFeatures[0]
     await ui.focus(drawn.id)
-    expect(ui.text('detail-name-trees')).toBe('Drawn tree zone')
+    expect(ui.text('detail-name-trees')).toBe('Drawn 1')
     expect(ui.find('detail-fields-merits')).toBeNull()
-    expect(ui.text('detail-value-score')).toBe('—')
+    expect(ui.find('detail-heading-trees')).toBeNull()
+    expect(ui.text('detail-value-/100 score')).toBe('—')
     expect(ui.text('detail-value-scoring')).toMatch(/not scored/)
     await ui.unmount()
   })
@@ -1264,6 +1450,45 @@ describe('6 & 7. no eligible highlight, the off-parcel scrim, and the search spa
     const treeRow = marks.slice(marks.indexOf("treatment: 'tree'"))
     expect(treeRow.slice(0, treeRow.indexOf('}'))).not.toMatch(/stipple|grid|radius|tile/)
     expect(zoneMark('survey-excavated').kind).toBe('stipple')
+
+    // AND IT IS STILL UNCASED, WHILE PRODUCTION'S IS NOT -- the asymmetry, held
+    // rather than left to be noticed.
+    //
+    // THE GAP IS A DECISION NOW AND NOT A SCOPE NOTE. It used to be "a screen
+    // changes what a mark covers and that branch was production's"; the trees
+    // branch swept --rule at four alphas over both grounds at all three levels
+    // (layout.test.jsx, "measures what a screen would do for the tree hatch")
+    // and the answer came back NO. The tree ruling measures 0.0187 over closed
+    // canopy at committed against a 0.004 floor -- half again production's own
+    // 0.0122, which is the deficit its screen exists to fix -- so a screen
+    // would cost the ruling 0.29 of its contrast and lay a 0.0431 wash that is
+    // 64% of a declared layer, to fix nothing. The numbers and what would
+    // reopen it are beside the row.
+    //
+    // SO CLOSING THIS STAYS DELIBERATE: a screen appearing on the tree spec
+    // fails here, and the person adding one has to re-run the sweep and change
+    // this line.
+    // Off the SPEC, which is where a screen is declared -- zoneMark() is the
+    // resolved render description and a screen is not one of its fields.
+    expect(
+      zoneTreatmentSpec('tree').screen,
+      'the tree hatch is uncased -- measured, not an oversight'
+    ).toBeUndefined()
+    expect(zoneTreatmentSpec('tree').screenToken).toBeUndefined()
+    expect(zoneTreatmentSpec('production').screen, 'and production\'s is not').toBeGreaterThan(0)
+    // AND THE DEF CHROMIUM WOULD PAINT CARRIES NO SCREEN PASS EITHER, which is
+    // the claim that survives someone adding the field somewhere else.
+    const teardown = injectZonePatterns(document.body)
+    try {
+      expect(
+        document.getElementById('zone-pattern-tree').querySelectorAll('[data-pass="screen"]')
+      ).toHaveLength(0)
+      expect(
+        document.getElementById('zone-pattern-production').querySelectorAll('[data-pass="screen"]')
+      ).toHaveLength(1)
+    } finally {
+      teardown()
+    }
   })
 
   /**
@@ -1385,29 +1610,265 @@ describe('6 & 7. no eligible highlight, the off-parcel scrim, and the search spa
 })
 
 /* ===========================================================================
-   8. THE WEIGHTS COME OFF THE PAYLOAD
+   8. THE PANEL, THROUGH THE SHARED FORMAT
+   ===========================================================================
+   [tests 1, 2, 3, 5, 6, 7, 8] Trees is the fourth step onto panelFormat.js,
+   and the first to need something the format did not have: a BREAK THAT
+   CARRIES A HEADING. Water went looking for one and came out with two runs
+   that label themselves; roads did the same. Three bare terms label nothing.
    =========================================================================== */
 
-describe('8. the factor weights come from the payload', () => {
-  it('labels and orders the rows by the weights the payload carries', () => {
-    const weights = { hydric_overlap: 15, slope: 25, soil_marginality: 5, stream_proximity: 55 }
-    const detail = TREES_STEP.detail(contextOver(treesPayload({ weights })), ZONE_A)
-    const rows = detail.groups.find((g) => g.id === 'merits').fields
-    expect(rows.map((r) => r.label)).toEqual([
-      'near a stream · 55% of the score',
-      'steep ground · 25% of the score',
-      'wet ground · 15% of the score',
-      'poor farmland · 5% of the score',
+describe('8. the panel renders through the shared format', () => {
+  /** The body as the panel composes it -- the tab's rows, then the step's. */
+  const bodyFor = (payload, featureId = ZONE_A) => {
+    const context = contextOver(payload)
+    const tab = TREES_STEP.tabs(context).find((entry) => entry.id === featureId)
+    return panelBody(tab, TREES_STEP.detail(context, featureId).rows)
+  }
+
+  it('[test 1] declares rows, in declared order, with two breaks and the second labelled', () => {
+    const detail = TREES_STEP.detail(contextOver(treesPayload()), ZONE_A)
+    // THE SHARED FORMAT, not groups and not fields.
+    expect(detail.groups).toBeUndefined()
+    expect(detail.fields).toBeUndefined()
+    expect(Array.isArray(detail.rows)).toBe(true)
+
+    const body = bodyFor(treesPayload())
+    // ONE FLAT LIST WITH BREAKS IN IT, in the order the panel draws it.
+    expect(body.map((row) => (row.panelBreak ? `--- ${row.label ?? ''}` : `${row.value} | ${row.label ?? ''}`))).toEqual([
+      '2.1 | acres',
+      '58.3 | /100 score',
+      '--- ',
+      'north | where in the parcel',
+      'upper field | position',
+      '13.0 | median slope %',
+      '--- marginal benefits',
+      'erosion control | ',
+      'nutrient deposition | ',
+      'stream protection | ',
     ])
-    expect(treeFactorsByWeight(weights).map((f) => f.key)).toEqual([
-      'stream_proximity',
-      'slope',
-      'hydric_overlap',
-      'soil_marginality',
-    ])
-    // The credit is the row's figure, the share is on the label, and both
-    // are the payload's.
-    expect(rows[0]).toMatchObject({ value: '12.0', measured: true })
+
+    // TWO BREAKS: the format's own, drawn between the tab's rows and the
+    // step's without being asked, and the one the step declares.
+    const breaks = body.filter((row) => isBreak(row))
+    expect(breaks).toHaveLength(2)
+    expect(breakLabel(breaks[0])).toBeNull()
+    expect(breakLabel(breaks[1])).toBe('marginal benefits')
+
+    // AND THE TERMS ARE A THIRD FACE: no label, and not the value-and-label
+    // pair both other kinds are.
+    const terms = body.filter((row) => row.kind === 'term')
+    expect(terms).toHaveLength(3)
+    for (const term of terms) expect(term).not.toHaveProperty('label')
+  })
+
+  it('[test 2] pluralises the heading: one benefit reads MARGINAL BENEFIT, several BENEFITS', () => {
+    // ONE.
+    const one = bodyFor(treesPayload({ rows: [{ marginal_benefits: ['erosion control'] }] }))
+    expect(breakLabel(one.find((row) => isBreak(row) && breakLabel(row)))).toBe('marginal benefit')
+    // SEVERAL.
+    const two = bodyFor(treesPayload({ rows: [{ marginal_benefits: ['erosion control', 'shade'] }] }))
+    expect(breakLabel(two.find((row) => isBreak(row) && breakLabel(row)))).toBe('marginal benefits')
+    const three = bodyFor(treesPayload())
+    expect(breakLabel(three.find((row) => isBreak(row) && breakLabel(row)))).toBe('marginal benefits')
+
+    // "BENEFIT(S)" IS A FORM FIELD, and this heading is the only one in any
+    // panel in the build -- it is on every scored tree zone.
+    for (const body of [one, two, three]) {
+      for (const row of body) expect(String(breakLabel(row) ?? '')).not.toMatch(/\(s\)/i)
+    }
+
+    // AND IT IS UPPER CASE ON SCREEN RATHER THAN IN THE DECLARATION, which is
+    // how every word below the panel's header is set: the step says
+    // 'marginal benefits' and the stylesheet decides the casing. A heading
+    // declared in capitals would render lower case, because
+    // .chrome-detail__rows carries `text-transform: lowercase`.
+    const css = readFileSync(path.join(SRC, 'App.css'), 'utf8')
+    const heading = css.slice(css.indexOf('.chrome-detail__heading {'))
+    expect(heading.slice(0, heading.indexOf('}'))).toMatch(/text-transform:\s*uppercase/)
+  })
+
+  it('[test 3] renders no heading and no break when the zone earned nothing', () => {
+    const body = bodyFor(treesPayload({ rows: [{ marginal_benefits: [] }] }))
+    // The format's own break survives -- the panel still has two runs. What is
+    // gone is the declared one and its heading.
+    expect(body.filter((row) => isBreak(row))).toHaveLength(1)
+    expect(body.some((row) => breakLabel(row) != null)).toBe(false)
+    expect(body.some((row) => row.kind === 'term')).toBe(false)
+    // AND THE PANEL ENDS AT THE MEDIAN SLOPE -- no trailing rule hanging over
+    // nothing.
+    expect(body[body.length - 1].label).toBe('median slope %')
+  })
+
+  it('[tests 5, 6] aspect and position are two rows, and a null position is an em dash', () => {
+    const detail = TREES_STEP.detail(contextOver(treesPayload()), ZONE_A)
+    const labels = detail.rows.filter((row) => row.label).map((row) => row.label)
+
+    // TWO ROWS, TWO FACTS. `position_in_parcel` is a compass word for WHERE ON
+    // THE MAP; `elevation_position` is production's own band word for where in
+    // the parcel's elevation range. They are not the same question.
+    expect(labels).toContain('where in the parcel')
+    expect(labels).toContain('position')
+    const where = detail.rows.find((row) => row.label === 'where in the parcel')
+    const position = detail.rows.find((row) => row.label === 'position')
+    expect(where.value).toBe('north')
+    expect(position.value).toBe('upper field')
+    // BOTH CATEGORICAL: a compass word and a band word are readings, not
+    // figures, and neither belongs in the number track.
+    expect(where.kind).toBe('categorical')
+    expect(position.kind).toBe('categorical')
+
+    // AND `position south` IS GONE -- the compass word no longer wears the
+    // other row's label anywhere in the panel.
+    const body = bodyFor(treesPayload(), ZONE_B)
+    const compass = body.find((row) => row.value === 'south-east')
+    expect(compass.label).toBe('where in the parcel')
+    expect(body.find((row) => row.label === 'position').value).toBe('mid field')
+
+    // NULL IS AN EM DASH, NEVER A DEFAULT WORD. A parcel with no relief has no
+    // upper or lower field, and the backend sends null there deliberately.
+    const flat = TREES_STEP.detail(
+      contextOver(treesPayload({ rows: [{ elevation_position: null, elevation_percentile_of_parcel: null }] })),
+      ZONE_A
+    )
+    expect(flat.rows.find((row) => row.label === 'position').value).toBe('—')
+    // And it is not recomputed from the percentile the wire still carries.
+    const withPercentile = TREES_STEP.detail(
+      contextOver(treesPayload({ rows: [{ elevation_position: null, elevation_percentile_of_parcel: 92.0 }] })),
+      ZONE_A
+    )
+    expect(withPercentile.rows.find((row) => row.label === 'position').value).toBe('—')
+    const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
+    const section = source.slice(source.indexOf('   THE TREES STEP\n'), source.indexOf('   THE STRUCTURES STEP\n'))
+    const code = section.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(code).not.toMatch(/elevation_percentile_of_parcel/)
+  })
+
+  it('[test 7] the score floor and the four factor values are gone from the panel', () => {
+    const body = bodyFor(treesPayload())
+    const labels = body.map((row) => row.label ?? '')
+    expect(labels).not.toContain('score floor')
+    for (const factor of TREE_FACTORS) {
+      expect(labels.some((label) => label.startsWith(factor.label)), `no ${factor.label} row`).toBe(false)
+      expect(labels.some((label) => label.includes('% of the score'))).toBe(false)
+    }
+    // NOR THE FIGURES THEMSELVES, under any label: the four factor values and
+    // the floor are the payload's 60.0 / 48.0 / 100.0 / 12.0 and 31.0.
+    const values = body.map((row) => row.value)
+    for (const gone of ['31.0', '60.0', '48.0', '100.0', '12.0']) expect(values).not.toContain(gone)
+    // AND THE MEAN SLOPE WENT WITH THEM -- the median is the panel's row.
+    expect(labels).not.toContain('avg slope %')
+    expect(values).not.toContain('24.0')
+
+    // ALL OF IT IS STILL ON THE WIRE, which is the claim that makes the
+    // removal a panel decision rather than a data loss.
+    const payload = treesPayload()
+    expect(payload.summary.selection.min_suitability_score).toBe(31)
+    expect(payload.zones[0].factors).toMatchObject({ hydric_overlap: 60 })
+    expect(payload.zones[0].avg_slope_pct).toBe(24.0)
+    expect(payload.summary.selection.factor_weights_pct).toMatchObject({ hydric_overlap: 40 })
+  })
+
+  it('[test 8] the tab says "score" and the panel says "/100 score"', () => {
+    const context = contextOver(treesPayload())
+    const tab = TREES_STEP.tabs(context).find((entry) => entry.id === ZONE_A)
+    const scoreRow = tab.rows.find((row) => row.label === 'score')
+
+    // THE STRIP'S LABEL IS ALWAYS THE BARE WORD. The denominator is declared
+    // beside it and rendered only by the panel -- one declaration, two
+    // renderings, panelFormat's denominated(). The strip is read ACROSS
+    // candidates that are all on one scale; the panel is read about one.
+    expect(scoreRow.label).toBe('score')
+    expect(scoreRow.denominator).toBe(100)
+    expect(denominated(scoreRow.label, scoreRow.denominator)).toBe('/100 score')
+
+    // AND THE PANEL'S LABEL IS THAT SAME ROW THROUGH denominated().
+    expect(bodyFor(treesPayload()).find((row) => row.value === '58.3').label).toBe('/100 score')
+    // A drawn zone's em-dash score carries it too: the denominator names the
+    // scale, not this reading of it.
+    const drawn = TREES_SHAPE.close({ points: CLEAR, parcel: RING, references: {} }).feature
+    const drawnTab = TREES_STEP.tabs(contextOver(treesPayload(), { drawnFeatures: [drawn] })).find(
+      (t) => t.id === drawn.id
+    )
+    expect(drawnTab.rows.find((r) => r.label === 'score').denominator).toBe(100)
+
+    // THE 100 IS THE PAYLOAD'S, IN LANDFORM'S OWN SPELLING -- `scales.range[1]`
+    // at the payload root. That is what trees needed: not a fourth spelling in
+    // scoreDenominator(), which already read this one, but a scale on the wire
+    // at all. tree_zone_candidates._SCALES publishes it off
+    // SUITABILITY_SCORE_SCALE and step_orchestrator lifts it to the root.
+    const payload = treesPayload()
+    expect(payload.scales.range[1]).toBe(100)
+    // AT THE ROOT AND NOT IN `summary`: a scale describes the instrument and
+    // `summary` is what this run did. One copy, one place to look.
+    expect(payload.summary.scales).toBeUndefined()
+
+    // AND A PAYLOAD WITHOUT ONE STILL PRINTS NOTHING IT CANNOT BACK, which is
+    // the behaviour that stood for a revision here and is what makes the
+    // denominator a reading rather than a decoration.
+    const unscaled = treesPayload()
+    delete unscaled.scales
+    const bare = TREES_STEP.tabs(contextOver(unscaled)).find((e) => e.id === ZONE_A).rows.find((r) => r.label === 'score')
+    expect(bare.denominator).toBeUndefined()
+    expect(denominated(bare.label, bare.denominator)).toBe('score')
+
+    // NO 100 IS WRITTEN ON THIS SIDE. The trees section may not contain the
+    // scale as a literal, in code or in a default -- which is the whole reason
+    // the fix was a backend change rather than a constant here.
+    const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
+    const section = source.slice(source.indexOf('   THE TREES STEP\n'), source.indexOf('   THE STRUCTURES STEP\n'))
+    const code = section.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(code.match(/\b100\b/g) ?? []).toEqual([])
+    expect(code).toContain('scoreDenominator(proposals)')
+  })
+
+  it('[test 1] and the panel in the DOM is that body, with the heading under the second rule', async () => {
+    const { ui } = await generatedTrees()
+    await ui.focus(ZONE_A)
+
+    expect(ui.text('detail-name-trees')).toBe('Zone 1')
+    const rows = ui.find('detail-rows-trees')
+    expect(rows).not.toBeNull()
+    // ONE GRID FOR THE WHOLE BODY -- the tab's rows and the step's, in one
+    // container, which is what holds one decimal point down the panel.
+    expect(ui.text('detail-value-acres')).toBe('2.1')
+    expect(ui.text('detail-value-/100 score')).toBe('58.3')
+    expect(ui.text('detail-value-where in the parcel')).toBe('north')
+    expect(ui.text('detail-value-position')).toBe('upper field')
+    expect(ui.text('detail-value-median slope %')).toBe('13.0')
+
+    // TWO RULES, AND A HEADING AFTER THE SECOND.
+    const children = [...rows.children]
+    const hrs = children.filter((node) => node.tagName === 'HR')
+    expect(hrs).toHaveLength(2)
+    const heading = ui.find('detail-heading-trees')
+    expect(heading.textContent).toBe('marginal benefits')
+    expect(heading.tagName).toBe('H4')
+    expect(children.indexOf(heading)).toBe(children.indexOf(hrs[1]) + 1)
+
+    // THE THREE TERMS, IN THE WIRE'S ORDER, AFTER THE HEADING.
+    const terms = [...rows.querySelectorAll('[data-row="term"]')].map((node) => node.textContent)
+    expect(terms).toEqual(['erosion control', 'nutrient deposition', 'stream protection'])
+    expect(children.indexOf(ui.find('detail-term-erosion control').parentElement)).toBeGreaterThan(
+      children.indexOf(heading)
+    )
+
+    // AND THE FACTOR GROUP IS GONE FROM THE DOM WITH IT.
+    expect(ui.find('detail-fields-merits')).toBeNull()
+    expect(ui.find('detail-value-score floor')).toBeNull()
+    await ui.unmount()
+  })
+
+  it('[test 3] renders no heading in the DOM for a zone that earned nothing', async () => {
+    const { ui } = await generatedTrees({
+      payload: treesPayload({ rows: [{ marginal_benefits: [] }] }),
+    })
+    await ui.focus(ZONE_A)
+    expect(ui.find('detail-heading-trees')).toBeNull()
+    const rows = ui.find('detail-rows-trees')
+    expect([...rows.children].filter((node) => node.tagName === 'HR')).toHaveLength(1)
+    expect(rows.querySelectorAll('[data-row="term"]')).toHaveLength(0)
+    await ui.unmount()
   })
 
   it('writes down no weight of its own', () => {
@@ -1422,22 +1883,14 @@ describe('8. the factor weights come from the payload', () => {
     expect(section).not.toMatch(/\b31(\.0)?\b/)
   })
 
-  it('explains what drove the score and what the floor was, off the payload', () => {
-    const detail = TREES_STEP.detail(contextOver(treesPayload()), ZONE_A)
-    const zone = detail.groups.find((g) => g.id === 'zone').fields
-    expect(zone.find((f) => f.label === 'score floor')).toMatchObject({ value: '31.0', measured: true })
-    expect(zone.find((f) => f.label === 'score')).toMatchObject({ value: '58.3', measured: true })
-    expect(zone.find((f) => f.label === 'position').value).toBe('north')
-    expect(zone.find((f) => f.label === 'position').measured).toBeFalsy()
-    expect(detail.groups.find((g) => g.id === 'merits').label).toBe('What earned the score')
-
-    // THE STEP-LEVEL FIGURES: the ground that was scored, measured.
+  it('reads the step-level figures off the payload and says what was scored', () => {
     const notices = TREES_STEP.notices(contextOver(treesPayload()))
     const space = notices.find((n) => n.key === 'search-space')
     expect(space.text.map((p) => p.measure ?? p).join('')).toBe(
       'After production, water and roads, 26.3 of the parcel’s 40.2 acres were left to score.'
     )
-    // And a generate that found nothing names the floor it applied.
+    // And a generate that found nothing names the floor it applied -- the
+    // floor left the PANEL, not the payload and not this line.
     const none = TREES_STEP.notices(contextOver(treesPayload({ candidates: 0 })))
     const empty = none.find((n) => n.key === 'no-candidates')
     expect(empty.tone).toBe('caution')

@@ -62,12 +62,38 @@
  *      rows. Production has none; water has one, between what a survey area IS
  *      and what it TOUCHES.
  *
- *      AND A BREAK CARRIES NO LABEL. Water was the step that would have needed
- *      one -- four labelled groups going into the format -- and it came out as
- *      two runs that label themselves. So an optional break label is not a
- *      field this format has, on the evidence of the step most likely to want
- *      it. Trees is where the question returns: its MARGINAL BENEFITS heading
- *      is a claim about the rows under it that the rows do not make.
+ *      AND A BREAK MAY CARRY A LABEL, WHICH TREES IS THE FIRST TO EARN.
+ *      `labelledBreak('marginal benefits')` is the same rule with a heading
+ *      over the run under it; `PANEL_BREAK` is the unlabelled singleton and is
+ *      still what three of the four steps declare.
+ *
+ *      THE LABEL IS THE EXCEPTION AND THE BARE RULE IS THE DEFAULT, and that
+ *      ordering is the whole finding water left behind. Water went into this
+ *      format with four LABELLED groups and came out with two unlabelled runs,
+ *      because each run said what it was: "water delivery" leads a run of
+ *      figures, "production overlap %" opens the run about what a zone touches.
+ *      Roads did the same. A heading over a run that already names itself is a
+ *      word that says what the reader can already see, and the format's whole
+ *      argument is that a rule between two runs is cheaper than a heading over
+ *      each.
+ *
+ *      SO A LABEL HAS TO BE A CLAIM THE ROWS DO NOT MAKE. Trees' benefits run
+ *      is three bare terms off the wire, and nothing in them says what kind of
+ *      statement they are or why they are under a tree zone's measurements.
+ *      MARGINAL BENEFITS is what says it, and it is not recoverable from the
+ *      rows. That is the bar, and a step that cannot state what its heading
+ *      adds should declare PANEL_BREAK.
+ *
+ *      IT IS A HEADING, NOT A GROUP. The panel is still ONE grid with rules
+ *      across it (see panelBody) -- a labelled break draws the same hairline
+ *      and puts a line of prose under it. Nothing is nested, nothing sizes its
+ *      own columns, and the decimal point still runs from the first figure to
+ *      the last. The `groups: [{label, fields}]` shape DetailPanel still
+ *      renders for the unmigrated steps is the thing this is not.
+ *
+ *      LOWER CASE HERE, UPPER CASE ON SCREEN, like every other word below the
+ *      header: the step declares 'marginal benefits' and the stylesheet sets
+ *      it. See the EVERYTHING BELOW THE HEADER note.
  *
  *   6. CAUTIONS OR BENEFITS LAST, APPEARING ONLY WHEN PRESENT. The panel's,
  *      not the step's: DetailPanel renders `detail.cautions` under its own rule
@@ -149,6 +175,29 @@ export const MEASURED = 'measured'
 export const CATEGORICAL = 'categorical'
 
 /**
+ * A TERM: one word or phrase, ACROSS THE WHOLE ROW, with no label beside it.
+ *
+ * THE THIRD FACE, AND THE FIRST THAT IS NOT A VALUE-AND-LABEL PAIR. Both other
+ * kinds answer a question the label asks -- "median slope %" asks it and "3.2"
+ * answers it. A term asks nothing and answers nothing: it is a NAME on a list,
+ * and the thing that says what the list is is the heading over it (rule 5).
+ *
+ * SO IT TAKES NEITHER COLUMN. A term in the value position would leave the
+ * label track empty on three rows running, which reads as three measurements
+ * whose labels failed to load; a term in the LABEL position would leave the
+ * number track empty and right-align nothing against the figures above it.
+ * Both are a pair with a hole in it, and a term is not a pair. It spans every
+ * track and starts at the same left edge every other value does.
+ *
+ * TREES IS THE FIRST AND MAY NOT BE THE LAST. Its terms are the benefits the
+ * backend's own gate rule awarded (tree_zone_candidates.marginal_benefits); what
+ * this side knows is that each is a word, that the list came in a declared
+ * order, and that an empty list means the zone earned none. NOT ONE OF THOSE
+ * WORDS IS WRITTEN DOWN IN THIS APP, here included -- see the step.
+ */
+export const TERM = 'term'
+
+/**
  * A RULE ACROSS THE BODY. Sits in a step's `rows` where it wants one, and the
  * panel puts one between the tab's rows and the step's own without being asked.
  *
@@ -161,6 +210,34 @@ export function isBreak(row) {
   return row === PANEL_BREAK || row?.panelBreak === true
 }
 
+/**
+ * THE SAME RULE, WITH A HEADING UNDER IT -- `labelledBreak('marginal benefits')`.
+ *
+ * ONE KIND OF THING, NOT TWO. A labelled break IS a break: isBreak() is true of
+ * it, panelBody collapses it exactly as it collapses a bare one, and the panel
+ * draws the same hairline. The label is one more field on the object, which is
+ * why nothing that already handles breaks had to learn about it -- a heading
+ * that arrived as its own row type would have been a second thing for every
+ * reader of a body to branch on, and the first one to forget would render a
+ * heading with no rule or a rule with no heading.
+ *
+ * WHEN A STEP MAY DECLARE ONE is rule 5, and the bar is high on purpose: the
+ * heading has to make a claim the rows under it do not make. Water and roads
+ * both went looking for one and neither could state what it would add.
+ *
+ * FROZEN LIKE THE SINGLETON, for the same reason, and NOT interned: two steps
+ * declaring the same heading are two headings, and identity is not how a break
+ * is recognised (isBreak reads the flag).
+ */
+export function labelledBreak(label) {
+  return Object.freeze({ panelBreak: true, label })
+}
+
+/** A break's heading, or null -- which is what `PANEL_BREAK` always answers. */
+export function breakLabel(row) {
+  return isBreak(row) ? row.label ?? null : null
+}
+
 /** A measured row -- `measuredRow(measure(zone.slope_median_pct), 'median slope %')`. */
 export function measuredRow(value, label) {
   return Object.freeze({ kind: MEASURED, value, label })
@@ -169,6 +246,17 @@ export function measuredRow(value, label) {
 /** A categorical row -- `categoricalRow('south facing', 'aspect')`. */
 export function categoricalRow(value, label) {
   return Object.freeze({ kind: CATEGORICAL, value, label })
+}
+
+/**
+ * A term row -- `termRow(zone.marginal_benefits[0])`. One word, whole width.
+ *
+ * NO SECOND ARGUMENT, and the missing one is the point: a term that took a
+ * label would be a categorical, and the two would be one kind in two dressings
+ * within a branch. See TERM.
+ */
+export function termRow(term) {
+  return Object.freeze({ kind: TERM, value: term })
 }
 
 /**
@@ -300,7 +388,23 @@ export function panelBody(tab, rows) {
     }
     // A break needs something above it and something after it, and the "after"
     // is settled by the trailing trim below.
-    if (body.length && !isBreak(body[body.length - 1])) body.push(PANEL_BREAK)
+    //
+    // THE STEP'S OWN BREAK OBJECT IS WHAT IS PUSHED, not the singleton. It used
+    // to push PANEL_BREAK whatever came in, which was invisible while no break
+    // carried anything -- and would have silently dropped every heading the
+    // moment one did.
+    const last = body.length ? body[body.length - 1] : null
+    if (!body.length) continue
+    if (!isBreak(last)) {
+      body.push(row)
+      continue
+    }
+    // TWO BREAKS RUNNING COLLAPSE TO ONE, AND THE LABELLED ONE WINS. The rule
+    // is the same rule either way, so what is at stake is only the heading --
+    // and a step whose labelled break lands against the format's own implicit
+    // one (a heading declared as the FIRST thing under the tab's rows) means
+    // the heading, not a second hairline.
+    if (breakLabel(row) && !breakLabel(last)) body[body.length - 1] = row
   }
   while (body.length && isBreak(body[body.length - 1])) body.pop()
   return body
