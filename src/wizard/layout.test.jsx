@@ -3462,7 +3462,7 @@ describeIf('the zone patterns, rendered', () => {
      * EVERY CANDIDATE LATTICE, NOT ONLY THE SHIPPED ONE.
      *
      * MOIRE IS A PROPERTY OF THE PITCH, and every density candidate moves it:
-     * the shipped field is 8.00px between dots, g12 is 5.33px and g16 is
+     * the shipped field is 3.20px between dots, g12 is 5.33px and g16 is
      * 4.00px, while r24 and r32 keep the 8px pitch and change only the dot. A
      * beat that hides at one pitch is loud at another, so a density
      * recommendation made without this would be recommending an untested
@@ -4119,12 +4119,12 @@ describeIf('the zone patterns, rendered', () => {
     const TILE = 64
     // THE SHIPPED LATTICE IS READ THROUGH ITS OWN CELLS, so it is measured as
     // the mark the map draws rather than as a candidate that happens to match
-    // it -- and it is no longer ON either ladder, because it is grid 16 with a
-    // SMALLER dot (r 1.2) and the ladders each hold one field still. Every
+    // it -- and it is no longer ON either ladder, because it is grid 20 with a
+    // SMALLER dot (r 1.0) and the ladders each hold one field still. Every
     // other row names both fields; see the harness's STIPPLE_GEOMETRIES for
     // why a partial override is a trap.
     const GEOMETRY = {
-      shipped: { grid: 16, radius: 1.2 },
+      shipped: { grid: 20, radius: 1.0 },
       g8: { grid: 8, radius: 1.6 },
       g10: { grid: 10, radius: 1.6 },
       g12: { grid: 12, radius: 1.6 },
@@ -4205,7 +4205,7 @@ describeIf('the zone patterns, rendered', () => {
     // only while the shipped lattice was the sparsest thing on the page. What
     // is actually being claimed is that ink follows coverage, so each ladder
     // holds ONE field still and walks the other: the grid ladder at r 1.6, the
-    // radius ladder at grid 8. The shipped mark is on neither -- it is grid 16
+    // radius ladder at grid 8. The shipped mark is on neither -- it is grid 20
     // with a smaller dot -- and is reported beside them.
     for (const ground of ['canopy', 'soil']) {
       const at = (label) => rows.find((r) => r.ground === ground && r.label === label)
@@ -4239,9 +4239,16 @@ describeIf('the zone patterns, rendered', () => {
      * bare when it is within 6/255 of the ground on every channel, which is the
      * tolerance that stops it counting antialiasing as ink. A SMALLER dot puts
      * a larger share of its ink into partially-covered edge pixels, and at 2.4px
-     * across enough of them fall under that tolerance that the shipped lattice
-     * reads MORE open than a sparser field with fatter dots -- 75% against
-     * g10's 71%, which is not what the eye sees.
+     * across enough of them fell under that tolerance that the grid-16 lattice
+     * read MORE open than a sparser field with fatter dots -- 75% against g10's
+     * 71%, which is not what the eye saw.
+     *
+     * THE SIGN IS NOT STABLE EITHER, which is the second half of the same
+     * lesson. At grid 20 the pitch leaves only 1.2px between dot edges, so
+     * whole untouched pixels become scarce and density overwhelms the edge
+     * effect: the shipped mark now reads 45% where the fatter-dotted g10 reads
+     * 71%, the opposite ordering from the one above at a similar coverage. A
+     * reading whose sign depends on the geometry is a reading to report.
      *
      * SO IT IS HELD WHERE IT IS SOUND AND NOT WHERE IT IS NOT. Within one
      * ladder the dot is fixed and only the spacing moves, so the comparison is
@@ -4249,13 +4256,36 @@ describeIf('the zone patterns, rendered', () => {
      * mark, the reading is reported and the WASH CONTROL is what it is
      * asserted against: a wash leaves nothing, and every lattice here leaves a
      * lot. That is the claim the instrument can actually carry.
+     *
+     *
+     * THE BOUND CAME DOWN WITH THE GRID, AND WHAT IT CLAIMS CHANGED WITH IT.
+     * It read 0.4 under "leaves MOST of the ground showing", which was true of
+     * every lattice that had shipped: grid 16 at r 1.2 read 75% over canopy.
+     * Grid 20 at r 1.0 reads 45% over canopy and 40% over soil, so "most" is
+     * no longer the word -- this is the first shipped lattice under half, and
+     * saying so is cheaper than a bound that quietly means something else.
+     *
+     * THE CLAIM IS THE ONE THE WASH CONTROL SETS UP, and it is unchanged: a
+     * wash leaves 0% on both grounds, and this mark leaves two fifths. A bound
+     * at 0.3 keeps ten points of margin under the measured pair while still
+     * failing long before anything that could be mistaken for a tint -- g16 at
+     * r 1.6, the lattice this file calls turned over, reads 19% over soil and
+     * would not pass it.
+     *
+     * AND THE OTHER INSTRUMENTS ARE WHY THIS IS A PRICE RATHER THAN A WARNING.
+     * The density step cost 3% of texture spread (0.0331 -> 0.0322 over canopy)
+     * and BOUGHT 23% of overlap texture (0.0106 -> 0.0130), which is the
+     * reading that decides whether two coincident survey zones still read as
+     * two marks -- the thing this whole treatment exists for. Closure is 0.63
+     * against a 0.7 bound, and the moire test is the one that gains most from
+     * a tighter pitch. Ground-showing is what the step spent.
      */
     for (const ground of ['canopy', 'soil']) {
       const shipped = rows.find((r) => r.ground === ground && r.label === 'shipped')
       expect(
         shipped.gaps,
-        `the shipped lattice leaves most of the ground showing over ${ground}`
-      ).toBeGreaterThan(0.4)
+        `the shipped lattice leaves a large share of the ground showing over ${ground}`
+      ).toBeGreaterThan(0.3)
     }
   }, SLOW)
 

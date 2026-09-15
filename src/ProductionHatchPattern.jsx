@@ -234,9 +234,37 @@ const TREATMENT_MARKS = [
   // measurement of added ink sees -- which is why every number this field
   // was tuned against looked healthy while it did not read as dots.
   //
-  // 16 PER SIDE AT r=1.2: 4.00px apart, 2.4px across, 28% covered. A dot is
-  // still several pixels wide and is drawn as a disc, and 64 divides by 16
-  // exactly, so the lattice tiles with no seam and no clamp (see stippleTile).
+  // 20 PER SIDE AT r=1.0: 3.20px apart, 2.0px across, 31% covered. A dot is
+  // still two device pixels across and is drawn as a disc, and the lattice
+  // tiles with no seam and no clamp: stippleTile() takes cell = tile/grid, so
+  // grid cells span the tile EXACTLY whether or not the division is whole, and
+  // every centre here -- 1.60, 4.80, 8.00 ... 62.40 -- lands on one decimal
+  // place, inside the two the tile is written at. (The previous lattice leaned
+  // on 64 dividing by 16 exactly; that was never the thing keeping the seam
+  // shut, and this one would not have it.)
+  //
+  // AND THE DOT CAME DOWN AGAIN, for the reason the paragraph below gives the
+  // first time it happened: at 3.20px of pitch, r=1.2 would be 0.75 CLOSURE --
+  // past the 0.60 the texture peaks at, over the 0.7 bound, and heading for
+  // the wash this mark exists not to be. The window r=1.0 sits in is narrow
+  // and both its walls are measured: r >= 1.0 or the dot is under the 2px a
+  // renderer needs to draw a disc, r < 1.12 or closure crosses the bound. The
+  // bottom of that window is the end nearest the measured peak.
+  //
+  // 16 PER SIDE AT r=1.2 WAS 4.00px apart, 2.4px across, 28% covered, at 0.60
+  // closure -- the geometry this one is a finer-grained step along, at nearly
+  // the same ink. WHAT THE STEP MOVED, over canopy, all four from the sweep:
+  //
+  //                        block ink   texture   overlap texture   ground
+  //     grid 16 r 1.2       0.0475     0.0331        0.0106          75%
+  //     grid 20 r 1.0       0.0464     0.0322        0.0130          45%
+  //
+  // SO IT BOUGHT THE OVERLAP AND SPENT THE GROUND. Overlap texture is up 23%
+  // and it is the reading that decides whether two coincident survey zones
+  // still read as two marks, which is the thing this treatment exists for;
+  // block ink and texture are flat within a few percent. Ground-showing is the
+  // real cost, and it is a fall from three quarters to under half -- see the
+  // sweep's own note, where the bound moved with it and says why.
   //
   // IT WAS 8 PER SIDE AT r=1.6 AND 12.6% COVERED, chosen to sit within a point
   // of the hatch's own eighth so the two marks were neighbours and neither
@@ -274,8 +302,16 @@ const TREATMENT_MARKS = [
   // TEXTURE PEAKS AT 0.60 AND HAS TURNED OVER BY 0.80, and the ground showing
   // falls off a cliff across the same step. The bound in the test is 0.7,
   // between the two measured points rather than at a round number, and the
-  // shipped lattice sits at 0.60 -- reached by a smaller dot on a tighter grid
-  // rather than by grid 12's fatter dot on a looser one.
+  // shipped lattice sits at 0.625 -- reached by a smaller dot on a tighter
+  // grid rather than by grid 12's fatter dot on a looser one.
+  //
+  // THAT 0.025 OVER THE PEAK IS THE PRICE OF THE FINER GRAIN and is named
+  // rather than rounded away: the grid could not go to 20 and hold 0.60
+  // exactly, because 0.60 at a 3.20px pitch is a 1.92px dot and the drawability
+  // floor is 2px -- the two bounds cross between grid 16 and grid 20, and this
+  // is the first density where the window has a bottom rather than a choice.
+  // The sweep is where to look if it ever needs re-measuring at this pitch;
+  // 0.625 is a fifth of the way from the peak to the bound, not a gamble.
   //
   // AND A BIGGER DOT AT THE OLD 8px PITCH WAS THE OTHER WAY TO REACH THE SAME
   // COVERAGE AND IS RULED OUT. It reads better on ink, texture,
@@ -415,8 +451,8 @@ const TREATMENT_MARKS = [
     kind: 'stipple',
     token: '--survey-excavated',
     tile: 64,
-    grid: 16,
-    radius: 1.2,
+    grid: 20,
+    radius: 1.0,
     screen: 0.16,
     screenToken: '--halo',
   },

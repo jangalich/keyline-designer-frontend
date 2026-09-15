@@ -1613,7 +1613,7 @@ describe('10. the bare-map click', () => {
 
    deriveMachineState read `hasProposals || status === GENERATED`, so the step
    landed in REVIEWING: no tabs, no zones on the map, and a primary button
-   reading "Commit no water zones". One click recorded a decision the user
+   reading "Commit no Survey Areas". One click recorded a decision the user
    never made, and `min_features: 0` made it a legal request that returned
    200. That is the second bug the legal empty commit has swallowed; the first
    was buildCommitBody reading `suggested_zones` for every step.
@@ -1670,7 +1670,7 @@ describe('11. a generated step with no proposals', () => {
 
     // The commit is armed now, and says what it would carry.
     expect(ui.find('commit-water')).not.toBeNull()
-    expect(ui.text('commit-water')).toContain('Commit water zones')
+    expect(ui.text('commit-water')).toContain('Commit Survey Areas')
 
     await ui.unmount()
   })
@@ -1696,7 +1696,7 @@ describe('11. a generated step with no proposals', () => {
     expect(ui.find('actions-water').children).toHaveLength(0)
 
     // NO COMMIT BUTTON AT ALL -- not a disabled one, and above all not the
-    // one that would have read "Commit no water zones".
+    // one that would have read "Commit no Survey Areas".
     expect(ui.find('commit-water')).toBeNull()
     // And nothing else to press either: a generate here would race the fetch
     // for the same answer.

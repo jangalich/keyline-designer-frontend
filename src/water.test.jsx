@@ -45,6 +45,7 @@ import { API_URL } from './session/apiClient'
 import {
   STEP_DEFINITIONS,
   WATER_STEP,
+  feet,
   isSurveyZone,
   measure,
   registryProposalFeatures,
@@ -884,8 +885,8 @@ describe('6. an empty commit is a decision', () => {
   it('renames the button rather than blocking it', () => {
     expect(WATER_STEP.commit.canCommit({ committableCount: 0 })).toBe(true)
     expect(WATER_STEP.commit.blockedReason({ committableCount: 0 })).toBeNull()
-    expect(WATER_STEP.commit.label({ committableCount: 0 })).toBe('Commit no water zones')
-    expect(WATER_STEP.commit.label({ committableCount: 2 })).toBe('Commit water zones')
+    expect(WATER_STEP.commit.label({ committableCount: 0 })).toBe('Commit no Survey Areas')
+    expect(WATER_STEP.commit.label({ committableCount: 2 })).toBe('Commit Survey Areas')
   })
 
   liveIt('states the decision on the button, and the empty commit lands', async () => {
@@ -896,10 +897,10 @@ describe('6. an empty commit is a decision', () => {
     for (const feature of surveyZoneFeatures(ui.water)) await ui.toggle(feature.id)
     expect(selectDraft(ui.state, 'water').selectedFeatureIds).toEqual([])
 
-    // THE BUTTON SAYS WHAT IT WOULD DO. Not "Commit water zones" over an
+    // THE BUTTON SAYS WHAT IT WOULD DO. Not "Commit Survey Areas" over an
     // empty selection -- the decision is named before it is recorded.
     const button = ui.find('commit-water')
-    expect(button.textContent).toContain('Commit no water zones')
+    expect(button.textContent).toContain('Commit no Survey Areas')
     expect(button.disabled).toBe(false)
 
     await ui.click('commit-water')
@@ -1975,8 +1976,8 @@ describe('resuming into a generated water step', () => {
     // names what it would actually do.
     await ui.waitFor('the draft to be seeded', () => ui.state.drafts.water !== undefined)
     expect(ui.all('[data-tab-id]').length).toBeGreaterThan(0)
-    expect(ui.find('commit-water').textContent).toContain('Commit water zones')
-    expect(ui.find('commit-water').textContent).not.toContain('no water zones')
+    expect(ui.find('commit-water').textContent).toContain('Commit Survey Areas')
+    expect(ui.find('commit-water').textContent).not.toContain('no Survey Areas')
 
     await ui.unmount()
   })
@@ -2426,14 +2427,15 @@ describe('the panel', () => {
       '───',
       // WHAT THE AREA IS: the categorical first (rule 4), then the figures.
       'water delivery',
-      'contributing acres',
-      // THE EMBANKMENT'S SECOND CATCHMENT, directly under the first because it
-      // is a second reading of it -- the ground a dam here would hold, against
-      // the ground that drains to the wettest cell.
+      // THE EMBANKMENT'S CATCHMENT IS THE ONE AT THE DAM SITE, and it is the
+      // only one this type shows -- the ground a dam here would hold, rather
+      // than the ground that drains to the zone's wettest cell.
       'contributing acres at dam site',
       'median slope %',
-      // AND NO `max depth ft`: a valley compartment's depth is whatever the
-      // dam makes it, so the question is not asked of this type.
+      // AND THE EMBANKMENT'S DEPTH FIGURE, in the slot the excavated type puts
+      // `max depth ft` in: a valley compartment has no depth you could dig to,
+      // and what it has instead is the ceiling on the pool a dam could raise.
+      'binding shoulder height ft',
       '───',
       // WHAT IT TOUCHES: the three crossings in the backend's own order, then
       // the agreement report last.
@@ -2443,8 +2445,10 @@ describe('the panel', () => {
       'shared ground w/ Excavated 2 %',
     ])
 
-    // AND THE EXCAVATED PANEL IS THE SAME SHAPE WITH THE TWO TYPE ROWS
-    // SWAPPED: a basin has a depth you could dig to and no dam site.
+    // AND THE EXCAVATED PANEL IS THE SAME SHAPE WITH BOTH TYPE ROWS SWAPPED:
+    // a basin has no dam site, so its catchment is the one at its wettest
+    // cell; and it has a depth you could dig to, where the compartment has a
+    // shoulder that caps a pool. Same two positions, each type's own question.
     expect(shapeOf(proposals, other.id)).toEqual([
       'survey acres',
       '/100 score',
@@ -2487,11 +2491,11 @@ describe('the panel', () => {
     // RULE 4 AND THE TWO FACES, on water's own rows. The delivery answer is a
     // phrase and has no decimal point to hold still; a word in the aligned
     // column widens it for every row beneath it.
-    // BOTH TYPES, so the two type-dispatched rows are covered as well as the
-    // shared ones.
+    // BOTH TYPES, so all four type-dispatched rows are covered as well as the
+    // shared ones -- each type names the two the other does not have.
     for (const [type, own] of [
-      ['embankment', 'contributing acres at dam site'],
-      ['excavated', 'max depth ft'],
+      ['embankment', ['contributing acres at dam site', 'binding shoulder height ft']],
+      ['excavated', ['contributing acres', 'max depth ft']],
     ]) {
       const zone = fixtureZone({ survey_type: type, production_overlap_pct: 6.4 })
       const kinds = Object.fromEntries(
@@ -2503,9 +2507,8 @@ describe('the panel', () => {
       for (const label of [
         'survey acres',
         '/100 score',
-        'contributing acres',
         'median slope %',
-        own,
+        ...own,
         'production overlap %',
       ]) {
         expect(kinds[label], `${type}: ${label}`).toBe(MEASURED)
@@ -2537,7 +2540,11 @@ describe('the panel', () => {
       contributing_area_acres_at_wettest_cell: 2.43,
       slope_median_pct: 3.14,
     }
-    const embankment = fixtureZone({ ...shared, pinch_catchment_acres: 31.24 })
+    const embankment = fixtureZone({
+      ...shared,
+      pinch_catchment_acres: 31.24,
+      pinch_binding_height_m: 2.27,
+    })
     const excavated = fixtureZone({
       ...shared,
       zone_id: 4,
@@ -2549,22 +2556,41 @@ describe('the panel', () => {
     // ONE DECIMAL PLACE, which is measure()'s default and what holds a decimal
     // point still down a column that also carries an acreage and a percentage.
     for (const zone of [embankment, excavated]) {
-      expect(valueOf(proposals, zone.id, 'contributing acres')).toBe('2.4')
       expect(valueOf(proposals, zone.id, 'median slope %')).toBe('3.1')
     }
-    // AND EACH TYPE'S OWN ROW, off its own field.
+    // AND EACH TYPE'S OWN TWO ROWS, off its own fields.
     expect(valueOf(proposals, embankment.id, 'contributing acres at dam site')).toBe('31.2')
+    expect(valueOf(proposals, excavated.id, 'contributing acres')).toBe('2.4')
     expect(valueOf(proposals, excavated.id, 'max depth ft')).toBe('4.1')
 
-    // AND A MISSING MEASUREMENT IS AN EM DASH, never a zero -- on either row.
-    // A pond site with no depth reading is not a pond site with no depth, and
-    // a compartment whose pinch catchment was not measured is not one that
-    // holds nothing.
+    // THE SHOULDER HEIGHT IS THE ONE ROW THIS SIDE CONVERTS, and the assertion
+    // is on the FEET, because a panel that printed the metric number under a
+    // label ending in "ft" is exactly the failure a unit on the label invites.
+    // 2.27 m / 0.3048 = 7.447 ft, and measure()'s one decimal place makes it
+    // 7.4 -- not 2.3, which is what a missing conversion would print.
+    expect(valueOf(proposals, embankment.id, 'binding shoulder height ft')).toBe('7.4')
+    // THE CONVERSION ITSELF, at the international foot the backend divides by.
+    // Pinned apart from the row so a rounded factor cannot hide inside one
+    // decimal place: 3 m is 9.8 ft, and 3.2808 would put it at 9.84.
+    expect(feet(3)).toBeCloseTo(9.8425, 4)
+    expect(feet(0)).toBe(0)
+
+    // AND A MISSING MEASUREMENT IS AN EM DASH, never a zero -- on every one of
+    // these rows. A pond site with no depth reading is not a pond site with no
+    // depth, a compartment whose pinch catchment was not measured is not one
+    // that holds nothing, and a dam site with no shoulder reading is not one
+    // with no shoulder. THE CONVERSION MUST NOT BREAK THAT: feet(null) is null
+    // rather than 0, so the em dash survives the extra step this row takes.
     const noDepth = fixtureZone({ zone_id: 7, survey_type: 'excavated', depression_depth_max_ft: null })
     expect(valueOf(payloadOf([noDepth]), noDepth.id, 'max depth ft')).toBe('—')
     const noCatchment = fixtureZone({ zone_id: 8, pinch_catchment_acres: null })
     expect(
       valueOf(payloadOf([noCatchment]), noCatchment.id, 'contributing acres at dam site')
+    ).toBe('—')
+    const noShoulder = fixtureZone({ zone_id: 9, pinch_binding_height_m: null })
+    expect(feet(null)).toBeNull()
+    expect(
+      valueOf(payloadOf([noShoulder]), noShoulder.id, 'binding shoulder height ft')
     ).toBe('—')
   })
 
@@ -2591,14 +2617,24 @@ describe('the panel', () => {
         .map((row) => row.label)
 
     expect(labels(embankment.id)).toContain('contributing acres at dam site')
+    expect(labels(embankment.id)).toContain('binding shoulder height ft')
     expect(labels(embankment.id)).not.toContain('max depth ft')
+    expect(labels(embankment.id)).not.toContain('contributing acres')
 
+    expect(labels(excavated.id)).toContain('contributing acres')
     expect(labels(excavated.id)).toContain('max depth ft')
     expect(labels(excavated.id)).not.toContain('contributing acres at dam site')
+    expect(labels(excavated.id)).not.toContain('binding shoulder height ft')
 
-    // AND THE EMBANKMENT ZONE REALLY DOES CARRY A DEPTH ON THE WIRE, so the
-    // omission above is the panel's decision and not an absent field.
+    // AND THE EMBANKMENT ZONE REALLY DOES CARRY BOTH OMITTED FIELDS ON THE
+    // WIRE, so each omission above is the panel's decision and not an absent
+    // field. This is the half of the argument the wire cannot make: both
+    // `depression_depth_max_ft` and
+    // `contributing_area_acres_at_wettest_cell` are set unconditionally by
+    // _zone_feature_properties, and a panel that rendered whatever was present
+    // would show a meaningless depth and a distracting second catchment.
     expect(embankment.properties.depression_depth_max_ft).toBeGreaterThan(0)
+    expect(embankment.properties.contributing_area_acres_at_wettest_cell).toBeGreaterThan(0)
   })
 
   it('keeps the diagnostic record off the panel', () => {
@@ -3049,11 +3085,17 @@ function fixtureZone(overrides) {
       depression_depth_max_ft: 4.06,
       depression_depth_max_m: 1.24,
       contributing_area_acres_at_wettest_cell: 10.51,
-      // EMBANKMENT ONLY, and the fixture carries it on both for the same
+      // EMBANKMENT ONLY, and the fixture carries them on both for the same
       // reason it carries member_acres on both: what is asserted is that the
       // PANEL dispatches on type, and a fixture that withheld the field would
       // let a panel pass by rendering an em dash instead of by omitting a row.
       pinch_catchment_acres: 31.2,
+      // METRES ON THE WIRE, and the panel is the side that converts -- the
+      // backend ships this one unconverted because until that panel row there
+      // was no consumer printing it. 2.27 m is the deepest binding shoulder
+      // the reference property measured anywhere, so the fixture's figure is
+      // a real reading rather than a round number: 7.4 ft in the panel.
+      pinch_binding_height_m: 2.27,
       representative_elevation_m: 312.4,
       canopy_overlap_pct: 0.0,
       road_overlap_pct: 0.0,
