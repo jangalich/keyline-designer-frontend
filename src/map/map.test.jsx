@@ -1539,9 +1539,11 @@ describe('10. the bare-map click', () => {
       })
     }
 
-    // And the paint is untouched: the ring still draws its casing and its
-    // filled line, and the committed zone still draws its hatch.
-    expect(ui.pane('boundary--boundary-committed').pane.querySelectorAll('path')).toHaveLength(2)
+    // And the paint is what the band draws: the COMMITTED ring is ONE path --
+    // its filled line, with no casing under it, because a settled line is
+    // drawn bare (layers.jsx's casingWeightFor) -- and the committed zone
+    // still draws its hatch.
+    expect(ui.pane('boundary--boundary-committed').pane.querySelectorAll('path')).toHaveLength(1)
     expect(ui.pane('landform--landform-committed').pane.querySelectorAll('path')).toHaveLength(1)
 
     await ui.unmount()

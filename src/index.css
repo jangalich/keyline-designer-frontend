@@ -324,14 +324,50 @@
      the two blues water, and --ochre the access-point marker the road runs
      from.
 
-     THE CASING IS UNTOUCHED AND STILL DOES THE WORK. A road is a LINE, so the
-     no-stroke rule for ZONES does not apply and the halo-casing rule for
-     lines does: the line sits on a --halo casing (layers.jsx's CASING_WEIGHT
-     under LINE_WEIGHT). Ink against --halo is 12.6:1 where umber was 7.8:1,
-     so the casing is a stronger edge than before, not a weaker one -- and it
-     is still the casing, not the line, that carries the road over canopy.
-     Re-measured over canopy and bare soil in layout.test.jsx like every other
-     mark, both states, whole-mark and bare. */
+     THE CASING DOES THE WORK, AND ONLY WHILE THE ROAD IS LIVE. A road is a
+     LINE, so the no-stroke rule for ZONES does not apply and the halo-casing
+     rule for lines does: an ACTIVE road sits on a --halo casing (layers.jsx's
+     CASING_WEIGHT under LINE_WEIGHT). Ink against --halo is 12.6:1 where umber
+     was 7.8:1, so the casing is a stronger edge than before, not a weaker one
+     -- and it is the casing, not the line, that carries the road over canopy:
+     0.0215 cased against 0.0007 bare, 30x, measured in layout.test.jsx like
+     every other mark.
+
+     A COMMITTED ROAD IS DRAWN BARE, and so is the committed property ring.
+     One band rule, both of them -- layers.jsx's casingWeightFor. The argument
+     is that a cased line is the STEP IN HAND: by fencing there are five
+     committed layers blanketing the parcel, and a white casing under each of
+     them is five marks insisting on themselves behind the one being worked.
+     It also took the FENCE's own signature, which ships as a bare hairline --
+     a committed road in a white casing reads as the same kind of thing at a
+     glance, which is the distinction --fence's colour and weight exist to
+     make. Bare committed geometry gives the casing back its meaning: a cased
+     line is live.
+
+     WHAT THAT COSTS FALLS ON ONE GROUND, AND IT IS THE GROUND THE CASING WAS
+     FOR:
+
+                            bare      with the casing back
+       road    canopy         0.0005                0.0190      38x
+               soil           0.0096                0.0099      1.02x
+       ring    canopy         0.0019                0.0212      11x
+               soil           0.0073                0.0077      1.05x
+
+     Over bare soil a dark line needs no casing and never did -- 1.02x is
+     nothing. OVER CLOSED CANOPY A COMMITTED ROAD IS EFFECTIVELY GONE: 0.0005
+     against the 0.004 visibility floor, an eighth of it, and the committed
+     parcel edge is under the floor with it at 0.0019. On a wooded parcel the
+     settled geometry is there in the DOM and not on the screen.
+
+     THAT IS DECLARED, NOT DISCOVERED. layout.test.jsx's
+     BELOW_THE_VISIBILITY_FLOOR names road-committed with the readings above,
+     prints them on every run, and still holds the ACTIVE road to the floor
+     with its casing and the boundary ring BEING TRACED to it as well -- the
+     one shape a person places by hand, where a line they cannot see is a
+     boundary they cannot check. The cheapest way back, if a wooded parcel
+     proves it: a THIN casing on the committed band rather than none, which
+     would recover most of the 38x without the white band the change was made
+     to remove. */
   --road: var(--ink);
 
   /* THE TREE MARK'S COLOUR. A green, because a tree crop is the one thing on

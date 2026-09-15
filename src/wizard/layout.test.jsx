@@ -1914,38 +1914,59 @@ describeIf('the zone patterns, rendered', () => {
   const FOCUS_IS_A_HALO = ['production', 'fence']
 
   /**
-   * THE ONE MARK ON THIS MAP THAT DOES NOT MEET THE VISIBILITY FLOOR, NAMED
-   * HERE ONCE SO EVERY TEST THAT ASSERTS THE FLOOR EXEMPTS IT IN THE SAME
+   * WHAT DOES NOT MEET THE VISIBILITY FLOOR, NAMED HERE ONCE, BY TREATMENT AND
+   * BY STATE, SO EVERY TEST THAT ASSERTS THE FLOOR EXEMPTS IT IN THE SAME
    * BREATH AS SAYING WHY.
    *
-   * THE FENCE SHIPS UNCASED. It was a 2px line on a 4px --halo casing, then a
-   * 1px hairline on a 3px casing; the casing was removed by instruction and
-   * what ships is one bare 1px line in --rule. The casing was what carried
-   * the mark -- putting the road's back on is worth 7.3x over canopy and
-   * 12.3x over soil -- and without it:
+   * TWO DECISIONS PUT THINGS IN THIS LIST AND BOTH WERE DELIBERATE.
    *
-   *     mid-grey  committed 0.0020   active 0.0028   focused 0.0163
-   *     canopy    committed 0.0039   active 0.0054   focused 0.0319
-   *     soil      committed 0.0008   active 0.0011   focused 0.0062
+   * 1. THE FENCE SHIPS UNCASED. It was a 2px line on a 4px --halo casing,
+   *    then a 1px hairline on a 3px casing; the casing was removed and what
+   *    ships is one bare 1px line in --rule. Putting the road's casing back is
+   *    worth 7.3x over canopy and 12.3x over soil, and without it:
    *
-   * against a 0.004 floor. Under it at both unfocused levels on soil and on
-   * the mid-grey swatch, and just under it over canopy when committed.
+   *        mid-grey  committed 0.0020   active 0.0028   focused 0.0163
+   *        canopy    committed 0.0039   active 0.0054   focused 0.0319
+   *        soil      committed 0.0008   active 0.0011   focused 0.0062
    *
-   * WHAT IS STILL ASSERTED, AND IT IS NOT NOTHING. The mark must still add
-   * ink (> 0) at every level on every ground; the three levels must still
-   * order; the FOCUSED mark is still held to 0.004 everywhere, because the
-   * fence a reader is looking at has to be visible even if the ones they are
-   * not may be under it; and what a casing WOULD be worth is still measured
-   * on every run rather than remembered. Every reading is still printed.
+   * 2. THE COMMITTED BAND DROPS THE CASING, for every line and ring that
+   *    carried one -- roads and the property boundary. A cased line is the
+   *    step in hand; settled geometry is drawn bare (layers.jsx's
+   *    casingWeightFor). The cost falls almost entirely on ONE GROUND, and it
+   *    is the ground the casing was introduced for:
    *
-   * WHAT IS NOT ASSERTED is the unfocused mark against 0.004, because it does
-   * not meet it. The reading is not dropped, the assertion is -- and it is
-   * dropped HERE, by name, rather than by loosening 0.004 for everyone or by
-   * quietly removing the fence from SWATCH_TREATMENTS. A second name in this
-   * list should be as hard to add as this one was: it means a mark the map
-   * draws and a reader may not see. See index.css's --fence note.
+   *                         bare      with the casing back
+   *        road    canopy     0.0005                0.0190      38x
+   *                soil       0.0096                0.0099      1.02x
+   *        ring    canopy     0.0019                0.0212      11x
+   *                soil       0.0073                0.0077      1.05x
+   *
+   *    Over bare soil a dark line needs no casing and never did. OVER CLOSED
+   *    CANOPY A COMMITTED ROAD IS EFFECTIVELY GONE -- 0.0005 against a 0.004
+   *    floor, an eighth of it -- and the committed parcel edge is under the
+   *    floor with it. That is the trade, and it is written here rather than
+   *    left to be discovered on a wooded parcel.
+   *
+   * WHAT IS STILL ASSERTED, AND IT IS NOT NOTHING. Every exempt mark must
+   * still add ink (> 0) at every level on every ground; the levels must still
+   * order; the ACTIVE road is still held to the floor with its casing, and the
+   * boundary ring BEING TRACED is too -- it is the one shape a person places
+   * by hand, and a line they cannot see is a boundary they cannot check. The
+   * fence's FOCUSED state is still held to the floor everywhere. And what a
+   * casing WOULD be worth is measured on every run rather than remembered, so
+   * the cost of both decisions stays a live number.
+   *
+   * WHAT IS NOT ASSERTED is the exempt treatment-and-state against 0.004,
+   * because it does not meet it. The reading is not dropped, the assertion is
+   * -- and it is dropped HERE, by name, rather than by loosening 0.004 for
+   * everyone or by quietly removing a treatment from SWATCH_TREATMENTS. A
+   * third entry should be as hard to add as these two were: an entry means a
+   * mark the map draws and a reader may not see. See index.css's --road and
+   * --fence notes.
    */
-  const BELOW_THE_VISIBILITY_FLOOR = ['fence']
+  const BELOW_THE_VISIBILITY_FLOOR = { fence: ['committed', 'active'], road: ['committed'] }
+  const belowTheFloor = (treatment, state) =>
+    (BELOW_THE_VISIBILITY_FLOOR[treatment] ?? []).includes(state)
 
   it('tells the focused state from the active one at whole-parcel size', async () => {
     for (const treatment of SWATCH_TREATMENTS) {
@@ -1996,11 +2017,12 @@ describeIf('the zone patterns, rendered', () => {
       // STILL THERE. A committed layer is context for the step in hand, not a
       // layer that has been turned off -- and from the roads step onward
       // several of them share the map.
-      if (BELOW_THE_VISIBILITY_FLOOR.includes(treatment)) {
+      if (belowTheFloor(treatment, 'committed')) {
         // eslint-disable-next-line no-console
         console.log(
-          `    ink  ${treatment.padEnd(18)} committed ${committed.toFixed(4)} is BELOW the 0.004 ` +
-            `floor on this swatch -- declared, see BELOW_THE_VISIBILITY_FLOOR`
+          `    ink  ${treatment.padEnd(18)} committed ${committed.toFixed(4)} ` +
+            `${committed < 0.004 ? 'is BELOW' : 'clears'} the 0.004 floor on this swatch ` +
+            `-- exempt, see BELOW_THE_VISIBILITY_FLOOR`
         )
         expect(committed, `${treatment}: committed still adds ink`).toBeGreaterThan(0)
         continue
@@ -2434,14 +2456,22 @@ describeIf('the zone patterns, rendered', () => {
             `(committed/active ${(committed / active).toFixed(2)}x  ` +
             `focused/active ${(focused / active).toFixed(2)}x)`
         )
-        if (BELOW_THE_VISIBILITY_FLOOR.includes(treatment)) {
-          // THE DECLARED EXCEPTION, AND THE FOCUSED MARK STILL PAYS. See
-          // BELOW_THE_VISIBILITY_FLOOR for the readings and the argument.
+        if (belowTheFloor(treatment, 'committed')) {
+          // THE DECLARED EXCEPTION. See BELOW_THE_VISIBILITY_FLOOR for the
+          // readings and the argument; the marker below is so a run's output
+          // says which grounds it actually fell under.
+          // eslint-disable-next-line no-console
+          console.log(
+            `         ${ground.padEnd(6)} ${treatment.padEnd(18)} committed ` +
+              `${committed < 0.004 ? 'is BELOW' : 'clears'} the 0.004 floor -- exempt`
+          )
           expect(committed, `${treatment} committed still adds ink over ${ground}`).toBeGreaterThan(0)
-          expect(
-            focused,
-            `${treatment} focused must be legible over ${ground} even where the rest is not`
-          ).toBeGreaterThan(0.004)
+          if (!belowTheFloor(treatment, 'focused')) {
+            expect(
+              focused,
+              `${treatment} focused must be legible over ${ground} even where the rest is not`
+            ).toBeGreaterThan(0.004)
+          }
         } else {
           expect(
             committed,
@@ -2958,26 +2988,72 @@ describeIf('the zone patterns, rendered', () => {
     }
   }, SLOW)
 
-  it('keeps a road legible over canopy and soil, and the casing is what does it', async () => {
+  /**
+   * THE ROAD, AND THE PROPERTY BOUNDARY RING BESIDE IT, IN THE ONE TEST --
+   * because they are now one rule. The COMMITTED band drops the casing
+   * (layers.jsx's casingWeightFor), and both of these are lines that used to
+   * carry one there.
+   *
+   * THE ACTIVE ROAD IS STILL THE ORIGINAL CLAIM AND IT STILL HOLDS: a bare
+   * --ink line is lost over closed canopy and the casing is what carries it,
+   * by more than 5x. That measurement is the reason the casing exists, and it
+   * is also, read the other way, exactly what dropping it on the committed
+   * band costs.
+   *
+   * SO THE COMMITTED ROW IS REPORTED RATHER THAN ASSERTED AGAINST THE FLOOR.
+   * See BELOW_THE_VISIBILITY_FLOOR for the readings, the argument, and what
+   * IS still asserted.
+   */
+  it('keeps an active road legible over canopy and soil by its casing, and prices what the committed band gave up', async () => {
     for (const ground of ['canopy', 'soil']) {
-      for (const state of ['committed', 'active']) {
-        const cased = await addedInkOver(page, ground, 'road', state)
-        const uncased = await addedInkOver(page, ground, 'road', `${state}-uncased`)
+      // THE ACTIVE ROAD, cased as it ships, against the bare line beside it.
+      const cased = await addedInkOver(page, ground, 'road', 'active')
+      const uncased = await addedInkOver(page, ground, 'road', 'active-uncased')
+      // eslint-disable-next-line no-console
+      console.log(
+        `    ink  ${ground.padEnd(6)} road active    ` +
+          `cased ${cased.toFixed(4)}  uncased ${uncased.toFixed(4)}  ` +
+          `(cased/uncased ${(cased / uncased).toFixed(2)}x)`
+      )
+      expect(cased, `road active must be legible over ${ground}`).toBeGreaterThan(0.004)
+      if (ground === 'canopy') {
+        expect(uncased, `the bare line is lost over ${ground}`).toBeLessThan(0.004)
+        expect(cased / uncased, `the casing is what carries the road over ${ground}`).toBeGreaterThan(5)
+      }
+
+      // THE COMMITTED ROAD, bare as it ships, against the casing it gave up.
+      const committed = await addedInkOver(page, ground, 'road', 'committed')
+      const recased = await addedInkOver(page, ground, 'road', 'committed-cased')
+      // eslint-disable-next-line no-console
+      console.log(
+        `    ink  ${ground.padEnd(6)} road committed ` +
+          `bare ${committed.toFixed(4)}  with a casing ${recased.toFixed(4)}  ` +
+          `(the casing dropped is worth ${(recased / committed).toFixed(2)}x)  ` +
+          `${committed < 0.004 ? 'BELOW the 0.004 floor' : 'clears the floor'}`
+      )
+      expect(committed, `a committed road still adds ink over ${ground}`).toBeGreaterThan(0)
+      expect(recased, `a casing would add ink to a committed road over ${ground}`).toBeGreaterThan(committed)
+      expect(committed, `road committed must stay quieter than active over ${ground}`).toBeLessThan(cased)
+
+      // THE PROPERTY BOUNDARY RING, the other line the band rule reaches.
+      // Its EDGE alone -- the parcel wash is a different question, see
+      // BOUNDARY_RING_CELLS.
+      for (const state of ['active', 'committed']) {
+        const bare = await addedInkOver(page, ground, 'boundary-ring', state)
+        const withCasing = await addedInkOver(page, ground, 'boundary-ring', `${state}-cased`)
         // eslint-disable-next-line no-console
         console.log(
-          `    ink  ${ground.padEnd(6)} road ${state.padEnd(9)} ` +
-            `cased ${cased.toFixed(4)}  uncased ${uncased.toFixed(4)}  ` +
-            `(cased/uncased ${(cased / uncased).toFixed(2)}x)`
+          `    ink  ${ground.padEnd(6)} boundary ring ${state.padEnd(9)} ` +
+            `as drawn ${bare.toFixed(4)}  with a casing ${withCasing.toFixed(4)}  ` +
+            `${bare < 0.004 ? 'BELOW the 0.004 floor' : 'clears the floor'}`
         )
-        expect(cased, `road ${state} must be legible over ${ground}`).toBeGreaterThan(0.004)
-        if (ground === 'canopy') {
-          expect(uncased, `the bare line is lost over ${ground}`).toBeLessThan(0.004)
-          expect(cased / uncased, `the casing is what carries the road over ${ground}`).toBeGreaterThan(5)
-        }
+        expect(bare, `the boundary ring ${state} still adds ink over ${ground}`).toBeGreaterThan(0)
       }
-      const committed = await addedInkOver(page, ground, 'road', 'committed')
-      const active = await addedInkOver(page, ground, 'road', 'active')
-      expect(committed, `road committed must stay quieter than active over ${ground}`).toBeLessThan(active)
+      // THE RING BEING TRACED IS CASED AND MUST BE LEGIBLE. It is the one
+      // shape the user is placing by hand, on ground they have not measured
+      // yet, and a line they cannot see is a boundary they cannot check.
+      const tracing = await addedInkOver(page, ground, 'boundary-ring', 'active')
+      expect(tracing, `the boundary being traced must be legible over ${ground}`).toBeGreaterThan(0.004)
     }
   }, SLOW)
 

@@ -165,6 +165,42 @@ export const ELIGIBLE_OPACITY = 0.32
 /** Committed geometry is settled: no dash, no fill weight, and no click to make. */
 const COMMITTED_FILL_OPACITY = 0.12
 
+/**
+ * A COMMITTED LINE OR RING IS DRAWN BARE -- NO CASING.
+ *
+ * THE CASING IS FOR THE STEP IN HAND. It is a white stroke under a coloured
+ * one, and what it buys is a line that survives any ground the imagery puts
+ * under it (see LINE_WEIGHT). That is worth its cost while a line is a
+ * DECISION BEING MADE -- a road being chosen, a boundary being traced -- and
+ * it is the wrong trade once the decision is settled: by the fencing step
+ * five committed layers blanket the parcel, and a white casing under every
+ * one of them is five marks all insisting on themselves behind the one the
+ * reader is actually working on.
+ *
+ * IT ALSO TOOK THE FENCE'S OWN SIGNATURE. The fence ships as a bare hairline
+ * (ProductionHatchPattern's fence row), and a committed road or boundary in
+ * a white casing reads as the same KIND of thing at a glance -- pale line,
+ * soft edge -- which is exactly the distinction the fence's colour and weight
+ * were chosen to make. Bare committed geometry gives the casing back its
+ * meaning: a cased line is live.
+ *
+ * BAND, NOT STATE, AND THE TWO COINCIDE HERE. MapLayerStack draws every
+ * settled band with no `interactive` and no focus, so a committed feature can
+ * never be the focused one -- band 'committed' and state 'committed' are the
+ * same set for these layers. The band is what is read because the band is
+ * what the declaration says.
+ *
+ * WHAT IT COSTS IS MEASURED, NOT ASSUMED. See index.css's --road note and
+ * layout.test.jsx's BELOW_THE_VISIBILITY_FLOOR: a committed road drawn bare
+ * falls under the 0.004 floor over closed canopy, which is the ground the
+ * casing was introduced for, and that is a declared exception rather than a
+ * discovery waiting to happen.
+ */
+function casingWeightFor(mark, isCommitted) {
+  if (isCommitted) return 0
+  return mark?.casing ?? CASING_WEIGHT
+}
+
 
 /**
  * A layer, drawn. The renderer is picked by `kind`; within `polygon`, the
@@ -230,6 +266,12 @@ function RingLayer({ layer, interactive, onLayerClick }) {
   const closed = layer.ring.length >= 3
   const Shape = closed ? Polygon : Polyline
   const takesClicks = Boolean(interactive && onLayerClick)
+  // THE RING IS A LINE FOR THIS PURPOSE. A boundary being traced is cased; the
+  // committed parcel edge, which is context under every step after it, is
+  // not. See casingWeightFor(). A ring declares no treatment and so no mark,
+  // which is why the first argument is null -- the fallback is the road's
+  // pair, which is what this ring has always drawn.
+  const casingWeight = casingWeightFor(null, layer.band === 'committed')
 
   return (
     <>
@@ -239,11 +281,13 @@ function RingLayer({ layer, interactive, onLayerClick }) {
           class once, in _initPath, from the options the path was CONSTRUCTED
           with. An `interactive: false` inside pathOptions is read by nothing
           and the path still takes every click. */}
-      <Shape
-        positions={layer.ring}
-        interactive={false}
-        pathOptions={{ color: halo, weight: CASING_WEIGHT, fill: false }}
-      />
+      {casingWeight > 0 ? (
+        <Shape
+          positions={layer.ring}
+          interactive={false}
+          pathOptions={{ color: halo, weight: casingWeight, fill: false }}
+        />
+      ) : null}
       {/* THE WHOLE RING IS THE HIT AREA, INTERIOR INCLUDED, and it has exactly
           one caller: DeleteGesture's RingDelete, which mounts this over an
           editable ring while `delete` is ARMED. A clear-the-boundary gesture
@@ -1066,11 +1110,11 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
   // is the line this map drew first; the fence is thinner and says so in its
   // own row rather than by moving the pair both lines read.
   const weight = mark?.weight ?? LINE_WEIGHT
-  // ?? AND NOT ||, so a declared 0 survives: zero is "no casing", which the
-  // fence declares, and the road's 4 is what an UNdeclared casing falls back
-  // to. `||` would collapse the two into the fallback and quietly re-case a
-  // line that asked not to be.
-  const casingWeight = mark?.casing ?? CASING_WEIGHT
+  // ZERO FROM EITHER DIRECTION: the mark may declare no casing (the fence
+  // does) and the committed band has none whatever the mark says. Inside,
+  // `??` and not `||`, so a declared 0 survives rather than collapsing into
+  // the road's 4 and quietly re-casing a line that asked not to be.
+  const casingWeight = casingWeightFor(mark, isCommitted)
   const features = visibleFeatures(layer, focusedFeatureId)
 
   return (
@@ -1255,6 +1299,7 @@ const RENDERERS = {
 export {
   LINE_WEIGHT,
   CASING_WEIGHT,
+  casingWeightFor,
   PinLayer,
   RingLayer,
   ScrimLayer,

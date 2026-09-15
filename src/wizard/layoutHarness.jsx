@@ -79,6 +79,7 @@ import {
   CASING_WEIGHT,
   ELIGIBLE_OPACITY,
   LINE_WEIGHT,
+  casingWeightFor,
   SITE_PIN_HALO_WIDTH,
   SITE_PIN_SIZE,
 } from '../map/layers.jsx'
@@ -531,8 +532,13 @@ const TREATMENTS = ['production', 'survey-embankment', 'survey-excavated', 'road
  * assume it.
  */
 const UNCASED = [
-  { treatment: 'road', state: 'committed', uncased: true },
   { treatment: 'road', state: 'active', uncased: true },
+  // THE COMMITTED ROAD, WITH ITS CASING PUT BACK. It ships bare now -- the
+  // committed band drops the casing (layers.jsx's casingWeightFor) -- so
+  // "what is the casing worth here" is asked by adding one, not by taking one
+  // off. The active row above still asks it the original way, because an
+  // active road still has one.
+  { treatment: 'road', state: 'committed', cased: true },
   // THE PIN, ONCE MORE WITHOUT ITS HALO: the same question asked of the
   // structure site's glyph, whose body is ochre over soil that is nearly
   // ochre. Two cells beside the cased ones, so the halo's worth is a number.
@@ -1139,6 +1145,44 @@ for (const [id, glowToken] of [
 }
 
 /**
+ * THE PROPERTY BOUNDARY RING, WHICH IS A LINE THIS FILE HAD NO CELL FOR.
+ *
+ * IT IS NOT A TREATMENT AND MUST NOT BECOME ONE. The ring is drawn by
+ * RingLayer straight from the stack's own colours -- `--field` at LINE_WEIGHT,
+ * with `--halo` under it -- and it carries no `treatment`, because it is the
+ * parcel rather than a mark saying what some ground is for. Adding a row to
+ * TREATMENT_MARKS for it would put it in the map's vocabulary of marks, which
+ * is the one thing it is not.
+ *
+ * SO IT IS MEASURED AS WHAT IT IS: the road's line geometry (LINE_WEIGHT on
+ * CASING_WEIGHT, which is exactly what RingLayer draws) in the RING's OWN
+ * TOKEN, through the same `lineToken` override the fence's two colour
+ * candidates use. What comes back is the ring's edge, over both grounds.
+ *
+ * WHY IT NEEDED MEASURING AT ALL. The committed ring lost its casing with the
+ * committed roads -- one band rule, both of them (layers.jsx's
+ * casingWeightFor) -- and --field is a dark green sitting on a ground that is
+ * also dark green. That is the road's own failure mode in a second colour, and
+ * it had no number until this cell existed.
+ *
+ * THE FILL IS NOT IN HERE, deliberately. A closed committed ring also washes
+ * the parcel at COMMITTED_FILL_OPACITY, and that wash would swamp this
+ * measurement while answering a different question: the wash says which ground
+ * is yours, the EDGE says where the line is. This is the edge.
+ */
+const BOUNDARY_RING_CELLS = []
+for (const state of ['committed', 'active']) {
+  BOUNDARY_RING_CELLS.push({ treatment: 'road', id: 'boundary-ring', lineToken: '--field', state })
+  BOUNDARY_RING_CELLS.push({
+    treatment: 'road',
+    id: 'boundary-ring',
+    lineToken: '--field',
+    state,
+    cased: true,
+  })
+}
+
+/**
  * THE TWO SURVEY MARKS ON THE SAME GROUND, WHICH IS THE CASE THE PAIR EXISTS
  * FOR.
  *
@@ -1410,6 +1454,7 @@ const GROUND_CELLS = () => [
   ...HALO_SHIP_CANDIDATES,
   ...FENCE_CANDIDATES,
   ...FENCE_GLOW_CANDIDATES,
+  ...BOUNDARY_RING_CELLS,
   ...HATCH_SCREEN_CANDIDATES,
   ...TREE_SCREEN_CANDIDATES,
   ...UNSCREENED,
@@ -1682,19 +1727,32 @@ function ZoneSwatches() {
           const colour = svg.dataset.glowToken ? readToken(svg.dataset.glowToken) : glow.colour
           passes.push([colour, glow.width, glow.alpha, 'blur'])
         }
-        // A MARK MAY DECLARE NO CASING (`casing: 0` -- the fence does), and
-        // `data-uncased` is the cell that takes one OFF a mark that has one.
-        // Both end in no casing pass; they are different questions and the
-        // harness must not answer one with the other.
+        // THREE WAYS A LINE CELL ENDS UP WITH NO CASING, and they are three
+        // different questions the harness must not answer with each other:
         //
-        // `data-recased` IS THE INVERSE, AND IT IS WHY THE FENCE'S CASING IS
-        // STILL A NUMBER. The mark shipped cased and does not any more; what
-        // that cost is the difference between the shipped cell and this one,
-        // and a cost nothing measures is a cost that gets forgotten. It puts
-        // the ROAD's casing on, which is the one the fence used to carry.
-        const casing = svg.dataset.recased === 'true' ? CASING_WEIGHT : mark.casing ?? CASING_WEIGHT
-        if (svg.dataset.uncased !== 'true' && casing > 0) {
-          passes.push([readToken('--halo'), casing, level, null])
+        //   THE MARK DECLARES NONE   `casing: 0` -- the fence.
+        //   THE BAND HAS NONE        the COMMITTED state. layers.jsx's
+        //                            casingWeightFor drops the casing on
+        //                            settled geometry whatever the mark says,
+        //                            so a committed cell that drew one would
+        //                            be measuring a line the map never draws.
+        //                            The state IS the band for these layers:
+        //                            MapLayerStack draws settled bands with no
+        //                            focus, so committed is committed.
+        //   `data-uncased`           the cell that takes one OFF a mark and a
+        //                            state that would otherwise have one --
+        //                            the road's own "what is the casing worth".
+        //
+        // `data-recased` IS THE INVERSE OF THE LAST, AND IT IS WHY A DROPPED
+        // CASING IS STILL A NUMBER. The fence shipped cased and does not any
+        // more, and so does a committed road; what that cost is the difference
+        // between the shipped cell and this one, and a cost nothing measures
+        // is a cost that gets forgotten. It puts the ROAD's casing on, which
+        // is the one both used to carry.
+        const casing = casingWeightFor(mark, svg.dataset.state === 'committed')
+        const cased = svg.dataset.recased === 'true' ? CASING_WEIGHT : casing
+        if (svg.dataset.uncased !== 'true' && cased > 0) {
+          passes.push([readToken('--halo'), cased, level, null])
         }
         // A CANDIDATE CELL draws the same line in another token -- see
         // FENCE_CANDIDATES. The shipped mark's own cells carry no override.
@@ -1720,7 +1778,7 @@ function ZoneSwatches() {
           line.dataset.pass = effect === 'blur' ? 'halo' : 'line'
           svg.appendChild(line)
         }
-        svg.dataset.cased = svg.dataset.uncased !== 'true' && casing > 0 ? 'true' : 'false'
+        svg.dataset.cased = svg.dataset.uncased !== 'true' && cased > 0 ? 'true' : 'false'
         svg.dataset.haloed = glow ? 'true' : 'false'
         continue
       }
