@@ -461,9 +461,10 @@ describe('1. end to end against the real backend', () => {
       }
       expect(trimmedSomewhere, 'the display line differs from the ring somewhere').toBe(true)
       // AND EVERY DRAWN LINE HAS ITS CASING UNDER IT.
-      expect(ui.all(`.leaflet-${candidatePane}-pane path.road--casing`)).toHaveLength(drawable.length)
+      // ONE PATH PER DRAWN LINE, AND NO CASING UNDER IT.
+      expect(ui.all(`.leaflet-${candidatePane}-pane path.road--casing`)).toHaveLength(0)
       expect(
-        ui.all(`.leaflet-${candidatePane}-pane path.road--fence:not(.road--casing):not(.road--glow)`)
+        ui.all(`.leaflet-${candidatePane}-pane path.road--fence:not(.road--glow)`)
       ).toHaveLength(drawable.length)
 
       // [5] LENGTHS COME FROM THE REAL GEOMETRY. The tab's number is the
@@ -877,7 +878,7 @@ describe('5. tabs are two lines', () => {
    =========================================================================== */
 
 describe('6. fence lines draw the display geometry, and lengths come from the real geometry', () => {
-  it('draws each display line as the fence mark with its casing, nothing for a null line, and two parts for a severed zone', async () => {
+  it('draws each display line as a bare fence hairline, nothing for a null line, and two parts for a severed zone', async () => {
     const payload = fencingPayload()
     const features = registryProposalFeatures(payload, 'fencing')
     const ui = await renderLayer(payload, features.map((f) => f.id))
@@ -900,15 +901,20 @@ describe('6. fence lines draw the display geometry, and lengths come from the re
     const severed = byPositions.get(JSON.stringify(coordsOf(tree2.properties[DISPLAY_LINE])))
     expect(Array.isArray(severed.positions[0])).toBe(true)
     expect(severed.positions).toHaveLength(2)
-    // CASED, IN THE FENCE MARK, ON THE HALO.
-    expect(ui.all('path.road--casing')).toHaveLength(3)
-    expect(ui.all('path.road--fence:not(.road--casing):not(.road--glow)')).toHaveLength(3)
-    for (const path of ui.all('path.road--fence:not(.road--casing):not(.road--glow)')) {
+    // UNCASED, AND THAT IS THE ASSERTION. The road is a cased line and the
+    // fence declares `casing: 0`, so the mark is ONE path per drawn line and
+    // there is no halo pass under it -- not a zero-weight one, none. See the
+    // fence row in ProductionHatchPattern, and index.css's --fence note for
+    // what the casing was worth and what dropping it costs.
+    expect(ui.all('path.road--casing')).toHaveLength(0)
+    const lines = ui.all('path.road--fence:not(.road--glow)')
+    expect(lines).toHaveLength(3)
+    for (const path of lines) {
       expect(path.getAttribute('stroke')).toBe(readToken('--fence'))
+      expect(Number(path.getAttribute('stroke-width'))).toBe(1)
     }
-    for (const path of ui.all('path.road--casing')) {
-      expect(path.getAttribute('stroke')).toBe(readToken('--halo'))
-    }
+    // NOTHING FOCUSED, SO NO GLOW EITHER: the third pass is focus's alone.
+    expect(ui.all('path.road--glow')).toHaveLength(0)
     await ui.unmount()
   })
 
@@ -1292,7 +1298,7 @@ describe('11. what the definition declares, and the sweep', () => {
     expect(LAYER_KINDS).not.toContain('fence')
   })
 
-  it('is a cased line in --fence, which is --rule and not --road, and the choice is written beside the token with both measurements', () => {
+  it('is a bare hairline in --fence, which is --rule and not --road, and every choice is written beside the token with its measurements', () => {
     const mark = zoneMark('fence')
     expect(mark.kind).toBe('line')
     expect(mark.fill).toBeNull()
@@ -1307,10 +1313,17 @@ describe('11. what the definition declares, and the sweep', () => {
     for (const candidate of ['--rule', '--ink-muted']) expect(note).toContain(candidate)
     for (const ground of ['canopy', 'soil']) expect(note).toContain(ground)
     expect(note).toContain('#D4A017')
-    // AND THE TWO CHOICES MADE SINCE, each beside its own numbers: the
-    // hairline core on an unchanged casing, and the glow's token measured
-    // against the two that were not chosen.
-    expect(note).toContain('1 on 3')
+    // AND THE THREE CHOICES MADE SINCE, each beside its own numbers: the
+    // hairline, the casing dropped, and the glow's token measured against the
+    // two that were not chosen.
+    expect(note).toContain('1px')
+    expect(note).toContain('0.004')
+    // THE FLOOR EXCEPTION IS NAMED IN THE NOTE, not only in the test that
+    // stopped asserting it. A mark below the visibility floor every other
+    // mark meets is the kind of thing that has to be written where the colour
+    // is chosen, or the next reader restores a casing nobody asked for -- or
+    // takes one off something else on the strength of this precedent.
+    expect(note).toContain('BELOW THE VISIBILITY FLOOR')
     for (const glow of ['--halo', '--fence', '--ink']) expect(note).toContain(glow)
     // NO COLOUR LITERAL BELOW :root: the token is a var() reference, and
     // every colour in App.css is one too.

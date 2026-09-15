@@ -542,42 +542,47 @@ const TREATMENT_MARKS = [
      ships (fence_display_geometry.py's angular-simplified, coincidence-
      trimmed rendering) rather than the raw ring -- see drawnAs(). No fill,
      no paint server, no outline: the line IS the mark. */
-  // THE FENCE: A HAIRLINE, CASED LIKE THE ROAD, AND ITS FOCUS IS A HALO.
+  // THE FENCE: A BARE HAIRLINE, AND ITS FOCUS IS A HALO IN ITS OWN COLOUR.
   //
-  // THINNER THAN THE ROAD ON PURPOSE, and it is the same statement --fence's
-  // colour makes. A fence is a lighter thing than a road, on the map as on
-  // the ground: a pale line at half the road's weight. The CASING does not
-  // come down with it and that is the whole of why the core can: index.css's
-  // --fence note measures the casing at 9.0x the bare line over soil, so the
-  // casing is what carries the mark and the core is what says which mark it
-  // is. At 1 on 3 the casing still shows a full pixel each side of the line,
-  // exactly as the road's 2 on 4 does -- the band that does the work is
-  // unchanged and only the ink inside it is finer.
+  // THINNER THAN THE ROAD AND UNCASED, which are one decision and the
+  // opposite of the road's. A road is a cased line because a road has to be
+  // findable on any ground; a fence is the quietest geometry on this map and
+  // is drawn as one hairline in --rule, with nothing under it.
+  //
+  // WHAT THAT COSTS IS WRITTEN DOWN AND IT IS NOT SMALL. index.css's --fence
+  // note carries the measurements: putting the road's casing back is worth
+  // 7.3x the bare line over canopy and 12.3x over soil, and without it the
+  // mark sits BELOW the 0.004 visibility floor every other mark on this map
+  // meets -- 0.0008 committed and 0.0011 active over bare soil, 0.0039
+  // committed over canopy. Only the FOCUSED fence clears it, on the glow.
+  // layout.test.jsx reports every one of those readings on each run and names
+  // the fence as the one exception to the floor rather than dropping the
+  // measurement. See that note before putting a casing back or taking one off
+  // anything else.
   //
   // AND FOCUS IS A HALO, WHICH IS PRODUCTION'S OWN FIX APPLIED TO A LINE.
   // Focus used to be said here by opacity alone, and index.css states the
   // cost: 1.41x active on mid-grey, under the 1.5x every pattern mark meets,
-  // because a pale line over a white casing cannot swing against grey the way
-  // a dark core does. The halo says it with a second kind of ink instead -- a
-  // blurred stroke around the line, under its casing -- and the core comes
-  // back down to the active level with it (focusIsAHalo, and layers.jsx's
-  // markLevelFor). Measured at 1.87x on mid-grey, 1.85x over canopy and 1.91x
-  // over soil.
+  // because a pale line cannot swing against grey the way a dark core does.
+  // The halo says it with a second kind of ink instead -- a blurred stroke
+  // around the line -- and the core comes back down to the active level with
+  // it (focusIsAHalo, and layers.jsx's markLevelFor). Measured at 5.88x on
+  // mid-grey, 5.96x over canopy and 5.83x over soil.
   //
-  // --halo, NOT --fence, AND THAT IS THE ONE PLACE THIS DIVERGES FROM
-  // PRODUCTION. Production glows in its own ink because oxide is dark and
-  // saturated against every ground; --rule is a near-white, so a glow in it
-  // fades over pale soil exactly where the bare line already does (1.39x
-  // against --halo's 1.90x). White is what carries this mark -- it is what
-  // the casing is for -- and the glow is that argument extended. Three tokens
-  // were measured; see index.css's --fence note for the table.
+  // THE GLOW IS THE MARK'S OWN COLOUR, which is production's rule exactly:
+  // the block glows at its own ruling, and a fence glows in --rule. It is
+  // also what an uncased line leaves available -- a white glow under a bare
+  // pale line is the casing coming back in soft focus, which is the pass
+  // this row just took off. --halo and --ink measure HIGHER by the ink
+  // difference (a white or dark glow contrasts more with the ground than a
+  // pale one does) and both are kept in the sweep; see index.css.
   {
     treatment: 'fence',
     kind: 'line',
     token: '--fence',
     weight: 1,
-    casing: 3,
-    halo: { token: '--halo', width: 5, alpha: 0.6 },
+    casing: 0,
+    halo: { token: '--fence', width: 5, alpha: 0.6 },
   },
 ]
 
@@ -645,6 +650,12 @@ export function zoneMark(treatment, { focused = false } = {}) {
     // default -- it is the line this map drew first and every number under
     // LINE_WEIGHT was argued for it -- so a second line that wants its own
     // weight says so here rather than making the first one say it twice.
+    //
+    // A `casing` OF 0 IS "NO CASING", NOT "THE DEFAULT". Null is the absent
+    // declaration and falls back; zero is a declaration, and a casing zero
+    // pixels wide is a casing that is not drawn. LineLayer lays no pass for
+    // it at all rather than a zero-weight path nothing can see but every
+    // count of the drawn lines can.
     //
     // AND THE HALO IS RESOLVED LIKE A HATCH'S, through the same `focus` field
     // focusIsAHalo() reads, so nothing downstream has to know that one of the

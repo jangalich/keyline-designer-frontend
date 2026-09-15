@@ -538,10 +538,15 @@ const UNCASED = [
   // ochre. Two cells beside the cased ones, so the halo's worth is a number.
   { treatment: 'structure', state: 'committed', uncased: true },
   { treatment: 'structure', state: 'active', uncased: true },
-  // THE FENCE, ONCE MORE WITHOUT ITS CASING: the shipped fence mark, the
-  // same question the road answers.
-  { treatment: 'fence', state: 'committed', uncased: true },
-  { treatment: 'fence', state: 'active', uncased: true },
+  // THE FENCE, ONCE MORE *WITH* A CASING, which is the road's question turned
+  // around. The fence ships BARE -- one hairline, nothing under it -- so
+  // "what is its casing worth" cannot be asked by taking one off. It is asked
+  // by putting the road's back on, and the difference is what the decision to
+  // drop it cost. It was 5.5x over canopy and 9.0x over soil when the mark
+  // carried one; this keeps that a reading rather than a memory.
+  { treatment: 'fence', state: 'committed', cased: true },
+  { treatment: 'fence', state: 'active', cased: true },
+  { treatment: 'fence', state: 'focused', cased: true },
 ]
 
 /**
@@ -551,9 +556,9 @@ const UNCASED = [
  * were under consideration for it: --rule (#ddd6c8, the hairline colour) and
  * --ink-muted (#8a8477, the caption colour). Rather than argue which reads
  * over imagery, both are drawn here exactly as the shipped mark is drawn --
- * the road's cased line at each level, and the bare line beside it -- over
- * both grounds, so layout.test.jsx can report `addedInkOver` for each and
- * the choice in index.css can quote the numbers. `lineToken` overrides the
+ * the bare hairline at each level, and the same line with the road's casing
+ * put back beside it -- over both grounds, so layout.test.jsx can report
+ * `addedInkOver` for each and the choice in index.css can quote the numbers. `lineToken` overrides the
  * mark's own token for these cells only; the shipped `fence` treatment is
  * still measured above under its own name, so whichever token it resolves
  * to is held to the floor like every other mark.
@@ -1079,7 +1084,7 @@ for (const [id, lineToken] of [
 ]) {
   for (const state of ['committed', 'active']) {
     FENCE_CANDIDATES.push({ treatment: 'fence', id, lineToken, state })
-    FENCE_CANDIDATES.push({ treatment: 'fence', id, lineToken, state, uncased: true })
+    FENCE_CANDIDATES.push({ treatment: 'fence', id, lineToken, state, cased: true })
   }
 }
 
@@ -1092,7 +1097,7 @@ for (const [id, lineToken] of [
  * note recorded 1.41x active on mid-grey, under the 1.5x every pattern mark
  * meets, because a pale line over a white casing cannot swing against grey.
  * Production hit the same wall and the halo is what it did about it; with
- * one, the fence reads 1.87x.
+ * one, the fence reads 5.88x.
  *
  * WHICH COLOUR THE GLOW IS, THOUGH, IS NOT PRODUCTION'S ANSWER TRANSFERRED.
  * Production glows in its OWN ink, which works because oxide is dark and
@@ -1102,11 +1107,13 @@ for (const [id, lineToken] of [
  * candidates are drawn instead, over both grounds and on mid-grey, and the
  * numbers choose:
  *
- *   --halo       the casing's own white. Production's argument says the glow
- *                should be the mark's colour; the casing's argument says the
- *                thing that carries this mark over both grounds is white.
  *   --fence      the mark's own ink, which is production's rule applied
- *                literally.
+ *                literally, and what ships.
+ *   --halo       white. It was the shipped answer while the line was CASED,
+ *                on the argument that white is what carried the mark; with
+ *                the casing gone that argument is gone with it -- a white
+ *                glow under a bare pale line is the casing back in soft
+ *                focus, which is the pass the mark just dropped.
  *   --ink        the dark end of the scale, which is the only direction with
  *                headroom over PALE ground -- and the direction that risks
  *                saying "road".
@@ -1122,7 +1129,6 @@ const FENCE_GLOW_CANDIDATES = [
   // treatment all three states -- so these are the two dressings of it that
   // are not: the glow lifted off, and the casing lifted off.
   { treatment: 'fence', state: 'focused', unhaloed: true },
-  { treatment: 'fence', state: 'focused', uncased: true },
 ]
 for (const [id, glowToken] of [
   ['fenceglow-halo', '--halo'],
@@ -1322,6 +1328,7 @@ function cellId(cell) {
   // combination has its own id and every single-flag cell keeps the id it had.
   const suffix =
     (cell.uncased ? '-uncased' : '') +
+    (cell.cased ? '-cased' : '') +
     (cell.unoutlined ? '-unoutlined' : '') +
     (cell.unscreened ? '-unscreened' : '') +
     (cell.unhaloed ? '-unhaloed' : '') +
@@ -1675,8 +1682,19 @@ function ZoneSwatches() {
           const colour = svg.dataset.glowToken ? readToken(svg.dataset.glowToken) : glow.colour
           passes.push([colour, glow.width, glow.alpha, 'blur'])
         }
-        if (svg.dataset.uncased !== 'true') {
-          passes.push([readToken('--halo'), mark.casing ?? CASING_WEIGHT, level, null])
+        // A MARK MAY DECLARE NO CASING (`casing: 0` -- the fence does), and
+        // `data-uncased` is the cell that takes one OFF a mark that has one.
+        // Both end in no casing pass; they are different questions and the
+        // harness must not answer one with the other.
+        //
+        // `data-recased` IS THE INVERSE, AND IT IS WHY THE FENCE'S CASING IS
+        // STILL A NUMBER. The mark shipped cased and does not any more; what
+        // that cost is the difference between the shipped cell and this one,
+        // and a cost nothing measures is a cost that gets forgotten. It puts
+        // the ROAD's casing on, which is the one the fence used to carry.
+        const casing = svg.dataset.recased === 'true' ? CASING_WEIGHT : mark.casing ?? CASING_WEIGHT
+        if (svg.dataset.uncased !== 'true' && casing > 0) {
+          passes.push([readToken('--halo'), casing, level, null])
         }
         // A CANDIDATE CELL draws the same line in another token -- see
         // FENCE_CANDIDATES. The shipped mark's own cells carry no override.
@@ -1702,7 +1720,7 @@ function ZoneSwatches() {
           line.dataset.pass = effect === 'blur' ? 'halo' : 'line'
           svg.appendChild(line)
         }
-        svg.dataset.cased = svg.dataset.uncased === 'true' ? 'false' : 'true'
+        svg.dataset.cased = svg.dataset.uncased !== 'true' && casing > 0 ? 'true' : 'false'
         svg.dataset.haloed = glow ? 'true' : 'false'
         continue
       }
@@ -1921,6 +1939,7 @@ function ZoneSwatches() {
                 data-treatment={treatment}
                 data-state={cell.state}
                 data-uncased={cell.uncased ? 'true' : undefined}
+                data-recased={cell.cased ? 'true' : undefined}
                 data-unoutlined={cell.unoutlined ? 'true' : undefined}
                 data-line-token={cell.lineToken ?? undefined}
                 data-glow-token={cell.glowToken ?? undefined}

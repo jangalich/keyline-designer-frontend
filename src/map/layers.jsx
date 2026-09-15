@@ -1066,6 +1066,10 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
   // is the line this map drew first; the fence is thinner and says so in its
   // own row rather than by moving the pair both lines read.
   const weight = mark?.weight ?? LINE_WEIGHT
+  // ?? AND NOT ||, so a declared 0 survives: zero is "no casing", which the
+  // fence declares, and the road's 4 is what an UNdeclared casing falls back
+  // to. `||` would collapse the two into the fallback and quietly re-case a
+  // line that asked not to be.
   const casingWeight = mark?.casing ?? CASING_WEIGHT
   const features = visibleFeatures(layer, focusedFeatureId)
 
@@ -1113,19 +1117,24 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
                 className={`${className} road--glow`}
               />
             ) : null}
-            {/* THE CASING, UNDER THE LINE. */}
+            {/* THE CASING, UNDER THE LINE -- WHERE THERE IS ONE. A mark may
+                declare `casing: 0` and get no pass at all (the fence does);
+                a zero-weight path would still be a node in the DOM and in
+                every count of what is drawn. */}
             {/* OPTIONS AS PROPS, NOT `pathOptions`: react-leaflet applies
                 pathOptions through Leaflet's setStyle, which never touches
                 the class -- a className given that way is silently dropped.
                 The key above remounts on every change that matters. */}
-            <Polyline
-              positions={positions}
-              interactive={false}
-              color={halo}
-              weight={casingWeight}
-              opacity={level}
-              className={`${className} road--casing`}
-            />
+            {casingWeight > 0 ? (
+              <Polyline
+                positions={positions}
+                interactive={false}
+                color={halo}
+                weight={casingWeight}
+                opacity={level}
+                className={`${className} road--casing`}
+              />
+            ) : null}
             <Polyline
               positions={positions}
               interactive={interactive}
