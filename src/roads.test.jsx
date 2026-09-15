@@ -1955,7 +1955,20 @@ describe('14. what the definition declares, and what the shell does not know', (
     // Identity: an ordinal on the NETWORK, with the location on the map.
     expect(roadNetworkName(roadsPayload(), NET_B)).toBe('Road Network 2')
     // The road mark is a line, in its own token.
-    expect(zoneMark('road')).toEqual({ kind: 'line', fill: null, stroke: expect.stringMatching(/^#/) })
+    // THE ROAD IS THE LINE THAT DECLARES NOTHING EXTRA, and that is the
+    // assertion: weight, casing and halo are all null, so LineLayer falls
+    // back to LINE_WEIGHT/CASING_WEIGHT and the road says focus with a step
+    // in opacity. The fence declares all three; this is the row that shows
+    // the fields are optional rather than a second pair every line carries.
+    expect(zoneMark('road')).toEqual({
+      kind: 'line',
+      fill: null,
+      stroke: expect.stringMatching(/^#/),
+      weight: null,
+      casing: null,
+      focus: 'level',
+      halo: null,
+    })
     // Tabs carry every branch, and focus by any of them.
     const tab = ROADS_STEP.tabs({ proposals: roadsPayload(), draft: { selectedFeatureIds: [] } })[0]
     expect(tab.featureIds).toHaveLength(2)

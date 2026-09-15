@@ -229,6 +229,10 @@ async function renderApp({ center = BOUNDARY[0], zoom = 17 } = {}) {
         if (!(layer instanceof L.Polyline) || layer instanceof L.Polygon) return
         const className = layer.options.className ?? ''
         if (!className.includes('road--fence') || className.includes('road--casing')) return
+        // THE GLOW IS NOT A FENCE LINE. A focused fence draws a third,
+        // blurred pass under its casing (LineLayer); counting it would make
+        // "how many fences are drawn" depend on what is focused.
+        if (className.includes('road--glow')) return
         const pane = layer.options.pane ?? ''
         if (paneClass && pane !== paneClass) return
         out.push({ pane, positions: layer.getLatLngs() })
@@ -458,7 +462,9 @@ describe('1. end to end against the real backend', () => {
       expect(trimmedSomewhere, 'the display line differs from the ring somewhere').toBe(true)
       // AND EVERY DRAWN LINE HAS ITS CASING UNDER IT.
       expect(ui.all(`.leaflet-${candidatePane}-pane path.road--casing`)).toHaveLength(drawable.length)
-      expect(ui.all(`.leaflet-${candidatePane}-pane path.road--fence:not(.road--casing)`)).toHaveLength(drawable.length)
+      expect(
+        ui.all(`.leaflet-${candidatePane}-pane path.road--fence:not(.road--casing):not(.road--glow)`)
+      ).toHaveLength(drawable.length)
 
       // [5] LENGTHS COME FROM THE REAL GEOMETRY. The tab's number is the
       // backend's sum over the real rings, which a haversine over the raw
@@ -593,8 +599,11 @@ describe('2. boundary fencing alone, against the real backend', () => {
     for (const type of ['water_zone_exclusion', 'tree_zone_exclusion']) {
       const notice = ui.find(`notice-nothing_to_fence-${type}-fencing`)
       expect(notice, `${type} absence is named`).not.toBeNull()
-      expect(notice.textContent).toContain('nothing to fence')
-      expect(notice.textContent).toContain(blocks[type].reason)
+      // THE TYPE'S NAME, THEN THE BACKEND'S REASON, and nothing this side
+      // wrote about the flag -- see FENCING_STEP.notices.
+      expect(notice.textContent).toBe(
+        `No ${String(blocks[type].label).toLowerCase()}. ${blocks[type].reason}`
+      )
       expect(ui.find(`notice-generated_nothing-${type}-fencing`)).toBeNull()
     }
     const boundaryFeatures = registryProposalFeatures(ui.fencing, 'fencing')
@@ -686,10 +695,10 @@ function fencingPayload({ water = 'candidate', trees = 'candidate' } = {}) {
   const types = [block('boundary', 'Boundary fencing', { total_length_ft: total(boundary), feature_ids: [boundary.id] })]
   if (water === 'candidate') {
     features.push(waterFeature)
-    types.push(block('water_zone_exclusion', 'Water zone fencing', { total_length_ft: total(waterFeature), feature_ids: [waterFeature.id] }))
+    types.push(block('water_zone_exclusion', 'Water area fencing', { total_length_ft: total(waterFeature), feature_ids: [waterFeature.id] }))
   } else if (water === 'nothing_to_fence') {
     types.push(
-      block('water_zone_exclusion', 'Water zone fencing', {
+      block('water_zone_exclusion', 'Water area fencing', {
         generated: false,
         candidate: false,
         loop_count: 0,
@@ -700,7 +709,7 @@ function fencingPayload({ water = 'candidate', trees = 'candidate' } = {}) {
       })
     )
   } else if (water === 'generated_nothing') {
-    const generatedNothing = block('water_zone_exclusion', 'Water zone fencing', {
+    const generatedNothing = block('water_zone_exclusion', 'Water area fencing', {
       generated: true,
       candidate: false,
       loop_count: 0,
@@ -777,10 +786,24 @@ describe('3. a type with nothing to fence renders no tab, distinguishable from o
     const emptyNotices = FENCING_STEP.notices(contextOver(empty))
     expect(absentNotices.map((n) => n.key)).toEqual(['nothing_to_fence-water_zone_exclusion'])
     expect(emptyNotices.map((n) => n.key)).toEqual(['generated_nothing-water_zone_exclusion'])
-    expect(absentNotices[0].text).toContain('nothing to fence')
-    expect(absentNotices[0].text).toContain(absentWater.reason)
-    expect(emptyNotices[0].text).toContain('produced no fence loop')
-    expect(emptyNotices[0].text).toContain(emptyWater.reason)
+    // THE NOTICE NAMES THE TYPE AND THE REASON SAYS THE REST, VERBATIM. That
+    // is the whole of the wording: this side owns the one fact the reason
+    // cannot carry -- which candidate is missing from the strip -- and adds
+    // no sentence of its own about the flag.
+    expect(absentNotices[0].text).toBe(`No water area fencing. ${absentWater.reason}`)
+    expect(emptyNotices[0].text).toBe(`No water area fencing. ${emptyWater.reason}`)
+    // AND NOTHING IS SAID TWICE. The old generated_nothing line was "Water
+    // area fencing was generated and produced no fence loop." in front of a
+    // reason reading "The water zone pass ran and produced no fence loop" --
+    // one finding, stated by this file and then again by the pipeline that
+    // found it. The notice may not restate its own reason.
+    for (const notice of [absentNotices[0], emptyNotices[0]]) {
+      const lead = notice.text.slice(0, notice.text.indexOf('.') + 1)
+      expect(lead).toBe('No water area fencing.')
+      expect(notice.text.slice(lead.length).trim()).toBe(
+        notice.text.includes(absentWater.reason) ? absentWater.reason : emptyWater.reason
+      )
+    }
     expect(absentNotices[0].text).not.toBe(emptyNotices[0].text)
     expect(FENCING_STEP.notices(contextOver(fencingPayload()))).toEqual([])
     // AND A CANDIDATE IS NEVER AN ABSENCE, whatever its length.
@@ -879,8 +902,8 @@ describe('6. fence lines draw the display geometry, and lengths come from the re
     expect(severed.positions).toHaveLength(2)
     // CASED, IN THE FENCE MARK, ON THE HALO.
     expect(ui.all('path.road--casing')).toHaveLength(3)
-    expect(ui.all('path.road--fence:not(.road--casing)')).toHaveLength(3)
-    for (const path of ui.all('path.road--fence:not(.road--casing)')) {
+    expect(ui.all('path.road--fence:not(.road--casing):not(.road--glow)')).toHaveLength(3)
+    for (const path of ui.all('path.road--fence:not(.road--casing):not(.road--glow)')) {
       expect(path.getAttribute('stroke')).toBe(readToken('--fence'))
     }
     for (const path of ui.all('path.road--casing')) {
@@ -1279,11 +1302,16 @@ describe('11. what the definition declares, and the sweep', () => {
     expect(readToken('--fence')).not.toBe(readToken('--ochre'))
     const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
     expect(css).toMatch(/^\s*--fence:\s*var\(--rule\);/m)
-    const note = css.slice(css.indexOf("THE FENCE MARK'S COLOUR"), css.indexOf('--fence: var(--rule)'))
+    const note = css.slice(css.indexOf('THE FENCE MARK:'), css.indexOf('--fence: var(--rule)'))
     expect(note.length).toBeGreaterThan(500)
     for (const candidate of ['--rule', '--ink-muted']) expect(note).toContain(candidate)
     for (const ground of ['canopy', 'soil']) expect(note).toContain(ground)
     expect(note).toContain('#D4A017')
+    // AND THE TWO CHOICES MADE SINCE, each beside its own numbers: the
+    // hairline core on an unchanged casing, and the glow's token measured
+    // against the two that were not chosen.
+    expect(note).toContain('1 on 3')
+    for (const glow of ['--halo', '--fence', '--ink']) expect(note).toContain(glow)
     // NO COLOUR LITERAL BELOW :root: the token is a var() reference, and
     // every colour in App.css is one too.
     const appCss = readFileSync(path.join(SRC, 'App.css'), 'utf8')
@@ -1448,6 +1476,10 @@ async function renderLayer(payload, selectedFeatureIds) {
         if (!(l instanceof L.Polyline) || l instanceof L.Polygon) return
         const className = l.options.className ?? ''
         if (!className.includes('road--fence') || className.includes('road--casing')) return
+        // THE GLOW IS NOT A FENCE LINE. A focused fence draws a third,
+        // blurred pass under its casing (LineLayer); counting it would make
+        // "how many fences are drawn" depend on what is focused.
+        if (className.includes('road--glow')) return
         out.push({ positions: l.getLatLngs() })
       })
       return out

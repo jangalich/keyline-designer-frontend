@@ -3724,7 +3724,7 @@ const FENCING_CHECKBOX_PAYLOAD = {
   },
   fence_types: [
     { fence_type: 'boundary', label: 'Boundary fencing', generated: true, candidate: true, loop_count: 1, feature_count: 1, total_length_ft: 2100.4, feature_ids: ['perimeter-fencing-boundary-1'], features: [], reason: null },
-    { fence_type: 'water_zone_exclusion', label: 'Water zone fencing', generated: false, candidate: false, loop_count: 0, feature_count: 0, total_length_ft: null, feature_ids: [], features: [], reason: 'The water step was committed with no zone, so there is no water ground to fence.' },
+    { fence_type: 'water_zone_exclusion', label: 'Water area fencing', generated: false, candidate: false, loop_count: 0, feature_count: 0, total_length_ft: null, feature_ids: [], features: [], reason: 'The water step was committed with no zone, so there is no water ground to fence.' },
     { fence_type: 'tree_zone_exclusion', label: 'Tree zone fencing', generated: true, candidate: true, loop_count: 2, feature_count: 2, total_length_ft: 1152.5, feature_ids: ['perimeter-fencing-tree-zone-1', 'perimeter-fencing-tree-zone-2'], features: [], reason: null },
   ],
   candidate_fence_types: ['boundary', 'tree_zone_exclusion'],

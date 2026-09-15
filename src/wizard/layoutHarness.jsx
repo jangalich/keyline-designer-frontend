@@ -1084,6 +1084,55 @@ for (const [id, lineToken] of [
 }
 
 /**
+ * THE FENCE'S FOCUS GLOW, AND THE TOKEN IT IS DRAWN IN -- measured the way
+ * the line's own colour was, and for the same reason.
+ *
+ * A FENCE SAYS FOCUS WITH A HALO NOW, not with a step in opacity, and the
+ * lever that used to say it was the weakest in the build: index.css's --fence
+ * note recorded 1.41x active on mid-grey, under the 1.5x every pattern mark
+ * meets, because a pale line over a white casing cannot swing against grey.
+ * Production hit the same wall and the halo is what it did about it; with
+ * one, the fence reads 1.87x.
+ *
+ * WHICH COLOUR THE GLOW IS, THOUGH, IS NOT PRODUCTION'S ANSWER TRANSFERRED.
+ * Production glows in its OWN ink, which works because oxide is dark and
+ * saturated against every ground it sits on. The fence's ink is --rule, a
+ * near-white -- so a glow in it is a pale field around a pale line, which is
+ * most of what the mark already has trouble with over bare soil. Three
+ * candidates are drawn instead, over both grounds and on mid-grey, and the
+ * numbers choose:
+ *
+ *   --halo       the casing's own white. Production's argument says the glow
+ *                should be the mark's colour; the casing's argument says the
+ *                thing that carries this mark over both grounds is white.
+ *   --fence      the mark's own ink, which is production's rule applied
+ *                literally.
+ *   --ink        the dark end of the scale, which is the only direction with
+ *                headroom over PALE ground -- and the direction that risks
+ *                saying "road".
+ *
+ * `unhaloed` IS THE CONTROL and it is the same control the haloed hatch has:
+ * the focused cell with the glow pass lifted off, whose core is at the ACTIVE
+ * level. What the glow is worth is the difference between the two, and
+ * "focus costs the scale nothing" is the claim that the control equals the
+ * active cell.
+ */
+const FENCE_GLOW_CANDIDATES = [
+  // THE SHIPPED MARK AT FOCUS is already a cell -- cellsFor() gives every
+  // treatment all three states -- so these are the two dressings of it that
+  // are not: the glow lifted off, and the casing lifted off.
+  { treatment: 'fence', state: 'focused', unhaloed: true },
+  { treatment: 'fence', state: 'focused', uncased: true },
+]
+for (const [id, glowToken] of [
+  ['fenceglow-halo', '--halo'],
+  ['fenceglow-fence', '--fence'],
+  ['fenceglow-ink', '--ink'],
+]) {
+  FENCE_GLOW_CANDIDATES.push({ treatment: 'fence', id, glowToken, state: 'focused' })
+}
+
+/**
  * THE TWO SURVEY MARKS ON THE SAME GROUND, WHICH IS THE CASE THE PAIR EXISTS
  * FOR.
  *
@@ -1353,6 +1402,7 @@ const GROUND_CELLS = () => [
   ...COMBO_CELLS,
   ...HALO_SHIP_CANDIDATES,
   ...FENCE_CANDIDATES,
+  ...FENCE_GLOW_CANDIDATES,
   ...HATCH_SCREEN_CANDIDATES,
   ...TREE_SCREEN_CANDIDATES,
   ...UNSCREENED,
@@ -1597,17 +1647,46 @@ function ZoneSwatches() {
         continue
       }
       if (mark.kind === 'line') {
-        // A ROAD: a cased line corner to corner, the halo pass under the
-        // coloured line, both at the state's level -- which is what LineLayer
-        // draws. `data-uncased` leaves the halo pass out, for the one
-        // measurement that asks what the casing is worth.
+        // A CASED LINE corner to corner, the halo pass under the coloured
+        // line, both at the state's level -- which is what LineLayer draws.
+        // `data-uncased` leaves the halo pass out, for the one measurement
+        // that asks what the casing is worth.
+        //
+        // THE WEIGHTS ARE THE MARK'S, exactly as LineLayer takes them, with
+        // the road's pair as the fallback for a row that declares none. A
+        // harness that typed 2-on-4 here would be measuring the road's line
+        // whatever the fence's row said, and would keep passing the day the
+        // fence got thinner.
         swatchRect(svg).setAttribute('fill', 'none')
-        const level = patternLevel(svg.dataset.state)
-        const passes = svg.dataset.uncased === 'true' ? [] : [[readToken('--halo'), CASING_WEIGHT]]
+        const level = fillLevel(treatment, svg.dataset.state)
+        const passes = []
+        // THE GLOW, FIRST AND UNDER, on a focused cell of a mark that says
+        // focus with one -- LineLayer's own order and its own condition.
+        // `data-unhaloed` lifts it back off, which is what the glow is worth
+        // measured against; the core underneath stays at the ACTIVE level,
+        // so an unhaloed focused cell should read as an active one.
+        const glow =
+          svg.dataset.state === 'focused' && svg.dataset.unhaloed !== 'true' && focusIsAHalo(mark)
+            ? mark.halo
+            : null
+        if (glow) {
+          // A CANDIDATE GLOW TOKEN overrides the shipped one, the way
+          // data-line-token overrides the shipped line colour.
+          const colour = svg.dataset.glowToken ? readToken(svg.dataset.glowToken) : glow.colour
+          passes.push([colour, glow.width, glow.alpha, 'blur'])
+        }
+        if (svg.dataset.uncased !== 'true') {
+          passes.push([readToken('--halo'), mark.casing ?? CASING_WEIGHT, level, null])
+        }
         // A CANDIDATE CELL draws the same line in another token -- see
         // FENCE_CANDIDATES. The shipped mark's own cells carry no override.
-        passes.push([svg.dataset.lineToken ? readToken(svg.dataset.lineToken) : mark.stroke, LINE_WEIGHT])
-        for (const [stroke, weight] of passes) {
+        passes.push([
+          svg.dataset.lineToken ? readToken(svg.dataset.lineToken) : mark.stroke,
+          mark.weight ?? LINE_WEIGHT,
+          level,
+          null,
+        ])
+        for (const [stroke, weight, opacity, effect] of passes) {
           const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
           line.setAttribute('x1', '0')
           line.setAttribute('y1', String(SWATCH_PX))
@@ -1615,11 +1694,16 @@ function ZoneSwatches() {
           line.setAttribute('y2', '0')
           line.setAttribute('stroke', stroke)
           line.setAttribute('stroke-width', String(weight))
-          line.setAttribute('stroke-opacity', level)
+          line.setAttribute('stroke-opacity', String(opacity))
           line.setAttribute('stroke-linecap', 'round')
+          // THE BLUR IS App.css's, BY CLASS, so the harness measures the
+          // radius the map draws rather than a copy of it typed here.
+          if (effect === 'blur') line.setAttribute('class', 'road--glow')
+          line.dataset.pass = effect === 'blur' ? 'halo' : 'line'
           svg.appendChild(line)
         }
         svg.dataset.cased = svg.dataset.uncased === 'true' ? 'false' : 'true'
+        svg.dataset.haloed = glow ? 'true' : 'false'
         continue
       }
       // A MARK THAT DRAWS ITS OWN EDGE: the fill (a wash for a tint, a dot
@@ -1839,6 +1923,7 @@ function ZoneSwatches() {
                 data-uncased={cell.uncased ? 'true' : undefined}
                 data-unoutlined={cell.unoutlined ? 'true' : undefined}
                 data-line-token={cell.lineToken ?? undefined}
+                data-glow-token={cell.glowToken ?? undefined}
                 data-unscreened={cell.unscreened ? 'true' : undefined}
                 data-unhaloed={cell.unhaloed ? 'true' : undefined}
                 data-screen-pass-only={cell.screenPassOnly ? 'true' : undefined}

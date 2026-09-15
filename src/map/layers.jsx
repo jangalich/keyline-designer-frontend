@@ -888,8 +888,13 @@ function patternLevelFor(state) {
 }
 
 /**
- * HOW HEAVY A MARK'S FILL IS IN THIS STATE -- the tint scale for a wash, the
+ * HOW HEAVY A MARK'S INK IS IN THIS STATE -- the tint scale for a wash, the
  * pattern scale for everything else.
+ *
+ * IT IS A FILL FOR A ZONE AND A STROKE FOR A LINE, and the answer is the same
+ * question either way: how present this mark is at this level. LineLayer asks
+ * it too, which is what puts a haloed LINE on the same rule as a haloed hatch
+ * without either renderer restating it.
  *
  * THE BRANCH IS ON THE MARK'S KIND, not on the treatment's name. A step added
  * later declares a kind in one table and inherits whichever scale that kind
@@ -905,14 +910,15 @@ function patternLevelFor(state) {
  * outline are on ONE scale, which is also what makes the three levels hold
  * for it in the same proportions they hold for a hatch.
  */
-function fillLevelFor(mark, state) {
+function markLevelFor(mark, state) {
   if (mark?.kind === 'tint') return tintLevel(stateName(state))
   // A MARK WHOSE FOCUS IS A HALO KEEPS ITS ACTIVE INK AT FOCUS, and that is
-  // the whole of what the halo bought. The mark itself changed -- the fill
-  // points at a tile whose every rule is lit (see ProductionHatchPattern's
-  // haloTile) -- so raising the level on top of it would be saying focus
-  // twice and spending the top of the scale to do it. A focused block inks
-  // exactly what an active one does; the glow is the difference.
+  // the whole of what the halo bought. The mark itself changed -- a hatch's
+  // fill points at a tile whose every rule is lit (ProductionHatchPattern's
+  // haloTile), a line gets a blurred stroke under its casing (LineLayer) --
+  // so raising the level on top of it would be saying focus twice and
+  // spending the top of the scale to do it. A focused mark inks exactly what
+  // an active one does; the glow is the difference.
   if (focusIsAHalo(mark) && state.isFocused) return patternLevel('active')
   return patternLevel(stateName(state))
 }
@@ -941,7 +947,7 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
   // other treatment hands back the same mark in every state and this argument
   // changes nothing for it.
   const mark = treatment ? zoneMark(treatment, { focused: isFocused }) : null
-  const fillOpacity = fillLevelFor(mark, state)
+  const fillOpacity = markLevelFor(mark, state)
 
   if (isDrawn) {
     // A DRAWN ZONE'S OUTLINE IS THE ACCENT'S, WHATEVER ITS MARK, and it is not
@@ -973,14 +979,14 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
     //
     // ONE BRANCH FOR BOTH KINDS, and the two differences between them are
     // both already resolved: `mark.fill` is a colour for a tint and a paint
-    // server for a stipple, and fillLevelFor() picks the scale each fill is
+    // server for a stipple, and markLevelFor() picks the scale each fill is
     // legible on. A third mark that draws its own edge inherits this by
     // saying so in marksItsOwnEdge(), not by adding an arm here.
     //
     // TWO SCALES, ONE STATE. The line is ink at full strength and takes the
     // pattern levels; a wash is a screen and takes the tint levels, while a
     // dot field is ink too and stays on the pattern levels (see
-    // fillLevelFor). So a committed zone keeps a legible boundary while an
+    // markLevelFor). So a committed zone keeps a legible boundary while an
     // embankment zone's wash falls back to context, which is what a committed
     // layer is.
     return {
@@ -1055,6 +1061,12 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
   const isCommitted = layer.band === 'committed'
   const mark = layer.treatment ? zoneMark(layer.treatment) : null
   const color = mark?.stroke ?? ink
+  // THE WEIGHTS ARE THE MARK'S WHERE THE MARK DECLARES THEM, and the road's
+  // otherwise. LINE_WEIGHT and CASING_WEIGHT were argued for the road, which
+  // is the line this map drew first; the fence is thinner and says so in its
+  // own row rather than by moving the pair both lines read.
+  const weight = mark?.weight ?? LINE_WEIGHT
+  const casingWeight = mark?.casing ?? CASING_WEIGHT
   const features = visibleFeatures(layer, focusedFeatureId)
 
   return (
@@ -1062,7 +1074,12 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
       {features.map((feature) => {
         const isFocused = isFocusedFeature(layer, feature, focusedFeatureId)
         const rejection = rejections[feature.id] ?? null
-        const level = rejection ? 1 : patternLevelFor({ isFocused, isCommitted })
+        // A HALOED LINE KEEPS ITS ACTIVE INK AT FOCUS -- markLevelFor's rule,
+        // asked here so a line and a hatch answer focus the same way.
+        const level = rejection ? 1 : markLevelFor(mark, { isFocused, isCommitted })
+        // THE GLOW, AND ONLY WHEN THE MARK SAYS FOCUS WITH ONE. A rejection
+        // owns the whole mark (see styleFor) and never glows.
+        const glow = !rejection && isFocused && focusIsAHalo(mark) ? mark.halo : null
         // THE DISPLAY GEOMETRY, which for a fence is its simplified, trimmed
         // line and for a road is its own LineString. See drawnAs(): nothing
         // but this renderer sees the substitution, and the casing below is
@@ -1078,7 +1095,25 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
         )
         return (
           <Fragment key={key}>
-            {/* THE CASING, FIRST AND UNDER. */}
+            {/* THE GLOW, FIRST AND UNDER EVERYTHING -- a light AROUND the
+                line, so it belongs beneath the casing and the ink it lights,
+                exactly where the haloed hatch tile puts its own pass.
+                BLURRED IN App.css, on `road--glow`: the blur radius is a
+                rendering number and the stylesheet is where this build keeps
+                those (see .stack-layer--kind-highlight); the colour, width
+                and alpha are the MARK's, because those are what a second
+                haloed line would want to differ in. */}
+            {glow ? (
+              <Polyline
+                positions={positions}
+                interactive={false}
+                color={glow.colour}
+                weight={glow.width}
+                opacity={glow.alpha}
+                className={`${className} road--glow`}
+              />
+            ) : null}
+            {/* THE CASING, UNDER THE LINE. */}
             {/* OPTIONS AS PROPS, NOT `pathOptions`: react-leaflet applies
                 pathOptions through Leaflet's setStyle, which never touches
                 the class -- a className given that way is silently dropped.
@@ -1087,7 +1122,7 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
               positions={positions}
               interactive={false}
               color={halo}
-              weight={CASING_WEIGHT}
+              weight={casingWeight}
               opacity={level}
               className={`${className} road--casing`}
             />
@@ -1095,7 +1130,7 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
               positions={positions}
               interactive={interactive}
               color={rejection ? readToken('--alert') : color}
-              weight={LINE_WEIGHT}
+              weight={weight}
               opacity={level}
               className={className}
               eventHandlers={

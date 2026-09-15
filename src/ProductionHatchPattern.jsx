@@ -542,7 +542,43 @@ const TREATMENT_MARKS = [
      ships (fence_display_geometry.py's angular-simplified, coincidence-
      trimmed rendering) rather than the raw ring -- see drawnAs(). No fill,
      no paint server, no outline: the line IS the mark. */
-  { treatment: 'fence', kind: 'line', token: '--fence' },
+  // THE FENCE: A HAIRLINE, CASED LIKE THE ROAD, AND ITS FOCUS IS A HALO.
+  //
+  // THINNER THAN THE ROAD ON PURPOSE, and it is the same statement --fence's
+  // colour makes. A fence is a lighter thing than a road, on the map as on
+  // the ground: a pale line at half the road's weight. The CASING does not
+  // come down with it and that is the whole of why the core can: index.css's
+  // --fence note measures the casing at 9.0x the bare line over soil, so the
+  // casing is what carries the mark and the core is what says which mark it
+  // is. At 1 on 3 the casing still shows a full pixel each side of the line,
+  // exactly as the road's 2 on 4 does -- the band that does the work is
+  // unchanged and only the ink inside it is finer.
+  //
+  // AND FOCUS IS A HALO, WHICH IS PRODUCTION'S OWN FIX APPLIED TO A LINE.
+  // Focus used to be said here by opacity alone, and index.css states the
+  // cost: 1.41x active on mid-grey, under the 1.5x every pattern mark meets,
+  // because a pale line over a white casing cannot swing against grey the way
+  // a dark core does. The halo says it with a second kind of ink instead -- a
+  // blurred stroke around the line, under its casing -- and the core comes
+  // back down to the active level with it (focusIsAHalo, and layers.jsx's
+  // markLevelFor). Measured at 1.87x on mid-grey, 1.85x over canopy and 1.91x
+  // over soil.
+  //
+  // --halo, NOT --fence, AND THAT IS THE ONE PLACE THIS DIVERGES FROM
+  // PRODUCTION. Production glows in its own ink because oxide is dark and
+  // saturated against every ground; --rule is a near-white, so a glow in it
+  // fades over pale soil exactly where the bare line already does (1.39x
+  // against --halo's 1.90x). White is what carries this mark -- it is what
+  // the casing is for -- and the glow is that argument extended. Three tokens
+  // were measured; see index.css's --fence note for the table.
+  {
+    treatment: 'fence',
+    kind: 'line',
+    token: '--fence',
+    weight: 1,
+    casing: 3,
+    halo: { token: '--halo', width: 5, alpha: 0.6 },
+  },
 ]
 
 /**
@@ -603,7 +639,25 @@ export function zoneMark(treatment, { focused = false } = {}) {
   }
   if (spec.kind === 'line') {
     // A stroke and nothing to fill: the line IS the mark.
-    return { kind: 'line', fill: null, stroke: readToken(spec.token) }
+    //
+    // ITS WEIGHTS COME OFF THE ROW where the row declares them, and a row that
+    // does not falls back to the road's pair in layers.jsx. The road IS the
+    // default -- it is the line this map drew first and every number under
+    // LINE_WEIGHT was argued for it -- so a second line that wants its own
+    // weight says so here rather than making the first one say it twice.
+    //
+    // AND THE HALO IS RESOLVED LIKE A HATCH'S, through the same `focus` field
+    // focusIsAHalo() reads, so nothing downstream has to know that one of the
+    // two marks that can glow is a paint server and the other is a stroke.
+    return {
+      kind: 'line',
+      fill: null,
+      stroke: readToken(spec.token),
+      weight: spec.weight ?? null,
+      casing: spec.casing ?? null,
+      focus: spec.halo ? 'halo' : 'level',
+      halo: spec.halo ? { ...spec.halo, colour: readToken(spec.halo.token) } : null,
+    }
   }
   if (spec.kind === 'pin') {
     // A GLYPH, and its colour: the renderer draws PIN_GLYPH_PATH in it at

@@ -5873,7 +5873,29 @@ export const FENCING_STEP = documentStep({
 
   /**
    * WHAT ONLY THIS STEP KNOWS IS WORTH SAYING: which types have NO tab and
-   * why -- in the backend's own words -- with the two absences told apart.
+   * why -- in the backend's own words.
+   *
+   * THE NOTICE NAMES THE TYPE AND THE REASON SAYS THE REST, and that split is
+   * the whole of the wording rule. This side owns ONE fact the reason does
+   * not carry: which candidate is missing from the strip. Everything after it
+   * is the backend's sentence, verbatim.
+   *
+   * IT USED TO STATE THE ABSENCE AS WELL, and for `generated_nothing` that
+   * was the reason said twice: "Water area fencing was generated and produced
+   * no fence loop. The water zone pass ran and produced no fence loop." One
+   * of those two sentences was written here about a flag, the other arrived
+   * from the pipeline that set the flag, and the second is the one worth
+   * reading -- boundary's says what the clip actually found. So the sentence
+   * written here is gone and the reason carries the explanation alone.
+   *
+   * THE TWO ABSENCES ARE STILL TOLD APART, in the `key` -- which is what the
+   * bar renders them under and what a test can address -- and in the reason,
+   * which is different prose for the two cases because they are different
+   * findings ("the step was committed with no zone" is an upstream decision
+   * the reader can go and change; "the pass ran and produced no loop" is not).
+   * They are not told apart by a stem this file writes, because a stem this
+   * file writes cannot know which of those two a reader is looking at without
+   * saying what the reason already says.
    */
   notices: ({ proposals }) => {
     if (!proposals) return []
@@ -5885,10 +5907,10 @@ export const FENCING_STEP = documentStep({
       lines.push({
         key: `${absence}-${block.fence_type}`,
         tone: 'advisory',
-        text:
-          absence === 'nothing_to_fence'
-            ? `No ${label.toLowerCase()} — there was nothing to fence. ${block.reason ?? ''}`.trim()
-            : `${label} was generated and produced no fence loop. ${block.reason ?? ''}`.trim(),
+        // LOWER CASE AFTER "No", because the label is a name in title case
+        // and the sentence it is in is this file's. The REASON is not
+        // touched, in case or in anything else.
+        text: `No ${label.toLowerCase()}. ${block.reason ?? ''}`.trim(),
       })
     }
     return lines

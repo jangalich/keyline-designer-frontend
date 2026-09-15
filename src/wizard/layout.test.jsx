@@ -1822,25 +1822,28 @@ describeIf('the zone patterns, rendered', () => {
   }, 60_000)
 
   /**
-   * THE FENCE'S OWN FLOOR, ON THIS SWATCH ONLY. A fence is a PALE line (--rule)
-   * on a --halo casing: against mid-grey the casing is most of the ink and
-   * the line adds little over it, so the focused state cannot swing against
-   * grey the way the road's dark core does (2.64x). Measured at 1.41x for
-   * --rule, and 1.22x for the rejected --ink-muted (a mid-grey line on a
-   * mid-grey ground, which is the mid-value trap in one number). On IMAGERY
-   * the fence's committed-to-active step is the road's own -- 1.28x over
-   * canopy, 1.26x over soil, against the road's 1.23x -- and the ground
-   * tests below hold it there like every other mark. Every other treatment
-   * keeps the scale's own floor. See the --fence note in index.css.
+   * THE FENCE'S OWN FLOOR IS GONE, BECAUSE THE FENCE NO LONGER SAYS FOCUS
+   * WITH A LEVEL. It is in FOCUS_IS_A_HALO below, with production, and the
+   * exception it used to need is the record of why.
    *
-   * 1.05, AND THE 1.41x ABOVE IS THE READING AT THE OLD SCALE. Raising
-   * --pattern-active to 0.75 took the fence to 1.13x -- which index.css's
-   * record of the first attempt at this scale PREDICTED to the second decimal,
-   * and this is that prediction confirmed rather than a new discovery. The
-   * fence is the weakest case by construction (a pale line over its own
-   * casing, where the casing is most of the ink), so it has least room to give
-   * and gives it first. The floor is set below the measured reading and above
-   * nothing: a fence whose focused state stopped stepping at all still fails.
+   * WHAT IT SAID. A fence is a PALE line (--rule) on a --halo casing: against
+   * mid-grey the casing is most of the ink and the line adds little over it,
+   * so the focused state could not swing against grey the way the road's dark
+   * core does (2.64x). It measured 1.41x -- and 1.22x for the rejected
+   * --ink-muted, a mid-grey line on a mid-grey ground, which is the mid-value
+   * trap in one number -- and the floor was set to 1.05 to catch a level that
+   * had stopped stepping at all. Raising --pattern-active to 0.75 then took
+   * it to 1.13x, which index.css's record of the first attempt at that scale
+   * had predicted to the second decimal.
+   *
+   * WHAT IT COST AND WHO PAID IT. That exception was the build's weakest
+   * state step, held open for one mark because the lever had nothing left to
+   * give. The halo gives the mark a second KIND of ink instead of more of the
+   * same, which is the move production made for the same reason -- and the
+   * measured result is a 1.85x step over canopy and 1.91x over soil, against
+   * a committed-to-active step of 1.26-1.28x. The exception map is empty now,
+   * and the right way to read that is that nothing in the build says focus
+   * with a level it cannot afford. See the --fence note in index.css.
    */
   /**
    * THE FLOOR EVERY OTHER TREATMENT KEEPS, AND WHY IT IS 1.25 AND NOT 1.5.
@@ -1859,16 +1862,29 @@ describeIf('the zone patterns, rendered', () => {
    * still catches a level that stopped stepping while asserting nothing the
    * scale cannot deliver.
    */
-  const STATE_STEP_FLOOR = { fence: 1.05 }
+  // EMPTY, AND KEPT. Every treatment now meets the default -- the one mark
+  // that could not is a halo -- so this map holds no exception. It stays
+  // because the next mark that cannot reach the floor should have to be
+  // written in here, where the note above says what an entry costs.
+  const STATE_STEP_FLOOR = {}
   const STATE_STEP_DEFAULT = 1.25
 
   /**
    * THE ONE MARK THIS MEASURE CANNOT ASK THE QUESTION OF, AND WHY.
    *
-   * PRODUCTION'S FOCUS IS A HALO NOW, not a level: the focused block inks
-   * exactly what an active one does and a glow in --oxide is laid around each
-   * rule (index.css's halo exception). Every other treatment still steps its
-   * opacity, and for those this test is unchanged.
+   * TWO MARKS SAY FOCUS WITH A HALO, not with a level: production's focused
+   * block inks exactly what an active one does with a glow in --oxide laid
+   * around each rule, and a focused FENCE does the same with a blurred --halo
+   * stroke under its casing (index.css's halo exception, and the --fence
+   * note). Every other treatment still steps its opacity, and for those this
+   * test is unchanged.
+   *
+   * THE FENCE IS HERE BECAUSE IT COULD NOT AFFORD THE LEVEL, which is the
+   * note above this one, and the glow is a white one on a mid-grey swatch --
+   * so unlike production's oxide it has nothing to hide against and the
+   * difference measure sees it plainly. It is still asserted as the glow's
+   * own ink rather than as a ratio, because the two levels are equal by
+   * design for both marks and a ratio of two equal things is 1.
    *
    * MID-GREY CANNOT SEE THAT GLOW, AND IT IS THE MID-VALUE TRAP THIS FILE
    * ALREADY HAS ONE RECORD OF -- the fence's rejected --ink-muted line, a
@@ -1888,7 +1904,7 @@ describeIf('the zone patterns, rendered', () => {
    * which is the honest form of "an indicator you cannot see is not an
    * indicator" for a mark that adds ink rather than opacity.
    */
-  const FOCUS_IS_A_HALO = ['production']
+  const FOCUS_IS_A_HALO = ['production', 'fence']
 
   it('tells the focused state from the active one at whole-parcel size', async () => {
     for (const treatment of SWATCH_TREATMENTS) {
@@ -2987,6 +3003,73 @@ describeIf('the zone patterns, rendered', () => {
       return { fence: read('--fence'), road: read('--road') }
     })
     expect(tokens.fence).not.toBe(tokens.road)
+  }, MANY_PAGES)
+
+  /**
+   * THE FENCE'S FOCUS IS A HALO NOW, AND THE GLOW'S TOKEN IS MEASURED THE WAY
+   * ITS LINE COLOUR WAS.
+   *
+   * WHY IT CHANGED. index.css's --fence note recorded one cost: the fence's
+   * focused state was 1.41x its active state on mid-grey, under the 1.5x
+   * every pattern mark meets, because a pale line over a white casing cannot
+   * swing against grey the way a dark core does. That is the same wall
+   * production hit, and the halo is what production did about it -- a second
+   * KIND of ink around the mark instead of more of the same, with the core
+   * coming back down to the active level.
+   *
+   * WHY THE TOKEN IS NOT PRODUCTION'S ANSWER TRANSFERRED. Production glows in
+   * its own oxide, which is dark and saturated against every ground. The
+   * fence's ink is --rule, a near-white: a glow in it is a pale field around
+   * a pale line, which is most of what this mark already struggles with over
+   * bare soil. So three are drawn -- --halo (the casing's own white), --fence
+   * (production's rule applied literally) and --ink (the one direction with
+   * headroom over pale ground, and the one that risks reading as a road) --
+   * and the numbers choose.
+   *
+   * AND THE CONTROL IS THE UNHALOED CELL: the focused mark with the glow pass
+   * lifted off, whose core is at the ACTIVE level. Two claims come off it --
+   * what the glow is worth (haloed vs unhaloed) and that focus costs the
+   * scale nothing (unhaloed vs the active cell).
+   */
+  it('measures the fence focus halo against three glow tokens, and holds the shipped one to a real step', async () => {
+    const table = {}
+    for (const candidate of ['fenceglow-halo', 'fenceglow-fence', 'fenceglow-ink']) {
+      table[candidate] = {}
+      for (const ground of ['canopy', 'soil']) {
+        table[candidate][ground] = await addedInkOver(page, ground, candidate, 'focused')
+      }
+    }
+    for (const ground of ['canopy', 'soil']) {
+      const active = await addedInkOver(page, ground, 'fence', 'active')
+      const shipped = await addedInkOver(page, ground, 'fence', 'focused')
+      const unhaloed = await addedInkOver(page, ground, 'fence', 'focused-unhaloed')
+      // eslint-disable-next-line no-console
+      console.log(
+        `    halo ${ground.padEnd(6)} fence  active ${active.toFixed(4)}  ` +
+          `focused ${shipped.toFixed(4)} (${(shipped / active).toFixed(2)}x)  ` +
+          `unhaloed ${unhaloed.toFixed(4)}  ` +
+          Object.entries(table)
+            .map(([id, row]) => `${id.replace('fenceglow-', '')} ${row[ground].toFixed(4)} (${(row[ground] / active).toFixed(2)}x)`)
+            .join('  ')
+      )
+      // THE GLOW IS WORTH SOMETHING, on both grounds: the pass is what the
+      // focused cell has that the unhaloed one does not.
+      expect(shipped, `the fence glow must add ink over ${ground}`).toBeGreaterThan(unhaloed)
+      // FOCUS COSTS THE SCALE NOTHING. With the glow lifted off, a focused
+      // fence inks what an active one does -- the core came down to the
+      // active level and the glow is the whole of the difference.
+      expect(Math.abs(unhaloed - active), `an unhaloed focused fence reads as an active one over ${ground}`)
+        .toBeLessThan(0.0005)
+      // AND THE STEP IS A REAL ONE, on the imagery floors every other mark
+      // meets. The mid-grey step has its own floor in the swatch test above.
+      expect(shipped / active, `focus must be a visible step over ${ground}`).toBeGreaterThan(1.3)
+      expect(shipped, `a focused fence must be legible over ${ground}`).toBeGreaterThan(0.004)
+    }
+    // ALL THREE CANDIDATES WERE READ, on both grounds -- six numbers, every
+    // one a real reading, so the choice recorded in index.css is a choice.
+    for (const candidate of Object.keys(table)) {
+      for (const reading of Object.values(table[candidate])) expect(reading).toBeGreaterThan(0)
+    }
   }, MANY_PAGES)
 
   it('lets production-committed and water-committed share the map readably', async () => {
