@@ -397,7 +397,14 @@ describe('1. end to end against the real backend', () => {
       expect(first.network_found).toBe(true)
       expect(ui.all('[data-tab-id]')).toHaveLength(1)
       expect(ui.find(`tab-${first.network_id}`)).not.toBeNull()
-      expect(ui.text(`tab-focus-${first.network_id}`)).toContain('Access point 1')
+      // "Road Network 1", NOT "Access point 1". The tab and the panel were
+      // renamed when roads took the shared panel format -- one ordinal, one
+      // noun, and the noun is the thing the tab stands for: a network, not
+      // the point it was routed from. The offline tests moved with it and
+      // these three live-only assertions did not, because nothing runs them
+      // without a backend. roadNetworkName() is the one place the name is
+      // minted and the strip, the panel and this now read it alike.
+      expect(ui.text(`tab-focus-${first.network_id}`)).toContain('Road Network 1')
       // Placed and generated, the pending point is gone from the draft and
       // the server has recorded it.
       expect(selectDraft(ui.state, 'roads').inputs[ACCESS_POINT_INPUT]).toBeUndefined()
@@ -418,13 +425,31 @@ describe('1. end to end against the real backend', () => {
       expect(ui.markers().length).toBe(2)
       expect(recordedAccessPoints(ui.state, 'roads')).toHaveLength(2)
 
-      // WHERE THE GENERATE LEFT IT: the SECOND network is focused (it is the
-      // one just routed) and the FIRST is still the checked one -- a later
-      // generate is a comparison and does not take the tick off the network
-      // already chosen. It is the one state on this step where the focus and
-      // the checkbox disagree, and it is reached from outside the strip.
+      // WHERE THE GENERATE LEFT IT: the SECOND network is focused AND checked,
+      // and the first is neither.
+      //
+      // THIS PARAGRAPH USED TO DESCRIBE THE BUG. It asserted the focus on the
+      // second network and the tick still on the first, and called that "the
+      // one state on this step where the focus and the checkbox disagree" --
+      // which was a true reading of the behaviour and a false reading of the
+      // intent. Roads declares `selection: { mode: 'radio', follows: 'focus' }`:
+      // focus and the commit decision are ONE fact there. Three paths move the
+      // focus -- a tab body, an access-point marker, and the generate that
+      // routes a new network -- and only the tab body was collapsing the two.
+      // The other two left the tick, and therefore the commit, on the network
+      // before it, so a user who generated a second candidate and committed
+      // got the first one.
+      //
+      // THE OFFLINE TESTS MOVED WHEN THAT WAS FIXED and this one did not,
+      // because nothing runs it without a backend -- the same way the three
+      // "Access point N" names above went stale. Section 5b asserts the three
+      // paths land in identical state; this is that claim on the real backend.
       expect(ui.cursor.focusedFeatureId).toBe(second.network_id)
-      expect(ui.find(`tab-${first.network_id}`).getAttribute('data-checked')).toBe('true')
+      expect(ui.find(`tab-${second.network_id}`).getAttribute('data-checked')).toBe('true')
+      expect(ui.find(`tab-${first.network_id}`).getAttribute('data-checked')).toBe('false')
+      // AND THE COMMIT FOLLOWS THE TICK, which is what makes the disagreement
+      // matter rather than being a display detail.
+      expect(selectDraft(ui.state, 'roads').selectedFeatureIds).toEqual(second.feature_ids)
 
       // CLICKING THE CHECKED TAB CONVERGES RATHER THAN PUNISHING: it becomes
       // the tab you are looking at AND stays the one that commits. Reading
@@ -433,13 +458,13 @@ describe('1. end to end against the real backend', () => {
       expect(ui.cursor.focusedFeatureId).toBe(first.network_id)
       expect(ui.find(`tab-${first.network_id}`).getAttribute('data-focused')).toBe('true')
       expect(ui.find(`tab-${first.network_id}`).getAttribute('data-checked')).toBe('true')
-      expect(ui.text('detail-name-roads')).toBe('Access point 1')
+      expect(ui.text('detail-name-roads')).toBe('Road Network 1')
 
       // AND CLICKING THE OTHER TAB IS THE CHOICE: focus and tick move together.
       await ui.click(`tab-focus-${second.network_id}`)
       expect(ui.find(`tab-${second.network_id}`).getAttribute('data-focused')).toBe('true')
       expect(ui.find(`tab-${first.network_id}`).getAttribute('data-focused')).toBe('false')
-      expect(ui.text('detail-name-roads')).toBe('Access point 2')
+      expect(ui.text('detail-name-roads')).toBe('Road Network 2')
       expect(ui.find(`tab-${second.network_id}`).getAttribute('data-checked')).toBe('true')
       expect(ui.find(`tab-${first.network_id}`).getAttribute('data-checked')).toBe('false')
 

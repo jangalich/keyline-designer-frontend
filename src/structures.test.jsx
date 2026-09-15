@@ -507,7 +507,22 @@ describe('1. end to end against the real backend', () => {
       await ui.focus(clean.id)
       expect(ui.text('detail-name-structures')).toBe(`Placed 1 · would rank ${clean.properties.rank}`)
       expect(ui.text('detail-value-score')).toBe(clean.properties.suitability_score.toFixed(1))
-      expect(ui.text('detail-value-rank')).toContain(`would sit ${clean.properties.rank}th among the 3 generated sites`)
+      // THE ORDINAL IS HAND-WRITTEN, NOT TEMPLATED. This read
+      // `${rank}th`, which is right for 4th and 5th and wrong for 1st, 2nd
+      // and 3rd -- so it passed only while the placed site happened to rank
+      // outside the three that take an irregular suffix, and failed the day
+      // it ranked 3rd. The panel's own ordinal() was correct throughout; the
+      // test was asserting a misspelling.
+      //
+      // A TABLE RATHER THAN A SECOND COPY OF THE RULE. Re-deriving the suffix
+      // here would assert that two implementations of one rule agree, which
+      // is what let the bad template hide; these are the only ranks a placed
+      // site can take beside three generated ones, spelled out, and a rank
+      // outside them fails loudly instead of quietly templating.
+      const ORDINALS = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th' }
+      const rankWord = ORDINALS[clean.properties.rank]
+      expect(rankWord, `rank ${clean.properties.rank} is outside the hand-written ordinals`).toBeDefined()
+      expect(ui.text('detail-value-rank')).toContain(`would sit ${rankWord} among the 3 generated sites`)
       expect(ui.text('detail-value-rank')).toContain('a comparison, not a measurement')
       expect(ui.text('detail-value-road measured to')).toBe('the road you committed')
       expect(ui.text('detail-value-clears')).toBe('every siting rule the generated sites clear')
