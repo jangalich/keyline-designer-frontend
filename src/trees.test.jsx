@@ -386,7 +386,14 @@ describe('1. end to end against the real backend', () => {
       // THE PAYLOAD IS THE BACKEND'S OWN SHAPE, exactly (test_trees_step.py
       // asserts the same five keys), and the candidates it carries are what
       // the strip tabs.
-      expect(Object.keys(ui.trees).sort()).toEqual(['crossing_grounds', 'search_space', 'summary', 'tree_zones', 'zones'])
+      expect(Object.keys(ui.trees).sort()).toEqual([
+        'crossing_grounds',
+        'scales',
+        'search_space',
+        'summary',
+        'tree_zones',
+        'zones',
+      ])
       // ALL FOUR GROUNDS, from the server, in its words, each with geometry.
       const shipped = ui.trees.crossing_grounds
       expect(shipped.map((g) => g.type)).toEqual(['production', 'water', 'road', 'canopy'])
@@ -477,14 +484,23 @@ describe('1. end to end against the real backend', () => {
           `benefits ${JSON.stringify(first.marginal_benefits)}`
       )
 
-      // AND THE SCORE'S DENOMINATOR, OFF THE REAL PAYLOAD. The trees payload
-      // publishes no `scales` block in any of the three spellings
-      // scoreDenominator() knows, so the panel prints the bare word rather
-      // than a scale this side cannot back -- asserted against the SERVER's
-      // payload, not the fixture, because that is the claim.
-      expect(ui.trees.scales).toBeUndefined()
+      // AND THE SCORE'S DENOMINATOR, OFF THE REAL PAYLOAD. The server publishes
+      // the axis at the payload ROOT in landform's own spelling, so the tab
+      // says "score" and the panel says "/100 score" off one declaration --
+      // asserted against the SERVER's block, not the fixture, because that is
+      // the claim. No 100 is written on this side.
       expect(ui.trees.summary.scales).toBeUndefined()
-      expect(ui.text('detail-value-score')).toBe(Number(first.score).toFixed(1))
+      const top = ui.trees.scales.range[1]
+      expect(top).toBeGreaterThan(0)
+      expect(ui.text(`tab-focus-${first.feature_id}`)).not.toContain(`/${top} score`)
+      expect(ui.text('detail-value-/100 score')).toBe(Number(first.score).toFixed(1))
+      expect(Math.round(top)).toBe(100)
+      // AND THE BANDS AND THE BENEFIT WORDS RIDE THE SAME BLOCK, so nothing
+      // downstream has to hold a threshold or a closed set of its own.
+      expect(Object.keys(ui.trees.scales.elevation_position.bands).sort()).toEqual(
+        ['lower field', 'mid field', 'upper field']
+      )
+      expect(ui.trees.scales.marginal_benefits.values).toContain(...first.marginal_benefits.slice(0, 1))
       await ui.focus(null)
 
       // A SUBSET: un-check the first candidate.
@@ -725,6 +741,32 @@ function treesPayload({ gates, weights, candidates = 2, grounds = GROUNDS, rows 
         soil_marginality_data_available: true,
         hydric_data_available: true,
         stream_data_available: true,
+      },
+    },
+    // HOW TO READ EVERY SCORED VALUE, at the payload ROOT and not in
+    // `summary` -- tree_zone_candidates._SCALES, lifted by
+    // build_trees_payload(). Landform's spelling: `range[1]` is the top.
+    scales: {
+      range: [0.0, 100.0],
+      direction: 'higher_is_better',
+      applies_to: ['score', 'factors.*'],
+      calibration: 'unvalidated_starting_values',
+      higher_is_better_means: 'more_marginal_for_production_and_better_for_tree_cover',
+      elevation_position: {
+        range: [0.0, 100.0],
+        direction: 'higher_is_upslope',
+        bands: { 'lower field': [0.0, 33.3], 'mid field': [33.3, 66.7], 'upper field': [66.7, 100.0] },
+        band_bounds: 'lower_inclusive_upper_exclusive_last_band_inclusive',
+        applies_to: ['elevation_percentile_of_parcel', 'elevation_position'],
+      },
+      // THE WORDS, AS A CLOSED SET, off the server. They are payload data
+      // here exactly as the per-zone lists are; the client renders what it
+      // is handed and holds no copy -- section 4 greps for that.
+      marginal_benefits: {
+        values: ['erosion control', 'nutrient deposition', 'stream protection'],
+        order: 'as_emitted',
+        empty_means: 'this_zone_earned_none',
+        applies_to: ['marginal_benefits'],
       },
     },
     search_space: {
@@ -1305,7 +1347,7 @@ describe('5. a drawn zone shows its scoring absent', () => {
     expect(ui.text('detail-name-trees')).toBe('Drawn 1')
     expect(ui.find('detail-fields-merits')).toBeNull()
     expect(ui.find('detail-heading-trees')).toBeNull()
-    expect(ui.text('detail-value-score')).toBe('—')
+    expect(ui.text('detail-value-/100 score')).toBe('—')
     expect(ui.text('detail-value-scoring')).toMatch(/not scored/)
     await ui.unmount()
   })
@@ -1595,7 +1637,7 @@ describe('8. the panel renders through the shared format', () => {
     // ONE FLAT LIST WITH BREAKS IN IT, in the order the panel draws it.
     expect(body.map((row) => (row.panelBreak ? `--- ${row.label ?? ''}` : `${row.value} | ${row.label ?? ''}`))).toEqual([
       '2.1 | acres',
-      '58.3 | score',
+      '58.3 | /100 score',
       '--- ',
       'north | where in the parcel',
       'upper field | position',
@@ -1727,46 +1769,52 @@ describe('8. the panel renders through the shared format', () => {
     expect(payload.summary.selection.factor_weights_pct).toMatchObject({ hydric_overlap: 40 })
   })
 
-  it('[test 8] the tab says "score" and the panel says what the payload can back', () => {
+  it('[test 8] the tab says "score" and the panel says "/100 score"', () => {
     const context = contextOver(treesPayload())
     const tab = TREES_STEP.tabs(context).find((entry) => entry.id === ZONE_A)
     const scoreRow = tab.rows.find((row) => row.label === 'score')
 
     // THE STRIP'S LABEL IS ALWAYS THE BARE WORD. The denominator is declared
     // beside it and rendered only by the panel -- one declaration, two
-    // renderings, panelFormat's denominated().
+    // renderings, panelFormat's denominated(). The strip is read ACROSS
+    // candidates that are all on one scale; the panel is read about one.
     expect(scoreRow.label).toBe('score')
-    expect(scoreRow).toHaveProperty('denominator')
+    expect(scoreRow.denominator).toBe(100)
+    expect(denominated(scoreRow.label, scoreRow.denominator)).toBe('/100 score')
 
-    // AND THE PANEL'S LABEL IS THE SAME ROW THROUGH denominated(). On a
-    // payload that publishes its scale it reads "/100 score"; the trees
-    // payload publishes NO `scales` block at all -- see the note at the call
-    // site -- so scoreDenominator() answers undefined and the label falls back
-    // to the bare word rather than to a 100 typed on this side.
-    expect(scoreRow.denominator).toBeUndefined()
-    expect(denominated(scoreRow.label, scoreRow.denominator)).toBe('score')
-    expect(bodyFor(treesPayload()).find((row) => row.value === '58.3').label).toBe('score')
+    // AND THE PANEL'S LABEL IS THAT SAME ROW THROUGH denominated().
+    expect(bodyFor(treesPayload()).find((row) => row.value === '58.3').label).toBe('/100 score')
+    // A drawn zone's em-dash score carries it too: the denominator names the
+    // scale, not this reading of it.
+    const drawn = TREES_SHAPE.close({ points: CLEAR, parcel: RING, references: {} }).feature
+    const drawnTab = TREES_STEP.tabs(contextOver(treesPayload(), { drawnFeatures: [drawn] })).find(
+      (t) => t.id === drawn.id
+    )
+    expect(drawnTab.rows.find((r) => r.label === 'score').denominator).toBe(100)
 
-    // THE WIRE IS WHAT IS MISSING, AND IT IS ASSERTED AS SUCH rather than left
-    // as an absence someone reads as an oversight: the trees payload carries
-    // no scale in any of the three spellings scoreDenominator() knows.
+    // THE 100 IS THE PAYLOAD'S, IN LANDFORM'S OWN SPELLING -- `scales.range[1]`
+    // at the payload root. That is what trees needed: not a fourth spelling in
+    // scoreDenominator(), which already read this one, but a scale on the wire
+    // at all. tree_zone_candidates._SCALES publishes it off
+    // SUITABILITY_SCORE_SCALE and step_orchestrator lifts it to the root.
     const payload = treesPayload()
-    expect(payload.scales).toBeUndefined()
+    expect(payload.scales.range[1]).toBe(100)
+    // AT THE ROOT AND NOT IN `summary`: a scale describes the instrument and
+    // `summary` is what this run did. One copy, one place to look.
     expect(payload.summary.scales).toBeUndefined()
 
-    // THE DAY IT SHIPS ONE, THE PANEL SAYS SO WITHOUT AN EDIT HERE. The same
-    // row, the same function, a scale on the payload root in landform's own
-    // spelling.
-    const scaled = treesPayload()
-    scaled.scales = { range: [0.0, 100.0], applies_to: ['score'] }
-    const scaledRow = TREES_STEP.tabs(contextOver(scaled)).find((e) => e.id === ZONE_A).rows.find((r) => r.label === 'score')
-    expect(scaledRow.label).toBe('score')
-    expect(scaledRow.denominator).toBe(100)
-    expect(denominated(scaledRow.label, scaledRow.denominator)).toBe('/100 score')
-    expect(bodyFor(scaled).find((row) => row.value === '58.3').label).toBe('/100 score')
+    // AND A PAYLOAD WITHOUT ONE STILL PRINTS NOTHING IT CANNOT BACK, which is
+    // the behaviour that stood for a revision here and is what makes the
+    // denominator a reading rather than a decoration.
+    const unscaled = treesPayload()
+    delete unscaled.scales
+    const bare = TREES_STEP.tabs(contextOver(unscaled)).find((e) => e.id === ZONE_A).rows.find((r) => r.label === 'score')
+    expect(bare.denominator).toBeUndefined()
+    expect(denominated(bare.label, bare.denominator)).toBe('score')
 
     // NO 100 IS WRITTEN ON THIS SIDE. The trees section may not contain the
-    // scale as a literal, in code or in a default.
+    // scale as a literal, in code or in a default -- which is the whole reason
+    // the fix was a backend change rather than a constant here.
     const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
     const section = source.slice(source.indexOf('   THE TREES STEP\n'), source.indexOf('   THE STRUCTURES STEP\n'))
     const code = section.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
@@ -1784,7 +1832,7 @@ describe('8. the panel renders through the shared format', () => {
     // ONE GRID FOR THE WHOLE BODY -- the tab's rows and the step's, in one
     // container, which is what holds one decimal point down the panel.
     expect(ui.text('detail-value-acres')).toBe('2.1')
-    expect(ui.text('detail-value-score')).toBe('58.3')
+    expect(ui.text('detail-value-/100 score')).toBe('58.3')
     expect(ui.text('detail-value-where in the parcel')).toBe('north')
     expect(ui.text('detail-value-position')).toBe('upper field')
     expect(ui.text('detail-value-median slope %')).toBe('13.0')

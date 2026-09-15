@@ -4525,28 +4525,33 @@ export const TREES_STEP = documentStep({
     const selected = new Set(draft.selectedFeatureIds)
     /* THE SCORE ROW DECLARES A DENOMINATOR AND DOES NOT PRINT ONE -- the shape
        the three steps before this one take. The strip shows "score"; the panel,
-       repeating this same row below its header, shows "/N score", and both come
-       off this one declaration through panelFormat's denominated().
+       repeating this same row below its header, shows "/100 score", and both
+       come off this one declaration through panelFormat's denominated().
 
-       AND ON THIS PAYLOAD IT IS undefined, WHICH IS A FINDING RATHER THAN A
-       BUG HERE. scoreDenominator() reads the top of the backend's OWN published
-       scale, in whichever of three spellings the payload uses, and the trees
-       payload publishes no `scales` block at all -- build_trees_payload()
-       forwards build_narrative_data() whole, and that block carries
-       candidate_count, search_space, selection, gates and zones. So the reader
-       needed no fourth spelling; it found a fourth CASE, which is a step whose
-       scale is not on the wire, and the function's own rule then applies: a
-       denominator this side cannot back is worse than none, so the label falls
-       back to plain "score" in both places.
+       AND WHAT TREES NEEDED WAS NOT A FOURTH SPELLING. scoreDenominator()
+       reads the top of the backend's own published scale, and the three
+       spellings it already knew cover this one: trees ships `scales.range[1]`
+       AT THE PAYLOAD ROOT, which is landform's shape exactly, so the call is
+       the same call landform makes and the reader learned nothing.
 
-       THE 100 IS NOT TYPED HERE, and the temptation is real because
-       tree_zone_candidates.SUITABILITY_SCORE_SCALE is 100 and the score really
-       is on that scale today. A 100 written on this side is a second copy of
-       the backend's published scale in the one place a reader would never think
-       to check, and the day the pipeline rescales, this panel keeps confidently
-       printing the old denominator against the new figure. The call stays, so
-       the panel says "/100 score" the day trees publishes its scale and says
-       nothing it cannot back until then. */
+       WHAT IT FOUND INSTEAD WAS A STEP WITH NO SCALE ON THE WIRE AT ALL, which
+       none of the three before it had been. This call went in reading a payload
+       that carried no `scales` block: build_trees_payload() forwarded
+       build_narrative_data() whole and that block had candidate_count,
+       search_space, selection, gates and zones and nothing about the axis. The
+       function's own rule held -- undefined denominator, bare "score", a label
+       this side could back -- and the panel printed that for one revision
+       rather than invent the figure.
+
+       THE FIX WENT WHERE THE SCALE LIVES. tree_zone_candidates._SCALES now
+       publishes the axis off SUITABILITY_SCORE_SCALE, with production's
+       imported elevation bands and the closed set of benefit words beside it,
+       and step_orchestrator lifts it to the payload root. NO 100 IS WRITTEN ON
+       THIS SIDE, which is the whole reason it was worth a backend change: a 100
+       typed here is a second copy of the backend's published scale in the one
+       place a reader would never think to check, and the day the pipeline
+       rescales this panel keeps confidently printing the old denominator
+       against the new figure. */
     const denominator = scoreDenominator(proposals)
 
     const tabs = (proposals?.zones ?? []).map((zone) => ({
