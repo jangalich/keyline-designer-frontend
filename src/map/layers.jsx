@@ -184,11 +184,12 @@ const COMMITTED_FILL_OPACITY = 0.12
  * were chosen to make. Bare committed geometry gives the casing back its
  * meaning: a cased line is live.
  *
- * BAND, NOT STATE, AND THE TWO COINCIDE HERE. MapLayerStack draws every
- * settled band with no `interactive` and no focus, so a committed feature can
- * never be the focused one -- band 'committed' and state 'committed' are the
- * same set for these layers. The band is what is read because the band is
- * what the declaration says.
+ * BAND, NOT STATE. The band is what is read because the band is what the
+ * declaration says, and a committed feature is drawn bare whether or not it
+ * is the one being looked at -- the focus mark is a class on top (focusClass),
+ * not a second casing decision. This used to add that the two coincided,
+ * because a committed feature could never be focused; it can now, on the one
+ * step the cursor is standing on, and nothing about the casing changes.
  *
  * WHAT IT COSTS IS MEASURED, NOT ASSUMED. See index.css's --road note and
  * layout.test.jsx's BELOW_THE_VISIBILITY_FLOOR: a committed road drawn bare
@@ -416,8 +417,10 @@ function ReferenceLayer() {
  *
  * THE TREATMENT COMES OFF THE DECLARATION, not off a step id:
  *
- *   band 'committed'    settled. A thin line and a light fill, and nothing
- *                       to click: the stack mounts this band read-only.
+ *   band 'committed'    settled. A thin line and a light fill. Read-only in
+ *                       the sense that no tool acts on it; it takes a click
+ *                       on the one step the cursor is standing on, and that
+ *                       click focuses. See layerStack.js's `review`.
  *
  *   source 'proposals'  a candidate being decided about. Hatch with no outline
  *                       and no fill of its own -- suggested ground IS eligible
@@ -845,10 +848,14 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
                     //
                     // ONE THING A FEATURE CLICK CAN MEAN, where there used to
                     // be two. The `else` arm called the stack's `onLayerClick`
-                    // and was how a committed feature offered navigation; the
-                    // committed band takes no clicks now (see MapLayerStack),
-                    // so the only interactive feature layer is one a tool is
-                    // rendering, and `interactive` here is that tool's answer.
+                    // and was how a committed feature offered NAVIGATION; that
+                    // route is gone (see MapLayerStack), so whatever is
+                    // interactive here focuses and does nothing else. Two
+                    // layers can be: the one a tool is rendering, and -- when
+                    // the cursor is standing on a committed step -- that
+                    // step's own committed band. `interactive` is their
+                    // answer, not this renderer's, and the two mean the same
+                    // thing by arriving at the same handler.
                     click: (event) => {
                       L.DomEvent.stopPropagation(event)
                       onFeatureClick?.(layer, feature)

@@ -11,9 +11,10 @@
  *                         order, so the user sees what is theirs and what
  *                         qualifies before they try to draw on it.
  *   2. Committed          every committed step's features. Settled styling,
- *                         never editable, and it takes no clicks -- see the
- *                         note in MapLayerStack for what was removed there
- *                         and why the rail carries it instead.
+ *                         never editable. It takes a click on exactly one of
+ *                         its layers -- the cursor step's own, which is the
+ *                         step being LOOKED AT. See the review note below,
+ *                         and MapLayerStack for the route that was removed.
  *   3. Active editable    the cursor step's own layers, and the only band any
  *                         tool can touch.
  *
@@ -28,6 +29,35 @@
  * the map while a later step is being edited. That is the one place the stack
  * reads more than the active definition, and it still reads only declarations:
  * a step contributes to this band by declaring a layer with band 'committed'.
+ *
+ *
+ * AND ONE OF THOSE LAYERS IS UNDER REVIEW: THE ONE THE CURSOR IS STANDING ON
+ *
+ * Committed geometry is drawn in two situations and they are not the same
+ * situation. Committed production zones under the WATER step are CONTEXT --
+ * ground the step in hand is measured against, and by fencing there are five
+ * such layers blanketing the parcel. The same production zones with the cursor
+ * ON landform are the step's own work, and looking at one is the only thing
+ * there is to do on a committed step.
+ *
+ * SO THE DISTINCTION IS WHERE THE CURSOR IS, NOT WHICH STEP THE LAYER BELONGS
+ * TO, and it is written once, as one field, on the one loop that already knows
+ * both halves:
+ *
+ *     review: stepId === cursorStepId
+ *
+ * Every other layer this file returns carries `review: false` from
+ * resolveLayer's base, so the field is TOTAL and a renderer reads one value
+ * rather than re-deriving a rule. MapLayerStack makes a settled layer take
+ * clicks when -- and only when -- that field is true, which is the whole of
+ * the reading on the other side. Nothing anywhere asks "is this landform".
+ *
+ * IT DOES NOT UNDO THE COMMITTED BAND'S READ-ONLY-NESS, which is the thing it
+ * would be easiest to mistake it for. The reason a click on committed geometry
+ * stopped moving the cursor is that during water such a click almost always
+ * means "put this panel away" (see MapLayerStack). That reason is a statement
+ * about a layer the cursor has LEFT, and it still holds for every layer this
+ * marks false -- which is every committed layer but one.
  */
 
 import {
@@ -74,7 +104,22 @@ export function composeLayerStack({ state, definitions, cursorStepId }) {
   const cursor = definitions.get(cursorStepId) ?? null
 
   const context = bandOf(state, cursor, 'context')
-  const editable = bandOf(state, cursor, 'editable')
+
+  /**
+   * A COMMITTED STEP HAS NOTHING EDITABLE, and that is what `committed`
+   * means rather than a case to handle.
+   *
+   * The band is resolved from the draft and the live candidate set, and a
+   * committed step has neither: the commit discarded its draft and moved its
+   * payload out of `proposals` (SessionStore's reviewProposals). Both of
+   * those can nevertheless be non-empty for a moment -- a draft survives a
+   * hydrate whose step came back committed, which is the 409 path where
+   * another tab won the race -- and an editable band resolved from one would
+   * put shapes the commit did NOT take back on the map, under a step whose
+   * decision is made. What the document holds is the answer here; the band
+   * that holds everything else is not drawn.
+   */
+  const editable = cursor && cursor.status(state) === COMMITTED ? [] : bandOf(state, cursor, 'editable')
 
   // EVERY committed step, in the document's own order, so a later step's
   // panel still shows the earlier steps' ground beneath it.
@@ -83,7 +128,10 @@ export function composeLayerStack({ state, definitions, cursorStepId }) {
     const definition = definitions.get(stepId)
     if (!definition) continue
     if (definition.status(state) !== COMMITTED) continue
-    committed.push(...bandOf(state, definition, 'committed'))
+    // THE ONE RULE, IN ONE PLACE. See the header: the same layer is the step's
+    // own work or the next step's context, and the cursor is what decides.
+    const review = stepId === cursorStepId
+    for (const entry of bandOf(state, definition, 'committed')) committed.push({ ...entry, review })
   }
 
   return [...context, ...renumber(committed, 'committed'), ...editable]
@@ -141,6 +189,10 @@ export function resolveLayer(state, definition, layer) {
     band: layer.band,
     kind: layer.kind,
     source: layer.source,
+    // NOT UNDER REVIEW. The committed band's own loop is the only thing that
+    // can say otherwise, because it is the only place the cursor is in hand.
+    // Carried on every entry so the field is total -- see the header.
+    review: false,
   }
 
   if (layer.kind === 'ring') {

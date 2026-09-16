@@ -224,16 +224,26 @@ function useTabRemoval(machine, removeDrawn, focusedFeatureId, blurFeature) {
  * has since moved.
  */
 function useSeedFocus(machine, focusedFeatureId, focusFeature) {
-  const { definition, draft, proposals, context } = machine
+  const { definition, draft, proposals, context, reviewing } = machine
   const seeded = draft?.seeded === true
   useEffect(() => {
     if (typeof definition.focusSeed !== 'function') return
+    // NOT WHILE THE STEP IS BEING LOOKED AT RATHER THAN DECIDED. A committed
+    // step's context reads as a seeded draft (useStepMachine's committedDraft)
+    // because that is what the commit IS, and this would take that literally
+    // and open the detail panel on arrival. The seed exists so a step whose
+    // candidates are drawn only when focused is not a blank map with a tab
+    // claiming something is chosen; a committed step draws its features
+    // whatever is focused, so there is nothing here for it to rescue -- and
+    // opening a panel nobody asked for is the thing this state is for NOT
+    // doing.
+    if (reviewing) return
     if (!seeded || proposals == null || focusedFeatureId != null) return
     const target = definition.focusSeed(context)
     if (target != null) focusFeature(target)
     // Only the seed matters: a later focus change must not re-run this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [definition, seeded, proposals])
+  }, [definition, seeded, proposals, reviewing])
 }
 
 /**

@@ -979,6 +979,38 @@ function installHeldSession(settle) {
   return () => release()
 }
 
+/**
+ * A fetch whose POST /api/sessions answers a DIFFERENT thing each time, and
+ * may hold one of those answers open until the test releases it.
+ *
+ * installHeldSession above holds the FIRST attempt, which is what a
+ * `committing` frame needs. The retry cases need the frame of the SECOND one,
+ * with a real failure already on screen behind it -- so the attempts are
+ * listed and any of them can be marked `hold: true`.
+ */
+function installSessionAttempts(attempts) {
+  let release = null
+  const held = new Promise((resolve) => {
+    release = resolve
+  })
+  let attempt = 0
+
+  globalThis.fetch = vi.fn(async (rawUrl, init = {}) => {
+    const url = new URL(rawUrl)
+    if (url.pathname === '/api/steps') {
+      return { ok: true, status: 200, json: async () => ({ step_order: [...STEP_ORDER] }) }
+    }
+    if (url.pathname === '/api/sessions' && (init.method ?? 'GET') === 'POST') {
+      const { status, body, hold } = attempts[Math.min(attempt++, attempts.length - 1)]
+      if (hold) await held
+      return { ok: status >= 200 && status < 300, status, json: async () => body }
+    }
+    throw new Error(`no route for ${init.method ?? 'GET'} ${url.pathname}`)
+  })
+
+  return () => release()
+}
+
 /** Drive the boundary to the point where Commit is on screen and press it. */
 async function commitBoundary(ui) {
   await ui.run((a) => a.setDraftInput(BOUNDARY_STEP_ID, BOUNDARY_RING_INPUT, RING))
@@ -1096,29 +1128,120 @@ describe('9. the commit reports itself, running and failed', () => {
     await ui.unmount()
   })
 
-  it('clears the notice when the retry succeeds', async () => {
-    // TEST 8. Two responses on one route: the first fails, the second is the
-    // document. The retry is the same click on the same button.
-    installFetch([
-      route('POST', /^\/api\/sessions$/, [
-        { status: 500, body: { error: 'boom', failed_layer: FAILED_LAYER } },
-        { status: 201, body: serverDocument() },
-      ]),
+  it('clears the notice when the retry is PRESSED, before the result lands', async () => {
+    // TEST 8, AND IT USED TO ASSERT THE WRONG MOMENT. The panel-feedback
+    // branch specified "the notice clears when a retry succeeds", so the
+    // notice sat on screen for the whole of the second attempt -- the bar
+    // saying a data source did not respond while the banner beside it said
+    // `Committing…`, which reads as a retry that has already failed again.
+    //
+    // A NOTICE DESCRIBES AN ATTEMPT. The moment another one is out, the last
+    // one is over and the notice is stale. So the press is what clears it and
+    // the RESULT is only what decides whether a new one appears.
+    const release = installSessionAttempts([
+      { status: 500, body: { error: 'boom', failed_layer: FAILED_LAYER } },
+      { status: 201, body: serverDocument(), hold: true },
     ])
     const ui = await renderShell()
     await commitBoundary(ui)
     expect(ui.find(`commit-failed-${BOUNDARY_STEP_ID}`)).not.toBeNull()
 
-    // RETRY. The button came back, so this is the user's own second press.
-    await ui.click(`commit-${BOUNDARY_STEP_ID}`)
+    // RETRY, AND DO NOT WAIT FOR IT. The microtask turn is enough for the
+    // press to reach the DOM and not enough for the held request to answer --
+    // which is the only window in which this can be asserted at all.
+    const button = ui.find(`commit-${BOUNDARY_STEP_ID}`)
+    await React.act(async () => {
+      button.click()
+      await Promise.resolve()
+    })
 
-    // THE SESSION LANDED, AND THE NOTICE IS GONE -- from the boundary's chrome
-    // and from the step the wizard advanced to. A notice that survived onto
-    // landform would be reporting a failure that no longer happened.
+    // THE ATTEMPT IS IN FLIGHT AND THE NOTICE IS ALREADY GONE. Both halves,
+    // because "the notice is absent" would also be true of a commit that
+    // never started.
+    expect(ui.find(`step-${BOUNDARY_STEP_ID}`).dataset.stepState).toBe(COMMITTING)
+    expect(ui.text(`working-${BOUNDARY_STEP_ID}`)).toContain('Committing')
+    expect(ui.find(`commit-failed-${BOUNDARY_STEP_ID}`)).toBeNull()
+    expect(ui.state.error).toBeNull()
+
+    // AND IT STAYS GONE WHEN THE ATTEMPT LANDS -- on the boundary's chrome and
+    // on the step the wizard advances to.
+    await React.act(async () => {
+      release()
+      await Promise.resolve()
+    })
     expect(ui.state.sessionId).toBe('sess-1')
     expect(ui.cursor.cursorStepId).toBe('landform')
     expect(ui.find(`commit-failed-${BOUNDARY_STEP_ID}`)).toBeNull()
     expect(ui.find('commit-failed-landform')).toBeNull()
+
+    await ui.unmount()
+  })
+
+  it('renders a FRESH notice when the retry fails too', async () => {
+    // TEST 9. The other half of clearing on the press: a second failure is a
+    // second notice, not the first one having survived. Asserted on the LAYER
+    // it names, which differs between the two attempts -- a notice that had
+    // merely persisted would still be naming the first source.
+    const OTHER_LAYER = { type: 'elevation', label: 'elevation data' }
+    installFetch([
+      route('POST', /^\/api\/sessions$/, [
+        { status: 500, body: { error: 'boom', failed_layer: FAILED_LAYER } },
+        { status: 500, body: { error: 'boom', failed_layer: OTHER_LAYER } },
+      ]),
+    ])
+    const ui = await renderShell()
+    await commitBoundary(ui)
+    expect(ui.text(`commit-failed-${BOUNDARY_STEP_ID}`)).toContain(FAILED_LAYER.label)
+
+    await ui.click(`commit-${BOUNDARY_STEP_ID}`)
+
+    const notice = ui.text(`commit-failed-${BOUNDARY_STEP_ID}`)
+    expect(notice, 'a second failure must raise its own notice').not.toBeNull()
+    expect(notice).toContain(OTHER_LAYER.label)
+    expect(notice).not.toContain(FAILED_LAYER.label)
+
+    // The boundary is still exactly as drawn, and the button is back again.
+    expect(ui.state.drafts[BOUNDARY_STEP_ID].inputs[BOUNDARY_RING_INPUT]).toEqual(RING)
+    expect(ui.find(`commit-${BOUNDARY_STEP_ID}`).disabled).toBe(false)
+
+    await ui.unmount()
+  })
+
+  it('has always cleared a GENERATE failure on the press, through other machinery', async () => {
+    // THE SAME QUESTION ASKED OF THE OTHER VERB, and the answer is that they
+    // do not share the machinery. A failed commit's notice is read off the
+    // step's error (or the session's, for the boundary); a failed GENERATE's
+    // is read off the JOB TABLE -- `failed_layer` on the job the store polled.
+    // The store's generate drops the step's finished job and clears its error
+    // BEFORE the first await (JOB_STARTED), so that notice has always gone on
+    // the press. Pinned here so a change to either path has to come past a
+    // test that names both.
+    installFetch([
+      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
+      route('POST', /\/steps\/landform\/generate$/, [
+        { status: 202, body: { job_id: 'job-1' } },
+        { status: 202, body: { job_id: 'job-2' } },
+      ]),
+      route('GET', /\/jobs\/job-1$/, {
+        body: { job_id: 'job-1', status: 'failed', error: { failed_layer: FAILED_LAYER } },
+      }),
+      route('GET', /\/jobs\/job-2$/, { body: { job_id: 'job-2', status: 'running' } }),
+    ])
+    const ui = await renderShell()
+    await commitBoundary(ui)
+    expect(ui.cursor.cursorStepId).toBe('landform')
+
+    await ui.run((a) => a.generate('landform', {}))
+    expect(ui.text(`failed-layer-landform`)).toContain(FAILED_LAYER.label)
+
+    // THE SECOND GENERATE, NOT AWAITED -- its job never leaves `running`, so
+    // this is the frame while the attempt is out.
+    await React.act(async () => {
+      ui.find('generate-landform').click()
+      await Promise.resolve()
+    })
+    expect(ui.find('step-landform').dataset.stepState).toBe(GENERATING)
+    expect(ui.find('failed-layer-landform')).toBeNull()
 
     await ui.unmount()
   })

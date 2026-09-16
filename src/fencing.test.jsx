@@ -533,7 +533,22 @@ describe('1. end to end against the real backend', () => {
       for (const stepId of ui.cursor.order) {
         expect(ui.find(`rail-${stepId}`).querySelector('.chrome-rail__status').textContent, stepId).toBe('done')
       }
-      expect(ui.all('[data-tab-id]')).toHaveLength(0)
+
+      // AND THE STRIP IS THE COMMIT, IN REVIEW. This used to assert NO tabs,
+      // which was this defect written down as an expectation: a committed
+      // step said nothing about what it had committed, and the only way to
+      // look at it again was to reopen it and cascade everything below.
+      // What is here now is one tab per type the commit TOOK -- the dropped
+      // one is not part of the design and is not listed -- carrying no
+      // checkbox and no ×, because the set is fixed until a reopen.
+      expect(ui.all('[data-tab-id]').map((li) => li.dataset.tabId)).toEqual(
+        kept.map((b) => b.fence_type)
+      )
+      expect(ui.find(`tab-${dropped.fence_type}`)).toBeNull()
+      for (const block of kept) {
+        expect(ui.find(`tab-check-${block.fence_type}`), 'no checkbox in review').toBeNull()
+        expect(ui.find(`tab-remove-${block.fence_type}`), 'no × in review').toBeNull()
+      }
       expect(ui.find('generate-fencing')).toBeNull()
       expect(ui.find('commit-fencing')).toBeNull()
       const actions = ui.find('actions-fencing')

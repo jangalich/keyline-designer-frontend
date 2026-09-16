@@ -1391,6 +1391,92 @@ describeIf('the fencing checkbox', () => {
    nothing is asking anything until the affordance is pressed.
    =========================================================================== */
 
+/* ===========================================================================
+   A COMMITTED STEP, LOOKED AT
+   ===========================================================================
+
+   REVIEW REMOVES CONTROLS, AND A REMOVAL IS EXACTLY THE CLAIM THIS PAGE
+   EXISTS TO CHECK. The commit set is fixed until a reopen, so a checkbox here
+   would be either inert-but-pressable -- the defect this whole file was built
+   for, wearing a different label -- or a control that appears to change a
+   decision that is made. So there is none, and no × either.
+
+   "ABSENT" IS ASSERTED IN THE BROWSER THAT HIT-TESTS rather than in jsdom,
+   because the two failures look identical from a query: a control that is
+   absent and a control that is present and unreachable both fail
+   `document.querySelector` on nothing and both fail a click. What is asserted
+   is both halves -- the DOM holds no box and no ×, and the one thing that IS
+   there, the tab body, is topmost at its own centre and does something when
+   pressed.
+   =========================================================================== */
+
+describeIf('a committed step in review', () => {
+  liveIt('offers a tab body that works and no control that does not', async () => {
+    // BACK TO THE COMMITTED STEP, ON THE RAIL, WITH THE MOUSE.
+    await press('rail-landform')
+    expect(await evaluate(() => window.__probe.cursor.cursorStepId)).toBe('landform')
+    expect(await statusOf('landform')).toBe('committed')
+
+    // THE STRIP IS THERE, so the absences below are absences within something
+    // rather than the absence of the strip.
+    const tabs = await shownTabs()
+    expect(tabs.length, 'a committed step lists what it committed').toBeGreaterThan(0)
+
+    // NO BOX AND NO ×, AT BOTH WIDTHS. The squeezed stage is where the
+    // reported defect lived, so it is where the removal is checked hardest.
+    for (const [where, viewport] of STAGES) {
+      await resize(viewport)
+      expect(await shownBoxes(), `no checkbox in review on ${where}`).toEqual([])
+      expect(
+        await evaluate(() => document.querySelectorAll('.chrome-tabs .chrome-tab__remove').length),
+        `no × in review on ${where}`
+      ).toBe(0)
+
+      // AND NOTHING ELSE PRESSABLE THAT IS NOT A TAB BODY. The strip's whole
+      // interactive surface, enumerated by class rather than counted: every
+      // control in it is a tab body or the "+N more" that expands the row.
+      const controls = await evaluate(() =>
+        [...document.querySelectorAll('.chrome-tabs button, .chrome-tabs input')].map((el) =>
+          el.classList.contains('chrome-tab__body')
+            ? 'body'
+            : el.classList.contains('chrome-tab__more')
+              ? 'more'
+              : `${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]}`
+        )
+      )
+      expect(
+        [...new Set(controls)].filter((kind) => kind !== 'body' && kind !== 'more'),
+        `nothing in the strip but tab bodies and the overflow control on ${where}`
+      ).toEqual([])
+    }
+    await resize(ROOMY)
+
+    // THE TAB BODY IS TOPMOST AT ITS OWN CENTRE, which is the hover
+    // affordance stated as a claim -- and it is the control that is supposed
+    // to be there, so this is the half that must NOT be an absence.
+    const [first] = tabs
+    expect(await topAt(`tab-focus-${first}`), 'the tab body is reachable in review')
+      .toMatchObject({ hits: true })
+
+    // AND IT DOES SOMETHING: a real press focuses the feature and opens the
+    // panel, exactly as it does on a live step.
+    await press(`tab-focus-${first}`)
+    expect(await evaluate(() => window.__probe.cursor.focusedFeatureId)).not.toBeNull()
+    expect(await page.$('[data-testid="detail-landform"]')).not.toBeNull()
+
+    // NOTHING WAS COMMITTED AND NOTHING WAS ARMED BY LOOKING.
+    expect(await statusOf('landform')).toBe('committed')
+    expect(await evaluate(() => window.__probe.cursor.armed)).toBeNull()
+
+    // A BARE-MAP PRESS LETS GO, and the panel goes with the focus.
+    const map = await page.locator('.leaflet-container').boundingBox()
+    await page.mouse.click(map.x + 12, map.y + map.height - 12)
+    await page.waitForTimeout(150)
+    expect(await evaluate(() => window.__probe.cursor.focusedFeatureId)).toBeNull()
+    expect(await page.$('[data-testid="detail-landform"]')).toBeNull()
+  })
+})
+
 describeIf('the reopen confirmation', () => {
   liveIt('opens only when the affordance is pressed, and both answers take a real click', async () => {
     // BACK TO A COMMITTED STEP, ON THE RAIL, WITH THE MOUSE.

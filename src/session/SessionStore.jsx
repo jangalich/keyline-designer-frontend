@@ -105,6 +105,7 @@ export const SESSION_CLEARED = 'session/cleared'
 export const RESUME_STARTED = 'session/resumeStarted'
 export const RESUME_ABSENT = 'session/resumeAbsent'
 export const SESSION_ERROR_SET = 'session/errorSet'
+export const SESSION_ERROR_CLEARED = 'session/errorCleared'
 export const STEP_PROPOSALS_LOADED = 'step/proposalsLoaded'
 export const STEP_PROPOSALS_CLEARED = 'step/proposalsCleared'
 export const STEP_ERROR_SET = 'step/errorSet'
@@ -142,6 +143,7 @@ export const ALL_ACTIONS = Object.freeze([
   RESUME_STARTED,
   RESUME_ABSENT,
   SESSION_ERROR_SET,
+  SESSION_ERROR_CLEARED,
   STEP_PROPOSALS_LOADED,
   STEP_PROPOSALS_CLEARED,
   STEP_ERROR_SET,
@@ -222,6 +224,7 @@ const MISSING_STEP = Object.freeze({
   provenance: null,
   inputs: null,
   proposals: null,
+  review: null,
   error: null,
 })
 
@@ -292,6 +295,47 @@ function proposalsSurvive(previous, entry) {
 }
 
 /**
+ * THE CANDIDATE SET A COMMITTED STEP DECIDED FROM, kept so the step can be
+ * LOOKED AT again without being reopened.
+ *
+ * A SECOND SLOT RATHER THAN A LOOSENING OF THE ONE ABOVE, and the split is the
+ * whole point. `proposals` means "the editable candidate set of a step being
+ * decided", and a dozen readers rely on that -- the layer stack resolves an
+ * editable band off it, the machine derives LOADING from its absence, the
+ * commit body is assembled from it. Letting it survive a commit would put a
+ * committed step's declined candidates back on the map and back in every one
+ * of those readings. So the commit MOVES the payload: out of `proposals`,
+ * where it is the live set, and into `review`, where it is a record of what
+ * was on offer. Nothing that reads the live set can reach it.
+ *
+ * IT IS THE SAME OBJECT, CARRIED BY REFERENCE, so this costs nothing and
+ * cannot drift from what the commit was made against.
+ *
+ * WHAT IT IS FOR: a committed step's tabs and detail panel are its own
+ * `tabs()` and `detail()` read against the commit (see useStepMachine's
+ * stepContextFor), and those declarations are written against the payload's
+ * tables -- a zone's median slope and its elevation position are in
+ * `zones`, not on the Feature. The committed FeatureCollection is the
+ * DECISION in full and it is what the map draws; it is not the MEASUREMENTS,
+ * and the backend will not serve them again for a committed step
+ * (step_orchestrator.StepNotGeneratedError says so, and says why).
+ *
+ * SO A CLIENT THAT NEVER HELD THEM DOES NOT INVENT THEM. A session resumed
+ * from a bookmark has the document and no payload, and this stays null: the
+ * committed geometry is still on the map and still takes a click, and the
+ * strip and the panel say nothing rather than a poorer version of what they
+ * would have said. See reviewTabs.
+ *
+ * CARRIED FORWARD ACROSS EVERY LATER HYDRATE. `previous.proposals` is the
+ * payload on the commit's own hydrate; `previous.review` is it on all the
+ * ones after, when some other step's commit rebuilds the mirror.
+ */
+function reviewProposals(previous, entry) {
+  if (entry.status !== COMMITTED) return null
+  return previous?.proposals ?? previous?.review ?? null
+}
+
+/**
  * Replace the mirror with a server document. WHOLESALE.
  *
  * Every step in `step_order` is rebuilt from the document's entry, including
@@ -331,6 +375,10 @@ function hydrate(state, document) {
       provenance: entry.provenance ?? null,
       inputs: entry.inputs ?? null,
       proposals: proposalsSurvive(previous, entry) ? previous.proposals : null,
+      // WHAT A COMMITTED STEP CAN STILL BE ASKED ABOUT. See reviewProposals:
+      // the commit moves the payload here, where nothing that reads the live
+      // candidate set can reach it.
+      review: reviewProposals(previous, entry),
       // Rejections and step-state errors describe a state that no longer
       // exists once a new document lands.
       error: null,
@@ -415,6 +463,15 @@ function reduce(state, action) {
 
     case SESSION_ERROR_SET:
       return { ...state, error: action.error, resume: state.resume === 'loading' ? 'idle' : state.resume }
+
+    case SESSION_ERROR_CLEARED:
+      // THE STEP ERROR'S COUNTERPART, and it exists for the same reason that
+      // one does. A failure notice describes an ATTEMPT, and an attempt that
+      // has been superseded is not worth reporting -- see the clear in
+      // useStepMachine's commit. `resume` is untouched: this says nothing
+      // about whether a session is loading, and SESSION_ERROR_SET's own
+      // adjustment of it is that action's business.
+      return state.error === null ? state : { ...state, error: null }
 
     case STEP_PROPOSALS_LOADED:
       // FROM A LAYERS FETCH OR A FINISHED JOB, never from the document. The
@@ -774,6 +831,11 @@ export const selectStepFeatures = (state, stepId) => selectStep(state, stepId).f
 export const selectStepProvenance = (state, stepId) => selectStep(state, stepId).provenance
 export const selectStepInputs = (state, stepId) => selectStep(state, stepId).inputs
 export const selectStepProposals = (state, stepId) => selectStep(state, stepId).proposals
+/**
+ * THE SET A COMMITTED STEP DECIDED FROM, or null when this client never held
+ * it. See reviewProposals for why it is a slot of its own.
+ */
+export const selectReviewProposals = (state, stepId) => selectStep(state, stepId).review
 export const selectStepError = (state, stepId) => selectStep(state, stepId).error
 
 export const selectIsStepCommitted = (state, stepId) =>
@@ -1685,6 +1747,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       setDraftInput: (stepId, key, value) => dispatch({ type: DRAFT_INPUT_SET, stepId, key, value }),
       discardDraft: (stepId) => dispatch({ type: DRAFT_DISCARDED, stepId }),
       clearStepError: (stepId) => dispatch({ type: STEP_ERROR_CLEARED, stepId }),
+      clearSessionError: () => dispatch({ type: SESSION_ERROR_CLEARED }),
       clearSession: () => {
         forgetSessionId()
         dispatch({ type: SESSION_CLEARED, resume: 'idle' })

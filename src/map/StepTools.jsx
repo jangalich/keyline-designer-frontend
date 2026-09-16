@@ -115,7 +115,22 @@ export default function StepTools({
   if (!definition) return null
 
   const tools = definition.tools
+
+  /**
+   * NOTHING TO EDIT, SO NOTHING MOUNTS -- and nothing is reported either.
+   *
+   * A step whose decision is made contributes no editable band (see
+   * composeLayerStack), so every warning below would fire at once: three
+   * declared verbs, none with a layer to act on. That warning exists to catch
+   * a `tools[]` and a `layers[]` that DISAGREE, which is a declaration bug;
+   * an empty band here is the stack saying the step is settled, and the tools
+   * standing down is the correct answer rather than the symptom of one.
+   *
+   * The mount record still renders, empty, so "which tools are live" has the
+   * same answer in the same place whatever state the step is in.
+   */
   const mounts = []
+  if (!layers.length) return <ToolMounts mounts={mounts} armed={armed} />
 
   for (const tool of tools) {
     const Gesture = gestures[tool]
@@ -166,26 +181,7 @@ export default function StepTools({
 
   return (
     <>
-      {/* THE MOUNT RECORD. One node per tool actually mounted, so "exactly the
-          declared tools mount" is a fact about the document rather than about
-          a boolean somewhere. It also carries which one is live, which is the
-          only place assistive tech can read the map's current mode from. */}
-      <div className="map-tools" data-testid="mounted-tools">
-        {mounts.map((mount) => (
-          <span
-            key={`mark:${mount.id}`}
-            hidden
-            className="map-tools__mount"
-            data-testid={`tool-${mount.tool}`}
-            data-tool={mount.tool}
-            data-layer={mount.layer.layerId}
-            data-armed={mount.armed ? 'true' : 'false'}
-          />
-        ))}
-        <p className="visually-hidden" role="status" data-testid="armed-tool">
-          {armed ? ARMED_LINES[armed] : 'No map tool is active.'}
-        </p>
-      </div>
+      <ToolMounts mounts={mounts} armed={armed} />
       {mounts.map(({ id, Gesture, tool, layer, armed: isArmed, renders }) => (
         <Gesture
           key={id}
@@ -204,6 +200,35 @@ export default function StepTools({
         />
       ))}
     </>
+  )
+}
+
+/**
+ * THE MOUNT RECORD. One node per tool actually mounted, so "exactly the
+ * declared tools mount" is a fact about the document rather than about a
+ * boolean somewhere. It also carries which one is live, which is the only
+ * place assistive tech can read the map's current mode from -- and it says
+ * "no map tool is active" for a step with nothing to mount as readily as for
+ * one whose tools are all disarmed.
+ */
+function ToolMounts({ mounts, armed }) {
+  return (
+    <div className="map-tools" data-testid="mounted-tools">
+      {mounts.map((mount) => (
+        <span
+          key={`mark:${mount.id}`}
+          hidden
+          className="map-tools__mount"
+          data-testid={`tool-${mount.tool}`}
+          data-tool={mount.tool}
+          data-layer={mount.layer.layerId}
+          data-armed={mount.armed ? 'true' : 'false'}
+        />
+      ))}
+      <p className="visually-hidden" role="status" data-testid="armed-tool">
+        {armed ? ARMED_LINES[armed] : 'No map tool is active.'}
+      </p>
+    </div>
   )
 }
 

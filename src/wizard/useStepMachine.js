@@ -54,10 +54,12 @@ import {
   selectNoCandidate,
   selectHasDraft,
   selectJobForStep,
+  selectReviewProposals,
   selectSessionError,
   selectSessionId,
   selectStepError,
   selectStepFeatures,
+  selectStepInputs,
   selectStepProposals,
   selectStepProvenance,
   selectStepRejections,
@@ -66,6 +68,7 @@ import {
 } from '../session/SessionStore'
 import { JOB_RUNNING } from '../session/jobs'
 import { requiredInputsMissing } from './stepInputs.js'
+import { reviewTabs } from './tabs.js'
 
 /* The machine's states. Exported so panels and tests name them rather than
    comparing strings, and so a typo is a reference error. */
@@ -248,6 +251,59 @@ function seedSelection(definition, proposalFeatures) {
 }
 
 /**
+ * THE DRAFT A COMMITTED STEP READS AS, WHICH IS THE COMMIT ITSELF.
+ *
+ * A committed step has no draft -- the commit discarded it -- and every one of
+ * a step's own declarations (`tabs`, `detail`, `notices`) is written against
+ * one. Handing them the EMPTY draft is what made a committed step say nothing:
+ * no tabs, no panel, and an action banner offering the one thing that is not
+ * looking, which is the reopen.
+ *
+ * SO THE COMMITTED SET IS PRESENTED AS THE DRAFT IT WOULD HAVE BEEN. Its
+ * generated features are the selection, its user-added features are the drawn
+ * shapes, and its recorded inputs are the inputs -- read off the document's own
+ * `provenance`, which is the record the commit wrote, rather than inferred from
+ * a feature id. Nothing else has to learn that a step can be looked at: a
+ * declaration reading `draft.drawnFeatures` finds the zones the user drew AND
+ * committed, and one reading `draft.selectedFeatureIds` finds what the commit
+ * took.
+ *
+ * IT IS NOT seedFor(). That one falls back to "every proposal selected" when
+ * the step carries no features, which is the right opening position for a step
+ * being EDITED and the wrong reading of a step that deliberately committed
+ * nothing -- an empty commit would come back as a full selection. Here an empty
+ * commit is an empty selection, because that is what it was.
+ *
+ * `seeded: true` because nothing in it is a user gesture; see withDraft.
+ */
+function committedDraft(state, stepId) {
+  const collection = selectStepFeatures(state, stepId)
+  const features = Array.isArray(collection?.features) ? collection.features : []
+  const provenance = selectStepProvenance(state, stepId) ?? {}
+  const selectedFeatureIds = []
+  const drawnFeatures = []
+  for (const feature of features) {
+    if (provenance[feature.id] === PROVENANCE_USER_ADDED) drawnFeatures.push(feature)
+    else selectedFeatureIds.push(feature.id)
+  }
+  return {
+    selectedFeatureIds,
+    drawnFeatures,
+    inputs: selectStepInputs(state, stepId) ?? EMPTY_INPUTS,
+    seeded: true,
+  }
+}
+
+const EMPTY_INPUTS = Object.freeze({})
+
+/** Every feature id the step committed. What a review tab is narrowed to. */
+function committedFeatureIds(state, stepId) {
+  const collection = selectStepFeatures(state, stepId)
+  const features = Array.isArray(collection?.features) ? collection.features : []
+  return new Set(features.map((feature) => feature.id))
+}
+
+/**
  * Run one step.
  *
  * Returns everything a panel needs and nothing it has to re-derive: the
@@ -278,8 +334,12 @@ function seedSelection(definition, proposalFeatures) {
  */
 export function stepContextFor(state, definition) {
   const stepId = definition.id
-  const draft = selectDraft(state, stepId)
-  const proposals = selectStepProposals(state, stepId)
+  // A COMMITTED STEP'S CONTEXT IS THE COMMIT. See committedDraft.
+  const committed = definition.status(state) === COMMITTED
+  const draft = committed ? committedDraft(state, stepId) : selectDraft(state, stepId)
+  const proposals = committed
+    ? selectReviewProposals(state, stepId)
+    : selectStepProposals(state, stepId)
   const selectedCount = draft.selectedFeatureIds.length
   return {
     stepId,
@@ -323,6 +383,17 @@ export function useStepMachine(definition) {
   const status = definition.status(state)
   const reachable = definition.reachable(state)
   const blockedBy = reachable ? null : definition.blockedBy(state)
+  /**
+   * THE DRAFT IN THE STORE, which on a COMMITTED step is nothing at all.
+   *
+   * NOT THE SAME OBJECT AS `context.draft`, and the difference is the one
+   * thing to know about this pair. This is the store's slot -- what the user
+   * has in hand, and what `discardDraft` throws away. The context's is what
+   * the step's own declarations are evaluated against, which for a committed
+   * step is the COMMIT read as a draft (see committedDraft). Everything a
+   * definition sees goes through the context; this is for the machine's own
+   * bookkeeping and for the generate's params.
+   */
   const draft = selectDraft(state, stepId)
   const proposals = selectStepProposals(state, stepId)
   const job = selectJobForStep(state, stepId)
@@ -446,6 +517,18 @@ export function useStepMachine(definition) {
   const selectedCount = draft.selectedFeatureIds.length
   const drawnCount = draft.drawnFeatures.length
 
+  /**
+   * IS THE CURSOR LOOKING AT A DECISION THAT IS MADE.
+   *
+   * The chrome only ever runs a machine for the step the cursor names (see
+   * WizardShell), so "the machine state is committed" and "the cursor is on a
+   * committed step" are one fact here and there is no second flag to keep in
+   * agreement with the first. The MAP needs the other half of the same rule,
+   * because it draws every committed step at once, and layerStack.js states it
+   * there in the one loop that has both the cursor and the owning step.
+   */
+  const reviewing = machineState === STEP_COMMITTED
+
   const context = useMemo(
     () => stepContextFor(state, definition),
     // The fields rather than the built object: every one of them is derived
@@ -456,6 +539,25 @@ export function useStepMachine(definition) {
     [stepId, definition, state, draft, proposals, proposalFeatures, selectedCount, drawnCount]
   )
 
+
+  /**
+   * THE STEP'S TABS, READ ONCE.
+   *
+   * TWO SURFACES READ THEM -- the strip draws them, and the detail panel takes
+   * a focused feature's identity and its top rows off the very same tab
+   * (panelFormat's rules 1 and 2). They used to call `definition.tabs()`
+   * separately, which was harmless while the answer was a pure function of the
+   * context and is not once the answer is NARROWED: two narrowings is two
+   * places for a committed step's strip and its panel to disagree about which
+   * features exist.
+   *
+   * AND THE NARROWING IS WHAT REVIEW IS. See reviewTabs: what a committed step
+   * shows is its commit, without the controls that would offer to change it.
+   */
+  const tabs = useMemo(() => {
+    const declared = definition.tabs(context)
+    return reviewing ? reviewTabs(declared, committedFeatureIds(state, stepId)) : declared
+  }, [definition, context, reviewing, state, stepId])
 
   /* -----------------------------------------------------------------------
      Errors, per feature and otherwise
@@ -635,6 +737,33 @@ export function useStepMachine(definition) {
    * focus the re-prompt) rather than for this hook to branch on.
    */
   const commit = useCallback(async () => {
+    /**
+     * THE LAST ATTEMPT'S NOTICE GOES WHEN THIS ONE IS PRESSED, not when it
+     * succeeds.
+     *
+     * A failure notice describes an attempt that is OVER. The moment another
+     * one is in flight it is stale, and leaving it up makes a running retry
+     * look like a failed one -- the instruction bar says a data source did not
+     * respond while the banner beside it says `Committing…`. The panel-feedback
+     * branch specified "the notice clears when a retry succeeds" and that was
+     * the wrong half of the request to hang it on: the press is what makes the
+     * notice stale, and the result is what decides whether a NEW one appears.
+     *
+     * BOTH SLOTS, because one notice is read off both. A step commit's failure
+     * lands in the step's error; the boundary's commit is a session CREATE,
+     * which has no step id to record against and lands in the session's -- see
+     * `commitFailure`, which reads whichever of the two carried it. Clearing
+     * only the one this step would use would leave the boundary's notice up
+     * through every retry, which is the case the bug was found on.
+     *
+     * GENERATE ALREADY DID THIS AND DOES NOT SHARE THIS PATH. Its notices are
+     * the JOB's (`failedLayer`, `noCandidate`, read off the job table), and the
+     * store's generate drops the step's finished job and clears its error
+     * before the first await -- so a generate retry has always cleared on the
+     * press. See SessionStore's JOB_STARTED.
+     */
+    actions.clearStepError(stepId)
+    actions.clearSessionError()
     setPending(COMMITTING)
     try {
       return await definition.commit.run(actions, context)
@@ -643,7 +772,7 @@ export function useStepMachine(definition) {
       // unmount case; `finally` guards every other one.
       if (liveRef.current) setPending(null)
     }
-  }, [actions, definition, context])
+  }, [actions, definition, context, stepId])
 
   /**
    * committed -> reviewing, via a confirmation that names what it costs.
@@ -676,6 +805,8 @@ export function useStepMachine(definition) {
     draft,
     proposals,
     proposalFeatures,
+    tabs,
+    reviewing,
     job,
     error,
     rejections,
