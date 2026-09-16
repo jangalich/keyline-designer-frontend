@@ -26,10 +26,9 @@
  *
  *   A boundary with three points down is `editing` to the machine whether the
  *   draw is armed or not -- the draft holds work either way. But mid-trace the
- *   bar has to say "Click to place each corner." and offer an undo, and once
- *   the ring is closed it has to say "Check the shape before sending." and
- *   offer the commit. The machine cannot separate those and should not learn
- *   to.
+ *   bar has to say "Continue adding points…" and offer an undo, and once the
+ *   ring is closed it has to say "Commit boundary to proceed." and offer the
+ *   commit. The machine cannot separate those and should not learn to.
  *
  *   A landform selection toggled off a suggestion makes the draft touched, so
  *   the machine says `editing` -- but the user is still reviewing proposals

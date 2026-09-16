@@ -526,6 +526,72 @@ describeIf('5a. the instruction card’s structure', () => {
     await ui.close()
   }, SLOW)
 
+  /**
+   * THE WORST CASE THE COPY CAN PUT IN THIS CARD: the longest sentence a
+   * shipped step declares, with three notices stacked under it.
+   *
+   * THE STRING IS THE PRODUCT'S, NOT THIS FILE'S. `?instruction=` reads it off
+   * STEP_DEFINITIONS -- see instructionFor() in layoutHarness.jsx -- so a copy
+   * pass that lengthens a direction is measured here on its next run rather
+   * than being measured against a sentence this test invented and kept.
+   *
+   * TWO LINES, BECAUSE "LONGEST" AND "LONGEST DIRECTION" ARE NOT THE SAME
+   * STRING. The longest declared instruction is boundary's committed note,
+   * which is a statement about a finished step; the longest line that tells
+   * someone what to do with their hands is landform's `reviewing`. The cap has
+   * to hold for both, and only the first is found by sorting.
+   */
+  it('holds the cap and the map under the longest shipped line with three notices', async () => {
+    for (const instruction of ['longest', 'landform']) {
+      const ui = await openHarness({ instruction, notice: 'stacked' })
+      const stage = await ui.stage()
+      const card = await ui.box(REGIONS.instruction)
+
+      // The real case: the shipped sentence is in the slot, and three notices
+      // are under it.
+      const direction = await ui.page.textContent('.chrome-bar__direction')
+      expect(direction.length, `${instruction} reached the bar`).toBeGreaterThan(100)
+      expect(await ui.page.locator('.chrome-bar__notice').count()).toBe(3)
+
+      // THE CAP HOLDS. Unwrapped, a 158-character line is well past --measure.
+      expect(card.width, `${instruction} within the cap`).toBeLessThanOrEqual(READING_MEASURE)
+
+      // AND IT WRAPPED RATHER THAN BEING CLIPPED: the direction is laid out
+      // over more than one line box. A Range over the contents, for the same
+      // reason the notice case gives -- a block box has one rect however many
+      // lines it holds.
+      const lines = await ui.page.evaluate(() => {
+        const range = document.createRange()
+        range.selectNodeContents(document.querySelector('.chrome-bar__direction'))
+        return range.getClientRects().length
+      })
+      expect(lines, `${instruction} wrapped`).toBeGreaterThan(1)
+
+      // STILL CENTRED.
+      const left = card.x - stage.x
+      const right = stage.x + stage.width - (card.x + card.width)
+      expect(Math.abs(left - right), `${instruction} centred`).toBeLessThanOrEqual(1)
+
+      // AND IT HAS NOT GROWN INTO THE MAP. The claim the stacked case makes,
+      // asked of a taller card: more than half the stage is still map between
+      // this card and the action banner.
+      const action = await ui.box(REGIONS.action)
+      const gap = action.y - (card.y + card.height)
+      expect(gap, `${instruction} leaves the middle of the map clear`).toBeGreaterThan(
+        stage.height / 2
+      )
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `    bar  ${instruction}: ${direction.length} chars over ${lines} lines, card ` +
+          `${card.width.toFixed(0)}x${card.height.toFixed(1)}px (cap ${READING_MEASURE}), ` +
+          `map below ${gap.toFixed(0)}px`
+      )
+
+      await ui.close()
+    }
+  }, SLOW)
+
   it('reads the other two states, and takes no layout doing it', async () => {
     /**
      * THE THREE TONES, ACROSS THE THREE PAGES THAT ACTUALLY PRODUCE THEM.

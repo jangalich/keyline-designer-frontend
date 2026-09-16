@@ -1170,7 +1170,7 @@ describe('2. the placement tool is not armed on entry, and "Place a site" arms i
     expect(ui.find('tool-draw').dataset.armed).toBe('false')
     expect(ui.find('tool-draw').dataset.layer).toBe('structures-placed')
     expect(ui.text('place-structures')).toBe('Place a site')
-    expect(ui.find('instruction-structures').textContent).toContain('Place a site of your own')
+    expect(ui.find('instruction-structures').textContent).toContain('place your own')
 
     // A click on the map with nothing armed places nothing.
     await ui.clickMap(INSIDE)
