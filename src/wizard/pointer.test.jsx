@@ -816,8 +816,35 @@ describeIf('the checkbox takes a real click in both directions', () => {
    * case by failing it.
    */
   liveIt('keeps the box pressable with the detail panel open, at both widths', async () => {
-    const [first] = await shownBoxes()
-    expect(first, 'landform has a tab to focus').toBeDefined()
+    const boxes = await shownBoxes()
+    expect(boxes[0], 'landform has a tab to focus').toBeDefined()
+
+    // THE TALLEST PANEL, NOT THE FIRST ONE. A block's panel is no longer a
+    // fixed number of rows: the soil run is one to three, so which block is
+    // focused decides how far the card reaches down the stage. The press below
+    // has to be made under the WORST case, and the worst case is measured here
+    // rather than guessed at -- a hard-coded tab id would stop being the tall
+    // one the first time the fixture's soils change.
+    let first = boxes[0]
+    let tallest = -1
+    let continuations = 0
+    for (const tabId of boxes) {
+      await press(`tab-focus-${tabId}`)
+      const measured = await evaluate(() => ({
+        rows: document.querySelectorAll('.chrome-detail__rows > *').length,
+        continuations: document.querySelectorAll('[data-row="continuation"]').length,
+      }))
+      if (measured.rows > tallest) {
+        tallest = measured.rows
+        first = tabId
+      }
+      continuations = Math.max(continuations, measured.continuations)
+      await press(`tab-focus-${tabId}`)
+    }
+    // AND THE TALL CASE IS REAL ON THIS PAYLOAD. A run of one on every block
+    // would make the whole measurement above a no-op, and the press below
+    // would be testing the panel this branch did not change.
+    expect(continuations, 'some block renders a multi-row soil run').toBeGreaterThan(0)
 
     for (const [where, viewport] of STAGES) {
       await resize(viewport)
@@ -847,6 +874,12 @@ describeIf('the checkbox takes a real click in both directions', () => {
         ),
         `${where}: the detail panel offers nothing to press`
       ).toEqual([])
+
+      // THE SOIL RUN IS ON SCREEN, which is what makes this the tall panel.
+      expect(
+        await evaluate(() => document.querySelectorAll('[data-row="continuation"]').length),
+        `${where}: the tallest panel carries its soil continuations`
+      ).toBeGreaterThan(0)
 
       // AND THE BOX IS STILL THE ELEMENT AT ITS OWN CENTRE, both ways, with
       // the panel on screen the whole time.

@@ -101,16 +101,30 @@ const PAYLOAD = {
       geometry,
     })),
   },
-  // THE PANEL'S OWN ROWS, IN THE WIRE'S SHAPE. `soil_components` and
-  // `drainage_class` are hardcoded None on the real wire today and are spelled
-  // out here rather than omitted, because the panel's claim is that it renders
-  // an em dash for a field the pipeline SENT as null -- which is a different
-  // fact from a key that is missing, and the fixture has to be able to tell
-  // them apart. `elevation_position` is the backend's own word, never a band
-  // this side computed; zone-2 carries null for it, which is what a parcel with
-  // no relief ships.
+  // THE PANEL'S OWN ROWS, IN THE WIRE'S SHAPE, AND BOTH SOIL ANSWERS.
+  //
+  // zone-1 sits on THREE map units -- the backend's cap -- each entry carrying
+  // the composed `label` that is the panel's whole value cell, plus the parts
+  // it ships beside it. zone-2 sits on ground with no soil survey and carries
+  // `soil_components: null` and `drainage_class: null`, which the backend
+  // guarantees arrive TOGETHER. Both are spelled out rather than omitted,
+  // because the panel's claim is that it renders an em dash for a field the
+  // pipeline SENT as null -- a different fact from a key that is missing, and
+  // the fixture has to be able to tell them apart.
+  //
+  // The shares are DECIMALS and the labels are WHOLE PERCENT, exactly as the
+  // real wire spells them, so a panel that rebuilt the string from the parts
+  // would print something visibly different here.
+  //
+  // `elevation_position` is the backend's own word, never a band this side
+  // computed; zone-2 carries null for it, which is what a parcel with no relief
+  // ships.
   zones: [
-    { id: 0, feature_id: 'zone-1', rank: 1, area_acres: 2.5, score: 81, slope_min_pct: 2.4, slope_max_pct: 8.1, slope_median_pct: 3.2, aspect_available: true, dominant_aspect: 'south', elevation_position: 'upper field', soil_components: null, drainage_class: null },
+    { id: 0, feature_id: 'zone-1', rank: 1, area_acres: 2.5, score: 81, slope_min_pct: 2.4, slope_max_pct: 8.1, slope_median_pct: 3.2, aspect_available: true, dominant_aspect: 'south', elevation_position: 'upper field', soil_components: [
+      { label: '62% Gilpin', cell_share_pct: 61.8, component_name: 'Gilpin', map_unit_name: 'Gilpin silt loam, 8 to 15 percent slopes', mukey: '541611' },
+      { label: '23% Ernest', cell_share_pct: 22.9, component_name: 'Ernest', map_unit_name: 'Ernest silt loam', mukey: '541683' },
+      { label: '11% Wharton', cell_share_pct: 11.4, component_name: 'Wharton', map_unit_name: 'Wharton silt loam', mukey: '541700' },
+    ], drainage_class: 'Well drained' },
     { id: 1, feature_id: 'zone-2', rank: 2, area_acres: 1.2, score: 64, slope_min_pct: 3, slope_max_pct: 11, slope_median_pct: 6, aspect_available: false, dominant_aspect: null, elevation_position: null, soil_components: null, drainage_class: null },
   ],
   scales: {
@@ -454,8 +468,20 @@ describe('2. the detail panel', () => {
     expect(value('aspect')).toBe('south facing')
     expect(value('position')).toBe('upper field')
     expect(value('median slope %')).toBe('3.2')
-    expect(value('soil')).toBe('—')
-    expect(value('drainage class')).toBe('—')
+
+    // THE SOIL RUN: the first entry under the label `soil`, the other two as
+    // CONTINUATIONS carrying no label of their own -- and each rendered as the
+    // backend composed it, never rebuilt from the share and the name beside it.
+    expect(value('soil')).toBe('62% Gilpin')
+    expect(ui.text('detail-continuation-23% Ernest')).toBe('23% Ernest')
+    expect(ui.text('detail-continuation-11% Wharton')).toBe('11% Wharton')
+    expect(
+      [...ui.find('detail-rows-landform').querySelectorAll('[data-row="continuation"]')],
+      'the two entries after the first are continuations'
+    ).toHaveLength(2)
+
+    // ONE DRAINAGE ROW under them, off the wire, unmapped.
+    expect(value('drainage')).toBe('Well drained')
 
     // aspect_available false: the ground is too flat for a downhill direction,
     // so the pipeline's figure is a default rather than a measurement and
@@ -464,6 +490,14 @@ describe('2. the detail panel', () => {
     await ui.click('tab-focus-zone-2')
     expect(value('aspect')).toBe('—')
     expect(value('position')).toBe('—')
+
+    // ...AND NO SOIL SURVEY UNDER THIS ONE: one em-dash row where the run was,
+    // an em dash for drainage beside it, and no continuation at all.
+    expect(value('soil')).toBe('—')
+    expect(value('drainage')).toBe('—')
+    expect(
+      [...ui.find('detail-rows-landform').querySelectorAll('[data-row="continuation"]')]
+    ).toHaveLength(0)
 
     await ui.unmount()
   })
@@ -478,7 +512,14 @@ describe('2. the detail panel', () => {
     // it. `<hr>` rather than a border on a row, because the break belongs to
     // the panel and not to whichever row happens to sit under it.
     const rendered = [...ui.find('detail-rows-landform').children].map((node) =>
-      node.tagName === 'HR' ? '——' : node.lastElementChild.textContent
+      node.tagName === 'HR'
+        ? '——'
+        : // A CONTINUATION HAS ONE CHILD, NOT TWO -- it is the label's absence
+          // that makes it one, so `lastElementChild` would read its VALUE as a
+          // label and the list would look like four soil rows with odd names.
+          node.dataset.row === 'continuation'
+          ? '(continued)'
+          : node.lastElementChild.textContent
     )
     expect(rendered).toEqual([
       'acres',
@@ -488,7 +529,9 @@ describe('2. the detail panel', () => {
       'position',
       'median slope %',
       'soil',
-      'drainage class',
+      '(continued)',
+      '(continued)',
+      'drainage',
     ])
 
     // THE HEADER IS THE TAB'S NAME, not a second string the step minted.
@@ -507,7 +550,11 @@ describe('2. the detail panel', () => {
       'categorical',
       'categorical',
       'measured',
+      // the soil run: a labelled row and its two continuations...
       'categorical',
+      'continuation',
+      'continuation',
+      // ...then the one drainage row.
       'categorical',
     ])
 

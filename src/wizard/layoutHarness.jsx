@@ -68,7 +68,7 @@ import {
   registryProposalFeatures,
   stepButton,
 } from './stepDefinitions'
-import { EM_DASH, PANEL_BREAK, categoricalRow, measuredRow } from './shell/panelFormat.js'
+import { EM_DASH, PANEL_BREAK, categoricalRow, labelledRun, measuredRow } from './shell/panelFormat.js'
 import {
   PIN_GLYPH_PATH,
   buildZonePattern,
@@ -425,10 +425,16 @@ const DETAIL_ROW_CYCLE = [
  * already documents, and this is the half that needs a browser.
  *
  * PRODUCTION'S OWN ROWS, VERBATIM. A synthetic row would measure a panel
- * nobody ships; these are LANDFORM_STEP's, including the two em-dashed pending
- * rows, and one categorical long enough to have widened the old column
- * ("northeast facing") so the track's independence is measured rather than
- * assumed.
+ * nobody ships; these are LANDFORM_STEP's, and one categorical long enough to
+ * have widened the old column ("northeast facing") so the track's independence
+ * is measured rather than assumed.
+ *
+ * AND BOTH SHAPES OF THE SOIL RUN, ON TWO BLOCKS OF ONE PAGE. Block 1 carries
+ * three map units -- the cap, a labelled row and two continuations -- and
+ * Block 2 carries none, which is the one em-dash row the same declaration
+ * produces. The panel's height and the strip's position are measured across
+ * that pair, because "three more rows moves nothing" is a claim about the
+ * difference between two panels and only a real engine can settle it.
  */
 const SHARED_FORMAT = params.get('format') === '1'
 
@@ -486,13 +492,22 @@ const FORMAT_TABS = [
 ]
 
 const FORMAT_ROWS = {
-  // Block 1: everything measured that can be, and the two pending rows.
+  /* Block 1: everything measured that can be, and THE SOIL RUN AT ITS
+     LONGEST -- three map units, which is the cap, the first labelled `soil`
+     and the two after it CONTINUING the list. The values are the shape the
+     backend ships (a composed "42% Fixture terrace loam" per entry, verbatim);
+     Block 2 below carries the other shape, the em-dash pair a block with no
+     soil survey under it renders. Both are here so the browser can measure the
+     panel in each and compare the two without loading two pages. */
   'production-area-1': [
     categoricalRow('south facing', 'aspect'),
     categoricalRow('upper field', 'position'),
     measuredRow(measure(3.2), 'median slope %'),
-    categoricalRow(EM_DASH, 'soil'),
-    categoricalRow(EM_DASH, 'drainage class'),
+    ...labelledRun(
+      ['42% Fixture terrace loam', '31% Fixture bench loam', '12% Fixture shale loam'],
+      'soil'
+    ),
+    categoricalRow('moderately well drained', 'drainage'),
   ],
   /* Block 3: THE LONG LABELS, which are water's own and are the case the label
      track has to wrap for. "contributing acres at dam site" and "shared ground
@@ -523,14 +538,19 @@ const FORMAT_ROWS = {
     measuredRow(measure(85, 0), 'crosses production block ft'),
     measuredRow(measure(120, 0), 'crosses canopy ft'),
   ],
-  // Block 2: the long categorical, and both flags absent -- the two em dashes
-  // that are NOT the pending rows.
+  /* Block 2: the long categorical, a parcel with no relief -- and NO SOIL
+     SURVEY under the block, which is the other shape the one declaration
+     produces. `labelledRun([], 'soil')` is one em-dash row, exactly what these
+     rows rendered before the values landed, and the drainage row beside it is
+     an em dash for the same reason: the backend sends the two as null
+     together. Written through the composer rather than as a hand-built
+     categoricalRow so the harness measures what the step actually declares. */
   'production-area-2': [
     categoricalRow('northeast facing', 'aspect'),
     categoricalRow(EM_DASH, 'position'),
     measuredRow(measure(12.75), 'median slope %'),
-    categoricalRow(EM_DASH, 'soil'),
-    categoricalRow(EM_DASH, 'drainage class'),
+    ...labelledRun(null, 'soil'),
+    categoricalRow(EM_DASH, 'drainage'),
   ],
 }
 

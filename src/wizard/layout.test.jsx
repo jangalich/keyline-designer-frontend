@@ -1314,10 +1314,13 @@ describeIf('the shared panel format, in a real engine', () => {
       const face = (el) => getComputedStyle(el).fontFamily.split(',')[0].replace(/["']/g, '').trim()
       return [...document.querySelectorAll('.chrome-detail__rows > *')].map((node) => {
         if (node.tagName === 'HR') return { break: true }
+        // A CONTINUATION AND A TERM HAVE NO LABEL SPAN AT ALL, which is the
+        // thing about them this file measures -- so the label is read as null
+        // rather than assumed to be there.
         const [value, label] = node.children
         const style = getComputedStyle(value)
         return {
-          label: label.textContent,
+          label: label ? label.textContent : null,
           text: value.textContent,
           kind: node.dataset.row,
           face: face(value),
@@ -1327,7 +1330,8 @@ describeIf('the shared panel format, in a real engine', () => {
           // column, asked of the pixels rather than of the grid declaration.
           left: value.getBoundingClientRect().left,
           right: value.getBoundingClientRect().right,
-          labelLeft: label.getBoundingClientRect().left,
+          width: value.getBoundingClientRect().width,
+          labelLeft: label ? label.getBoundingClientRect().left : null,
         }
       })
     })
@@ -1353,8 +1357,12 @@ describeIf('the shared panel format, in a real engine', () => {
       'aspect',
       'position',
       'median slope %',
+      // THE SOIL RUN: one labelled row, then two CONTINUATIONS carrying no
+      // label at all. Block 1 spans three map units, which is the cap.
       'soil',
-      'drainage class',
+      null,
+      null,
+      'drainage',
     ])
 
     // THE HEADER IS THE TAB'S NAME, NOT THE DETAIL'S. The harness step returns
@@ -1400,12 +1408,12 @@ describeIf('the shared panel format, in a real engine', () => {
     const measured = rows.filter((row) => row.kind === 'measured')
     const categorical = rows.filter((row) => row.kind === 'categorical')
     expect(measured.map((row) => row.label)).toEqual(['acres', '/100 score', 'median slope %'])
-    expect(categorical.map((row) => row.label)).toEqual([
-      'aspect',
-      'position',
-      'soil',
-      'drainage class',
-    ])
+    expect(categorical.map((row) => row.label)).toEqual(['aspect', 'position', 'soil', 'drainage'])
+
+    // THE CONTINUATIONS ARE THEIR OWN KIND, AND THEY ARE THE SOIL RUN'S TAIL.
+    const continuations = rows.filter((row) => row.kind === 'continuation')
+    expect(continuations).toHaveLength(2)
+    for (const row of continuations) expect(row.label).toBeNull()
 
     // eslint-disable-next-line no-console
     for (const row of rows) {
@@ -1413,7 +1421,8 @@ describeIf('the shared panel format, in a real engine', () => {
       console.log(
         `    panel  ${String(row.label).padEnd(15)} ${String(row.kind).padEnd(11)} ` +
           `"${row.text}"  face ${row.face}  ${row.numeric}  ${row.align}  ` +
-          `left ${row.left.toFixed(1)} right ${row.right.toFixed(1)} label ${row.labelLeft.toFixed(1)}`
+          `left ${row.left.toFixed(1)} right ${row.right.toFixed(1)} ` +
+          `label ${row.labelLeft == null ? '(none)' : row.labelLeft.toFixed(1)}`
       )
     }
 
@@ -1443,10 +1452,116 @@ describeIf('the shared panel format, in a real engine', () => {
       expect(row.left, `${row.label} comes before its label`).toBeLessThan(row.labelLeft)
     }
 
+    // A CONTINUATION IS ITS LABELLED ROW'S VALUE, ONE LINE DOWN -- same left
+    // edge, same face, and the SAME TRACKS. The last one matters and is the
+    // whole reason this is not a TERM: a continuation spanning into the label
+    // column would be set to a different measure than the row it continues,
+    // and one soil list would wrap two ways. Measured as an equal WIDTH
+    // against the labelled soil row above it, which is what "same tracks"
+    // means in pixels.
+    const soil = categorical.find((row) => row.label === 'soil')
+    for (const row of continuations) {
+      expect(row.left, 'a continuation starts at the value column').toBeCloseTo(trackLeft, 0)
+      expect(row.face, 'a continuation is the prose face').toBe(soil.face)
+      expect(row.align, 'a continuation is not in the number track').not.toBe('right')
+      expect(row.width, 'a continuation takes the same tracks as the row it continues').toBeCloseTo(
+        soil.width,
+        0
+      )
+    }
+    // AND IT STOPS SHORT OF THE LABEL COLUMN, which a TERM does not.
+    const term = soil.left + soil.width
+    expect(term, 'the soil run does not run under the label column').toBeLessThanOrEqual(
+      soil.labelLeft + 1
+    )
+
     // THE FIGURES SHARE ONE RIGHT EDGE, ACROSS THE BREAK. This is what the
     // single grid buys and what a second grid under the rule would lose.
     const edges = measured.map((row) => row.right)
     for (const edge of edges) expect(edge).toBeCloseTo(edges[0], 0)
+
+    await ui.close()
+  }, SLOW)
+
+  /**
+   * THE SOIL RUN ADDS ROWS AND MOVES NOTHING.
+   *
+   * THE COUPLING THIS IS WRITTEN AGAINST IS THE ONE THAT BROKE ONCE. `.chrome`'s
+   * middle row was `1fr` -- shorthand for `minmax(auto, 1fr)`, where `auto` is a
+   * MINIMUM -- so a panel taller than the leftover space grew the row, the three
+   * rows stopped summing to the container, and the tab strip at the bottom went
+   * down by the excess. See the section header above for the numbers it was
+   * measured at.
+   *
+   * THE SOIL RUN IS THE FIRST CONTENT GROWTH SINCE THAT FIX. A block on three
+   * map units renders two rows more than a block on one and three more than a
+   * block on none, and which block the reader is looking at changes it -- so
+   * this is not a fixed addition the layout could absorb once, it is a panel
+   * whose height changes under the cursor.
+   *
+   * ASKED AS A DIFFERENCE BETWEEN TWO BLOCKS OF ONE PAGE. Block 1 carries the
+   * three-row run and Block 2 carries the em-dash row; clicking from one to the
+   * other is the gesture that changes the panel's height in the app, and "the
+   * strip did not move" is a claim about one layout, not about two page loads.
+   */
+  it('adds three soil rows without moving the tab strip or breaking the cap', async () => {
+    const ui = await openHarness({ format: 1 })
+
+    // THE EM-DASH BLOCK FIRST -- one soil row, the shape that shipped before
+    // the values landed.
+    await openBlock(ui, 'production-area-2')
+    const bare = {
+      rows: (await rowsOf(ui.page)).length,
+      panel: await ui.box(REGIONS.detail),
+      strip: await ui.box(REGIONS.tabs),
+      action: await ui.box(REGIONS.action),
+    }
+
+    // ...THEN THE THREE-MAP-UNIT BLOCK, on the same page.
+    await openBlock(ui, 'production-area-1')
+    const full = {
+      rows: (await rowsOf(ui.page)).length,
+      panel: await ui.box(REGIONS.detail),
+      strip: await ui.box(REGIONS.tabs),
+      action: await ui.box(REGIONS.action),
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `    panel  soil run: ${bare.rows} rows (${bare.panel.height.toFixed(1)}px) -> ` +
+        `${full.rows} rows (${full.panel.height.toFixed(1)}px);  strip y ` +
+        `${bare.strip.y.toFixed(1)} -> ${full.strip.y.toFixed(1)};  cap ${PANEL_CAP}`
+    )
+
+    // THE PAGE REALLY DID CHANGE. Two more rows -- otherwise everything below
+    // is a measurement of the same panel twice.
+    expect(full.rows, 'the three-map-unit block renders two rows more').toBe(bare.rows + 2)
+
+    // THE STRIP DID NOT MOVE. Not "moved less"; did not move. This is the
+    // assertion the whole test exists for.
+    expect(full.strip.y, 'the tab strip must not move when the soil run grows').toBeCloseTo(
+      bare.strip.y,
+      0
+    )
+    expect(full.strip.x).toBeCloseTo(bare.strip.x, 0)
+    expect(full.strip.height).toBeCloseTo(bare.strip.height, 0)
+
+    // NOR DID THE ACTION CARD, which shares the strip's rows.
+    expect(full.action.y).toBeCloseTo(bare.action.y, 0)
+
+    // THE PANEL IS STILL UNDER ITS CAP, and still clear of the strip. The
+    // panel's own box is content-sized below the cap, so it DOES grow by the
+    // two rows -- that is the correct behaviour and it is stated rather than
+    // asserted away. What must not happen is the growth reaching the layout.
+    expect(full.panel.height, 'the panel stays under its cap').toBeLessThanOrEqual(PANEL_CAP)
+    expect(
+      full.panel.y + full.panel.height,
+      'the panel stays clear of the tab strip'
+    ).toBeLessThanOrEqual(full.strip.y)
+
+    // AND THE STRIP IS STILL ON THE STAGE, which is what the old drop cost.
+    const stage = await ui.stage()
+    expect(full.strip.y + full.strip.height).toBeLessThanOrEqual(stage.y + stage.height - INSET)
 
     await ui.close()
   }, SLOW)
@@ -1468,7 +1583,11 @@ describeIf('the shared panel format, in a real engine', () => {
     expect(short.find((row) => row.label === 'aspect').text).toBe('south facing')
     expect(long.find((row) => row.label === 'aspect').text).toBe('northeast facing')
 
-    const labelColumn = (rows) => Math.min(...rows.filter((r) => !r.break).map((r) => r.labelLeft))
+    // LABELLED ROWS ONLY. A continuation has no label span at all, so it has
+    // no label edge to be part of the column -- and `null` coerced to 0 would
+    // make the minimum 0 on any panel that has one.
+    const labelColumn = (rows) =>
+      Math.min(...rows.filter((r) => !r.break && r.labelLeft != null).map((r) => r.labelLeft))
     const valueTrack = (rows) =>
       Math.max(...rows.filter((r) => r.kind === 'measured').map((r) => r.right))
 

@@ -506,6 +506,7 @@ import {
   categoricalRow,
   dropsAtZero,
   labelledBreak,
+  labelledRun,
   measuredRow,
   termRow,
 } from './shell/panelFormat.js'
@@ -2304,32 +2305,61 @@ export const LANDFORM_STEP = documentStep({
         // one figure does that; the min/max pair was two decimal points in one
         // cell, which is a cell that can align neither.
         measuredRow(measure(zone.slope_median_pct), 'median slope %'),
-        // SOIL AND DRAINAGE CLASS ARE PENDING FIELDS, NOT A BUG.
+        // THE SOIL UNDER THIS BLOCK, AND HOW IT DRAINS. Two em-dashed rows
+        // waiting on a backend branch until that branch landed; these are the
+        // values, and the em dash is now the real no-coverage answer rather
+        // than a placeholder for one.
         //
-        // `soil_components` and `drainage_class` are hardcoded None on the wire
-        // today -- see production_area_ceiling._patch_narrative_data(), which
-        // says so at the keys. Wiring them is real work the backend
-        // investigation scoped and queued as its own branch: two new consumed
-        // edges on step_registry.LANDFORM, a contract change across five
-        // production modules, and one open question about what "dominant
-        // component" means per patch. Until that lands they are null and these
-        // rows render em dashes.
+        // A RANKED LIST, RENDERED AS A LABELLED RUN. A block typically spans
+        // several SSURGO map units and the backend publishes one to three of
+        // them in rank order, floored at a 10% share of the block's own cells
+        // and capped at three. The FIRST row carries the label; the rest
+        // CONTINUE it. See panelFormat's CONTINUATION and labelledRun().
         //
-        // THE ROWS EXIST SO THE SHAPE IS STABLE AND THE GAP IS VISIBLE. A panel
-        // that simply omits them looks complete and is not; a reader cannot
-        // tell "this ground has no soil survey" from "nobody asked".
+        // `entry.label` IS THE WHOLE VALUE CELL AND IT IS RENDERED VERBATIM.
+        // The backend composes "78% Gilpin" itself, in the module that holds
+        // both halves, precisely so ONE STRING lands in one value position.
+        // `cell_share_pct` and `component_name` ship beside it for anything
+        // that needs the parts -- and recomposing the label from them HERE
+        // would be this app deciding how a share is spelled, which is a second
+        // source of truth for a string the backend already settled (it rounds
+        // the share half-up to whole percent on purpose: the arithmetic is
+        // exact, the 1:24,000 boundary it measures against is not).
         //
-        // CATEGORICAL, WHICH IS WHAT THEY WILL STILL BE WHEN THE VALUES LAND. A
-        // drainage class is "moderately well drained" and a soil component is a
-        // series name -- exactly the long phrases that must not be in the
-        // number track. Declaring them measured now because an em dash is
-        // narrow would put them there and move them later, which is the one
-        // thing "the shape is stable" is supposed to prevent.
+        // NOTHING SAYS THE LIST IS EXHAUSTIVE, and nothing may. The floor and
+        // the cap make it a NAMING of the soils under a block rather than a
+        // partition of it -- the backend drops the remainder rather than
+        // summing it into an "other" entry, and asserts the shares fall short
+        // of 100 as part of its own contract. A total, a remainder row, or a
+        // "and N more" would all be this side claiming a completeness the data
+        // does not have.
+        ...labelledRun(
+          (zone.soil_components ?? []).map((entry) => entry.label),
+          'soil'
+        ),
+        // ONE DRAINAGE ROW, from the DOMINANT map unit's dominant component --
+        // not one per soil. The backend decides which that is and ships the
+        // single value; a class per soil would be three rows of long repeating
+        // phrases under three names.
         //
-        // They are LAST rather than with the other categoricals: rule 4 orders
-        // what the panel knows, and a row waiting on a branch belongs under it.
-        categoricalRow(zone.soil_components ?? EM_DASH, 'soil'),
-        categoricalRow(zone.drainage_class ?? EM_DASH, 'drainage class'),
+        // NO VOCABULARY ON THIS SIDE. SSURGO's drainage classes are a fixed
+        // seven-class set from "very poorly drained" to "excessively drained",
+        // and not one of those seven words is written down in this app. The
+        // backend republishes whatever the survey says, unmapped, and the panel
+        // sets it lower case in CSS like every other word below the header --
+        // which changes how it is SET and leaves the survey's own words alone.
+        //
+        // BOTH ARE NULL TOGETHER, and the backend guarantees it: they are two
+        // readings of one attribution and a drainage class beside an em-dashed
+        // soil row would describe ground the block could not name. So the
+        // no-coverage case is both rows as em dashes, which is exactly what
+        // they rendered before this branch.
+        //
+        // THE RUN AND THIS ROW STAY LAST. They were last because they were
+        // pending; they stay last because the run is one to three rows long,
+        // and a variable-height run above the other readings would move them
+        // every time the reader changes block.
+        categoricalRow(zone.drainage_class ?? EM_DASH, 'drainage'),
       ],
       // A suggested block is a strict subset of ground that already cleared
       // every gate, so it cannot cross an exclusion. Empty, and asserted so in

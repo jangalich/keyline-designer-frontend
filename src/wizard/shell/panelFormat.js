@@ -15,6 +15,15 @@
  * panel this format has been asked to arrange came out of the constructors
  * that were already here.
  *
+ * IT GREW A THIRD THING AFTERWARDS, AND NOT FROM A SIXTH STEP. Production's
+ * soil rows were em dashes waiting on a backend branch; that branch landed and
+ * ships a RANKED LIST of the map units under a block, one to three of them.
+ * That is a run of values under ONE label -- labelled once at the top, then
+ * continued -- which none of the three existing faces could set: a pair puts a
+ * label on every row and a TERM has none anywhere. Hence CONTINUATION, and
+ * labelledRun() to declare the two shapes (a list, or nothing known) as one
+ * expression. See both for why the TERM row did not fit.
+ *
  * AND THE SIXTH STEP HAS NO PANEL, WHICH IS THE SERIES' LAST FINDING. Fencing
  * declares `detail: null` and DetailPanel renders nothing for it. It is the
  * format's own rule applied to a step the rule rules out: above the break is
@@ -44,8 +53,13 @@
  *     south facing                aspect
  *     upper field                 position
  *      3.2                        median slope %
- *      —                          soil
- *      —                          drainage class
+ *     62% Gilpin silt loam        soil
+ *     23% Ernest silt loam
+ *     well drained                drainage
+ *
+ * THE SOIL ROWS ARE A LABELLED RUN -- the first carries the label, the rest
+ * CONTINUE it (see CONTINUATION and labelledRun). A block with no soil survey
+ * under it renders one em-dash row in its place, off the same declaration.
  *
  * IN ORDER:
  *
@@ -71,10 +85,13 @@
  *      Water declares against this format now and its four groups came out as
  *      TWO UNLABELLED RUNS -- one break, and the convention applied to each
  *      run, `water delivery` leading a run of figures. Production itself
- *      departs from the convention at the bottom -- soil and drainage class
- *      are categorical and sit under a measured row -- because they are the
- *      PENDING rows and pending rows belong last. See LANDFORM_STEP.detail and
- *      WATER_STEP.detail.
+ *      departs from the convention at the bottom -- its soil run and its
+ *      drainage row are categorical and sit under a measured one -- and the
+ *      reason has outlived the one it was written with. They were the PENDING
+ *      rows and pending rows belonged last; they carry real values now, and
+ *      they STAY last because the run is one to three rows long and a variable-
+ *      height run in the middle of a panel moves everything under it every time
+ *      the reader changes block. See LANDFORM_STEP.detail and WATER_STEP.detail.
  *
  *   5. A SECOND BREAK WHERE A STEP HAS ONE. `PANEL_BREAK` anywhere in a step's
  *      rows. Production has none; water has one, between what a survey area IS
@@ -231,6 +248,47 @@ export const CATEGORICAL = 'categorical'
 export const TERM = 'term'
 
 /**
+ * A CONTINUATION: a value that continues the labelled row above it. Same left
+ * edge, same face, same tracks -- and no label, because the row above it
+ * already carries the one that names the whole run.
+ *
+ * THE FOURTH FACE, AND PRODUCTION'S SOIL LIST IS WHAT EARNED IT. A block sits
+ * on one to three SSURGO map units and the panel names them all, ranked; the
+ * FIRST is labelled `soil` and the rest continue the list. That is a shape the
+ * format had no word for: every other row is either a pair (a label asks, a
+ * value answers) or a TERM (neither), and this is a run whose label is asked
+ * once at the top.
+ *
+ * WHY NOT A TERM, WHICH IS ALSO LABELLESS. Two reasons, and the second is the
+ * one that settles it.
+ *
+ *   WHAT NAMES THE RUN IS IN A DIFFERENT PLACE. A term's list is named by a
+ *   HEADING over it (rule 5) -- a line that spans the panel with a hairline
+ *   above it. A continuation's run is named by the LABEL of its own first row,
+ *   which sits in the label column. Giving soil a heading would mean a second
+ *   break through production's panel, over three rows, in a panel whose only
+ *   division is the one between the tab's rows and the step's -- and the bar
+ *   rule 5 sets is a claim the rows do not make. "62% Gilpin silt loam" under
+ *   a label reading `soil` makes it.
+ *
+ *   A TERM TAKES EVERY TRACK AND A CONTINUATION MUST NOT. A term has no label
+ *   ANYWHERE in its run, so track 3 is free down the whole list and a term
+ *   spanning into it leaves no ragged column. A continuation's run HAS a label
+ *   in track 3 -- on its first row -- so a continuation running under it would
+ *   set the first entry of a list to tracks 1-2 and every entry after it to
+ *   1-3. One list, two measures: the first name wraps where the others do not,
+ *   and a long soil name proves it on screen. So a continuation stops exactly
+ *   where the value above it stops, and it is rendered through the CATEGORICAL
+ *   value's own class rather than a second rule that agrees with it by hand.
+ *
+ * IT IS ITS OWN KIND rather than `categoricalRow(value, null)`, for the reason
+ * TERM is its own kind: whether a row HAS a label is what makes it the kind of
+ * row it is, and a categorical with the label taken away is a different row,
+ * not a dressing.
+ */
+export const CONTINUATION = 'continuation'
+
+/**
  * A RULE ACROSS THE BODY. Sits in a step's `rows` where it wants one, and the
  * panel puts one between the tab's rows and the step's own without being asked.
  *
@@ -290,6 +348,61 @@ export function categoricalRow(value, label) {
  */
 export function termRow(term) {
   return Object.freeze({ kind: TERM, value: term })
+}
+
+/**
+ * A continuation row -- `continuationRow('23% Ernest silt loam')`. One value,
+ * under the labelled row it continues.
+ *
+ * NO SECOND ARGUMENT, for termRow()'s reason turned around: a continuation
+ * that took a label would BE the row above it, and a run whose every row
+ * carried the same label would say the same word three times where the format
+ * asks it once.
+ *
+ * DECLARED THROUGH labelledRun() rather than by hand, in every case there is
+ * today. It is exported because the face is the format's and a step that has a
+ * run the composer does not fit should reach the face rather than invent one.
+ */
+export function continuationRow(value) {
+  return Object.freeze({ kind: CONTINUATION, value })
+}
+
+/**
+ * A LABELLED ROW AND ITS CONTINUATIONS, FROM A LIST OF VALUES -- or ONE EM-DASH
+ * ROW when there is no list. `labelledRun(soilLabels, 'soil')`, spread into a
+ * step's rows.
+ *
+ * THE TWO SHAPES ARE ONE DECLARATION, WHICH IS THE WHOLE REASON THIS EXISTS.
+ * Production's soil is one to three map units when the parcel has a soil
+ * survey under this block and NOTHING when it does not, and both are real
+ * answers the panel has to render. A step branching on which -- an `if` around
+ * a spread, a conditional row list -- would be the panel's own null convention
+ * written a second time in a step, in the one place it is easiest to get
+ * subtly wrong: an empty list rendering NO row at all looks complete and is
+ * not, which is exactly what the em-dash convention exists to prevent.
+ *
+ * So there is no branch. A list of length n renders n rows; a list of length 0
+ * renders the one row that says "not known", under the same label, in the same
+ * position, in the same face. The caller writes one expression either way.
+ *
+ * NULLS INSIDE THE LIST FOLLOW THE SAME CONVENTION AT EVERY POSITION, rather
+ * than being filtered out. A value the backend could not name is an em dash in
+ * its place, not a row removed -- removing it would silently renumber a RANKED
+ * list and put the second soil where the first one goes.
+ *
+ * THE VALUES ARE RENDERED VERBATIM. This composes nothing: a caller hands it
+ * the strings it wants on screen. Production's are the backend's own composed
+ * labels ("78% Gilpin"), shipped that way precisely so one string lands in one
+ * value cell and no consumer decides how a share is spelled.
+ */
+export function labelledRun(values, label) {
+  const list = Array.isArray(values) ? values : []
+  if (!list.length) return [categoricalRow(EM_DASH, label)]
+  return list.map((value, index) =>
+    index === 0
+      ? categoricalRow(value ?? EM_DASH, label)
+      : continuationRow(value ?? EM_DASH)
+  )
 }
 
 /**

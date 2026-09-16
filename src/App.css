@@ -1387,7 +1387,21 @@
   text-align: right;
 }
 
-/* The categorical, in the value position and out of the number track. */
+/* The categorical, in the value position and out of the number track.
+
+   AND THE CONTINUATION, THROUGH THIS SAME RULE. A continuation is a
+   categorical's value with the label taken away -- production's soil list is
+   labelled `soil` on its first row and continued on the next two -- so the two
+   have to take the same tracks, the same face and the same left edge, or one
+   list wraps two different ways down three rows. They share this rule rather
+   than having one each: two declarations that agree by hand are one edit from
+   not agreeing, and nothing on screen would say which row was wrong.
+
+   TRACKS 1-2 AND NOT 1/-1, WHICH IS THE WHOLE DIFFERENCE FROM A TERM. Track 3
+   holds this run's label on its first row; a continuation running under it
+   would be set to a different measure than the row it continues. A term's run
+   has no label anywhere, so it takes every track -- see .chrome-detail__term
+   below and panelFormat.js's CONTINUATION note. */
 .chrome-detail__phrase {
   grid-column: 1 / 3;
   font-family: var(--font-prose);
