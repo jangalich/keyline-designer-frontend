@@ -150,7 +150,7 @@ import { Fragment, useEffect, useRef } from 'react'
 
 import { useDrawingProgress } from '../../map/DrawingProgress.jsx'
 import { useWizardCursor } from '../WizardCursor.jsx'
-import { MEASURED, TERM, breakLabel, headerFor, isBreak, panelBody } from './panelFormat.js'
+import { CONTINUATION, MEASURED, TERM, breakLabel, headerFor, isBreak, panelBody } from './panelFormat.js'
 
 /**
  * THE CAUTIONS WORTH A LINE. A caution at exactly zero acres is the checker
@@ -190,11 +190,13 @@ function CautionLine({ caution }) {
  * size their columns independently and `42.9` above the rule would stop lining
  * up with `3.2` below it, which is the whole thing the column is for.
  *
- * THE THREE FACES ARE SET DIFFERENTLY AND THEY HAVE TO BE. A measured value
+ * THE FOUR FACES ARE SET DIFFERENTLY AND THEY HAVE TO BE. A measured value
  * takes the number track: mono, tabular figures, right-aligned. A categorical
  * takes the same left edge and the slack beside it, in the prose face, OUT of
  * the track -- see panelFormat.js for what forcing a word into it costs. A TERM
- * takes every track, because it has no label to leave a hole where.
+ * takes every track, because it has no label to leave a hole where. A
+ * CONTINUATION takes exactly the categorical's tracks and no label, because the
+ * row it continues has one -- production's soil list, labelled once at the top.
  *
  * A LABELLED BREAK IS THE RULE AND THEN A HEADING, IN THAT ORDER AND AS TWO
  * NODES. An <hr> cannot contain text and a heading cannot draw the panel's
@@ -225,6 +227,29 @@ function PanelRows({ body, stepId }) {
                 </h4>
               ) : null}
             </Fragment>
+          )
+        }
+        // A CONTINUATION IS A CATEGORICAL'S VALUE WITH THE LABEL TAKEN AWAY,
+        // and it is rendered through that value's OWN class rather than one
+        // beside it. The two are the same run on screen -- "62% Gilpin silt
+        // loam" with `soil` against it, then "23% Ernest silt loam" with
+        // nothing -- so they have to take the same tracks and the same face,
+        // and two rules that agree by hand is one edit away from a list whose
+        // first entry wraps where the rest do not. There is no second rule:
+        // the same `.chrome-detail__phrase` sets both.
+        //
+        // NOT A TERM, which spans track 3 as well. See panelFormat's
+        // CONTINUATION note -- the run's label is IN track 3 on its first row.
+        if (row.kind === CONTINUATION) {
+          return (
+            <p key={`continuation-${index}`} className="chrome-detail__row" data-row={row.kind}>
+              <span
+                className="chrome-detail__phrase"
+                data-testid={`detail-continuation-${row.value}`}
+              >
+                {row.value}
+              </span>
+            </p>
           )
         }
         if (row.kind === TERM) {

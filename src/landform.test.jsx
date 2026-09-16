@@ -55,7 +55,7 @@ import {
   aspectPhrase,
   registryProposalFeatures,
 } from './wizard/stepDefinitions'
-import { EM_DASH, panelBody } from './wizard/shell/panelFormat.js'
+import { CONTINUATION, EM_DASH, labelledRun, panelBody } from './wizard/shell/panelFormat.js'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
 import MapLayerStack from './map/MapLayerStack.jsx'
@@ -935,12 +935,24 @@ describe('12. the panel, against the shared format', () => {
     draft: { selectedFeatureIds: captured.payload.zones.map((z) => z.feature_id), drawnFeatures },
   })
 
-  /** One block's panel body, composed exactly as DetailPanel composes it. */
+  /**
+   * One block's panel body, composed exactly as DetailPanel composes it.
+   *
+   * MEMOISED ON THE NO-DRAWN-FEATURES PATH, so two calls for one block hand
+   * back the SAME row objects. The rows are frozen values and a fresh
+   * composition produces equal-but-distinct ones, which makes `indexOf(row)`
+   * -- how the assertions below ask "what comes after this row" -- silently
+   * answer -1.
+   */
+  const bodyCache = new Map()
   function bodyFor(featureId, drawnFeatures = []) {
+    if (!drawnFeatures.length && bodyCache.has(featureId)) return bodyCache.get(featureId)
     const ctx = context(drawnFeatures)
     const tab = LANDFORM_STEP.tabs(ctx).find((entry) => entry.id === featureId)
     const detail = LANDFORM_STEP.detail(ctx, featureId)
-    return { tab, detail, body: panelBody(tab, detail.rows) }
+    const composed = { tab, detail, body: panelBody(tab, detail.rows) }
+    if (!drawnFeatures.length) bodyCache.set(featureId, composed)
+    return composed
   }
 
   const TOP = captured.payload.zones[0]
@@ -948,24 +960,22 @@ describe('12. the panel, against the shared format', () => {
   /**
    * [1] THE ROWS, IN ORDER, WITH THE BREAK WHERE THE FORMAT PUTS IT.
    */
-  it('renders the tab’s rows, a break, then the step’s five', () => {
+  it('renders the tab’s rows, a break, then the step’s', () => {
     const { body } = bodyFor(TOP.feature_id)
-    expect(body.map((row) => (row.panelBreak ? '——' : row.label))).toEqual([
-      'acres',
-      '/100 score',
-      '——',
-      'aspect',
-      'position',
-      'median slope %',
-      'soil',
-      'drainage class',
-    ])
+    // THE CONTINUATIONS ARE DROPPED FOR THIS COMPARISON, not because they are
+    // not rows but because how many there are is a property of the BLOCK's
+    // soil -- one to three, or the single em-dash row -- and this assertion is
+    // about the panel's arrangement. The run itself is asked of directly in
+    // [5] below.
+    expect(
+      body.filter((row) => row.kind !== CONTINUATION).map((row) => (row.panelBreak ? '——' : row.label))
+    ).toEqual(['acres', '/100 score', '——', 'aspect', 'position', 'median slope %', 'soil', 'drainage'])
 
     // THE TAB'S ROWS ARE THE TAB'S. Not restated by the step -- `detail.rows`
-    // is the five below the break and nothing else, and the panel put the
+    // is everything below the break and nothing else, and the panel put the
     // other two there.
     const { detail, tab } = bodyFor(TOP.feature_id)
-    expect(detail.rows).toHaveLength(5)
+    expect(detail.rows.filter((row) => row.kind !== CONTINUATION)).toHaveLength(5)
 
     // THE FIGURES CROSS VERBATIM. Never touched, never reformatted.
     expect(body.slice(0, 2).map((row) => row.value)).toEqual(tab.rows.map((row) => row.value))
@@ -985,7 +995,9 @@ describe('12. the panel, against the shared format', () => {
     // THE FIGURES ARE THE PAYLOAD'S, at the pipeline's own one decimal.
     expect(body[0].value).toBe(TOP.area_acres.toFixed(1))
     expect(body[1].value).toBe(TOP.score.toFixed(1))
-    expect(body[5].value).toBe(TOP.slope_median_pct.toFixed(1))
+    expect(body.find((row) => row.label === 'median slope %').value).toBe(
+      TOP.slope_median_pct.toFixed(1)
+    )
 
     // eslint-disable-next-line no-console
     console.log(
@@ -1054,35 +1066,290 @@ describe('12. the panel, against the shared format', () => {
   })
 
   /**
-   * [5] SOIL AND DRAINAGE CLASS RENDER EM DASHES, AND THE WIRE IS WHY.
+   * [5] THE SOIL RUN AND THE DRAINAGE ROW, OFF THE WIRE.
+   *
+   * ASKED OF THE CAPTURE. Every figure below came out of the real pipeline over
+   * the real reference parcel, through production_area_ceiling's own
+   * attribution -- so "three map units render three rows" is a statement about
+   * a payload the backend produced and not about a list typed here.
+   *
+   * THE PAYLOAD HAS ALL THREE SHAPES ON ONE PARCEL, which is why they can be
+   * asked of it rather than of a synthesised zone: one block spans three map
+   * units (the cap), one spans a single one, and one sits on ground with no
+   * soil survey under it at all.
    */
-  it('renders soil and drainage class as em dashes, because the wire sends null', () => {
-    // THE PAYLOAD'S OWN STATE FIRST. If the backend branch lands and these stop
-    // being null, this fails here -- which is the notice that the rows now have
-    // values and the panel should be checked against them.
+  /** The published soil rows of one block's panel: the labelled row and its continuations. */
+  function soilRun(featureId) {
+    const { body } = bodyFor(featureId)
+    const start = body.findIndex((row) => row.label === 'soil')
+    if (start < 0) return []
+    const run = [body[start]]
+    for (let i = start + 1; i < body.length && body[i].kind === CONTINUATION; i += 1) run.push(body[i])
+    return run
+  }
+
+  const drainageOf = (featureId) =>
+    bodyFor(featureId).body.find((row) => row.label === 'drainage')
+
+  /** Which block is which shape, read off the payload rather than assumed. */
+  const withSoil = (n) =>
+    captured.payload.zones.filter((z) => (z.soil_components ?? []).length === n)
+  const withoutSoil = captured.payload.zones.filter((z) => z.soil_components == null)
+
+  it('renders one soil row plus drainage for a block on a single map unit', () => {
+    const [single] = withSoil(1)
+    expect(single, 'the capture must contain a one-map-unit block').toBeDefined()
+
+    const run = soilRun(single.feature_id)
+    expect(run).toHaveLength(1)
+    expect(run[0].kind).toBe('categorical')
+    expect(run[0].label).toBe('soil')
+    expect(run[0].value).toBe(single.soil_components[0].label)
+
+    const drainage = drainageOf(single.feature_id)
+    expect(drainage.kind).toBe('categorical')
+    expect(drainage.value).toBe(single.drainage_class)
+
+    // ONE ROW, THEN THE DRAINAGE ROW -- nothing between them.
+    const { body } = bodyFor(single.feature_id)
+    expect(body[body.indexOf(run[0]) + 1]).toBe(drainage)
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `SOIL[Block ${single.rank}]  ${run.map((r) => `"${r.value}" ${r.label ?? '(continued)'}`).join('  ')}` +
+        `  "${drainage.value}" ${drainage.label}`
+    )
+  })
+
+  it('renders three rows for a block on three map units — first labelled, rest not', () => {
+    const [three] = withSoil(3)
+    expect(three, 'the capture must contain a three-map-unit block').toBeDefined()
+
+    const run = soilRun(three.feature_id)
+    expect(run).toHaveLength(3)
+
+    // THE FIRST CARRIES THE LABEL; THE REST CARRY NONE. That is the whole
+    // shape -- a labelled row and its continuations, not three labelled rows
+    // and not three unlabelled terms.
+    expect(run[0].kind).toBe('categorical')
+    expect(run[0].label).toBe('soil')
+    for (const row of run.slice(1)) {
+      expect(row.kind).toBe(CONTINUATION)
+      expect(row.label, 'a continuation carries no label').toBeUndefined()
+    }
+
+    // IN RANK ORDER, which is the payload's own order and is not re-sorted here.
+    expect(run.map((row) => row.value)).toEqual(three.soil_components.map((e) => e.label))
+    const shares = three.soil_components.map((e) => e.cell_share_pct)
+    expect(shares).toEqual([...shares].sort((a, b) => b - a))
+
+    // ...AND ONE DRAINAGE ROW UNDER THEM, not one per soil.
+    const { body } = bodyFor(three.feature_id)
+    expect(body.filter((row) => row.label === 'drainage')).toHaveLength(1)
+    expect(drainageOf(three.feature_id).value).toBe(three.drainage_class)
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `SOIL[Block ${three.rank}]  ` +
+        run.map((r) => `"${r.value}" ${r.label ?? '(continued)'}`).join('  ') +
+        `  "${drainageOf(three.feature_id).value}" drainage`
+    )
+  })
+
+  /**
+   * [5b] THE COMPOSED LABEL IS RENDERED VERBATIM, NOT REBUILT FROM THE PARTS.
+   *
+   * The backend composes "42% Fixture terrace loam" in the module that holds
+   * both halves, precisely so ONE STRING lands in one value cell and no
+   * consumer decides how a share is spelled -- it rounds the share half-up to
+   * whole percent on purpose, because the arithmetic is exact and the
+   * 1:24,000 boundary it measures against is not.
+   *
+   * ASSERTED TWO WAYS, AND THE SECOND IS THE ONE THAT BITES. The rendered
+   * value is the wire's `label` character for character; AND the step's source
+   * never reads `cell_share_pct` or `component_name` at all, so it could not
+   * be recomposing it. A behavioural check alone would pass on a panel that
+   * rebuilt the string and happened to agree today.
+   */
+  it('renders the backend’s composed label verbatim and never rebuilds it', () => {
     for (const zone of captured.payload.zones) {
-      expect(zone).toHaveProperty('soil_components')
-      expect(zone).toHaveProperty('drainage_class')
-      expect(zone.soil_components).toBeNull()
-      expect(zone.drainage_class).toBeNull()
+      for (const [index, entry] of (zone.soil_components ?? []).entries()) {
+        expect(soilRun(zone.feature_id)[index].value).toBe(entry.label)
+      }
     }
 
-    const { body } = bodyFor(TOP.feature_id)
-    expect(body.find((row) => row.label === 'soil').value).toBe(EM_DASH)
-    expect(body.find((row) => row.label === 'drainage class').value).toBe(EM_DASH)
+    // AND THE DISTINCTION IS OBSERVABLE ON THIS PAYLOAD, which is what makes
+    // the assertion above worth making: the backend spells the share at whole
+    // percent and `cell_share_pct` carries a decimal, so a panel rebuilding
+    // the string from the parts would print "42.1% Fixture terrace loam"
+    // where the wire says "42% Fixture terrace loam". A capture where every
+    // share happened to be a round number would prove nothing here.
+    const entries = captured.payload.zones.flatMap((z) => z.soil_components ?? [])
+    const naive = entries.filter(
+      (entry) => entry.label !== `${entry.cell_share_pct}% ${entry.component_name}`
+    )
+    expect(naive.length, 'the capture must contain a share the parts spell differently').toBeGreaterThan(0)
 
-    // CATEGORICAL, WHICH IS WHAT THEY WILL STILL BE WHEN THE VALUES LAND. A
-    // drainage class is "moderately well drained"; declaring these measured
-    // while they are one narrow character wide would put a long phrase in the
-    // number track the day the branch lands. The shape is stable or it is not.
-    for (const label of ['soil', 'drainage class']) {
-      expect(body.find((row) => row.label === label).kind).toBe('categorical')
-    }
-
-    // AND IT IS A PENDING FIELD IN THE SOURCE, not a silent gap -- the next
-    // reader has to be able to tell this from a bug.
     const source = readFileSync(path.join(HERE, 'wizard', 'stepDefinitions.js'), 'utf8')
-    expect(source).toContain('SOIL AND DRAINAGE CLASS ARE PENDING FIELDS, NOT A BUG')
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    expect(code, 'the panel must not read the share').not.toContain('cell_share_pct')
+    expect(code, 'the panel must not read the component name').not.toContain('component_name')
+    expect(code, 'the panel must not read the map unit name').not.toContain('map_unit_name')
+    expect(code, 'the panel renders the composed label').toContain('entry.label')
+  })
+
+  /**
+   * [5c] NOTHING IMPLIES THE LIST IS EXHAUSTIVE.
+   *
+   * The backend's 10% floor and three-entry cap make the list a NAMING of the
+   * soils under a block rather than a partition of it -- it drops the
+   * remainder rather than summing it into an "other" entry, and asserts the
+   * shares fall short of 100 as part of its own contract. A remainder row, a
+   * total, or an "and N more" on this side would be the panel claiming a
+   * completeness the data does not have.
+   */
+  it('adds no remainder row, no total, and nothing that sums the list', () => {
+    const [three] = withSoil(3)
+    const run = soilRun(three.feature_id)
+    const { body } = bodyFor(three.feature_id)
+
+    // THE PAYLOAD'S OWN SHORTFALL IS REAL, so the absence below is a choice
+    // and not a case that never arises.
+    const published = three.soil_components.reduce((sum, e) => sum + e.cell_share_pct, 0)
+    expect(published).toBeLessThan(100)
+
+    // EXACTLY AS MANY ROWS AS THE WIRE CARRIED ENTRIES. No row after them but
+    // the drainage row.
+    expect(run).toHaveLength(three.soil_components.length)
+    expect(body[body.indexOf(run[run.length - 1]) + 1].label).toBe('drainage')
+    expect(body[body.indexOf(run[run.length - 1]) + 1]).toBe(drainageOf(three.feature_id))
+
+    // AND NOTHING ANYWHERE IN THE PANEL SAYS "other", "total", or "more".
+    const printed = body.map((row) => `${row.value ?? ''} ${row.label ?? ''}`).join(' | ')
+    for (const word of ['other', 'total', 'more', 'remainder', '100%']) {
+      expect(printed.toLowerCase(), `the panel must not say "${word}"`).not.toContain(word)
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `SOIL SHARES[Block ${three.rank}]  ${three.soil_components
+        .map((e) => `${e.cell_share_pct}%`)
+        .join(' + ')} = ${published.toFixed(1)}% of the block, and the panel says nothing about the rest`
+    )
+  })
+
+  /**
+   * [5d] A BLOCK WITH NO SOIL SURVEY UNDER IT RENDERS THE EM-DASH ROWS.
+   *
+   * The path that shipped before the values landed, still working -- and it is
+   * a real case, not a leftover: the reference parcel has a block on ground the
+   * survey's map units do not reach.
+   */
+  it('renders one em-dash soil row and an em-dash drainage row where there is no coverage', () => {
+    const [bare] = withoutSoil
+    expect(bare, 'the capture must contain a block with no soil coverage').toBeDefined()
+
+    // BOTH NULL TOGETHER, which the backend guarantees -- never one without
+    // the other, because they are two readings of one attribution.
+    expect(bare.soil_components).toBeNull()
+    expect(bare.drainage_class).toBeNull()
+
+    const run = soilRun(bare.feature_id)
+    expect(run).toHaveLength(1)
+    expect(run[0].kind).toBe('categorical')
+    expect(run[0].label).toBe('soil')
+    expect(run[0].value).toBe(EM_DASH)
+    expect(drainageOf(bare.feature_id).value).toBe(EM_DASH)
+
+    // THE ROW COUNT IS THE ONLY DIFFERENCE. Every other row of this block's
+    // panel is the same row, in the same place, as a block that has soil.
+    const labelled = (id) =>
+      bodyFor(id)
+        .body.filter((row) => row.kind !== CONTINUATION)
+        .map((row) => (row.panelBreak ? '——' : row.label))
+    expect(labelled(bare.feature_id)).toEqual(labelled(withSoil(3)[0].feature_id))
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `SOIL[Block ${bare.rank}]  "${run[0].value}" soil  "${drainageOf(bare.feature_id).value}" drainage ` +
+        `-- no map unit reaches this block`
+    )
+  })
+
+  /**
+   * [5e] ONE DECLARATION, NOT A BRANCH.
+   *
+   * The two shapes -- a run of one to three, or the single em-dash row -- come
+   * out of ONE call to labelledRun(), so the step has no `if` in it and the
+   * panel has no second path. Asked of the composer directly, because the
+   * claim is about the declaration and not about either outcome.
+   */
+  it('produces both shapes from one declaration', () => {
+    expect(labelledRun([], 'soil').map((r) => [r.kind, r.label, r.value])).toEqual([
+      ['categorical', 'soil', EM_DASH],
+    ])
+    expect(labelledRun(null, 'soil')).toEqual(labelledRun([], 'soil'))
+    expect(labelledRun(['a'], 'soil').map((r) => r.kind)).toEqual(['categorical'])
+    expect(labelledRun(['a', 'b', 'c'], 'soil').map((r) => r.kind)).toEqual([
+      'categorical',
+      CONTINUATION,
+      CONTINUATION,
+    ])
+    // A NULL INSIDE THE LIST IS AN EM DASH IN ITS PLACE, never a row removed:
+    // dropping it would silently renumber a RANKED list.
+    expect(labelledRun(['a', null, 'c'], 'soil').map((r) => r.value)).toEqual(['a', EM_DASH, 'c'])
+
+    // AND THE STEP DECLARES IT ONCE, with no conditional around it.
+    const source = readFileSync(path.join(HERE, 'wizard', 'stepDefinitions.js'), 'utf8')
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    expect((code.match(/labelledRun\(/g) ?? [])).toHaveLength(1)
+    expect(code).toContain("...labelledRun(")
+  })
+
+  /**
+   * [5f] NO DRAINAGE VOCABULARY ON THIS SIDE.
+   *
+   * SSURGO's drainage classes are a fixed seven-class set and the backend
+   * republishes whatever the survey says, unmapped. A table of them over here
+   * -- a lookup, a prettifier, a default -- would go stale silently against a
+   * survey that says something else, and a stale table still renders a word.
+   * So this greps, the same way the elevation bands are checked below.
+   */
+  it('writes none of SSURGO’s seven drainage classes client-side', () => {
+    const SSURGO_DRAINAGE_CLASSES = [
+      'Excessively drained',
+      'Somewhat excessively drained',
+      'Well drained',
+      'Moderately well drained',
+      'Somewhat poorly drained',
+      'Poorly drained',
+      'Very poorly drained',
+    ]
+    const files = ['wizard/stepDefinitions.js', 'wizard/shell/panelFormat.js', 'wizard/shell/DetailPanel.jsx']
+    for (const file of files) {
+      const source = readFileSync(path.join(HERE, file), 'utf8')
+      const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+      for (const klass of SSURGO_DRAINAGE_CLASSES) {
+        expect(code, `"${klass}" must not be written in ${file}`).not.toContain(klass)
+        expect(code, `"${klass}" must not be written in ${file}`).not.toContain(klass.toLowerCase())
+      }
+    }
+
+    // THE VALUE IS THE WIRE'S, character for character -- not title-cased,
+    // not reworded. The panel sets it lower case in CSS, which changes how the
+    // survey's words are SET and leaves the words alone.
+    for (const zone of captured.payload.zones) {
+      if (zone.drainage_class == null) continue
+      expect(drainageOf(zone.feature_id).value).toBe(zone.drainage_class)
+      expect(SSURGO_DRAINAGE_CLASSES).toContain(zone.drainage_class)
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `DRAINAGE  off the wire, unmapped: ${[
+        ...new Set(captured.payload.zones.map((z) => z.drainage_class).filter(Boolean)),
+      ].join(', ')} -- none of the seven class names appears in ${files.length} source files`
+    )
   })
 
   /**
