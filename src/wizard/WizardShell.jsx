@@ -20,8 +20,19 @@
  * AND NONE OF THEM SPANS IT. B and E ran the full width until this branch,
  * which made them read as bars cutting the frame rather than as chrome
  * belonging to it, and cost map area at every width without looking like a
- * decision. All five are now cards: opaque surface, hairline, inset from the
- * edge, sized to their content. App.css's chrome section carries the argument.
+ * decision. Every one of them is inset from the edge and sized to its content.
+ * App.css's chrome section carries the argument.
+ *
+ * THREE OF THEM ARE CARDS AND TWO ARE LAYOUTS, and the split is what each one
+ * HOLDS rather than where it sits. A card is what carries CONTENT: the rail,
+ * the instruction bar and the detail panel hold text directly and each carries
+ * an opaque surface under it. D and E hold things that are already surfaces --
+ * a tab carries its own, and so does a button -- so a sheet behind them would
+ * be a second surface doing the first one's job, which is exactly what made the
+ * action region's buttons read as sitting in a box rather than resting on the
+ * map. E is the newer of the two and it is not purely a layout: the two things
+ * it can hold that are PROSE, the working line and the confirmation dialogue,
+ * carry cards of their own. Nothing in this shell puts type on imagery.
  *
  * D AND E SHARE THE BOTTOM ROW. The strip runs from after the rail to before
  * the action card and can never reach it -- they are two tracks of one grid,
@@ -255,7 +266,15 @@ function useSeedFocus(machine, focusedFeatureId, focusFeature) {
  */
 function UnregisteredChrome({ stepId }) {
   return (
-    <div className="chrome-bar" data-testid={`step-${stepId}`} data-step-state="unregistered">
+    <div
+      className="chrome-bar"
+      data-testid={`step-${stepId}`}
+      data-step-state="unregistered"
+      /* The mark reads 'direction' here for the same reason the card is a
+         card here: this is the bar saying its one sentence, and a step nobody
+         has built is not an alert and has no request out. */
+      data-bar-tone="direction"
+    >
       <p className="chrome-bar__direction" data-testid={`unregistered-${stepId}`}>
         This step is in the pipeline but is not built yet.
       </p>

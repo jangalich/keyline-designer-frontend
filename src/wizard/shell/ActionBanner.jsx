@@ -1,11 +1,30 @@
 /**
- * ActionBanner.jsx  —  REGION E, a card in the bottom-right corner.
+ * ActionBanner.jsx  —  REGION E, the bottom-right corner.
  *
- * SIZED TO ITS BUTTONS. It was a full-width band whose contents were one or
- * two right-aligned buttons, so nine tenths of it was empty sheet over the
- * map. The card is drawn around what was already there; the corner is where
- * the pointer was already travelling. It shares the bottom row with the tab
- * strip and holds that corner against it -- see App.css.
+ * SIZED TO ITS BUTTONS, AND NO LONGER A CARD AROUND THEM.
+ *
+ * It was a full-width band, then a card drawn around the one or two
+ * right-aligned buttons the band had been mostly empty around. The card was
+ * the right answer to the band and the wrong answer to the buttons: the
+ * forward move carries an opaque --oxide fill and the escape an opaque --paper
+ * one, so a sheet behind them was a SECOND surface doing the first one's job,
+ * and what it bought was the tell -- the buttons read as sitting in a box
+ * rather than as resting on the map.
+ *
+ * SO THE REGION IS A LAYOUT AND WHAT IT PLACES CARRIES ITS OWN SURFACE, which
+ * is the tab strip's posture one region over and the argument that region
+ * already won. The buttons take a casing instead of a card -- the ring and
+ * drop the map's own linework takes over imagery, applied to chrome; see
+ * --casing-control in index.css and .chrome-banner__button in App.css.
+ *
+ * THE TWO THINGS HERE THAT ARE PROSE STILL GET CARDS, and that is the rule
+ * rather than an exception to it: a card is what carries CONTENT. The working
+ * line is a report and the confirmation is a question with a cost under it,
+ * and neither has a fill of its own to be legible against an aerial frame
+ * with. A control can be its own surface; a sentence cannot.
+ *
+ * The corner is where the pointer was already travelling. It shares the bottom
+ * row with the tab strip and holds that corner against it -- see App.css.
  *
  *
  * WHAT THE STATE OFFERS, AND NOTHING ELSE. The banner renders the list the

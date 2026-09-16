@@ -507,6 +507,249 @@ async function checkableFromOff(stepId, tabId, where) {
 }
 
 /* ===========================================================================
+   0. THE FOUR FLOATING COMPONENTS, AT REST
+   ===========================================================================
+   THE ACTION REGION GAVE UP ITS CARD AND THE ZOOM CONTROL GAINED A SURFACE,
+   AND BOTH OF THOSE ARE HIT-TEST QUESTIONS BEFORE THEY ARE ANYTHING ELSE.
+
+   The card's removal is the sharper of the two. A region that draws no
+   background is still a BOX: `.chrome__bottom` turns pointer events on for
+   each of its children, so the region's box -- the buttons plus the gap
+   between them -- would have gone on swallowing clicks while showing nothing,
+   which is the worst version of this defect rather than a new one. It is
+   answered by making the region transparent to the pointer and handing the
+   events back to the three things it places, and the only honest test of that
+   is a browser resolving a coordinate to an element.
+
+   The zoom control is the other half: it is the ONLY zoom affordance in the
+   app -- scroll-wheel zoom is off permanently -- it is on screen in every
+   state of every step, it sits in the corner the detail panel also claims,
+   and nothing in this suite had ever asked whether it could be pressed.
+
+   THIS SECTION RUNS FIRST AND PRESSES NOTHING. Every section below advances
+   the pipeline and the sections are ordered (see ORDER); this one reads the
+   page as it loads -- the boundary step, no session, one button in the corner
+   -- so it can make the single-button claim, which is the only state that has
+   one. The presses are at the bottom of the file, where a changed zoom level
+   costs nothing.
+   =========================================================================== */
+
+/** Where a control's own centre lands, and what the browser finds there. */
+const ZOOM_IN = '.leaflet-control-zoom-in'
+const ZOOM_OUT = '.leaflet-control-zoom-out'
+
+/**
+ * press, for a control Leaflet names by class rather than by test id.
+ *
+ * The same gesture as press() and for the same reason: a real mouse at a real
+ * coordinate, so the browser's own hit-testing decides what receives it.
+ * Leaflet's own controls carry no data-testid and it is not this branch's
+ * business to give them one -- the class IS their identity, and it is the
+ * identity the stylesheet addresses them by too.
+ */
+async function pressSelector(selector) {
+  const box = await page.locator(selector).boundingBox()
+  expect(box, `${selector} has a rendered box to press`).not.toBeNull()
+  const x = box.x + box.width / 2
+  const y = box.y + box.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.click(x, y)
+  await page.waitForTimeout(400)
+}
+
+/** topAt, for a control Leaflet names by class rather than by test id. */
+function topAtSelector(selector) {
+  return page.evaluate((css) => {
+    const el = document.querySelector(css)
+    if (!el) return { missing: true }
+    const box = el.getBoundingClientRect()
+    const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+    return { hits: el === top || el.contains(top), tag: top?.tagName ?? null }
+  }, selector)
+}
+
+describeIf('0. the four floating components', () => {
+  it('renders no card behind a single button, and leaves the gap to the map', async () => {
+    // THE STATE: the boundary step with no session, which is the one state in
+    // the build that offers exactly one button.
+    const buttons = await page.evaluate(() =>
+      [...document.querySelectorAll('.chrome-banner__button')].map((el) => el.textContent)
+    )
+    expect(buttons).toHaveLength(1)
+
+    // THE REGION DRAWS NOTHING. Read off the cascade, which is the half
+    // style.test.jsx cannot do: transparent, no border, no radius.
+    const region = await page.evaluate(() => {
+      const s = getComputedStyle(document.querySelector('.chrome-banner'))
+      return {
+        background: s.backgroundColor,
+        borders: [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth],
+        pointerEvents: s.pointerEvents,
+      }
+    })
+    expect(region.background).toBe('rgba(0, 0, 0, 0)')
+    for (const width of region.borders) expect(width).toBe('0px')
+    expect(region.pointerEvents).toBe('none')
+
+    // AND THE BUTTON IS ITS OWN SURFACE, opaque, with the casing under it.
+    const button = await page.evaluate(() => {
+      const s = getComputedStyle(document.querySelector('.chrome-banner__button'))
+      return { background: s.backgroundColor, shadow: s.boxShadow }
+    })
+    expect(button.background).not.toContain('rgba')
+    // --oxide laid solid: this state's one button is the forward move.
+    expect(button.background).toBe('rgb(156, 74, 47)')
+    // The ring in --paper (#fdfcf9) and a drop under it.
+    expect(button.shadow).toContain('rgb(253, 252, 249)')
+    expect(button.shadow.split(',').length).toBeGreaterThan(1)
+  })
+
+  it('leaves every control in all four components topmost at its own centre, at both widths', async () => {
+    for (const [where, viewport] of STAGES) {
+      await resize(viewport)
+
+      // A: THE RAIL. Every row, not the cursor's alone -- a row that cannot be
+      // pressed is a step you cannot open, and the ahead rows are the ones a
+      // reader is most likely to try.
+      const rows = await page.evaluate(() =>
+        [...document.querySelectorAll('.chrome-rail__step')].map((el) => el.dataset.testid)
+      )
+      expect(rows.length).toBeGreaterThan(1)
+      for (const testid of rows) {
+        expect(await topAt(testid), `${testid} is topmost at its own centre on ${where}`)
+          .toMatchObject({ hits: true })
+      }
+
+      // B: THE INSTRUCTION BAR. It holds no control in this state -- the undo
+      // is the only one it can carry and nothing has been destroyed -- so what
+      // is asserted is that the CARD is where the pointer finds it, which is
+      // the same claim one level up: a region nothing can reach is a region
+      // whose undo nobody can press.
+      expect(await topAtSelector('.chrome-bar'), `the instruction bar on ${where}`)
+        .toMatchObject({ hits: true })
+
+      // E: THE ACTION REGION'S BUTTON, which is the card-less case.
+      expect(await topAt('draw-boundary'), `the forward move on ${where}`)
+        .toMatchObject({ hits: true })
+
+      // AND THE GAP BESIDE IT IS MAP. The region's box is wider than its one
+      // button by its own padding-free layout; a point just outside the button
+      // and inside the region must reach the map, or the transparent region is
+      // still swallowing clicks.
+      const spill = await page.evaluate(() => {
+        const region = document.querySelector('.chrome-banner').getBoundingClientRect()
+        const button = document.querySelector('.chrome-banner__button').getBoundingClientRect()
+        // A point on the region's own row, one pixel outside the button.
+        const x = button.x - 1
+        const y = button.y + button.height / 2
+        if (x <= region.x) return { insideRegion: false }
+        const top = document.elementFromPoint(x, y)
+        return {
+          insideRegion: true,
+          reachesMap: Boolean(top?.closest('.leaflet-container')),
+          top: top?.className ?? null,
+        }
+      })
+      if (spill.insideRegion) {
+        expect(spill.reachesMap, `the region's own gap is map on ${where}`).toBe(true)
+      }
+
+      // THE ZOOM CONTROL: both buttons, which is the only zoom in the app.
+      for (const selector of [ZOOM_IN, ZOOM_OUT]) {
+        expect(await topAtSelector(selector), `${selector} is topmost at its own centre on ${where}`)
+          .toMatchObject({ hits: true })
+      }
+    }
+    await resize(ROOMY)
+  })
+
+  it('gives the zoom control the shared surface, a hairline between its buttons, and a ring', async () => {
+    // THE CASCADE, NOT THE STYLESHEET. Leaflet's own rules outrank a bare
+    // class -- `.leaflet-bar a`, `.leaflet-touch .leaflet-bar` -- so the only
+    // way to know the default is gone is to read what the engine resolved.
+    const read = await page.evaluate(() => {
+      const card = document.querySelector('.leaflet-control-zoom')
+      const [plus, minus] = card.querySelectorAll('a')
+      const s = getComputedStyle(card)
+      const b = getComputedStyle(plus)
+      return {
+        card: {
+          background: s.backgroundColor,
+          border: s.borderTopWidth,
+          borderColor: s.borderTopColor,
+          radius: s.borderTopLeftRadius,
+          shadow: s.boxShadow,
+          overflow: s.overflow,
+        },
+        button: {
+          background: b.backgroundColor,
+          color: b.color,
+          family: b.fontFamily,
+          ownBorder: b.borderTopWidth,
+        },
+        divider: getComputedStyle(minus).borderTopWidth,
+        dividerColor: getComputedStyle(minus).borderTopColor,
+      }
+    })
+
+    // THE SHARED SURFACE: --paper, a --rule hairline, the system's --radius.
+    expect(read.card.background).toBe('rgb(253, 252, 249)')
+    expect(read.card.border).toBe('1px')
+    expect(read.card.borderColor).toBe('rgb(221, 214, 200)')
+    expect(read.card.radius).toBe('4px')
+    expect(read.card.overflow).toBe('hidden')
+    // Leaflet's own drop shadow is off: the other cards in this shell have
+    // none, and this is a card.
+    expect(read.card.shadow).toBe('none')
+
+    // THE HAIRLINE BETWEEN THE TWO, which is the rail's device on a list of
+    // two -- and not Leaflet's own 1px #ccc, which is a different colour.
+    expect(read.divider).toBe('1px')
+    expect(read.dividerColor).toBe('rgb(221, 214, 200)')
+    // The first button carries no rule of its own; the card's edge is above it.
+    expect(read.button.ownBorder).toBe('0px')
+
+    // THE GLYPHS ARE THE SYSTEM'S FACE, not Lucida Console at 18px bold.
+    expect(read.button.family).toContain('Source Serif')
+    expect(read.button.color).toBe('rgb(43, 43, 38)')
+    expect(read.button.background).toBe('rgb(253, 252, 249)')
+
+    // AND A KEYBOARD USER CAN SEE WHERE THEY ARE, ON BOTH BUTTONS.
+    //
+    // KEYBOARD FIRST, THEN FOCUS. :focus-visible is a heuristic about how the
+    // focus ARRIVED -- a control focused while the last interaction was a
+    // mouse press does not match it, and `element.focus()` on a page that has
+    // only ever been clicked is that case. So a Tab puts the page in keyboard
+    // mode first, which is layout.test.jsx's method for the same question.
+    await page.keyboard.press('Tab')
+    for (const selector of [ZOOM_IN, ZOOM_OUT]) {
+      const ring = await page.evaluate((css) => {
+        const el = document.querySelector(css)
+        el.focus()
+        const s = getComputedStyle(el)
+        const out = {
+          visible: el.matches(':focus-visible'),
+          width: s.outlineWidth,
+          style: s.outlineStyle,
+          colour: s.outlineColor,
+          offset: s.outlineOffset,
+        }
+        el.blur()
+        return out
+      }, selector)
+      expect(ring.visible, `${selector} matches :focus-visible`).toBe(true)
+      expect(ring.style, `${selector} draws a ring`).toBe('solid')
+      expect(ring.width).toBe('2px')
+      expect(ring.colour).not.toBe('rgba(0, 0, 0, 0)')
+      // INSET, for the rail's reason: the card clips its two rows, and a ring
+      // at the reset's +2px offset would sit outside that clip -- present in
+      // the accessibility tree and invisible on screen.
+      expect(ring.offset).toBe('-3px')
+    }
+  })
+})
+
+/* ===========================================================================
    1. THE MULTI-SELECT STEPS, DERIVED RATHER THAN LISTED
    =========================================================================== */
 
@@ -1530,5 +1773,149 @@ describeIf('the reopen confirmation', () => {
       60_000
     )
     expect(await statusOf('water'), 'the cascade reached the step below').toBe('not_started')
+  })
+})
+
+/* ===========================================================================
+   THE TWO-BUTTON CASE, WHICH IS THE ONE THE CARD WAS KEEPING
+   ===========================================================================
+   THE OBJECTION TO REMOVING THE ACTION REGION'S CARD, IN ITS OWN STATE.
+
+   Five of the six steps offer an escape beside a commit, so two buttons is the
+   commonest arrangement in the shell rather than an edge case, and the whole
+   argument against a card-less region was about it: a secondary with no
+   surface of its own sits directly on imagery. It has one -- it has carried
+   --paper since it was written, and layout.test.jsx measures what it puts on
+   canopy and on soil -- so what is left to ask here is the part a stylesheet
+   cannot answer: with no card behind them, are BOTH still reachable, is the
+   gap between them map, and is exactly one of them still the accent.
+
+   LAST IN THE FILE, because it presses the zoom buttons: the map's level is
+   the one piece of page state every section above reads coordinates through,
+   and changing it anywhere earlier would be changing the ground under them.
+   The reopen above leaves landform generated and the cursor on it, which is a
+   two-button state without arranging one.
+   =========================================================================== */
+
+describeIf('the action region with two buttons, and the zoom', () => {
+  liveIt('keeps both reachable with no card, one accent, and the gap between them map', async () => {
+    // THE STATE, as the reopen above left it: a generated step being reviewed.
+    expect(await statusOf('landform')).toBe('generated')
+
+    // AND WAITED FOR RATHER THAN ASSUMED. A reopen refetches the step's
+    // layers, so the chrome passes through `loading` on its way back to
+    // `reviewing` -- and `loading` declares NO buttons, which is a real state
+    // and not the one this section is about. The row's own appearance is the
+    // signal that the machine has arrived.
+    await page.waitForSelector('[data-testid="actions-landform"]', { timeout: SLOW })
+
+    // AND THE POINTER IS PARKED SOMEWHERE ELSE FIRST. Every gesture in this
+    // file leaves the mouse where it last pressed, and a button under the
+    // pointer is a button in its HOVER fill -- measured here as --stock,
+    // #f4f1ea, on the first run of this case, which is the hover working
+    // rather than the resting fill being wrong. The claim below is about the
+    // resting one.
+    await page.mouse.move(4, 4)
+
+    const tones = await evaluate(() =>
+      [...document.querySelectorAll('.chrome-banner__button')].map((el) => ({
+        testid: el.dataset.testid,
+        tone: el.dataset.tone,
+        background: getComputedStyle(el).backgroundColor,
+        shadow: getComputedStyle(el).boxShadow,
+      }))
+    )
+    expect(tones).toHaveLength(2)
+
+    // ONE OXIDE PER STATE, read off the pixels rather than off the tone
+    // attribute: #9c4a2f is --oxide, and exactly one button carries it.
+    const oxide = tones.filter((b) => b.background === 'rgb(156, 74, 47)')
+    expect(oxide).toHaveLength(1)
+    expect(oxide[0].tone).toBe('primary')
+
+    // AND THE OTHER IS A SURFACE RATHER THAN AN OUTLINE. --paper, #fdfcf9,
+    // opaque -- which is the fact the card's removal turns on.
+    const secondary = tones.find((b) => b.tone === 'secondary')
+    expect(secondary.background).toBe('rgb(253, 252, 249)')
+    expect(secondary.background).not.toContain('rgba')
+
+    // BOTH CARRY THE CASING, which is what the card was supplying.
+    for (const button of tones) {
+      expect(button.shadow, `${button.testid} is cased`).toContain('rgb(253, 252, 249)')
+    }
+
+    // BOTH TOPMOST AT THEIR OWN CENTRES, AT BOTH WIDTHS. The squeezed stage is
+    // the one that matters: the strip grows leftward-bounded and upward into
+    // this row, and a region with no surface gives no visual warning when
+    // something lands on top of it.
+    for (const [where, viewport] of STAGES) {
+      await resize(viewport)
+      for (const button of tones) {
+        expect(
+          await topAt(button.testid),
+          `${button.testid} is topmost at its own centre on ${where}`
+        ).toMatchObject({ hits: true })
+      }
+
+      // THE GAP BETWEEN THEM IS MAP. This is the defect the card's removal
+      // would have introduced if the region had kept its pointer events: the
+      // region's box spans both buttons AND the --space-3 between them, and a
+      // transparent box that takes clicks is worse than a visible one that
+      // does, because nothing on screen says why the map stopped responding.
+      const gap = await evaluate(() => {
+        const boxes = [...document.querySelectorAll('.chrome-banner__button')].map((el) =>
+          el.getBoundingClientRect()
+        )
+        boxes.sort((a, b) => a.x - b.x)
+        const x = (boxes[0].x + boxes[0].width + boxes[1].x) / 2
+        const y = boxes[0].y + boxes[0].height / 2
+        const top = document.elementFromPoint(x, y)
+        return { reachesMap: Boolean(top?.closest('.leaflet-container')), tag: top?.tagName }
+      })
+      expect(gap.reachesMap, `the gap between the two buttons is map on ${where}`).toBe(true)
+    }
+    await resize(ROOMY)
+
+    // AND THE ESCAPE TAKES A REAL PRESS. Hit-testable is not the same claim as
+    // wired, which is the argument this whole file is built on.
+    await press('draw-landform')
+    expect(await evaluate(() => window.__probe.cursor.armed)).not.toBeNull()
+    await press('cancel-landform')
+    expect(await evaluate(() => window.__probe.cursor.armed)).toBeNull()
+  })
+
+  liveIt('zooms the map with a real press, in both directions, at both widths', async () => {
+    // THE ONLY ZOOM AFFORDANCE IN THE APP. Scroll-wheel zoom is off
+    // permanently and the trackpad pinch goes through the same handler, so a
+    // + that cannot be pressed is a map that cannot be zoomed -- and nothing
+    // in this suite had ever pressed one.
+    for (const [where, viewport] of STAGES) {
+      await resize(viewport)
+
+      const before = await evaluate(() => window.__probe.map.getZoom())
+
+      await pressSelector(ZOOM_IN)
+      const zoomedIn = await evaluate(() => window.__probe.map.getZoom())
+      // THE HALF STEP, WHICH IS zoomDelta AND zoomSnap TOGETHER. A fractional
+      // delta with the default snap of 1 rounds straight back to a whole
+      // level, so this reading is the one that says both are still set.
+      expect(zoomedIn - before, `+ moves half a level on ${where}`).toBeCloseTo(0.5, 5)
+
+      await pressSelector(ZOOM_OUT)
+      expect(
+        await evaluate(() => window.__probe.map.getZoom()),
+        `- brings it back on ${where}`
+      ).toBeCloseTo(before, 5)
+
+      // AND BOTH ARE STILL TOPMOST AFTERWARDS. A control that works once and
+      // is then covered by what it did is the shape of the original bug.
+      for (const selector of [ZOOM_IN, ZOOM_OUT]) {
+        expect(
+          await topAtSelector(selector),
+          `${selector} is still topmost after a press on ${where}`
+        ).toMatchObject({ hits: true })
+      }
+    }
+    await resize(ROOMY)
   })
 })
