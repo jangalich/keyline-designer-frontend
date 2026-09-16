@@ -660,7 +660,7 @@ describe('4. one accent per state', () => {
       },
       // STRUCTURES IS LANDFORM'S SHAPE TOO -- candidates plus a site the user
       // PLACES -- and "Place a site" is the lateral move beside the commit,
-      // exactly as "Draw a zone" is. Same table.
+      // exactly as "Draw a block" is. Same table.
       structures: {
         [IDLE]: 1,
         [GENERATING]: 0,
@@ -1130,7 +1130,7 @@ describe('6. copy', () => {
       for (const state of MACHINE_STATES) {
         for (const button of definition.buttons[state] ?? []) {
           const label = button.label({
-            machine: { commitLabel: 'Commit zones', definition, canCommit: true },
+            machine: { commitLabel: 'Commit blocks', definition, canCommit: true },
           })
           labels.push(label)
         }

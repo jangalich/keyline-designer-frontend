@@ -369,7 +369,7 @@ describe('1. boundary end to end in the new shell', () => {
     expect(ui.cursor.cursorStepId).toBe('landform')
     expect(ui.find(`step-${BOUNDARY_STEP_ID}`)).toBeNull()
     expect(ui.find('step-landform').dataset.stepState).toBe(IDLE)
-    expect(ui.buttons('landform')).toEqual([['generate', 'Generate production zones']])
+    expect(ui.buttons('landform')).toEqual([['generate', 'Generate production blocks']])
 
     await ui.unmount()
   })

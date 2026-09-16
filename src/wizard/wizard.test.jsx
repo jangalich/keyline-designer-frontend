@@ -825,15 +825,15 @@ describe('5. reopen confirmation', () => {
     // this build can reopen the step above it -- the boundary declares no
     // reopen -- so it never appears in a reset list, and a note nothing calls
     // is a note that rots. It says what the other two say, in its own terms,
-    // and it names the drawn zone separately because a drawn shape is the one
+    // and it names the drawn block separately because a drawn shape is the one
     // piece of work here that generating again cannot bring back.
     expect(asText(LANDFORM_STEP.resetNote(ui.state))).toBe(
-      '2 committed production zones, 1 of them drawn by hand'
+      '2 committed production blocks, 1 of them drawn by hand'
     )
 
     // AND THE SHELL ITSELF CARRIES NO STEP'S VOCABULARY.
     const shell = codeOf('shell', 'ActionBanner.jsx')
-    for (const word of ['survey area', 'access point', 'production zone', 'network']) {
+    for (const word of ['survey area', 'access point', 'production block', 'network']) {
       expect(shell).not.toContain(word)
     }
 

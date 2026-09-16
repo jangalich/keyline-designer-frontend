@@ -10,7 +10,7 @@
  * steps say what they were written to say" -- the second is a claim about the
  * SET, and a claim about a set has to be made against the set.
  *
- * FOUR CLAIMS, AND THE LAST TWO ARE THE ONES WORTH HAVING:
+ * FOUR CLAIMS ABOUT THE LINE, AND A FIFTH ABOUT THE NOUN UNDER IT:
  *
  *   EVERY DECLARED LINE RENDERS. Not "the definitions hold strings" -- that is
  *   the schema's own check and it already runs at definition time. This mounts
@@ -29,6 +29,12 @@
  *   absence above could have taken with it: it says that ground which passed
  *   every test exists and cannot be selected on this step, which is available
  *   NOWHERE ELSE in the interface. It is asserted by name.
+ *
+ *   LANDFORM SAYS ONE NOUN. The strip and the panel renamed a zone to a block
+ *   before this copy pass; the instruction line joined them and the rest of the
+ *   step followed. Held in 7 below, against the step's surfaces rather than
+ *   against any one string, because "block" and "zone" in one step is precisely
+ *   the kind of split no single file shows you.
  */
 
 import React from 'react'
@@ -36,10 +42,18 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import InstructionBar from './shell/InstructionBar.jsx'
-import { STEP_DEFINITIONS, WATER_STEP } from './stepDefinitions'
+import { LANDFORM_SHAPE, STEP_DEFINITIONS, WATER_STEP } from './stepDefinitions'
 import { COMMITTING, EDITING, IDLE, REVIEWING } from './useStepMachine'
 
 const byId = (id) => STEP_DEFINITIONS.find((step) => step.id === id)
+
+/** A parcel to clamp a drawn shape against. A square over lower Manhattan. */
+const PARCEL = [
+  [40.72, -74.005],
+  [40.72, -74.0],
+  [40.725, -74.0],
+  [40.725, -74.005],
+]
 
 /** Every instruction string the seven shipped steps declare, in one list. */
 const EVERY_LINE = STEP_DEFINITIONS.flatMap((step) =>
@@ -313,5 +327,146 @@ describe('6. the word in trees is complement', () => {
     for (const { step, state, line } of EVERY_LINE) {
       expect(line.toLowerCase(), `${step} / ${state}`).not.toContain('compliment')
     }
+  })
+})
+
+/* ===========================================================================
+   7. LANDFORM SAYS BLOCK, EVERYWHERE A USER READS IT
+   ===========================================================================
+   The strip and the panel have said "Block N" since the rename landed; the
+   instruction line joined them, and the rest of the step followed -- the blurb,
+   the generate, the commit, the draw tool, the committed line, the reset note,
+   and what a drawn shape calls itself.
+
+   ONE NOUN, AND THIS IS WHERE IT IS HELD. A step that says "block" on the strip
+   and "zone" on the button is a step whose two halves were edited on different
+   days, and there is no single file a reader would notice it in -- the strings
+   are spread across a tool button, a commit label, a shape's close(), and six
+   instruction keys. So the claim is made against the SURFACES rather than
+   against any one of them.
+
+   THE WIRE IS NOT IN SCOPE AND MUST NOT BE. `suggested_zones`, the payload's
+   `zones` table, the `production_area_candidate` layer and every feature id in
+   it are the backend's own names, the commit joins on them, and the rename was
+   always a display-prose rename. Nothing below reads an identifier.
+
+   AND IT IS LANDFORM'S ALONE. Water surveys zones, trees plant zones, and both
+   say so on purpose -- see the tree line asserted in 6 above. The assertion is
+   scoped to the one step whose noun changed.
+   =========================================================================== */
+
+describe('7. landform’s noun is block', () => {
+  const landform = byId('landform')
+
+  /**
+   * A stub rich enough for a label, and no richer. Every button's label is a
+   * function of the chrome context -- the commit reads `machine.commitLabel`,
+   * the reopen reads `machine.definition.reopen.label` -- so the labels cannot
+   * be read off the definition without one.
+   */
+  const labelContext = {
+    machine: {
+      definition: landform,
+      commitLabel: landform.commit.label({ committableCount: 2 }),
+      canCommit: true,
+      canReopen: true,
+    },
+  }
+
+  /** Every string this step puts in front of a user, by where it comes from. */
+  function userFacingStrings() {
+    const out = []
+    for (const [state, line] of Object.entries(landform.instructions)) {
+      out.push([`instructions.${state}`, line])
+    }
+    out.push(['blurb', landform.blurb])
+    out.push(['generate.label', landform.generate.label])
+    out.push(['commit.label (empty)', landform.commit.label({ committableCount: 0 })])
+    out.push(['commit.label (some)', landform.commit.label({ committableCount: 3 })])
+    out.push(['reopen.label', landform.reopen.label])
+    out.push(['reopen.confirmTitle', landform.reopen.confirmTitle])
+
+    for (const [state, buttons] of Object.entries(landform.buttons)) {
+      for (const button of buttons) {
+        out.push([`buttons.${state}.${button.key}`, button.label(labelContext)])
+      }
+    }
+
+    // THE TABS AND THE PANEL, over one suggestion and one drawn shape -- the
+    // two kinds of feature this step can hold, which name themselves
+    // differently and could drift apart.
+    const context = {
+      proposals: { zones: [{ feature_id: 'production-area-1', rank: 1, area_acres: 4, score: 81 }] },
+      draft: {
+        selectedFeatureIds: [],
+        drawnFeatures: [{ id: 'drawn-1', properties: { acres: 2.1, confidence: 'low' } }],
+      },
+    }
+    for (const tab of landform.tabs(context)) out.push([`tabs.${tab.id}`, tab.name])
+    out.push(['detail (suggested)', landform.detail(context, 'production-area-1').name])
+    out.push(['detail (drawn)', landform.detail(context, 'drawn-1').name])
+
+    return out
+  }
+
+  it('says block in every string the step puts in front of a user', () => {
+    const strings = userFacingStrings()
+    // The list is real: a refactor that stopped reaching a surface would make
+    // this test pass by asserting nothing.
+    expect(strings.length).toBeGreaterThanOrEqual(15)
+
+    for (const [where, text] of strings) {
+      expect(typeof text, `landform ${where}`).toBe('string')
+      expect(text.toLowerCase(), `landform ${where} still says zone`).not.toContain('zone')
+    }
+
+    // AND THE NOUN IS ACTUALLY THERE, in the places whose whole job is to name
+    // the thing -- otherwise "contains no 'zone'" is satisfied by silence.
+    const at = (where) => strings.find(([w]) => w === where)?.[1]
+    expect(at('generate.label')).toBe('Generate production blocks')
+    expect(at('commit.label (some)')).toBe('Commit blocks')
+    expect(at('commit.label (empty)')).toBe('Commit no blocks for this step')
+    expect(at('buttons.reviewing.draw')).toBe('Draw a block')
+    expect(at('tabs.production-area-1')).toBe('Block 1')
+    expect(at('detail (drawn)')).toBe('Drawn block')
+  })
+
+  it('says block in what a drawn shape calls itself and in what refuses one', () => {
+    // A ring nowhere near the parcel: the clamp keeps nothing and the gesture
+    // is refused with a sentence rather than discarded.
+    const refused = LANDFORM_SHAPE.close({
+      points: [
+        [10, 10],
+        [10, 10.01],
+        [10.01, 10.01],
+      ],
+      parcel: PARCEL,
+      references: {},
+    })
+    expect(refused.feature).toBeNull()
+    expect(refused.notice).toBe(
+      'That block fell entirely outside the property boundary and was not added.'
+    )
+
+    // A ring inside it: the feature the commit contract receives names itself
+    // in the step's own noun.
+    const kept = LANDFORM_SHAPE.close({
+      points: [
+        [40.721, -74.004],
+        [40.721, -74.001],
+        [40.724, -74.001],
+      ],
+      parcel: PARCEL,
+      references: {},
+    })
+    expect(kept.feature).not.toBeNull()
+    expect(kept.feature.properties.label).toBe('Drawn block')
+  })
+
+  it('leaves the wire alone: the payload’s own names are untouched', () => {
+    // The rename was display prose. The collection the commit reads, and the
+    // layer the backend refuses a feature without, still spell it zone/area.
+    expect(landform.proposalCollection).toBe('suggested_zones')
+    expect(landform.layers.map((layer) => layer.key)).toContain('suggested_zones')
   })
 })

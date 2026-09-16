@@ -1694,7 +1694,7 @@ export const LANDFORM_SHAPE = Object.freeze({
     if (!multi.length) {
       return {
         feature: null,
-        notice: 'That zone fell entirely outside the property boundary and was not added.',
+        notice: 'That block fell entirely outside the property boundary and was not added.',
       }
     }
 
@@ -1710,7 +1710,7 @@ export const LANDFORM_SHAPE = Object.freeze({
         geometry: { type: 'MultiPolygon', coordinates: multi },
         properties: {
           layer: PRODUCTION_AREA_LAYER,
-          label: 'Drawn zone',
+          label: 'Drawn block',
           confidence: 'low',
           confidence_notes: 'Drawn by hand on the map; no survey backs it.',
           acres,
@@ -1718,7 +1718,7 @@ export const LANDFORM_SHAPE = Object.freeze({
         },
       },
       // Said only when the clamp actually took something. A notice on every
-      // drawn zone would train the user to ignore the one that matters.
+      // drawn block would train the user to ignore the one that matters.
       //
       // PARTS RATHER THAN A SENTENCE, so the acreage the clamp removed is set
       // in the data face like every other measured value. It was a template
@@ -1959,11 +1959,11 @@ export function aspectPhrase(zone) {
   return `${zone.dominant_aspect} facing`
 }
 
-/** Start drawing a zone of your own. */
+/** Start drawing a block of your own. */
 const LANDFORM_DRAW = armButton({
   key: 'draw',
   tool: 'draw',
-  label: 'Draw a zone',
+  label: 'Draw a block',
 })
 
 /**
@@ -1979,7 +1979,7 @@ const LANDFORM_CANCEL = disarmButton({ key: 'cancel', label: 'Cancel' })
 export const LANDFORM_STEP = documentStep({
   id: 'landform',
   title: 'Landform',
-  blurb: 'Production zones on the ground the parcel can actually support.',
+  blurb: 'Production blocks on the ground the parcel can actually support.',
   layers: [
     // Bottom of the context band: everything AROUND the parcel, dimmed. The
     // one hard gate in this interface and the only mark that reads as
@@ -2024,7 +2024,7 @@ export const LANDFORM_STEP = documentStep({
   // None. The backend's landform entry declares no user_inputs, so any params
   // at all is a 400 -- see step_orchestrator.validate_params().
   inputs: [],
-  generate: { label: 'Generate production zones' },
+  generate: { label: 'Generate production blocks' },
   commit: {
     /**
      * AN EMPTY COMMIT IS LEGAL AND DELIBERATE, AND THE BUTTON SAYS SO.
@@ -2035,13 +2035,13 @@ export const LANDFORM_STEP = documentStep({
      * absence. So the commit is never blocked here.
      *
      * But it must never be a SILENT empty submit either. A button reading
-     * "Commit these zones" over an empty selection is a user one click away
+     * "Commit these blocks" over an empty selection is a user one click away
      * from recording a decision they did not know they were making, so the
      * button renames itself and states the decision instead. That is the
      * whole of the affordance: same action, same place, different sentence.
      */
     label: ({ committableCount }) =>
-      committableCount === 0 ? 'Commit no zones for this step' : 'Commit zones',
+      committableCount === 0 ? 'Commit no blocks for this step' : 'Commit blocks',
     canCommit: () => true,
     blockedReason: () => null,
   },
@@ -2059,18 +2059,18 @@ export const LANDFORM_STEP = documentStep({
    * about, and because the day a step lands between the boundary and this one
    * is not the day to notice.
    *
-   * A DRAWN ZONE IS NAMED SEPARATELY WHEN THERE IS ONE. Every committed zone
-   * is work; a drawn one is the only work here that cannot be recovered by
+   * A DRAWN BLOCK IS NAMED SEPARATELY WHEN THERE IS ONE. Every committed
+   * block is work; a drawn one is the only work here that cannot be recovered by
    * generating again and picking the same shapes, and a person deciding
    * whether to reopen needs that difference more than they need the total.
    * Off the document's own provenance map -- the same record the commit
    * wrote -- rather than inferred from a feature id.
    */
   resetNote: (state) => {
-    const zones = committedFeatureCount(state, 'landform')
-    if (!zones) return 'the production ground decided for this parcel'
+    const blocks = committedFeatureCount(state, 'landform')
+    if (!blocks) return 'the production ground decided for this parcel'
     const drawn = drawnFeatureCount(state, 'landform')
-    const note = [measured(zones, 0), ` committed production zone${plural(zones)}`]
+    const note = [measured(blocks, 0), ` committed production block${plural(blocks)}`]
     if (drawn) note.push(', ', measured(drawn, 0), ' of them drawn by hand')
     return note
   },
@@ -2087,7 +2087,7 @@ export const LANDFORM_STEP = documentStep({
       'want, or draw your own.',
     [EDITING]: 'Click to place each corner. Click the first corner to close.',
     [COMMITTING]: 'Saving these blocks.',
-    [STEP_COMMITTED]: 'These zones are committed. Every step after this is measured against them.',
+    [STEP_COMMITTED]: 'These blocks are committed. Every step after this is measured against them.',
   },
   buttons: {
     [IDLE]: [GENERATE_BUTTON],
@@ -2919,7 +2919,7 @@ export const WATER_STEP = documentStep({
   buttons: {
     [IDLE]: [GENERATE_BUTTON],
     [GENERATING]: [],
-    // ONE BUTTON. Landform offers "Draw a zone" beside the commit; there is
+    // ONE BUTTON. Landform offers "Draw a block" beside the commit; there is
     // nothing to draw here, and a second button offering the only other verb
     // this step has -- none -- would be a control that does nothing.
     [REVIEWING]: [COMMIT_BUTTON],
@@ -3650,7 +3650,7 @@ const ROADS_ACCESS_SPEC = {
  * forward moves and letting the user pick which one the design meant.
  *
  * THE PRECEDENT IS LANDFORM'S, EXACTLY. Its `reviewing` is [LANDFORM_DRAW,
- * COMMIT_BUTTON] -- "Draw a zone" beside the commit -- and LANDFORM_DRAW
+ * COMMIT_BUTTON] -- "Draw a block" beside the commit -- and LANDFORM_DRAW
  * takes stepButton's default `secondary`. This is the same pairing and now
  * takes the same answer; it did not, and roads was simply never in the loop
  * that checks the rule (style.test.jsx section 4, which now includes it).
