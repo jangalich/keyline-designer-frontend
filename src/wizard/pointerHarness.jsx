@@ -44,7 +44,7 @@
 
 import { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
-import { MapContainer, useMap } from 'react-leaflet'
+import { MapContainer, ZoomControl, useMap } from 'react-leaflet'
 
 import 'leaflet/dist/leaflet.css'
 import '../index.css'
@@ -152,8 +152,26 @@ function Harness() {
               style={{ height: '100%', width: '100%' }}
               scrollWheelZoom={false}
               zoomControl={false}
+              /* THE MAP'S OWN SETTINGS, AS APP.JSX SETS THEM. The half step is
+                 why they are here: +/- is the only zoom with the wheel off,
+                 and a control positioned and pressed at a different delta than
+                 the shipped one is a control being tested in a map this app
+                 does not have. */
+              zoomDelta={0.5}
+              zoomSnap={0.5}
               attributionControl={false}
             >
+              {/* THE ZOOM CONTROL, WHICH THIS PAGE DID NOT HAVE AND NEEDED TO.
+                  It is the only zoom affordance in the app -- scroll-wheel zoom
+                  is off permanently -- and it is the one piece of chrome that
+                  is on screen in every state of every step, which makes it the
+                  one whose hit-test matters most and the one nothing here was
+                  asking about. It sits in the top-right corner, which is the
+                  corner the detail panel also claims and the corner the
+                  instruction bar's row runs across: exactly the arrangement
+                  where a control ends up under something. Same position and
+                  same props as App.jsx. */}
+              <ZoomControl position="topright" />
               <MapProbe />
               <MapLayerStack />
             </MapContainer>

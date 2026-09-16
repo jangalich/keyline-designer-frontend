@@ -369,8 +369,14 @@ describeIf('5. the instruction card', () => {
     // many lines it holds -- that reads as "did not wrap" for any notice and
     // would have passed here on a card with no cap at all. A Range returns one
     // rect per line box, which is the thing being asserted.
+    //
+    // OVER THE BODY, NOT OVER THE ROW, AND THE DISTINCTION IS NEW. A notice is
+    // a ruled ROW now -- a one-word kind label in the data face, then the
+    // sentence -- so a Range over the row returns two rects for a notice that
+    // has not wrapped at all, and `> 1` would be satisfied by the label. The
+    // body is the sentence, and the sentence is what the cap acts on.
     const lines = await long.page.evaluate(() => {
-      const el = document.querySelector('.chrome-bar__notice')
+      const el = document.querySelector('.chrome-bar__notice-body')
       const range = document.createRange()
       range.selectNodeContents(el)
       return range.getClientRects().length
@@ -396,6 +402,180 @@ describeIf('5. the instruction card', () => {
     expect(await ui.page.locator('.chrome-bar__notice').count()).toBe(3)
 
     await ui.close()
+  }, SLOW)
+})
+
+/* ===========================================================================
+   5a. WHAT THE INSTRUCTION CARD GAINED, MEASURED AGAINST THREE NOTICES
+   ===========================================================================
+   The card was one face at one weight in an undifferentiated block, and it is
+   the one region whose CONTENT is a function of the state. It gained three
+   things the rail has and it did not: a state mark on its edge, a rule between
+   the direction and the notices and between the notices themselves, and a
+   third face -- a one-word kind label leading each row.
+
+   EVERY ONE OF THOSE COSTS HEIGHT, AND THE STACKED CASE IS WHERE THAT IS PAID.
+   Three notices at once is a real arrangement -- a step raising its own
+   advisory while the machine reports a trimmed shape and a rejection -- and the
+   claim is that the additions survive it: the cap still holds, the card is
+   still centred, and it has not grown down into the map. style.test.jsx can
+   read that the rules were written; only an engine can say what they did to the
+   box.
+   =========================================================================== */
+
+describeIf('5a. the instruction card’s structure', () => {
+  it('holds the cap, the centre and the map with three notices stacked and ruled', async () => {
+    const ui = await openHarness({ notice: 'stacked' })
+    const stage = await ui.stage()
+    const card = await ui.box(REGIONS.instruction)
+
+    // Three notices are on screen, so what follows is the real case.
+    expect(await ui.page.locator('.chrome-bar__notice').count()).toBe(3)
+
+    // THE CAP AND THE CENTRE, unchanged by anything added.
+    expect(card.width).toBeLessThanOrEqual(READING_MEASURE)
+    const left = card.x - stage.x
+    const right = stage.x + stage.width - (card.x + card.width)
+    expect(Math.abs(left - right)).toBeLessThanOrEqual(1)
+
+    // AND IT HAS NOT GROWN INTO THE MAP. The same claim section 3 makes about
+    // the gap between the top and bottom rows, asked of the card's worst case
+    // rather than of a three-tab one: there is still more map between the two
+    // than there is anything else.
+    const action = await ui.box(REGIONS.action)
+    const gap = action.y - (card.y + card.height)
+    expect(gap, 'three notices leave the middle of the map clear').toBeGreaterThan(
+      stage.height / 2
+    )
+
+    /**
+     * WHAT THE APPARATUS ACTUALLY COSTS, REPORTED RATHER THAN GUESSED.
+     *
+     * The rules are 1px each and the rows carry --space-1 top and bottom, so
+     * the arithmetic says about a line of text over the whole stack. This
+     * prints it so a later change that makes a notice expensive is visible in
+     * the run rather than discovered on a stage that is 620px tall.
+     */
+    const rows = await ui.page.evaluate(() =>
+      [...document.querySelectorAll('.chrome-bar__notice')].map((el) => el.getBoundingClientRect().height)
+    )
+    // eslint-disable-next-line no-console
+    console.log(
+      `    bar  three notices: card ${card.height.toFixed(1)}px, rows ` +
+        `${rows.map((h) => h.toFixed(1)).join(' / ')}px, map below ${gap.toFixed(0)}px`
+    )
+
+    // THE RULES ARE THERE AND THEY ARE HAIRLINES. Read off the cascade rather
+    // than off the stylesheet -- the border-top on the notices block is the
+    // heading rule, and a row past the first carries one between it and the
+    // row above.
+    const ruled = await ui.page.evaluate(() => {
+      const block = getComputedStyle(document.querySelector('.chrome-bar__notices'))
+      const notices = [...document.querySelectorAll('.chrome-bar__notice')].map(
+        (el) => getComputedStyle(el).borderTopWidth
+      )
+      return { heading: block.borderTopWidth, notices }
+    })
+    expect(ruled.heading).toBe('1px')
+    // First row: none -- the block's own rule is above it and two would read
+    // as a double rule. Every row after: one.
+    expect(ruled.notices[0]).toBe('0px')
+    expect(ruled.notices.slice(1)).toEqual(['1px', '1px'])
+
+    // AND EACH ROW IS LED BY ITS KIND, IN THE DATA FACE, AT ONE x. The rail's
+    // status column, in the other card: a stack whose sentences start at
+    // different places is four indented paragraphs rather than a ruled list.
+    const kinds = await ui.page.evaluate(() =>
+      [...document.querySelectorAll('.chrome-bar__notice')].map((el) => {
+        const label = el.querySelector('.chrome-bar__notice-kind')
+        const body = el.querySelector('.chrome-bar__notice-body')
+        return {
+          word: label?.textContent ?? null,
+          face: label ? getComputedStyle(label).fontFamily : null,
+          bodyFace: getComputedStyle(body).fontFamily,
+          bodyLeft: body.getBoundingClientRect().x,
+        }
+      })
+    )
+    // The harness's stacked case raises one of each of three tones, on
+    // purpose: an advisory, a caution and a failure.
+    expect(kinds.map((k) => k.word)).toEqual(['note', 'check', 'failed'])
+    for (const kind of kinds) {
+      expect(kind.face).toContain('IBM Plex Mono')
+      // TWO FACES IN ONE ROW, which is the whole point of the label: the
+      // sentence beside it is still prose.
+      expect(kind.bodyFace).toContain('Source Serif')
+    }
+    const lefts = kinds.map((k) => Math.round(k.bodyLeft))
+    expect(new Set(lefts).size, 'every sentence starts at one x').toBe(1)
+
+    // THE STATE MARK READS THE STACK. An error is up, so the card's edge is
+    // the alert rather than the neutral direction mark -- which is the mark
+    // doing the job it was added for.
+    const mark = await ui.page.evaluate(() => {
+      const bar = document.querySelector('.chrome-bar')
+      return { tone: bar.dataset.barTone, shadow: getComputedStyle(bar).boxShadow }
+    })
+    expect(mark.tone).toBe('alert')
+    // --alert, #7a2418, as the engine resolves it. Inset, 3px, on the left
+    // edge -- the rail's device, and never the accent.
+    expect(mark.shadow).toContain('rgb(122, 36, 24)')
+    expect(mark.shadow).toContain('inset')
+    expect(mark.shadow).not.toContain('rgb(156, 74, 47)')
+
+    await ui.close()
+  }, SLOW)
+
+  it('reads the other two states, and takes no layout doing it', async () => {
+    /**
+     * THE THREE TONES, ACROSS THE THREE PAGES THAT ACTUALLY PRODUCE THEM.
+     * The stacked case above is 'alert'. These are the other two, and NEITHER
+     * IS ARRANGED: the default harness page rests in `loading`, because there
+     * is no session behind it and a step with no payload is a step waiting on
+     * one; the reopen page hydrates a real committed document. So the mark is
+     * read in the states the shell actually reaches rather than in states this
+     * file set up to be read.
+     */
+    const cases = [
+      // A request is out. Nothing to do with your hands, and the mark goes as
+      // quiet as the rail's unreachable rows do. --ink-muted, #8a8477.
+      [{ notice: 'none' }, 'working', 'rgb(138, 132, 119)'],
+      // A committed step being looked at. The card is giving a direction, and
+      // the mark is the neutral the other two are read against. --ink, #2b2b26.
+      [{ reopen: 1 }, 'direction', 'rgb(43, 43, 38)'],
+    ]
+
+    const insets = []
+    for (const [query, tone, colour] of cases) {
+      const ui = await openHarness(query)
+      const read = await ui.page.evaluate(() => {
+        const bar = document.querySelector('.chrome-bar')
+        const direction = bar.querySelector('.chrome-bar__direction')
+        const style = getComputedStyle(bar)
+        return {
+          tone: bar.dataset.barTone,
+          shadow: style.boxShadow,
+          border: style.borderLeftWidth,
+          // Where the sentence starts, measured from the card's own left edge.
+          inset: direction.getBoundingClientRect().x - bar.getBoundingClientRect().x,
+        }
+      })
+      expect(read.tone, `${tone} is the reading here`).toBe(tone)
+      expect(read.shadow, `${tone} carries its own token`).toContain(colour)
+      expect(read.shadow).toContain('inset')
+      // NEVER THE ACCENT, in any state. --oxide is #9c4a2f.
+      expect(read.shadow).not.toContain('rgb(156, 74, 47)')
+      // AND IT IS NOT A BORDER. A border-left would be layout, and this card
+      // is centred AND sized to its content -- so an edge that arrived with a
+      // state change would shift the whole card sideways by half its width.
+      expect(read.border).toBe('1px')
+      insets.push(read.inset)
+      await ui.close()
+    }
+
+    // THE SENTENCE STARTS IN THE SAME PLACE WHATEVER THE MARK SAYS, which is
+    // the claim "takes no layout" actually cashes out to.
+    expect(Math.abs(insets[0] - insets[1]), 'the mark moves nothing').toBeLessThanOrEqual(1)
   }, SLOW)
 })
 
@@ -3020,6 +3200,75 @@ describeIf('the zone patterns, rendered', () => {
    * See BELOW_THE_VISIBILITY_FLOOR for the readings, the argument, and what
    * IS still asserted.
    */
+  /**
+   * THE ACTION REGION'S BUTTONS, WITHOUT THE CARD THAT WAS BEHIND THEM.
+   *
+   * WHAT CHANGED AND WHY THIS IS THE TEST OF IT. The region stopped being a
+   * card. The argument was that both of its buttons already carry opaque fills
+   * -- the forward move --oxide, the escape --paper -- so a sheet behind them
+   * was a second surface doing the first one's job, and what it bought was the
+   * tell: the buttons read as sitting in a box rather than as resting on the
+   * map. The objection to that argument is the only one worth answering, and
+   * it is a LEGIBILITY objection: five of the six steps show two buttons, and
+   * an escape that is unreadable over a canopy frame is a worse outcome than a
+   * card nobody likes.
+   *
+   * SO THE ESCAPE IS MEASURED, ON BOTH GROUNDS, AT THE SAME 90px SQUARE every
+   * mark in this file is measured at, and it is measured TWICE: as it ships,
+   * and with the casing lifted off. The second is the button as it was the day
+   * before this branch, minus the card. The difference between the two is what
+   * the card was actually supplying, and it is the number the decision turns
+   * on rather than a claim about it.
+   *
+   * THE FLOOR IS THE MAP'S OWN 0.004. That number is the visibility floor
+   * every committed zone treatment in this file is held to, and there is no
+   * case for a control being allowed to be quieter than a piece of settled
+   * context -- so a control is held to it on both grounds, in both tones.
+   *
+   * AND THE CASING MAY NOT BE WHAT SAVES IT. A control whose UNCASED reading
+   * were under the floor would be a control that is only legible because of a
+   * 2px ring, which is the road's situation and is a bad one to put a button
+   * in: a ring can be lost to a stacking context or a clip, and a road cannot
+   * be pressed. Both tones clear the floor bare. The casing is separation, not
+   * rescue, and the assertion says so.
+   */
+  it('keeps both action buttons legible over canopy and soil without the card, and prices the casing', async () => {
+    const FLOOR = 0.004
+    for (const ground of ['canopy', 'soil']) {
+      for (const tone of ['primary', 'secondary']) {
+        const cased = await addedInkOver(page, ground, `control-${tone}`, null)
+        const uncased = await addedInkOver(page, ground, `control-${tone}`, 'uncased')
+        // eslint-disable-next-line no-console
+        console.log(
+          `    ink  ${ground.padEnd(6)} button ${tone.padEnd(9)} ` +
+            `cased ${cased.toFixed(4)}  uncased ${uncased.toFixed(4)}  ` +
+            `(the casing is worth ${(cased / uncased).toFixed(2)}x)`
+        )
+
+        // LEGIBLE WITHOUT THE CARD, which is the claim the card's removal
+        // rests on.
+        expect(
+          cased,
+          `the ${tone} button must clear the visibility floor over ${ground}`
+        ).toBeGreaterThan(FLOOR)
+
+        // AND LEGIBLE WITHOUT THE CASING EITHER: the fill is the surface, and
+        // the ring is separation rather than rescue.
+        expect(
+          uncased,
+          `the ${tone} button's own fill must clear the floor over ${ground}`
+        ).toBeGreaterThan(FLOOR)
+
+        // THE RING STILL ADDS SOMETHING. A casing that measured as nothing
+        // would be a decoration, and this file does not ship decorations.
+        expect(
+          cased,
+          `the casing must add ink to the ${tone} button over ${ground}`
+        ).toBeGreaterThan(uncased)
+      }
+    }
+  }, SLOW)
+
   it('keeps an active road legible over canopy and soil by its casing, and prices what the committed band gave up', async () => {
     for (const ground of ['canopy', 'soil']) {
       // THE ACTIVE ROAD, cased as it ships, against the bare line beside it.

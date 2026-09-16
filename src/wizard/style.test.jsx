@@ -819,12 +819,12 @@ describe('5. the quality floor', () => {
     // halo casing under map linework.
     //
     // EVERY CARD, AND A CARD IS WHAT CARRIES CONTENT. The rail, the
-    // instruction card, the detail panel and the action card each hold text
-    // directly and each carry --paper. .chrome-tabs is NOT in this list any
-    // more and its absence is the assertion below: it holds tabs, and a tab
-    // carries its own surface, so a surface on the strip was a sheet behind
-    // cards.
-    for (const selector of ['.chrome-rail', '.chrome-bar', '.chrome-detail', '.chrome-banner']) {
+    // instruction card and the detail panel each hold text directly and each
+    // carry --paper. .chrome-tabs is NOT in this list and .chrome-banner is
+    // not in it any more; both absences are assertions below, and both are the
+    // same one: a region that holds things which are ALREADY surfaces must not
+    // draw a second one behind them.
+    for (const selector of ['.chrome-rail', '.chrome-bar', '.chrome-detail']) {
       const surface = propsOf(ruleFor(COMPONENTS, selector))
       expect(surface.background).toBe('var(--paper)')
     }
@@ -842,6 +842,75 @@ describe('5. the quality floor', () => {
       expect(propsOf(ruleFor(COMPONENTS, selector)).background).toBe('var(--stock)')
     }
     expect(propsOf(ruleFor(COMPONENTS, '.chrome-tab')).border).toBe('var(--hairline)')
+
+    /**
+     * AND THE ACTION REGION IS THE SECOND ONE, FOR THE STRIP'S REASON.
+     *
+     * This assertion used to require the opposite -- `.chrome-banner` in the
+     * card list above -- and the card it required is what made the buttons
+     * read as sitting in a box rather than as resting on the map. A forward
+     * move carries an opaque --oxide fill and an escape an opaque --paper one;
+     * a sheet behind them is a second surface doing the first one's job. The
+     * strip had already settled this for tabs.
+     *
+     * SO: NO SURFACE ON THE REGION, AND A SURFACE ON EVERY ONE OF THE THREE
+     * THINGS IT CAN PLACE. That is the whole claim, and it is what keeps
+     * "nothing in this shell puts type on imagery" true after the card went.
+     */
+    const region = propsOf(ruleFor(COMPONENTS, '.chrome-banner'))
+    expect(region.background).toBeUndefined()
+    expect(region.border).toBeUndefined()
+    expect(region['border-radius']).toBeUndefined()
+
+    // THE BUTTONS ARE THEIR OWN SURFACES. The escape was never the outlined
+    // control it reads as beside an oxide fill -- it has carried --paper since
+    // it was written -- and the forward move's fill is the accent itself.
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-banner__button')).background).toBe('var(--paper)')
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-banner__button--primary')).background).toBe(
+      'var(--oxide)'
+    )
+
+    // WHAT THE CARD WAS ACTUALLY SUPPLYING IS THE CASING, and it is declared
+    // on the ACTIONS ROW rather than on the button: a casing answers "this
+    // control is on aerial photography", which the confirmation's two answers
+    // are not -- they are on the dialogue's own card.
+    expect(
+      propsOf(ruleFor(COMPONENTS, '.chrome-banner__actions .chrome-banner__button'))['box-shadow']
+    ).toBe('var(--casing-control)')
+
+    // AND THE CASING IS A TOKEN, WITH THE MAP'S ARGUMENT BEHIND IT: a ring in
+    // the chrome's own surface colour, never --halo, which index.css reserves
+    // for marks on the photograph.
+    const casing = propsOf(ruleFor(FOUNDATION, ':root'))['--casing-control']
+    expect(casing).toContain('var(--paper)')
+    expect(casing).not.toContain('--halo')
+
+    // THE TWO THINGS HERE THAT ARE PROSE KEEP THEIR CARDS. A control can be
+    // its own surface; a report and a question cannot.
+    for (const selector of ['.chrome-banner__working', '.chrome-banner__confirm']) {
+      const card = propsOf(ruleFor(COMPONENTS, selector))
+      expect(card.background).toBe('var(--paper)')
+      expect(card.border).toBe('var(--hairline)')
+      expect(card['border-radius']).toBe('var(--radius)')
+    }
+
+    // A TRANSPARENT REGION DOES NOT TAKE CLICKS. Without the card, the
+    // region's box is the buttons' bounding box PLUS the gap between them, and
+    // .chrome__bottom turns pointer events on for each of its children -- so a
+    // click in that gap would be swallowed by a region with nothing in it. The
+    // map is the document and the gap is map.
+    expect(region['pointer-events']).toBe('none')
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-banner__actions'))['pointer-events']).toBe('none')
+    for (const selector of [
+      '.chrome-banner__button',
+      '.chrome-banner__working',
+      '.chrome-banner__confirm',
+    ]) {
+      expect(
+        propsOf(ruleFor(COMPONENTS, selector))['pointer-events'],
+        `${selector} takes its own events back`
+      ).toBe('auto')
+    }
 
     // THERE IS NO EXCEPTION ANY MORE, AND THE CREDIT IS THE ONE THAT CHANGED.
     //
@@ -878,6 +947,172 @@ describe('5. the quality floor', () => {
     // The overlay itself is NOT a surface: it spans the whole map and must let
     // every gesture through.
     expect(propsOf(ruleFor(COMPONENTS, '.chrome'))['pointer-events']).toBe('none')
+  })
+})
+
+/* ===========================================================================
+   5b. THE INSTRUCTION BAR'S STRUCTURE, AND THE ZOOM CONTROL'S SURFACE
+   ===========================================================================
+   Three regions read as default UI cards beside the rail, and the rail is the
+   reference: an edge that means something, hairlines between rows, three faces
+   doing three jobs. These are the pieces of that the other regions gained,
+   asserted where they can be -- a rule that exists, a class the component
+   actually emits, a token rather than a literal. What the browser has to
+   settle (the ink over canopy, the cap with three notices stacked, the
+   hit-test) is in layout.test.jsx and pointer.test.jsx, as it always is.
+   =========================================================================== */
+
+describe('5b. the instruction bar and the zoom control', () => {
+  it('marks the bar with a meaningful edge, in the rail’s device and never in the accent', () => {
+    // THE RAIL'S MARK, FOR COMPARISON. An inset edge rather than a fill, so
+    // that what the eye counts as an accent mass does not grow by one.
+    const railMark = propsOf(ruleFor(COMPONENTS, '.chrome-rail__step--cursor'))['box-shadow']
+    expect(railMark).toBe('inset 3px 0 0 var(--oxide)')
+
+    // THE BAR'S IS THE SAME DEVICE AND A DIFFERENT READING. Three tones, keyed
+    // off one attribute, and NOT ONE OF THEM IS OXIDE -- the forward move is a
+    // button in the corner, and an oxide edge up here would be a second thing
+    // claiming to be the thing to do.
+    // The default is on .chrome-bar itself: a card with no attribute still
+    // gets the neutral mark, because the absence of a state is not a state.
+    const tones = {
+      '.chrome-bar': 'var(--ink)',
+      ".chrome-bar[data-bar-tone='working']": 'var(--ink-muted)',
+      ".chrome-bar[data-bar-tone='alert']": 'var(--alert)',
+    }
+    for (const [selector, token] of Object.entries(tones)) {
+      const mark = propsOf(ruleFor(COMPONENTS, selector))['box-shadow']
+      expect(mark, `${selector} carries the state mark`).toBe(
+        `inset var(--bar-mark) 0 0 ${token}`
+      )
+      expect(mark).not.toContain('--oxide')
+    }
+
+    // AND THE COMPONENT EMITS THE ATTRIBUTE THE RULES KEY ON. A stylesheet
+    // naming a state nothing renders is the failure mode this file exists for.
+    const bar = readFileSync(path.join(HERE, 'shell', 'InstructionBar.jsx'), 'utf8')
+    expect(bar).toContain('data-bar-tone={barTone(notices, chromeState)}')
+    for (const tone of ['alert', 'working', 'direction']) {
+      expect(bar).toContain(`return '${tone}'`)
+    }
+
+    // THE UNREGISTERED BAR GETS ONE TOO -- a step nobody has built still
+    // renders this card, and a card with no attribute would fall to the
+    // default rather than declare itself.
+    expect(readFileSync(path.join(HERE, 'WizardShell.jsx'), 'utf8')).toContain(
+      'data-bar-tone="direction"'
+    )
+  })
+
+  it('rules the notices into a list and leads each row with its kind, in the data face', () => {
+    // A LIST, NOT A WRAPPED ROW. `flex-wrap` put two short notices on one line,
+    // which reads as one sentence somebody wrote.
+    const notices = propsOf(ruleFor(COMPONENTS, '.chrome-bar__notices'))
+    expect(notices['flex-direction']).toBe('column')
+    expect(notices['flex-wrap']).toBeUndefined()
+    // The heading rule under the direction, and a hairline between rows.
+    expect(notices['border-top']).toBe('var(--hairline)')
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-bar__notice + .chrome-bar__notice'))[
+      'border-top'
+    ]).toBe('var(--hairline)')
+
+    // THE THIRD FACE. The card set everything in Source Serif; the rail beside
+    // it spends three faces on three jobs, and this is the one the bar was
+    // missing -- a mono label naming what kind of notice a row is.
+    const kind = propsOf(ruleFor(COMPONENTS, '.chrome-bar__notice-kind'))
+    expect(kind['font-family']).toBe('var(--font-data)')
+    // Its column does not move, or a stack of notices is four indents.
+    expect(kind.flex).toBe('none')
+    expect(kind['min-width']).toBe('8ch')
+
+    // ALL THREE FACES ARE IN THIS CARD NOW, each on its own element.
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-bar__direction'))['font-family']).toBe(
+      'var(--font-prose)'
+    )
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-bar__notice'))['font-family']).toBe(
+      'var(--font-prose)'
+    )
+
+    // AND THE WORD IS NOT DECORATION: it is the signal that was carried by
+    // COLOUR ALONE. Every tone the shell can raise has one, and the set is
+    // closed -- a tone with no entry renders no label rather than an invented
+    // one.
+    const source = readFileSync(path.join(HERE, 'shell', 'InstructionBar.jsx'), 'utf8')
+    const table = source.slice(source.indexOf('const NOTICE_KIND'))
+    for (const tone of ['blocked', 'error', 'caution', 'advisory']) {
+      expect(table.slice(0, table.indexOf('})'))).toContain(`${tone}:`)
+    }
+    expect(source).toContain('NOTICE_KIND[notice.tone]')
+  })
+
+  it('gives the zoom control the shared surface and a hairline between its buttons', () => {
+    // MATCHED TO LEAFLET'S OWN SPECIFICITY, which is the lesson the credit
+    // above already paid for: `.leaflet-bar a` outranks a bare class, so a
+    // rule that used one would lose the cascade silently.
+    const card = propsOf(
+      ruleFor(COMPONENTS, '.leaflet-container .leaflet-control-zoom,\n.leaflet-touch .leaflet-control-zoom')
+    )
+    expect(card.background).toBe('var(--paper)')
+    expect(card.border).toBe('var(--hairline)')
+    // THE SAME RADIUS THE OTHER CARDS USE, from the token rather than from
+    // Leaflet's own 4px, which happens to agree and is not the same statement.
+    expect(card['border-radius']).toBe('var(--radius)')
+    expect(card.overflow).toBe('hidden')
+    // Leaflet's `.leaflet-bar` drop shadow is off: the other cards in this
+    // shell do not have one, and this is a card.
+    expect(card['box-shadow']).toBe('none')
+
+    const button = propsOf(
+      ruleFor(COMPONENTS, '.leaflet-container .leaflet-control-zoom a,\n.leaflet-touch .leaflet-control-zoom a')
+    )
+    expect(button.background).toBe('var(--paper)')
+    expect(button.color).toBe('var(--ink)')
+    // The system's face at the system's size, not Lucida Console at 18px bold.
+    expect(button['font-family']).toBe('var(--font-prose)')
+    expect(button['font-size']).toBe('var(--text-base)')
+    // Leaflet's own 1px #ccc divider is off; the rail's hairline is on.
+    expect(button.border).toBe('none')
+    expect(
+      propsOf(
+        ruleFor(
+          COMPONENTS,
+          '.leaflet-container .leaflet-control-zoom a + a,\n.leaflet-touch .leaflet-control-zoom a + a'
+        )
+      )['border-top']
+    ).toBe('var(--hairline)')
+
+    // NOT A CONTROL FOR THE FORWARD MOVE. Zooming is not what any state is
+    // asking for, and an oxide + would claim it in every state at once.
+    // Every rule this control declares, read as one block: from the first
+    // zoom selector to the end of the last one. The comments are stripped, so
+    // the boundary is the final rule's own closing brace rather than the
+    // heading that follows it.
+    const block = decl(COMPONENTS)
+    const opens = block.indexOf('.leaflet-container .leaflet-control-zoom')
+    const lastRule = block.lastIndexOf('.leaflet-touch .leaflet-control-zoom')
+    const zoom = block.slice(opens, block.indexOf('}', lastRule) + 1)
+    expect(zoom).toContain('border-radius')
+    expect(zoom).not.toContain('--oxide')
+
+    // THE RING IS INSET, for the rail's reason: the card clips its rows.
+    expect(
+      propsOf(
+        ruleFor(
+          COMPONENTS,
+          '.leaflet-container .leaflet-control-zoom a:focus-visible,\n.leaflet-touch .leaflet-control-zoom a:focus-visible'
+        )
+      )['outline-offset']
+    ).toBe('-3px')
+  })
+
+  it('leaves zoomDelta and zoomSnap where they are', () => {
+    // THE FINER STEP IS THE MAP'S DECISION AND THIS BRANCH IS ABOUT THE
+    // CONTROL'S APPEARANCE. With the wheel gone, +/- is the only zoom, and a
+    // whole level per press doubles or halves the scale.
+    const app = readFileSync(path.join(SRC, 'App.jsx'), 'utf8')
+    expect(app).toContain('zoomDelta={0.5}')
+    expect(app).toContain('zoomSnap={0.5}')
+    expect(app).toContain('scrollWheelZoom={false}')
   })
 })
 

@@ -594,6 +594,44 @@ const OPAQUE = [
 ]
 
 /**
+ * THE CHROME'S OWN CONTROLS, ON THE GROUND THEY NOW SIT DIRECTLY ON.
+ *
+ * WHY A CONTROL IS IN A BLOCK OF MAP-MARK SWATCHES. The action region gave up
+ * its card: the forward move's --oxide fill and the escape's --paper fill are
+ * the surfaces now, and what the card had been quietly supplying underneath
+ * them was a CASING -- the separation between a control's edge and whatever
+ * the aerial frame happens to be doing there. Every other casing in this build
+ * is priced rather than asserted (the road's, the site pin's halo, the fence's
+ * absent one), and a claim about legibility over imagery is exactly the claim
+ * this block of cells exists to settle. "A button nobody can read is worse
+ * than a card nobody likes" is a measurement, not an opinion.
+ *
+ * THE SAME 90px SQUARE AS EVERY OTHER CELL, and the button is wider than it --
+ * about 140px for a commit label -- so the cell is a WINDOW on the control's
+ * middle: its fill, its type, its top and bottom edges, its casing, and the
+ * ground above and below. The window is centred rather than flush, so the two
+ * tones and the two casing states are all sampling the same part of the same
+ * shape and the numbers can be compared with each other.
+ *
+ * FOUR CELLS PER GROUND, WHICH IS TWO QUESTIONS. Each tone as it ships, and
+ * each tone with the casing lifted off -- the road's question exactly ("what
+ * is the casing worth"), asked of chrome. The uncased cell is the button as it
+ * was the day before this branch, minus the card that was behind it.
+ *
+ * THE MARKUP IS THE SHIPPED MARKUP, not a div wearing a class. The casing is
+ * declared on `.chrome-banner__actions .chrome-banner__button` -- deliberately,
+ * because a control inside the confirmation dialogue is on a card and must not
+ * have one -- so the row is here too, or these cells would measure a rule that
+ * does not apply to them.
+ */
+const CONTROLS = [
+  { id: 'control-primary', control: 'primary' },
+  { id: 'control-primary', control: 'primary', uncased: true },
+  { id: 'control-secondary', control: 'secondary' },
+  { id: 'control-secondary', control: 'secondary', uncased: true },
+]
+
+/**
  * THE LANDFORM CASE: production's mark ON THE ELIGIBLE HIGHLIGHT.
  *
  * EVERY OTHER GROUND CELL HERE IS A DOWNSTREAM CELL, and that asymmetry is the
@@ -1464,6 +1502,7 @@ const GROUND_CELLS = () => [
   ...STACKED_SCREENS,
   ...OPAQUE,
   ...ELIGIBLE,
+  ...CONTROLS,
 ]
 
 /** The three states of every treatment -- the block the ground rows open with. */
@@ -1979,6 +2018,32 @@ function ZoneSwatches() {
                   background: `var(${cell.opaque})`,
                 }}
               />
+            ) : null}
+            {/* A CHROME CONTROL, IN THE SHIPPED MARKUP, CENTRED IN THE
+                WINDOW. See CONTROLS. The row wrapper is what carries the
+                casing rule, and the cell clips: the button is wider than the
+                square, and what is being measured is what it puts on the
+                ground it covers. `boxShadow: none` is the uncased case and is
+                the only thing either cell overrides. */}
+            {cell?.control ? (
+              <div
+                className="chrome-banner__actions"
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  overflow: 'hidden',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <button
+                  type="button"
+                  className={`chrome-banner__button chrome-banner__button--${cell.control}`}
+                  style={cell.uncased ? { boxShadow: 'none' } : undefined}
+                >
+                  Commit these zones
+                </button>
+              </div>
             ) : null}
             {/* THE OVERLAP CELL IS TWO MARKS IN ONE CELL, stacked in the
                 order the map's panes stack them. Each is an ordinary

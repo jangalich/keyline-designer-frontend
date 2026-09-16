@@ -381,6 +381,16 @@ async function throughTreesCommit(ui) {
   return ui
 }
 
+/**
+ * The ruled row a notice's sentence sits in.
+ *
+ * The instruction bar's notices are rows: a one-word kind label in the data
+ * face, then the sentence. The test id is on the SENTENCE -- that is what the
+ * assertions in this file compare against a definition's declared copy -- and
+ * the tone class, which colours the whole row, is on the row.
+ */
+const noticeRow = (el) => el.closest('.chrome-bar__notice')
+
 /** The measurement set every site carries, generated or placed. */
 const MEASUREMENT_FIELDS = [
   'rank',
@@ -1368,7 +1378,11 @@ describe('4. a site that breaks a siting rule is scored, placed, and told what i
 
     // THE STEP NOTICE: the same two facts, per placed site, as a caution.
     const notice = ui.find(`notice-violates-${site.id}-structures`)
-    expect(notice.className).toContain('chrome-bar__notice--caution')
+    // THE TONE IS THE ROW'S, NOT THE SENTENCE'S. A notice is a ruled row now
+    // -- a kind label in the data face, then what it says -- and the test id
+    // names what it says, which is what every reader of it here wants. The
+    // tone decides the whole row's colour, so it is read off the row.
+    expect(noticeRow(notice).className).toContain('chrome-bar__notice--caution')
     expect(notice.textContent).toBe(
       'Placed 1 scores 59.2 and breaks 2 siting rules the generated sites clear: it sits under existing ' +
         'tree canopy; it is farther from a road than the siting rule allows.'
@@ -1792,7 +1806,7 @@ describe('9. road_proximity_source renders its consequence for all three values'
       const notice = ui.find(`notice-road-${source}-structures`)
       expect(notice, `${source} says its consequence`).not.toBeNull()
       expect(notice.textContent).toBe(expected.text)
-      expect(notice.className).toContain(`chrome-bar__notice--${expected.tone}`)
+      expect(noticeRow(notice).className).toContain(`chrome-bar__notice--${expected.tone}`)
       for (const other of ROAD_PROXIMITY_SOURCES.filter((s) => s !== source)) {
         expect(ui.find(`notice-road-${other}-structures`)).toBeNull()
       }

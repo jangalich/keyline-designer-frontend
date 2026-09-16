@@ -813,6 +813,35 @@
      this is a whole-shadow token rather than a color one. */
   --shadow-marker: 0 0 2px rgba(0, 0, 0, 0.5);
 
+  /* THE CHROME'S CASING, AND IT IS THE MAP'S ARGUMENT APPLIED TO A CONTROL.
+
+     Map linework does not trust its own colour against an arbitrary aerial
+     frame: a road is drawn over a wider pass of --halo, and it is the casing
+     rather than the line that carries it over closed canopy (see --road). A
+     control that has given up its card is in exactly that position -- its own
+     fill is all it has, and a fill alone shares an edge with whatever the
+     imagery happens to be doing there.
+
+     SO THE RING IS --paper AND NOT --halo. The map's casing is pure white
+     because a map marker is a mark on a photograph and has no surface of its
+     own to agree with; a control DOES, and --paper is the colour every surface
+     in this chrome is. A white ring around a warm-stock button would be a
+     third value at the button's edge and read as a printing error. The rule
+     --halo carries -- nothing outside a map marker references it -- stands.
+
+     TWO PASSES, AND THE ORDER IS THE ORDER THEY PAINT. The ring first, tight
+     to the border box, which is what separates the control from the ground.
+     The drop under it, offset downward and blurred past the ring, which is
+     what says the control is ON the map rather than cut into it. A ring alone
+     reads as a sticker; a drop alone leaves the edge to argue with the canopy.
+
+     THE DROP IS --scrim AT A THIRD. --scrim is the off-parcel dim, the one
+     near-black in the system that is not type, and it is the honest colour for
+     a shadow cast on ground. It is written as a literal here for the reason
+     every shadow in this file is: a shadow is a whole value, not a colour with
+     a geometry attached, and nothing below :root may take it apart. */
+  --casing-control: 0 0 0 2px var(--paper), 0 2px 5px rgba(28, 26, 22, 0.32);
+
   /* A halo carried by the glyphs themselves, for text that has to stay legible
      over arbitrary satellite imagery without a surface behind it. Same
      reasoning as the map linework's casing — one colour cannot beat every

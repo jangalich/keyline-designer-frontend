@@ -556,6 +556,99 @@
   display: none !important;
 }
 
+/* --- THE ZOOM CONTROL, TOP RIGHT --------------------------------------------
+
+   THE SMALLEST REGION AND THE ONE THAT CARRIES THE MOST PER PIXEL. Scroll-wheel
+   zoom is off permanently -- the map is full-bleed, so every wheel event over
+   the page was landing on it and sending people three levels away from their
+   parcel (see App.jsx) -- and the trackpad pinch goes through the same handler.
+   So this pair of buttons is THE ONLY ZOOM AFFORDANCE on a tool whose whole
+   subject is a piece of ground seen from above. It is on screen at every step
+   in every state, and until now it was Leaflet's default: a white rounded
+   rectangle with a bold + and −, which is the zoom control of every map on the
+   internet and the one piece of this shell that had no opinion at all.
+
+   IT TAKES WHAT EVERY OTHER REGION TAKES AND NOTHING IT HAS NOT EARNED.
+   --paper, the hairline, the shared --radius, and a hairline BETWEEN the two
+   buttons -- which is the rail's device again: two rows of a list, divided the
+   way this system divides rows. No accent: zooming is not the forward move,
+   and an oxide + would be a second thing claiming to be the thing to do in
+   every state at once.
+
+   THE GLYPHS ARE THE PROSE FACE AT THE SYSTEM'S OWN SIZE, not Lucida Console
+   at 18px bold. A + set in the face the rest of the chrome is set in is the
+   difference between a control belonging to this tool and one that arrived
+   with the library.
+
+   MATCHED TO LEAFLET'S OWN SPECIFICITY, which is the lesson the credit above
+   already paid for: `.leaflet-bar a` and `.leaflet-touch .leaflet-bar` both
+   outrank a bare class, so a rule that used one would lose the cascade
+   silently and the default would still be what is on screen. Every selector
+   below leads with `.leaflet-container` for that reason, and the
+   touch-classed variants are named where Leaflet names them.
+
+   zoomDelta AND zoomSnap ARE NOT SET HERE AND ARE NOT TOUCHED. They are 0.5
+   in App.jsx, with the argument for the half step beside them. This is the
+   control's appearance; what a press is worth is the map's business.
+   --------------------------------------------------------------------------- */
+
+.leaflet-container .leaflet-control-zoom,
+.leaflet-touch .leaflet-control-zoom {
+  background: var(--paper);
+  border: var(--hairline);
+  border-radius: var(--radius);
+  /* THE CLIP IS WHAT MAKES THE PAIR ONE OBJECT. Without it the two buttons'
+     own square corners sit inside the card's rounded ones and the top button's
+     fill prints over the radius -- the same reason the rail clips its rows. */
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.leaflet-container .leaflet-control-zoom a,
+.leaflet-touch .leaflet-control-zoom a {
+  width: 1.75rem;
+  height: 1.75rem;
+  line-height: 1.75rem;
+  border: none;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-prose);
+  font-size: var(--text-base);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* The rail's hairline between rows, on a list of two. */
+.leaflet-container .leaflet-control-zoom a + a,
+.leaflet-touch .leaflet-control-zoom a + a {
+  border-top: var(--hairline);
+}
+
+.leaflet-container .leaflet-control-zoom a:hover,
+.leaflet-touch .leaflet-control-zoom a:hover {
+  background: var(--stock);
+  color: var(--ink);
+}
+
+/* AT THE END OF THE RANGE, NOT GONE. Leaflet adds this at max and min zoom.
+   The muted token rather than an opacity, for the rail's reason: opacity would
+   fade the glyph towards whatever the imagery is doing behind the card, and
+   the card's surface is the only thing keeping it legible. */
+.leaflet-container .leaflet-control-zoom a.leaflet-disabled,
+.leaflet-touch .leaflet-control-zoom a.leaflet-disabled {
+  background: var(--paper);
+  color: var(--disabled);
+}
+
+/* THE RING IS INSET, FOR THE RAIL'S REASON EXACTLY. The card clips its two
+   children so they sit inside its radius, and the reset's `outline-offset: 2px`
+   would put a keyboard user's ring outside that clip -- in the accessibility
+   tree and invisible on screen. Pulled inside rather than dropped. */
+.leaflet-container .leaflet-control-zoom a:focus-visible,
+.leaflet-touch .leaflet-control-zoom a:focus-visible {
+  outline-offset: -3px;
+}
+
 
 
 
@@ -847,11 +940,52 @@
   margin: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  /* NO GAP. The direction and the notices are separated by a RULE now rather
+     than by air -- see .chrome-bar__notices, which carries the rule and the
+     space on both sides of it. A gap here would be a second, silent
+     separation fighting the visible one. */
   padding: var(--space-2) var(--space-4);
   background: var(--paper);
   border: var(--hairline);
   border-radius: var(--radius);
+  /* The rule's own inset and the state mark's width, named once: the mark is
+     drawn as an inset shadow (it takes no layout) and the padding on the left
+     has to clear it, and the notices' full-bleed rule has to reach back
+     through exactly the padding this card sets. */
+  --bar-mark: 3px;
+  padding-left: calc(var(--space-4) + var(--bar-mark));
+  box-shadow: inset var(--bar-mark) 0 0 var(--ink);
+}
+
+/* THE STATE MARK IS DECLARED IN THE RULE ABOVE AND VARIED BY THE TWO BELOW.
+   IT IS THE RAIL'S DEVICE ON PURPOSE.
+
+   The rail marks the row you are on with a 3px inset edge, and the note there
+   says why an EDGE rather than a fill: a filled row would be a second mass on
+   screen beside the banner's forward move, and "one accent" is about what the
+   eye counts rather than which property carries it. That argument transfers
+   whole. This card is the one whose content is a function of the state -- the
+   sentence in it is looked up BY the state -- and until now nothing on it said
+   so, which left the one region that changes looking like the one that does
+   not.
+
+   AN INSET SHADOW RATHER THAN A BORDER, for the rail's reason and one more:
+   a border-left would move the text by its own width every time it appeared,
+   and this card is CENTRED AND SIZED TO ITS CONTENT, so a 3px edge arriving
+   with a notice would shift the whole card 1.5px sideways. The shadow takes no
+   layout, and the padding above leaves it room whatever the state.
+
+   THE READING IS THE COMPONENT'S. Three tones, keyed off one attribute, none
+   of them oxide -- see InstructionBar's barTone for which is which and why the
+   accent is not among them. The default is 'direction': a card with no
+   attribute at all still gets the neutral mark rather than none, because the
+   absence of a state is not a state. */
+.chrome-bar[data-bar-tone='working'] {
+  box-shadow: inset var(--bar-mark) 0 0 var(--ink-muted);
+}
+
+.chrome-bar[data-bar-tone='alert'] {
+  box-shadow: inset var(--bar-mark) 0 0 var(--alert);
 }
 
 /* THE DIRECTION IS THE LOUDEST THING ON THE MAP, on purpose: it is the one
@@ -896,25 +1030,114 @@
 }
 
 /* Notices sit UNDER the direction rather than replacing it. A caution that
-   erases the instruction leaves someone holding a warning and no way forward. */
+   erases the instruction leaves someone holding a warning and no way forward.
+
+   AND THEY ARE A LIST, WHICH IS WHAT THE RULE SAYS.
+
+   THEY USED TO WRAP. `flex-wrap` with a --space-4 column gap put two short
+   notices on ONE line, which is the layout that makes two unrelated facts read
+   as one sentence -- "Zone deleted. Undo" beside "Above the 80% ceiling." is a
+   line nobody wrote. A notice is a separate fact about a separate thing; the
+   reset list in the action region already argues exactly this and renders rows
+   for exactly this reason.
+
+   SO: ONE PER ROW, WITH A HAIRLINE BETWEEN. That is the rail's texture -- the
+   thing that makes it read as a list of things rather than as a block with
+   text in it -- and it is the bulletin form this interface is modelled on: a
+   heading rule under the direction, then ruled rows. The rail's hairlines are
+   what this is borrowing, not its mark.
+
+   THE RULE IS FULL-BLEED, and the negative margin is why it is here rather
+   than as a `border-top` left inside the padding. A rule that stops short of
+   the card's edge reads as an underline on the sentence above it; a rule that
+   reaches both edges is the page furniture of a printed table, and that is the
+   thing being borrowed. The inset is given back as padding so the text still
+   lines up with the direction above it.
+
+   AND IT COSTS ALMOST NOTHING IN HEIGHT, which the three-notice case is the
+   test of: the rules are 1px each and the row padding is --space-1, so the
+   whole apparatus adds about a line to a card that was already three notices
+   tall. Measured in layout.test.jsx at the stacked case rather than argued
+   here. */
 .chrome-bar__notices {
-  margin: 0;
+  margin: var(--space-2) calc(-1 * var(--space-4)) 0;
+  margin-left: calc(-1 * (var(--space-4) + var(--bar-mark)));
   padding: 0;
   list-style: none;
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-4);
+  flex-direction: column;
+  border-top: var(--hairline);
 }
 
 .chrome-bar__notice {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-4);
+  padding-left: calc(var(--space-4) + var(--bar-mark));
   font-family: var(--font-prose);
   font-size: var(--text-xs);
   color: var(--ink-muted);
 }
 
+/* Between rows, never above the first -- the block's own border-top is the
+   heading rule and a second line there would be a double rule. */
+.chrome-bar__notice + .chrome-bar__notice {
+  border-top: var(--hairline);
+}
+
 .chrome-bar__notice--error,
 .chrome-bar__notice--blocked {
   color: var(--alert);
+}
+
+/* WHAT KIND OF NOTICE THIS IS, IN THE DATA FACE.
+
+   THE RAIL'S STATUS COLUMN, IN THE OTHER CARD. There, a mono eyebrow says
+   'done' / 'ready' / 'pending' beside a name set in Bitter; here it says
+   'blocked' / 'failed' / 'check' / 'note' beside a sentence set in Source
+   Serif. Same device, same reason: mono separates a label from the prose
+   beside it without spending a second colour or a rule between them, and it
+   is the third face this card needed to stop being one face at one weight.
+
+   IT IS ALSO THE SIGNAL THAT WAS CARRIED BY COLOUR ALONE. A caution and a
+   failure differed by --ink-muted against --alert and by nothing else, which
+   is the distinction a reader with a colour deficiency does not get -- in the
+   region whose job is saying what went wrong. See InstructionBar's
+   NOTICE_KIND.
+
+   ITS COLUMN DOES NOT MOVE. `flex: none` with a min-width in ch keeps the
+   sentences on a stack of notices starting at one x, which is the whole
+   difference between a ruled list and four indented paragraphs.
+
+   8ch FOR A SEVEN-CHARACTER WORD, AND THE HEADROOM IS THE LETTER-SPACING.
+   'blocked' is the longest of the four, and `ch` is the advance of a ZERO --
+   so a seven-character word at 7ch fits only if nothing is added between the
+   letters, and this label carries 0.02em of tracking like the rail's status
+   does. Measured at 6ch: 'failed' -- six characters, six ch -- overflowed its
+   own column and pushed that row's sentence right, which is precisely the
+   failure the column exists to prevent, on the row a reader is most likely to
+   be looking at. */
+.chrome-bar__notice-kind {
+  flex: none;
+  min-width: 8ch;
+  font-family: var(--font-data);
+  font-size: 0.9em;
+  letter-spacing: 0.02em;
+  color: var(--ink-muted);
+}
+
+/* The kind label of a notice that IS the alert takes the alert with it -- the
+   row is one statement and a muted word in front of an alert sentence reads
+   as two. */
+.chrome-bar__notice--error .chrome-bar__notice-kind,
+.chrome-bar__notice--blocked .chrome-bar__notice-kind {
+  color: var(--alert);
+}
+
+/* The sentence and everything inline with it. See InstructionBar. */
+.chrome-bar__notice-body {
+  min-width: 0;
 }
 
 .chrome-bar__notice-id {
@@ -1711,52 +1934,99 @@
   color: var(--ink);
 }
 
-/* THE ACTION CARD, BOTTOM RIGHT.
+/* THE ACTION REGION, BOTTOM RIGHT -- AND IT IS NOT A CARD ANY MORE.
 
-   It was a full-width band across the bottom, and it is the region that lost
-   the most by being one: its contents are one or two buttons, right-aligned,
-   so the other nine tenths of it was an empty --paper sheet over the map. A
-   card sized to those buttons says the same thing and gives the frame back.
+   IT WAS A CARD AROUND CONTROLS THAT ALREADY HAD SURFACES. The band became a
+   card when the shell stopped spanning the frame, on the argument that a
+   region draws a surface because it has something to say. That argument is
+   right for a region holding TEXT. It is wrong for a region holding buttons:
+   the forward move carries an opaque --oxide fill and the escape carries an
+   opaque --paper one, so the card behind them was a SECOND surface doing the
+   first one's job, and what it bought was the tell -- the buttons read as
+   sitting in a box rather than as resting on the map.
 
-   BOTTOM RIGHT because that is where its buttons already were -- the band was
-   full width and its actions were flush right, so the card is drawn around
-   what the pointer was already travelling to. It shares the bottom row with
-   the tabs (see .chrome__bottom) and holds the corner: the strip grows
-   leftward-bounded and upward, never into this. */
+   THIS IS THE TAB STRIP'S FIX, ONE REGION OVER. .chrome-tabs stopped being a
+   surface for exactly this reason -- it holds tabs, and a tab carries its own
+   surface, so a sheet behind them was a sheet behind cards. The strip proved
+   the shape of the answer and this region is the second instance of it: A
+   LAYOUT, NOT A SURFACE. What it places carries its own.
+
+   AND WHAT IT PLACES IS NOT ALL BUTTONS, WHICH IS THE PART THAT DECIDES THE
+   RULE. Three things can appear here: the actions row, the working line while
+   a request is out, and a confirmation dialogue. The first is controls and
+   needs no card. The other two are PROSE -- a report and a question with a
+   cost under it -- and prose on aerial photography is the thing this shell
+   grew surfaces for. So both keep the card, and they keep it under the same
+   rule every other card in the build is under rather than as an exception:
+   a card is what carries content.
+
+   EVERY FLOATING REGION STILL KEEPS AN OPAQUE SURFACE BETWEEN ITS CONTENT AND
+   THE IMAGERY. That constraint never said the surface has to belong to the
+   REGION -- the strip has not had one since it was written, and nothing in it
+   is less legible for it.
+
+   BOTTOM RIGHT because that is where its buttons already were. It shares the
+   bottom row with the tabs (see .chrome__bottom) and holds the corner: the
+   strip grows leftward-bounded and upward, never into this. */
 .chrome-banner {
   grid-column: 3;
   justify-self: end;
   width: fit-content;
-  /* The buttons set the card's natural width; a confirmation's sentence would
-     otherwise set it instead, and that sentence is prose. Same cap, same
-     reason, as the instruction card. */
+  /* The buttons set the region's natural width; a confirmation's sentence
+     would otherwise set it instead, and that sentence is prose. Same cap,
+     same reason, as the instruction card. */
   max-width: min(var(--measure), 100%);
-  background: var(--paper);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  padding: var(--space-3);
+  /* A COLUMN, FLUSH RIGHT. It was a block inside a card's padding, and the
+     card's own right edge did the aligning; with the card gone the region
+     has to align its own contents or a narrow working line would sit under
+     the left end of a two-button row. */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  /* TRANSPARENT TO THE POINTER, LIKE EVERY OTHER TRANSPARENT THING OVER THIS
+     MAP. .chrome__bottom turns pointer events back on for each of its
+     children, which was right while this was a card and is a bug the moment
+     it is not: the region's box is the buttons' bounding box PLUS the gap
+     between them, and a click in that gap would be swallowed by a region with
+     nothing in it. The map is the document and the gap is map. Same posture
+     as .chrome and .chrome__bottom, one level down. */
+  pointer-events: none;
 }
 
 .chrome-banner__actions {
   display: flex;
   gap: var(--space-3);
   justify-content: flex-end;
+  /* The gap between two buttons is map. See above. */
+  pointer-events: none;
 }
 
-/* WHAT THE CARD HOLDS WHILE A REQUEST IS OUT.
-   Set as the banner's own quiet line rather than as a disabled button: it is
+/* WHAT THE REGION HOLDS WHILE A REQUEST IS OUT, AND IT IS A CARD.
+   Set as the region's own quiet line rather than as a disabled button: it is
    not a control and must not look like one that has stopped working. The face
    is the data face, because what it reports is machine state rather than
-   prose. See ActionBanner's WORKING. */
+   prose. See ActionBanner's WORKING.
+
+   IT CARRIES THE SURFACE THE REGION GAVE UP. A control can be its own surface
+   because a control has a fill; a line of type cannot, and this line is the
+   one thing in the corner with nothing behind it in the three states that
+   show it. The padding is the card's, one step tighter than a dialogue's,
+   because what is inside it is one line. */
 .chrome-banner__working {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   justify-content: flex-end;
   margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--paper);
+  border: var(--hairline);
+  border-radius: var(--radius);
   font-family: var(--font-data);
   font-size: var(--text-sm);
   color: var(--ink-muted);
+  pointer-events: auto;
 }
 
 /* THE ONE MOVING THING IN THE SHELL, AND IT IS THREE PIXELS OF IT.
@@ -1790,6 +2060,31 @@
   }
 }
 
+/* THE ESCAPE, AND IT WAS NEVER THE OUTLINED BUTTON IT LOOKED LIKE.
+
+   The card came off on the argument that the forward move's oxide fill IS its
+   surface, and the obvious objection is the second button: an outlined control
+   on bare imagery is unreadable, and half the states here show two. The
+   objection does not survive reading the rule. THIS BUTTON HAS CARRIED AN
+   OPAQUE --paper FILL SINCE IT WAS WRITTEN. Beside an oxide fill it READS as
+   outlined -- that is what the hairline and the near-white are for -- but it
+   is a surface, and it is the surface every card in this chrome is made of.
+
+   WHAT IT ACTUALLY LACKED IS THE CASING, and that is what the card was quietly
+   supplying. A --paper rectangle whose only edge is a --rule hairline has a
+   1px argument with whatever the imagery is doing at its boundary, and over
+   dry soil -- which is warm and light, like the stock -- that hairline is the
+   whole of the separation. --casing-control puts the map's own answer there
+   instead: a ring, then a drop. See index.css, and layout.test.jsx, which
+   measures what the ring is worth over canopy and over soil rather than
+   asserting that it is there.
+
+   SO BOTH TONES ARE SELF-SUPPORTING AND NEITHER NEEDS A REGION BEHIND IT.
+   That is the consistent answer rather than the cheap one: the alternative on
+   the table was to keep the card in two-button states only, which would have
+   left the commonest arrangement in the whole shell -- an escape beside a
+   commit, on five of the six steps -- looking like the thing the card was
+   removed for. */
 .chrome-banner__button {
   padding: var(--space-2) var(--space-4);
   border: var(--hairline);
@@ -1799,6 +2094,23 @@
   font-size: var(--text-sm);
   color: var(--ink);
   cursor: pointer;
+  /* The region above is transparent to the pointer so the gap between two
+     buttons stays map; each thing it places takes its events back. */
+  pointer-events: auto;
+}
+
+/* THE CASING IS THE ACTIONS ROW'S, NOT THE BUTTON'S.
+
+   A casing answers "this control is on aerial photography", and the
+   confirmation's two answers are not: they are on the dialogue's own --paper
+   card. Ringing them would put a --paper ring on a --paper ground -- invisible
+   at best, and the drop shadow under it reads as a control floating above a
+   sheet it is printed on. So the treatment is declared where its reason holds,
+   rather than declared on the button and then taken back inside the dialogue.
+   The dialogue's controls are still the region's controls in every other
+   respect: same class, same tones, same focus ring. */
+.chrome-banner__actions .chrome-banner__button {
+  box-shadow: var(--casing-control);
 }
 
 .chrome-banner__button:hover:not(:disabled) {
@@ -1864,9 +2176,22 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  /* THE CARD IS HERE NOW, AND THE DIALOGUE IS WHY THE REGION COULD LOSE IT.
+     A confirmation is a question, a cost, and a list of what each downstream
+     step gives up -- prose, three paragraphs of it, over an aerial frame. That
+     is precisely the content a surface exists for, and it is the only content
+     in this corner that is. The padding is the card's own, the same
+     --space-3 the region used to spend on a row of buttons that did not need
+     it. Sized to the region's cap, not to the sentence: see .chrome-banner. */
+  max-width: 100%;
+  padding: var(--space-3);
+  background: var(--paper);
+  border: var(--hairline);
+  border-radius: var(--radius);
   font-family: var(--font-prose);
   font-size: var(--text-sm);
   color: var(--ink);
+  pointer-events: auto;
 }
 
 /* THE QUESTION, IN THE TITLING FACE.

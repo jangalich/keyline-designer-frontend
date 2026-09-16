@@ -23,7 +23,20 @@
  *   THE NOTICES     Everything the user has to know that is not that. They sit
  *                   under the direction rather than replacing it, because a
  *                   caution that erases the instruction leaves someone holding
- *                   a warning and no way forward.
+ *                   a warning and no way forward. Each one is a ROW, under a
+ *                   rule, led by a one-word kind label in the data face -- see
+ *                   NOTICE_KIND, and .chrome-bar__notices in App.css for why
+ *                   they stack rather than wrap.
+ *
+ * AND ONE THING ABOUT ITSELF: A STATE MARK. The card's content is
+ * state-dependent and nothing on the card said so. It carries an edge now, in
+ * the rail's own idiom, keyed to what KIND of state it is reporting rather
+ * than to which state -- see barTone.
+ *
+ * WHAT IS DELIBERATELY NOT HERE IS THE STEP'S NAME. The rail is where this
+ * shell's titling voice lives and it already says where you are; a running
+ * head repeated in the card under it is the same fact twice, in the region
+ * with the least room for it.
  *
  * THE DIRECTION IS THE DEFINITION'S AND THE NOTICES ARE MOSTLY NOT.
  *
@@ -52,6 +65,9 @@
  */
 
 import { useDrawingProgress } from '../../map/DrawingProgress.jsx'
+/* WHICH STATES ARE "A REQUEST IS OUT". Read for the bar's own state mark, not
+   for anything it renders -- see BAR_TONE. */
+import { COMMITTING, GENERATING, LOADING } from '../useStepMachine'
 /* A notice's text is prose with measured values in it, and so is the reopen
    confirmation's per-step note. One renderer, in MeasuredText.jsx. */
 import MeasuredText from './MeasuredText.jsx'
@@ -63,6 +79,78 @@ import WaitingLine, { useWaitingLine } from './WaitingLine.jsx'
 /** A step id as a person reads it, from its definition when we have one. */
 function titleFor(stepId, definitions) {
   return definitions?.get(stepId)?.title ?? stepId
+}
+
+/**
+ * WHAT EACH NOTICE IS, IN ONE WORD, IN THE DATA FACE.
+ *
+ * THE CARD HAD ONE FACE AT ONE WEIGHT AND SAID EVERYTHING WITH IT. The rail
+ * three regions over uses three -- Bitter for the row you are on, muted prose
+ * for the status, mono for the index -- and that is most of why the rail reads
+ * as belonging to this tool and the bar read as a div with sentences in it. A
+ * marginal label beside a paragraph is the printed form this interface is
+ * modelled on; an extension bulletin sets those labels in the plainest face it
+ * has, which here is the data face.
+ *
+ * AND IT IS NOT DECORATION. Before this, a caution and a failure were told
+ * apart by COLOUR ALONE -- --alert against --ink-muted -- which is the one
+ * distinction a reader with a colour deficiency does not get, in the region
+ * whose whole job is to say what has gone wrong. The word carries it now and
+ * the colour agrees with the word.
+ *
+ * THE SET IS CLOSED AND IT IS THE TONES THAT EXIST. Four: two the machine
+ * raises (a step that cannot start, a request that failed) and two a step
+ * declares about its own payload. A tone with no entry renders no label rather
+ * than an invented one -- the same posture the reset list takes towards a step
+ * that cannot say what it loses.
+ */
+const NOTICE_KIND = Object.freeze({
+  blocked: 'blocked',
+  error: 'failed',
+  caution: 'check',
+  advisory: 'note',
+})
+
+/**
+ * THE BAR'S STATE MARK, WHICH IS THE OTHER THING THE RAIL DOES AND THIS DID
+ * NOT.
+ *
+ * The rail marks the row you are on with an oxide edge, and that is the only
+ * card edge in this build that carries meaning. This card is the one whose
+ * CONTENT changes with the state -- it is the entire reason it exists -- and
+ * nothing on it said so. It gets the same device: an edge, keyed to what the
+ * card is currently doing.
+ *
+ * THREE READINGS, AND NOT ONE OF THEM IS OXIDE. That is deliberate and it is
+ * the one-accent rule, not timidity. Oxide means THE FORWARD MOVE, and the
+ * forward move is a button in the corner; an oxide edge up here would be a
+ * second thing claiming to be the thing to do, in the state where the banner
+ * is already claiming it. So the mark says what KIND of state this is and
+ * leaves what to DO about it to the control that does it:
+ *
+ *   'alert'      --alert.     A notice is up that stops or undoes work: a step
+ *                             that cannot start, a generate or a commit that
+ *                             failed. The one reading the eye should be able
+ *                             to catch from across the frame.
+ *   'working'    --ink-muted. A request is out. There is nothing to do with
+ *                             your hands, and the mark goes as quiet as the
+ *                             rail's unreachable rows do, for the same reason.
+ *   'direction'  --ink.       The ordinary case: this card is telling you what
+ *                             to do. Structural, neutral, and the mark the
+ *                             other two are read against.
+ *
+ * ALERT OUTRANKS WORKING, and the order matters on exactly one path: a commit
+ * that failed leaves `committing` the moment it answers, so the two cannot
+ * actually coincide today -- but a future state that kept a request out while
+ * a rejection was on screen would have something wrong AND something in
+ * flight, and the thing that is wrong is the one worth marking.
+ */
+const IN_FLIGHT = [LOADING, GENERATING, COMMITTING]
+
+function barTone(notices, chromeState) {
+  if (notices.some((notice) => notice.tone === 'error' || notice.tone === 'blocked')) return 'alert'
+  if (IN_FLIGHT.includes(chromeState)) return 'working'
+  return 'direction'
 }
 
 /**
@@ -273,6 +361,11 @@ export default function InstructionBar({ machine, chromeState, definitions, undo
       data-testid={`step-${stepId}`}
       data-step-state={machine.machineState}
       data-chrome-state={chromeState}
+      /* THE STATE MARK'S READING, AS AN ATTRIBUTE RATHER THAN A CLASS. It is
+         a fact ABOUT the card's current state, which is what every other
+         data- attribute on this node already is, and the stylesheet keys the
+         edge off it. See barTone. */
+      data-bar-tone={barTone(notices, chromeState)}
     >
       <p
         className="chrome-bar__direction"
@@ -289,28 +382,66 @@ export default function InstructionBar({ machine, chromeState, definitions, undo
             <li
               key={notice.key}
               className={`chrome-bar__notice chrome-bar__notice--${notice.tone}`}
-              data-testid={notice.testId}
+              data-notice-tone={notice.tone}
             >
-              {notice.featureId ? (
-                <span className="chrome-bar__notice-id" data-testid={`rejection-id-${notice.featureId}`}>
-                  {notice.featureId}
+              {/* WHAT KIND OF THING THIS IS, in one word, in the data face.
+                  aria-hidden because the tone is already carried for a screen
+                  reader by the sentence itself -- "Commit water before
+                  starting this step." does not become clearer prefixed with
+                  the word "blocked", and a label read aloud before every
+                  notice is three extra words per notice on a stack of three.
+                  It is a TYPOGRAPHIC signal, and the one it replaces is
+                  colour, which a screen reader never had either. */}
+              {NOTICE_KIND[notice.tone] ? (
+                <span className="chrome-bar__notice-kind" aria-hidden="true">
+                  {NOTICE_KIND[notice.tone]}
                 </span>
               ) : null}
-              <span
-                data-testid={notice.featureId ? `rejection-reason-${notice.featureId}` : undefined}
-              >
-                <MeasuredText text={notice.text} />
-              </span>
-              {notice.action ? (
-                <button
-                  type="button"
-                  className="chrome-bar__undo"
-                  data-testid={notice.action.testId}
-                  onClick={notice.action.run}
+              {/* THE NOTICE ITSELF, IN ONE FLOW, AND IT CARRIES THE TEST ID.
+
+                  THE ID NAMES WHAT THE NOTICE SAYS, and that is what it has
+                  always named -- every reader of it in the suite takes the
+                  element's textContent and compares it against the sentence a
+                  definition declared, or reaches inside for the `.measure`
+                  span holding a figure. The row around this is now a row: a
+                  kind label in the data face, then the sentence. Leaving the
+                  id on the <li> would have quietly redefined thirteen
+                  assertions from "the notice says X" to "the notice says X
+                  with the word 'check' in front of it", which is a change to
+                  what those tests mean rather than to what they check. The row
+                  is still addressable -- by .chrome-bar__notice, which is what
+                  the layout suite already uses, and by data-notice-tone.
+
+                  The row is a flex line -- the
+                  kind label above, then this -- and the id, the sentence and
+                  the undo have to stay ONE run of text inside it: as flex
+                  items of the row they would each be blockified, which puts
+                  the feature id on its own line and the undo on a third.
+                  Wrapping them restores normal inline flow, which is also what
+                  lets a long reason wrap under itself rather than under the
+                  label. */}
+              <span className="chrome-bar__notice-body" data-testid={notice.testId}>
+                {notice.featureId ? (
+                  <span className="chrome-bar__notice-id" data-testid={`rejection-id-${notice.featureId}`}>
+                    {notice.featureId}
+                  </span>
+                ) : null}
+                <span
+                  data-testid={notice.featureId ? `rejection-reason-${notice.featureId}` : undefined}
                 >
-                  {notice.action.label}
-                </button>
-              ) : null}
+                  <MeasuredText text={notice.text} />
+                </span>
+                {notice.action ? (
+                  <button
+                    type="button"
+                    className="chrome-bar__undo"
+                    data-testid={notice.action.testId}
+                    onClick={notice.action.run}
+                  >
+                    {notice.action.label}
+                  </button>
+                ) : null}
+              </span>
             </li>
           ))}
         </ul>
