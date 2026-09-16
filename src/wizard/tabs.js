@@ -3,7 +3,7 @@
  *
  * A TAB IS THE UNIT OF THE COMMIT DECISION. stepDefinitions declares the shape
  * (`{id, name, rows, featureIds?, checkbox?, removable?}`); TabStrip.jsx draws
- * it. THESE FOUR FUNCTIONS ARE THE READINGS OF IT, and they live in a module of
+ * it. THESE FIVE FUNCTIONS ARE THE READINGS OF IT, and they live in a module of
  * their own because the strip is no longer the only reader: WizardCursor
  * applies `selection.follows` to every focus move, wherever the move came from,
  * and a provider importing a component to do it would be a cycle (TabStrip
@@ -86,4 +86,74 @@ export function selectionFollowingFocus(tabs, focusedFeatureId) {
   if (focusedFeatureId == null) return []
   const tab = tabs.find((entry) => tabIsFocused(entry, focusedFeatureId))
   return tab?.checkbox ? featureIdsOf(tab) : []
+}
+
+
+/**
+ * THE TABS OF A COMMITTED STEP: ITS COMMIT, AND NOT THE CONTROLS THAT MADE IT.
+ *
+ * A step's `tabs()` is written for a step being DECIDED, and it is read here
+ * against a context whose draft IS the commit (useStepMachine's
+ * committedDraft). So the list that comes in is everything the step was
+ * choosing between, with the chosen ones marked. Two things have to happen to
+ * it, and they are the two halves of "the design IS the committed set".
+ *
+ * ONLY WHAT COMMITTED SURVIVES. A candidate the user declined is not part of
+ * the design and has no place on the strip describing it; neither does a zone
+ * they drew and then took back out before committing. Both are still knowable
+ * -- the candidate set is kept (SessionStore's reviewProposals) and a draft can
+ * outlive a hydrate -- and neither is the answer. What they are is the state
+ * BEFORE the decision, and getting that back is what the reopen is for, which
+ * is why the reopen regenerates and names its cascade.
+ *
+ * NARROWED BY FEATURE ID, WHICH IS THE ONE THING EVERY STEP'S TABS AGREE ON. A
+ * tab may stand for several features (roads' network, fencing's type), so it
+ * survives on the ones that committed and reports only those -- a fence type
+ * half of which committed is that half, named by the ids the document holds.
+ *
+ * AND A TAB THAT NAMES NO FEATURE AT ALL IS UNTOUCHED. The boundary's tab is
+ * the parcel's own readout, keyed by an INPUT rather than by a feature;
+ * narrowing it against a feature set would delete the one tab that is always
+ * correct. What tells the two apart is namesFeatures() below and not a step
+ * id -- and note that "names no feature" is narrower than "has no checkbox".
+ * Roads keeps a checkbox-less tab for an access point that ROUTED NOTHING, and
+ * that one declares `featureIds: []`: it is a slot rather than a readout, there
+ * is no committed geometry on it, and it goes.
+ *
+ * NO CHECKBOX AND NO ×, REMOVED RATHER THAN DISABLED. The commit set is fixed
+ * until a reopen, so a box here is either pressable and inert -- the failure
+ * the interaction branch spent a whole branch closing -- or a control that
+ * appears to change a decision that is made. And nothing can be destroyed
+ * without a reopen, so the × has nothing to do. A tab in review is an identity
+ * and a click target, and the absence is the honest way to say so: TabStrip
+ * renders neither control when neither flag is set, so there is nothing in the
+ * DOM to press.
+ */
+export function reviewTabs(tabs, committedIds) {
+  const kept = []
+  for (const tab of tabs) {
+    if (!namesFeatures(tab)) {
+      kept.push({ ...tab, removable: false })
+      continue
+    }
+    const featureIds = featureIdsOf(tab).filter((id) => committedIds.has(id))
+    if (!featureIds.length) continue
+    kept.push({ ...tab, featureIds, checkbox: false, removable: false })
+  }
+  return kept
+}
+
+/**
+ * DOES THIS TAB STAND FOR FEATURES -- declared, or by featureIdsOf()'s
+ * fallback to its own id.
+ *
+ * A DECLARED `featureIds` SAYS YES EVEN WHEN IT IS EMPTY, which is the case
+ * worth spelling out: an empty list is a tab that stands for features and has
+ * none, not a tab that stands for something else. A CHECKBOX also says yes,
+ * because a box commits the fallback id and a step would not offer one over an
+ * id that is not a feature -- the same reading selectionFollowingFocus() makes
+ * from the other side.
+ */
+function namesFeatures(tab) {
+  return Array.isArray(tab.featureIds) || tab.checkbox === true
 }

@@ -381,7 +381,7 @@ export default function DetailPanel({ machine }) {
   // panelFormat.js rules 1 and 2. A step whose tabs are not per-feature simply
   // finds nothing, and the panel falls back to the detail's own name.
   const tab = detail?.rows
-    ? definition.tabs(machine.context).find((entry) => entry.id === focusedFeatureId) ?? null
+    ? machine.tabs.find((entry) => entry.id === focusedFeatureId) ?? null
     : null
   const body = detail?.rows ? panelBody(tab, detail.rows) : null
 

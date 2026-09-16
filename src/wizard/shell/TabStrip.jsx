@@ -52,6 +52,13 @@
  *                      will regenerate it -- and the asymmetry is meant to be
  *                      visible at a glance rather than explained.
  *
+ * ON A COMMITTED STEP ONLY THE FIRST OF THE THREE IS THERE. The list arrives
+ * already narrowed to what committed and already stripped of `checkbox` and
+ * `removable` (tabs.js's reviewTabs), so the two controls are ABSENT from the
+ * DOM rather than disabled in it -- this file renders each only where its flag
+ * is set, and needs no branch of its own. A tab in review is an identity and a
+ * click target: the body still focuses, exactly as it does on a live step.
+ *
  * The × deletes immediately and offers an UNDO in the instruction bar for a
  * few seconds. No confirmation dialogue: a modal is heavy for a small object,
  * and undo keeps the flow moving where a modal stops it to ask about something
@@ -221,7 +228,10 @@ export default function TabStrip({ machine, onRemove }) {
    */
   const clickBody = (tab, focused) => focusFeature(focused ? null : tab.id)
 
-  const tabs = definition.tabs(machine.context)
+  // THE MACHINE'S, NOT THIS COMPONENT'S CALL. The list is narrowed on a
+  // committed step (see reviewTabs) and the detail panel reads the same one,
+  // so the strip and the panel cannot disagree about which features exist.
+  const tabs = machine.tabs
   if (!tabs.length) return null
 
   // The focused tab, resolved once: a tab's id or one of its features.
@@ -244,6 +254,7 @@ export default function TabStrip({ machine, onRemove }) {
       data-testid={`tabs-${stepId}`}
       data-tab-count={tabs.length}
       data-tab-columns={tabColumns(cells)}
+      data-review={machine.reviewing ? 'true' : undefined}
       data-expanded={expanded ? 'true' : 'false'}
       data-selection={mode}
       style={{

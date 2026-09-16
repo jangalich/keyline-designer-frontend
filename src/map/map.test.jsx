@@ -857,13 +857,13 @@ describe('5. the context band: scrim, highlight, and data nothing draws', () => 
 })
 
 /* ===========================================================================
-   6. A COMMITTED LAYER IS NOT A CONTROL
+   6. A COMMITTED LAYER IS NOT A CONTROL, AND THE CURSOR SAYS WHEN IT IS LIVE
    ===========================================================================
 
-   THIS SECTION USED TO ASSERT THE OPPOSITE, and the affordance it asserted
-   was sound: a click on committed geometry called the cursor's `open()`,
-   moving the wizard to the step that owns it, where that step's own reopen
-   was waiting. It never armed a tool.
+   THIS SECTION USED TO ASSERT THAT A COMMITTED CLICK NAVIGATED, and the
+   affordance it asserted was sound: a click on committed geometry called the
+   cursor's `open()`, moving the wizard to the step that owns it, where that
+   step's own reopen was waiting. It never armed a tool.
 
    It is withdrawn because it does not survive a document with more than one
    committed step. During water, committed production zones cover much of the
@@ -875,10 +875,19 @@ describe('5. the context band: scrim, highlight, and data nothing draws', () => 
    The rail is the route that keeps working -- it lists every step, carries
    the reopen with its confirmation, and is the same size whatever the
    document holds. Section 7 below asserts it still does.
+
+   AND THAT WITHDRAWAL IS ABOUT A LAYER THE CURSOR HAS LEFT. Every sentence
+   above is about landform's zones seen FROM WATER. With the cursor ON
+   landform the same geometry is the step's own work and looking at it is the
+   only thing there is to do, so it takes a click -- one that focuses, exactly
+   as a live step's does, and navigates nowhere because there is nowhere to
+   go. The first test below asserts BOTH readings of one layer in one place,
+   because the distinction between them is the thing being tested: making
+   committed geometry interactive everywhere would pass half of it.
    =========================================================================== */
 
 describe('6. the committed band', () => {
-  it('takes no click, and moves nothing, in landform and in water', async () => {
+  it('is inert from a later step and live from its own -- the cursor decides', async () => {
     installFetch([
       route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
       route('GET', /^\/api\/sessions\/[^/]+$/, {
@@ -918,17 +927,29 @@ describe('6. the committed band', () => {
     expect(ui.cursor.armed).toBeNull()
     expect(ui.state.drafts.landform).toBeUndefined()
 
-    // IN LANDFORM: the cursor on the committed step itself, its own features
-    // still drawn, and still not a control.
+    // IN LANDFORM: the cursor on the committed step itself. THE SAME LAYER,
+    // the same features, and now it takes a click -- which is the whole of
+    // the distinction this test exists for.
     await ui.run((_a, cursor) => cursor.open('landform'))
     const own = ui.pane('landform--landform-committed').pane.querySelector('path')
     expect(own).not.toBeNull()
-    expect(own.classList.contains('leaflet-interactive')).toBe(false)
+    expect(own.classList.contains('leaflet-interactive')).toBe(true)
 
+    // AND THE CLICK FOCUSES. Nothing else: no cursor move (there is nowhere
+    // to move to), no tool armed, and no draft minted -- a committed step's
+    // decision is fixed until it is reopened.
     await ui.clickPath(own)
+    expect(ui.cursor.focusedFeatureId).toBe('zone-1')
     expect(ui.cursor.cursorStepId).toBe('landform')
     expect(ui.cursor.armed).toBeNull()
     expect(ui.armedTools()).toEqual([])
+    expect(ui.state.drafts.landform).toBeUndefined()
+
+    // BACK TO WATER, and the same layer is inert again. The state is not a
+    // property the layer acquired; it is read off where the cursor is.
+    await ui.run((_a, cursor) => cursor.open('water'))
+    const again = ui.pane('landform--landform-committed').pane.querySelector('path')
+    expect(again.classList.contains('leaflet-interactive')).toBe(false)
 
     await ui.unmount()
   })

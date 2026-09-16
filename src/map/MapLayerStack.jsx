@@ -8,9 +8,9 @@
  *                          this component's.
  *   2. Context             read-only server geometry, subdued. Never takes a
  *                          click -- there is nothing to say about it.
- *   3. Committed           every committed step's features. READ-ONLY, and
- *                          that now means it takes no clicks at all. See
- *                          below.
+ *   3. Committed           every committed step's features. READ-ONLY. It
+ *                          takes a click on ONE layer -- the cursor step's
+ *                          own -- and none anywhere else. See below.
  *   4. Active editable     the cursor step's own layers, drawn and acted on by
  *                          the tools its definition declares.
  *
@@ -41,6 +41,30 @@
  *
  * WHAT DID NOT CHANGE: the reopen itself, its confirmation, and the rail. This
  * removed a route, not a destination.
+ *
+ *
+ * AND THE STEP YOU ARE STANDING ON IS NOT THAT CASE
+ *
+ * Every sentence above is about a layer belonging to a step the cursor has
+ * LEFT. With the cursor ON a committed step, the same geometry is the only
+ * thing that step has: there is nowhere for a click to navigate to, because
+ * you are already there, and "put this panel away" is answered by the bare
+ * map exactly as it is on a live step.
+ *
+ * SO IT IS THE SAME LAYER IN TWO STATES AND THE CURSOR DECIDES WHICH. The
+ * stack says which -- `layer.review`, composed in layerStack.js where the
+ * cursor and the owning step are both in hand -- and this file reads that one
+ * field. It does NOT re-derive the rule, and it does not learn a second one:
+ * `interactive={layer.review}` is the whole of it, and every settled layer
+ * that is not the cursor's own carries false, which is every context layer
+ * and every committed layer but one.
+ *
+ * WHAT A REVIEW CLICK DOES is what a click on a live step's feature does --
+ * `focusFeature`, the same handler SelectGesture hands the editable band. It
+ * marks the feature, activates its tab and opens the detail panel. It arms
+ * nothing, moves no cursor and changes no commit; a committed step's decision
+ * is fixed until it is reopened, and there is no control here that could
+ * suggest otherwise.
  */
 
 import { useMapEvent } from 'react-leaflet'
@@ -55,7 +79,7 @@ import { StackLayer } from './layers.jsx'
 
 export default function MapLayerStack() {
   const { state } = useSession()
-  const { cursorStepId, definition, definitions, focusedFeatureId, blurFeature } =
+  const { cursorStepId, definition, definitions, focusedFeatureId, focusFeature, blurFeature } =
     useWizardCursor()
 
   const stack = composeLayerStack({ state, definitions, cursorStepId })
@@ -81,13 +105,20 @@ export default function MapLayerStack() {
           come and go, and two panes reference this one pattern. See
           ProductionHatchPattern for both reasons at length. */}
       <ProductionHatchPattern />
-      {/* THE SETTLED BANDS, DRAWN AND NOTHING ELSE. No `interactive`, no
-          handler, and no branch on the band -- context and committed are the
-          same kind of thing to this loop now, which is what "read-only" was
-          always supposed to mean. See the note above for what was removed and
-          why the rail is where that gesture went. */}
+      {/* THE SETTLED BANDS, WITH ONE FIELD READ AND NO BRANCH ON THE BAND.
+          `layer.review` is the stack's answer to "is the cursor standing on
+          the step that owns this", and it is false for every context layer
+          and for every committed layer but the cursor step's own -- so this
+          loop still treats context and committed as one kind of thing. The
+          rule is layerStack.js's; see the note above for what it is not. */}
       {settled.map((layer) => (
-        <StackLayer key={layer.paneName} layer={layer} />
+        <StackLayer
+          key={layer.paneName}
+          layer={layer}
+          interactive={layer.review}
+          focusedFeatureId={focusedFeatureId}
+          onFeatureClick={(_layer, feature) => focusFeature(feature.id)}
+        />
       ))}
       {/* A CLICK ON BARE MAP MEANS "NOTHING, THANKS". It is the only way to
           put the detail panel away, and it has to be the map's own click

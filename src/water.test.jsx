@@ -3853,10 +3853,15 @@ describe('the tab body focuses without choosing, unless the step says otherwise'
     function Harness() {
       const [ids, setIds] = React.useState(selected)
       selection = ids
+      const context = { proposals, draft: { selectedFeatureIds: ids, drawnFeatures: [], inputs: {} } }
       const machine = {
         definition,
         stepId: definition.id,
-        context: { proposals, draft: { selectedFeatureIds: ids, drawnFeatures: [], inputs: {} } },
+        context,
+        // The strip reads the machine's list rather than calling `tabs()`
+        // itself, so the strip and the detail panel cannot disagree about
+        // which features exist on a committed step. See useStepMachine.
+        tabs: definition.tabs(context),
         actions: {
           setSelection: (_stepId, next) => setIds((current) => (typeof next === 'function' ? next(current) : next)),
         },
