@@ -45,6 +45,10 @@
  *                  page the reopen confirmation is read on. See REOPEN below.
  *   ?waiting=1     a commit that never answers, so the instruction card can be
  *                  measured while the waiting phrases turn over. See WAITING.
+ *   ?instruction=  'longest' | 'landform' -- put a SHIPPED direction in the
+ *                  direction slot instead of the harness's own short line, so
+ *                  the cap is measured against a sentence the product actually
+ *                  declares. See instructionFor().
  */
 
 import React, { useEffect, useRef, useState } from 'react'
@@ -319,6 +323,44 @@ const BUTTONS = [
 const TAB_COUNT = number('tabs', 0)
 const BUTTON_COUNT = number('buttons', 2)
 const NOTICE_KIND = params.get('notice') ?? 'none'
+
+/**
+ * ?instruction=...  --  A SHIPPED DIRECTION IN THE DIRECTION SLOT.
+ *
+ * The harness declares a short line of its own for every other case, because
+ * every other case is measuring a box the direction is not the widest thing
+ * in. THE CAP'S WORST CASE IS THE OTHER WAY ROUND: the longest sentence any
+ * step actually declares, with a full notice stack under it, and a line
+ * invented here would be measuring a string this harness chose rather than one
+ * the product ships.
+ *
+ * SO THE STRINGS ARE READ OFF THE REAL DEFINITIONS, never restated:
+ *
+ *   'longest'   the longest instruction any shipped step declares, in any
+ *               state. Whichever line that is, it is the one the cap has to
+ *               hold.
+ *   'landform'  landform's own `reviewing` line, named because it is the
+ *               longest of the DIRECTIONS a user is given something to do in
+ *               -- the wait-state lines above it give way to the cycling
+ *               phrases, and this one does not.
+ */
+const SHIPPED_INSTRUCTIONS = STEP_DEFINITIONS.flatMap((step) =>
+  Object.values(step.instructions)
+)
+const LONGEST_INSTRUCTION = SHIPPED_INSTRUCTIONS.reduce(
+  (longest, line) => (line.length > longest.length ? line : longest),
+  ''
+)
+const LANDFORM_REVIEWING = STEP_DEFINITIONS.find((step) => step.id === 'landform')
+  .instructions.reviewing
+
+function instructionFor(kind) {
+  if (kind === 'longest') return LONGEST_INSTRUCTION
+  if (kind === 'landform') return LANDFORM_REVIEWING
+  return 'Review the proposed production zones and commit the ones you want.'
+}
+
+const INSTRUCTION = instructionFor(params.get('instruction'))
 
 /**
  * ?detail=N  focus a feature and give its panel N field ROWS, in four groups.
@@ -2116,10 +2158,17 @@ const HARNESS_STEP = documentStep({
   reachable: () => true,
   blockedBy: () => null,
   instructions: {
-    reviewing: 'Review the proposed production zones and commit the ones you want.',
+    // The harness's own short line by default; a shipped one under
+    // ?instruction=. See instructionFor().
+    reviewing: INSTRUCTION,
+    // AND THE SAME LINE IN `loading`, which is where this page actually rests:
+    // there is no session behind it, so a step declaring itself `generated`
+    // reads as proposals the client does not have. Declaring the line in one
+    // key and measuring the other would measure documentStep's own default.
+    loading: INSTRUCTION,
     // The declared line the waiting phrases replace once the wait has lasted.
     // A real step's own words, so the swap being measured is the shipped one.
-    committing: 'Saving these zones…',
+    committing: 'Saving these blocks.',
   },
   buttons: {
     reviewing: BUTTONS.slice(0, BUTTON_COUNT),

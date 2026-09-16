@@ -36,7 +36,7 @@
  *
  * A WAIT EARNS ITS PHRASES BY LASTING. Nothing is swapped until the first
  * interval is up, so the declared instruction -- "Creating the session…",
- * "Saving these zones…" -- stands alone through every wait shorter than that.
+ * "Saving these blocks." -- stands alone through every wait shorter than that.
  * This is what keeps the treatment off the short waits without anyone having
  * to declare which ones those are: a step commit that answers in 300ms never
  * reaches the first tick, and a phrase that flashes for a third of a second is

@@ -315,7 +315,9 @@ describe('1. boundary end to end in the new shell', () => {
 
     // EDITING: the arming is what puts the chrome here, and the pair is the
     // undo and the finish.
-    expect(ui.instruction(BOUNDARY_STEP_ID)).toBe('Click to place each corner.')
+    expect(ui.instruction(BOUNDARY_STEP_ID)).toBe(
+      'Continue adding points, then click your first point to close.'
+    )
     expect(ui.buttons(BOUNDARY_STEP_ID)).toEqual([
       ['undo', 'Undo last point'],
       ['finish', 'Finish boundary'],
@@ -335,7 +337,7 @@ describe('1. boundary end to end in the new shell', () => {
     // moves the chrome to its reviewing pair.
     await ui.click(`finish-${BOUNDARY_STEP_ID}`)
     expect(ui.cursor.armed).toBeNull()
-    expect(ui.instruction(BOUNDARY_STEP_ID)).toBe('Check the shape before sending.')
+    expect(ui.instruction(BOUNDARY_STEP_ID)).toBe('Commit boundary to proceed.')
     expect(ui.buttons(BOUNDARY_STEP_ID)).toEqual([
       ['redraw', 'Clear and redraw'],
       ['commit', 'Commit'],
@@ -347,7 +349,9 @@ describe('1. boundary end to end in the new shell', () => {
     await ui.click(`redraw-${BOUNDARY_STEP_ID}`)
     expect(ui.state.drafts[BOUNDARY_STEP_ID].inputs[BOUNDARY_RING_INPUT]).toEqual([])
     expect(ui.cursor.armed).toBe('draw')
-    expect(ui.instruction(BOUNDARY_STEP_ID)).toBe('Click to place each corner.')
+    expect(ui.instruction(BOUNDARY_STEP_ID)).toBe(
+      'Continue adding points, then click your first point to close.'
+    )
     expect(ui.find(`tabs-${BOUNDARY_STEP_ID}`)).toBeNull()
 
     // REDRAW, FINISH, COMMIT.
@@ -365,7 +369,7 @@ describe('1. boundary end to end in the new shell', () => {
     expect(ui.cursor.cursorStepId).toBe('landform')
     expect(ui.find(`step-${BOUNDARY_STEP_ID}`)).toBeNull()
     expect(ui.find('step-landform').dataset.stepState).toBe(IDLE)
-    expect(ui.buttons('landform')).toEqual([['generate', 'Generate production zones']])
+    expect(ui.buttons('landform')).toEqual([['generate', 'Generate production blocks']])
 
     await ui.unmount()
   })
@@ -460,7 +464,10 @@ describe('2. landform in the new shell', () => {
     // proposals, not placing points.
     expect(ui.find('step-landform').dataset.stepState).toBe(EDITING)
     expect(ui.find('step-landform').dataset.chromeState).toBe(REVIEWING)
-    expect(ui.instruction('landform')).toBe('Click zones to select. Draw to add your own.')
+    expect(ui.instruction('landform')).toBe(
+      'Highlighted ground cleared every check. Suggested blocks sit on it — choose the ones you ' +
+        'want, or draw your own.'
+    )
 
     await ui.click('commit-landform')
     expect(pathsOf(calls, 'POST', /\/steps\/landform\/commit$/)).toHaveLength(1)

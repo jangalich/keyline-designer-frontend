@@ -123,7 +123,7 @@ const PAYLOAD = {
   summary: { total_acres: 100, eligible_acres: 50 },
 }
 
-/** A drawn zone as LANDFORM_SHAPE.close() builds one, with cautions on it. */
+/** A drawn block as LANDFORM_SHAPE.close() builds one, with cautions on it. */
 function drawnZone(id = 'drawn-1') {
   return {
     type: 'Feature',
@@ -131,7 +131,7 @@ function drawnZone(id = 'drawn-1') {
     geometry: { type: 'MultiPolygon', coordinates: [box(-74.005, 40.72, -73.998, 40.726).coordinates] },
     properties: {
       layer: 'production_area_candidate',
-      label: 'Drawn zone',
+      label: 'Drawn block',
       confidence: 'low',
       confidence_notes: 'Drawn by hand on the map; no survey backs it.',
       acres: 3.4,

@@ -1436,7 +1436,7 @@ const BOUNDARY_FINISH = disarmButton({
  * Clear the ring AND arm the draw again, because the button says redraw.
  *
  * Clearing alone would leave the user in the reviewing state over an empty
- * ring, looking at "Check the shape before sending." with no shape and no way
+ * ring, looking at "Commit boundary to proceed." with no shape and no way
  * back to placing points but the tool button that state does not offer. The
  * two halves of "redraw" are one press.
  */
@@ -1526,8 +1526,8 @@ export const BOUNDARY_STEP = defineStep({
   generate: null,
   commit: {
     // THE BANNER'S WORDS ARE THE DEFINITION'S. The instruction above it
-    // already says what is being sent ("Check the shape before sending."), so
-    // the button names the act rather than restating the object.
+    // already says what is being sent ("Commit boundary to proceed."), so the
+    // button names the act rather than restating the object.
     label: 'Commit',
     run: async (actions, { draft }) => {
       const ring = draft?.inputs?.[BOUNDARY_RING_INPUT]
@@ -1562,9 +1562,11 @@ export const BOUNDARY_STEP = defineStep({
      chromeState.js for the one rule that decides which of the two a boundary
      with three points down is in, and why it is the arming that decides it. */
   instructions: {
-    [IDLE]: 'Trace the property outline. Everything after this is measured against it.',
-    [EDITING]: 'Click to place each corner.',
-    [REVIEWING]: 'Check the shape before sending.',
+    [IDLE]:
+      'Trace the area you want designed. No need to avoid trees, roads or streams — those are ' +
+      'detected.',
+    [EDITING]: 'Continue adding points, then click your first point to close.',
+    [REVIEWING]: 'Commit boundary to proceed.',
     [COMMITTING]: 'Creating the session…',
     // The committed boundary's line IS its committedNote: there is one thing
     // to say about a parcel that cannot be moved, and it is said once.
@@ -1692,7 +1694,7 @@ export const LANDFORM_SHAPE = Object.freeze({
     if (!multi.length) {
       return {
         feature: null,
-        notice: 'That zone fell entirely outside the property boundary and was not added.',
+        notice: 'That block fell entirely outside the property boundary and was not added.',
       }
     }
 
@@ -1708,7 +1710,7 @@ export const LANDFORM_SHAPE = Object.freeze({
         geometry: { type: 'MultiPolygon', coordinates: multi },
         properties: {
           layer: PRODUCTION_AREA_LAYER,
-          label: 'Drawn zone',
+          label: 'Drawn block',
           confidence: 'low',
           confidence_notes: 'Drawn by hand on the map; no survey backs it.',
           acres,
@@ -1716,7 +1718,7 @@ export const LANDFORM_SHAPE = Object.freeze({
         },
       },
       // Said only when the clamp actually took something. A notice on every
-      // drawn zone would train the user to ignore the one that matters.
+      // drawn block would train the user to ignore the one that matters.
       //
       // PARTS RATHER THAN A SENTENCE, so the acreage the clamp removed is set
       // in the data face like every other measured value. It was a template
@@ -1957,11 +1959,11 @@ export function aspectPhrase(zone) {
   return `${zone.dominant_aspect} facing`
 }
 
-/** Start drawing a zone of your own. */
+/** Start drawing a block of your own. */
 const LANDFORM_DRAW = armButton({
   key: 'draw',
   tool: 'draw',
-  label: 'Draw a zone',
+  label: 'Draw a block',
 })
 
 /**
@@ -1977,7 +1979,7 @@ const LANDFORM_CANCEL = disarmButton({ key: 'cancel', label: 'Cancel' })
 export const LANDFORM_STEP = documentStep({
   id: 'landform',
   title: 'Landform',
-  blurb: 'Production zones on the ground the parcel can actually support.',
+  blurb: 'Production blocks on the ground the parcel can actually support.',
   layers: [
     // Bottom of the context band: everything AROUND the parcel, dimmed. The
     // one hard gate in this interface and the only mark that reads as
@@ -2022,7 +2024,7 @@ export const LANDFORM_STEP = documentStep({
   // None. The backend's landform entry declares no user_inputs, so any params
   // at all is a 400 -- see step_orchestrator.validate_params().
   inputs: [],
-  generate: { label: 'Generate production zones' },
+  generate: { label: 'Generate production blocks' },
   commit: {
     /**
      * AN EMPTY COMMIT IS LEGAL AND DELIBERATE, AND THE BUTTON SAYS SO.
@@ -2033,13 +2035,13 @@ export const LANDFORM_STEP = documentStep({
      * absence. So the commit is never blocked here.
      *
      * But it must never be a SILENT empty submit either. A button reading
-     * "Commit these zones" over an empty selection is a user one click away
+     * "Commit these blocks" over an empty selection is a user one click away
      * from recording a decision they did not know they were making, so the
      * button renames itself and states the decision instead. That is the
      * whole of the affordance: same action, same place, different sentence.
      */
     label: ({ committableCount }) =>
-      committableCount === 0 ? 'Commit no zones for this step' : 'Commit zones',
+      committableCount === 0 ? 'Commit no blocks for this step' : 'Commit blocks',
     canCommit: () => true,
     blockedReason: () => null,
   },
@@ -2057,18 +2059,18 @@ export const LANDFORM_STEP = documentStep({
    * about, and because the day a step lands between the boundary and this one
    * is not the day to notice.
    *
-   * A DRAWN ZONE IS NAMED SEPARATELY WHEN THERE IS ONE. Every committed zone
-   * is work; a drawn one is the only work here that cannot be recovered by
+   * A DRAWN BLOCK IS NAMED SEPARATELY WHEN THERE IS ONE. Every committed
+   * block is work; a drawn one is the only work here that cannot be recovered by
    * generating again and picking the same shapes, and a person deciding
    * whether to reopen needs that difference more than they need the total.
    * Off the document's own provenance map -- the same record the commit
    * wrote -- rather than inferred from a feature id.
    */
   resetNote: (state) => {
-    const zones = committedFeatureCount(state, 'landform')
-    if (!zones) return 'the production ground decided for this parcel'
+    const blocks = committedFeatureCount(state, 'landform')
+    if (!blocks) return 'the production ground decided for this parcel'
     const drawn = drawnFeatureCount(state, 'landform')
-    const note = [measured(zones, 0), ` committed production zone${plural(zones)}`]
+    const note = [measured(blocks, 0), ` committed production block${plural(blocks)}`]
     if (drawn) note.push(', ', measured(drawn, 0), ' of them drawn by hand')
     return note
   },
@@ -2077,12 +2079,15 @@ export const LANDFORM_STEP = documentStep({
      The same four states boundary uses, saying landform's own sentences. The
      shell reads the key; it never reads which step wrote it. */
   instructions: {
-    [IDLE]: 'Production zones on the ground the parcel can actually support.',
+    [IDLE]:
+      'Production blocks are ground suited to cultivation or grazing — the parcel’s workable land.',
     [GENERATING]: 'Reading the parcel — slope, soil, canopy, roads, and the setback…',
-    [REVIEWING]: 'Click zones to select. Draw to add your own.',
+    [REVIEWING]:
+      'Highlighted ground cleared every check. Suggested blocks sit on it — choose the ones you ' +
+      'want, or draw your own.',
     [EDITING]: 'Click to place each corner. Click the first corner to close.',
-    [COMMITTING]: 'Saving these zones…',
-    [STEP_COMMITTED]: 'These zones are committed. Every step after this is measured against them.',
+    [COMMITTING]: 'Saving these blocks.',
+    [STEP_COMMITTED]: 'These blocks are committed. Every step after this is measured against them.',
   },
   buttons: {
     [IDLE]: [GENERATE_BUTTON],
@@ -2903,18 +2908,18 @@ export const WATER_STEP = documentStep({
   shape: null,
 
   instructions: {
-    [IDLE]: 'Ground worth surveying for a pond, from two independent readings.',
+    [IDLE]: 'Ground worth surveying for a pond, read two ways — embankment and excavated.',
     [GENERATING]: 'Reading the parcel — wetness, depressions, catchment, slope, and soil…',
-    [REVIEWING]: 'Click an area to read it. The checkbox on its tab decides whether it is committed.',
+    [REVIEWING]: 'Choose the water area(s) that will service your farm.',
     [EDITING]: 'Click an area to read it.',
-    [COMMITTING]: 'Saving these survey areas…',
+    [COMMITTING]: 'Saving these areas.',
     [STEP_COMMITTED]:
       'These survey areas are committed. Roads, trees and fencing are measured against them.',
   },
   buttons: {
     [IDLE]: [GENERATE_BUTTON],
     [GENERATING]: [],
-    // ONE BUTTON. Landform offers "Draw a zone" beside the commit; there is
+    // ONE BUTTON. Landform offers "Draw a block" beside the commit; there is
     // nothing to draw here, and a second button offering the only other verb
     // this step has -- none -- would be a control that does nothing.
     [REVIEWING]: [COMMIT_BUTTON],
@@ -3645,7 +3650,7 @@ const ROADS_ACCESS_SPEC = {
  * forward moves and letting the user pick which one the design meant.
  *
  * THE PRECEDENT IS LANDFORM'S, EXACTLY. Its `reviewing` is [LANDFORM_DRAW,
- * COMMIT_BUTTON] -- "Draw a zone" beside the commit -- and LANDFORM_DRAW
+ * COMMIT_BUTTON] -- "Draw a block" beside the commit -- and LANDFORM_DRAW
  * takes stepButton's default `secondary`. This is the same pairing and now
  * takes the same answer; it did not, and roads was simply never in the loop
  * that checks the rule (style.test.jsx section 4, which now includes it).
@@ -3948,12 +3953,15 @@ export const ROADS_STEP = documentStep({
   },
 
   instructions: {
-    [IDLE]: 'Add an access point where the property meets the road, and a network is routed from it.',
-    [EDITING]: 'Click the property boundary where it meets the road.',
+    [IDLE]:
+      'Generate a road network that provides access through your farm, routed from an access ' +
+      'point you place.',
+    [EDITING]: 'Add an access point along the boundary line to route a road from.',
     [GENERATING]: 'Routing a network from the access point — grade, wet ground, canopy, and the water zone…',
     [REVIEWING]:
-      'Click a network, its access point or its tab to choose it — one network, or none. Clicking the one you are looking at leaves none chosen.',
-    [COMMITTING]: 'Saving this network…',
+      'Choose the road network that will provide access to your farm, or add another access ' +
+      'point to compare.',
+    [COMMITTING]: 'Saving this network.',
     [STEP_COMMITTED]: 'This network is committed. Trees, structures and fencing are measured against it.',
   },
   buttons: {
@@ -4536,11 +4544,13 @@ export const TREES_STEP = documentStep({
   },
 
   instructions: {
-    [IDLE]: 'Tree crops on the ground production does not want: steep, wet, poor, and near water.',
+    [IDLE]: 'Generate zones where tree plantings may be practical.',
     [GENERATING]: 'Scoring the ground left after production, water and roads — wetness, slope, soil, and streams…',
-    [REVIEWING]: 'Click zones to select. Draw to add your own.',
+    [REVIEWING]:
+      'Choose the tree zone(s) that will complement your design and existing conditions, or draw ' +
+      'your own.',
     [EDITING]: 'Click to place each corner. Click the first corner to close.',
-    [COMMITTING]: 'Saving these tree zones…',
+    [COMMITTING]: 'Saving these zones.',
     [STEP_COMMITTED]: 'These tree zones are committed. Structures and fencing are measured against them.',
   },
   buttons: {
@@ -5382,15 +5392,14 @@ export const STRUCTURES_STEP = documentStep({
 
   instructions: {
     [IDLE]:
-      'A small solar-generating building — a barn or shed with rooftop panels — sited against ' +
-      'the fields, the water, the road and the trees you have committed.',
+      'Generate sites suitable for building — a barn, shed or processing facility — scored for ' +
+      'solar potential.',
     [GENERATING]:
       'Scoring building sites — slope, aspect, shading, and the distance to the road, the ' +
       'fields and the water…',
-    [REVIEWING]:
-      'Click a site to read it. Place a site of your own to have that spot scored the same way.',
+    [REVIEWING]: 'Choose the structure site(s) that suit your operation, or place your own.',
     [EDITING]: 'Click a spot inside the property boundary. It is measured where it lands.',
-    [COMMITTING]: 'Saving these structure sites…',
+    [COMMITTING]: 'Saving these sites.',
     [STEP_COMMITTED]: 'These structure sites are committed. Fencing is measured against them.',
   },
   buttons: {
@@ -5906,19 +5915,16 @@ export const FENCING_STEP = documentStep({
   },
 
   instructions: {
-    [IDLE]:
-      'Fence lines around what you have committed — the water zones, the tree zones, and the ' +
-      'developed ground — every one measured from the steps before this.',
+    [IDLE]: 'Generate fencing around developed ground and core features.',
     [GENERATING]:
       'Drawing fence lines — buffering the water and tree zones, hulling the developed footprint, ' +
       'clipping to the parcel…',
-    [REVIEWING]:
-      'Each tab is a fence type. Ticking one commits every loop of that type; click a line to read it.',
+    [REVIEWING]: 'Choose the fencing types your operation needs.',
     // UNREACHABLE, AND DECLARED ANYWAY: the chrome is keyed by machine state
     // and this step arms no tool, so it never enters `editing`. The schema
     // asks every step for every state; this is the honest answer.
     [EDITING]: 'Fencing is select-only: there is nothing to draw on this step.',
-    [COMMITTING]: 'Saving this fencing…',
+    [COMMITTING]: 'Saving this fencing.',
     [STEP_COMMITTED]: 'This fencing is committed. It is the last step in the design.',
   },
   buttons: {
