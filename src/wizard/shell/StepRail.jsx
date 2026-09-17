@@ -62,6 +62,7 @@
 
 import { COMMITTED, GENERATED, selectStepStatus, useSession } from '../../session/SessionStore'
 import { useWizardCursor } from '../WizardCursor.jsx'
+import TutorialHelp from '../../tutorial/TutorialHelp.jsx'
 
 /** What each status says on a row, in the terms the rail is read in. */
 const STATUS_WORDS = {
@@ -166,6 +167,11 @@ export default function StepRail() {
           )
         })}
       </ol>
+      {/* THE HELP CONTROL, AT THE FOOT. The rail is the one region that is
+          persistent, navigational and present in every machine state, so a
+          control that has to be reachable at every moment goes here and not
+          in a region whose content changes. See TutorialHelp. */}
+      <TutorialHelp />
     </nav>
   )
 }

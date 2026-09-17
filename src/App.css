@@ -908,6 +908,53 @@
   color: var(--ink-muted);
 }
 
+/* THE HELP CONTROL, AT THE FOOT OF THE RAIL. A circled ? below the last
+   step, the one way back into the tutorial overlay (src/tutorial). It is on
+   the rail because the rail is the one region that is persistent,
+   navigational and present in every machine state; a control that has to be
+   findable at every moment cannot live in a region whose content changes.
+
+   A ROW OF THE RAIL IN EVERYTHING BUT WHAT IT SAYS: the same padding, the
+   same hairline above it, the same hover, the same inset ring. Muted, because
+   it is not a step and must not read as the eighth one -- the glyph is drawn
+   in the data face at the index column's size, which is the rail's own
+   voice for a mark that is not a name. */
+.chrome-rail__help {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-top: var(--hairline);
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.chrome-rail__help:hover {
+  background: var(--stock);
+  color: var(--ink);
+}
+
+/* Inside the rail's clip, for the step row's reason (see above). */
+.chrome-rail__help:focus-visible {
+  outline-offset: -3px;
+}
+
+.chrome-rail__help-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  line-height: 1;
+}
+
 /* --- B: the instruction card -------------------------------------------------
    CENTRED, NEAR THE TOP, AND CAPPED AT READING MEASURE.
 
@@ -2307,6 +2354,10 @@
   .chrome-rail {
     width: auto;
     max-width: 60vw;
+    /* A ROW, so the help control sits at the rail's end rather than under
+       it: the foot of a horizontal rail is its right-hand edge. */
+    display: flex;
+    align-items: stretch;
   }
 
   /* THE PANEL IS CAPPED AGAINST THE VIEWPORT HERE, NOT AGAINST ITS ROW, AND
@@ -2345,6 +2396,14 @@
   .chrome-rail__list {
     display: flex;
     overflow-x: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .chrome-rail__help {
+    width: auto;
+    border-top: none;
+    border-left: var(--hairline);
   }
 
   .chrome-rail__item + .chrome-rail__item {
@@ -2782,4 +2841,585 @@
 .road--glow {
   filter: blur(2px);
   pointer-events: none;
+}
+
+/* --- The tutorial ------------------------------------------------------------
+   A modal over the whole chrome, centred on the map, with one card at a time
+   (src/tutorial). It is NOT a region of the shell: it opens over all five,
+   takes every pointer event while it is up, and is gone without trace when it
+   closes. Everything below is outside the chrome block on purpose -- the
+   diagrams draw map features in --field, which the chrome's own rules may
+   not, because a diagram inside an opaque card is a map, not a control.
+
+   THE CARD IS A CARD, by the rule every region takes: an opaque --paper
+   surface, a rule hairline on all four sides, the radius. It sits on a dim
+   rather than on imagery, so it needs no casing.
+
+   ONE ACCENT. The forward move ("Next", and "Got it" on the last card) is the
+   one oxide in the card. The dots, the back control and the × are ink and
+   muted ink: they are ways to move, not the way forward.
+
+   NOTHING BELOW NAMES A COLOUR. Every fill, stroke and surface is a token
+   from index.css, and the dim is --scrim at an opacity rather than a literal
+   with an alpha -- the same rule the rest of this file keeps.
+   --------------------------------------------------------------------------- */
+
+.tutorial {
+  position: fixed;
+  inset: 0;
+  /* Above the page (z-index 1), which is the stacking context the chrome's
+     400 and Leaflet's 1000 both live inside. This is a sibling of the page,
+     portalled onto <body>, so it only has to clear the page itself. */
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+}
+
+/* THE DIM. Its own element rather than a background on .tutorial, so it is a
+   thing that can be clicked -- clicking it closes -- and so the card above it
+   is not dimmed with it. --scrim is the off-parcel dim on the map, and the
+   one near-black in the system that is not type. */
+.tutorial__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  opacity: 0.55;
+}
+
+.tutorial__card {
+  position: relative;
+  width: min(100%, 30rem);
+  /* Never taller than the viewport, and scrolls inside itself if it must, so
+     the dots at its foot are always reachable -- a phone in landscape is the
+     case that makes this a rule rather than a courtesy. */
+  max-height: calc(100dvh - 2 * var(--space-4));
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--paper);
+  border: var(--hairline);
+  border-radius: var(--radius);
+}
+
+/* THE ONE WAY OUT. Top right, quiet: it is not the primary action and it is
+   not a control the eye should be drawn to first. */
+.tutorial__close {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-prose);
+  font-size: var(--text-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tutorial__close:hover {
+  background: var(--stock);
+  color: var(--ink);
+}
+
+/* The titling voice -- the same one the rail's running head and the detail
+   panel's name are set in. Clears the × on the right. */
+.tutorial__title {
+  margin: 0;
+  padding-right: var(--space-6);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-lg);
+  line-height: var(--leading-tight);
+  color: var(--ink);
+}
+
+.tutorial__body {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+/* The diagram's frame. --stock rather than --paper so the map reads as
+   ground against the card, with the same hairline every card takes. */
+.tutorial__figure {
+  margin: 0;
+  overflow: hidden;
+  border: var(--hairline);
+  border-radius: var(--radius);
+  background: var(--stock);
+}
+
+.tutorial__nav {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tutorial__dots {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A DOT IS A BUTTON. The hit target is 1.5rem, the mark inside it 0.5rem, so
+   the row stays a row of dots and each one stays reachable by a thumb. The
+   current card's dot is filled; the mark is ink, never the accent. */
+.tutorial__dot {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tutorial__dot::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border: 1px solid var(--ink-muted);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.tutorial__dot:hover::before {
+  border-color: var(--ink);
+}
+
+.tutorial__dot[aria-current='true']::before {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+/* The two paging controls, in the banner's own treatment: an outlined --paper
+   escape and an oxide forward move. */
+.tutorial__button {
+  padding: var(--space-2) var(--space-4);
+  border: var(--hairline);
+  border-radius: var(--radius);
+  background: var(--paper);
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.tutorial__button:hover:not(:disabled) {
+  background: var(--stock);
+}
+
+.tutorial__button:disabled {
+  color: var(--disabled);
+  cursor: not-allowed;
+}
+
+.tutorial__button--primary {
+  background: var(--oxide);
+  border-color: var(--oxide);
+  color: var(--on-oxide);
+  font-weight: 600;
+}
+
+.tutorial__button--primary:hover:not(:disabled) {
+  background: var(--oxide-deep);
+  border-color: var(--oxide-deep);
+}
+
+/* An oxide ring on an oxide fill is invisible; restated, never removed. */
+.tutorial__button--primary:focus-visible {
+  outline-color: var(--ink);
+}
+
+/* --- The tutorial's diagrams -------------------------------------------------
+   Inline SVG, one per card, animated here. THE MARKUP IS THE RESTING FRAME:
+   every base rule below draws the finished diagram, and the keyframes move
+   each element away from it and back. Under prefers-reduced-motion the
+   keyframes are switched off and the cursor is hidden, and what is left is
+   the finished diagram -- which is the whole test of whether a card depends
+   on motion to be legible.
+
+   ONE PERIOD PER CARD. `--loop` is set once per diagram and read by every
+   descendant; each element's keyframes are percentages of it. No element
+   sets its own duration and none is delayed, because a delay is a second
+   period and two periods drift. tutorial.test.jsx holds both.
+
+   FACES: every measured value is the data face with tabular figures, and
+   nothing else in a diagram is.
+   --------------------------------------------------------------------------- */
+
+.tutorial-anim {
+  --loop: 8s;
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.tutorial-anim--overview {
+  --loop: 8s;
+}
+
+.tutorial-anim--draw {
+  --loop: 9s;
+}
+
+.tutorial-anim--read {
+  --loop: 7s;
+}
+
+.tutorial-anim--tick {
+  --loop: 10s;
+}
+
+/* THE ONE DURATION, for everything a diagram draws. An element with no
+   animation-name is unmoved by this. */
+.tutorial-anim * {
+  animation-duration: var(--loop);
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
+}
+
+/* Ground: stock, with faint contours. */
+.tutorial-anim__field {
+  fill: var(--stock);
+}
+
+.tutorial-anim__contour {
+  fill: none;
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+/* Chrome regions, panels, tabs and chips: a paper card with a muted edge. */
+.tutorial-anim__region rect,
+.tutorial-anim__panel rect,
+.tutorial-anim__chip rect,
+.tutorial-anim__tab-card {
+  fill: var(--paper);
+  stroke: var(--ink-muted);
+  stroke-width: 1;
+}
+
+/* Lines of text, as linework. */
+.tutorial-anim__region-detail line {
+  stroke: var(--rule);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* The forward move and the commit: a solid ink block. Not oxide -- the card
+   has one accent and it is the card's own forward control. The element
+   selector is specificity: this has to outrank the paper rule above it. */
+rect.tutorial-anim__solid,
+.tutorial-anim__commit rect {
+  fill: var(--ink);
+  stroke: var(--ink);
+}
+
+.tutorial-anim__rule {
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+/* Leaders: transient by design. They rest hidden; each region's keyframes
+   show its leader briefly as the region lands. */
+.tutorial-anim__leader {
+  opacity: 0;
+}
+
+.tutorial-anim__leader-line {
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
+/* Features: flat shapes in the map's own green. */
+.tutorial-anim__block,
+.tutorial-anim__ring {
+  fill: var(--field);
+  fill-opacity: 0.22;
+  stroke: var(--field);
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+}
+
+.tutorial-anim__ring {
+  stroke: none;
+}
+
+/* The focused block: the heavier ink edge the map gives the one you are
+   reading. */
+.tutorial-anim__mark {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+/* The ring being drawn: segments with pathLength="1", so dashoffset runs
+   from 1 (undrawn) to 0 (drawn) whatever their length. */
+.tutorial-anim__segment {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+
+.tutorial-anim__corner {
+  fill: var(--paper);
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+/* The tab's checkbox and its tick -- the tick in --field, as the real one is,
+   inside a paper box with an ink edge. */
+.tutorial-anim__check {
+  fill: var(--paper);
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+
+.tutorial-anim__tick {
+  fill: none;
+  stroke: var(--field);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Type. The value is the ONLY data-face text in a diagram. */
+.tutorial-anim__value {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: 8px;
+  fill: var(--ink);
+}
+
+.tutorial-anim__label {
+  font-family: var(--font-prose);
+  font-size: 8px;
+  fill: var(--ink-muted);
+}
+
+.tutorial-anim__note {
+  font-family: var(--font-prose);
+  font-size: 9px;
+  fill: var(--ink);
+}
+
+.tutorial-anim__title,
+.tutorial-anim__name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 8px;
+  fill: var(--ink);
+}
+
+.tutorial-anim__commit-label {
+  font-family: var(--font-prose);
+  font-weight: 600;
+  font-size: 8px;
+  fill: var(--paper);
+}
+
+/* THE CURSOR. Rests hidden -- a pointer that never moves is a smudge -- and
+   each card's keyframes carry it in, along its path, and out. The press is
+   a scale about the tip on the inner path, a second animation on the same
+   period. */
+.tutorial-anim__cursor {
+  opacity: 0;
+}
+
+.tutorial-anim__pointer {
+  fill: var(--ink);
+  stroke: var(--paper);
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+  transform-box: fill-box;
+  transform-origin: 0 0;
+}
+
+.tutorial-anim__commit {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* --- 1. Overview: five regions land in turn, each briefly labelled ------- */
+
+.tutorial-anim__region--1 { animation-name: tutorial-overview-region-1; }
+.tutorial-anim__region--2 { animation-name: tutorial-overview-region-2; }
+.tutorial-anim__region--3 { animation-name: tutorial-overview-region-3; }
+.tutorial-anim__region--4 { animation-name: tutorial-overview-region-4; }
+.tutorial-anim__region--5 { animation-name: tutorial-overview-region-5; }
+.tutorial-anim__leader--1 { animation-name: tutorial-overview-leader-1; }
+.tutorial-anim__leader--2 { animation-name: tutorial-overview-leader-2; }
+.tutorial-anim__leader--3 { animation-name: tutorial-overview-leader-3; }
+.tutorial-anim__leader--4 { animation-name: tutorial-overview-leader-4; }
+.tutorial-anim__leader--5 { animation-name: tutorial-overview-leader-5; }
+
+@keyframes tutorial-overview-region-1 { 0%, 6% { opacity: 0; } 9%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-overview-region-2 { 0%, 22% { opacity: 0; } 25%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-overview-region-3 { 0%, 38% { opacity: 0; } 41%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-overview-region-4 { 0%, 54% { opacity: 0; } 57%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-overview-region-5 { 0%, 70% { opacity: 0; } 73%, 96% { opacity: 1; } 100% { opacity: 0; } }
+
+@keyframes tutorial-overview-leader-1 { 0%, 8% { opacity: 0; } 11%, 20% { opacity: 1; } 24%, 100% { opacity: 0; } }
+@keyframes tutorial-overview-leader-2 { 0%, 24% { opacity: 0; } 27%, 36% { opacity: 1; } 40%, 100% { opacity: 0; } }
+@keyframes tutorial-overview-leader-3 { 0%, 40% { opacity: 0; } 43%, 52% { opacity: 1; } 56%, 100% { opacity: 0; } }
+@keyframes tutorial-overview-leader-4 { 0%, 56% { opacity: 0; } 59%, 68% { opacity: 1; } 72%, 100% { opacity: 0; } }
+@keyframes tutorial-overview-leader-5 { 0%, 72% { opacity: 0; } 75%, 84% { opacity: 1; } 88%, 100% { opacity: 0; } }
+
+/* --- 2. Draw: five clicks, then the first corner again ------------------- */
+
+.tutorial-anim__cursor--draw { animation-name: tutorial-draw-cursor; animation-timing-function: ease-in-out; }
+.tutorial-anim__pointer--draw { animation-name: tutorial-draw-press; }
+.tutorial-anim__corner--1 { animation-name: tutorial-draw-corner-1; }
+.tutorial-anim__corner--2 { animation-name: tutorial-draw-corner-2; }
+.tutorial-anim__corner--3 { animation-name: tutorial-draw-corner-3; }
+.tutorial-anim__corner--4 { animation-name: tutorial-draw-corner-4; }
+.tutorial-anim__corner--5 { animation-name: tutorial-draw-corner-5; }
+.tutorial-anim__segment--1 { animation-name: tutorial-draw-segment-1; }
+.tutorial-anim__segment--2 { animation-name: tutorial-draw-segment-2; }
+.tutorial-anim__segment--3 { animation-name: tutorial-draw-segment-3; }
+.tutorial-anim__segment--4 { animation-name: tutorial-draw-segment-4; }
+.tutorial-anim__segment--5 { animation-name: tutorial-draw-segment-5; }
+.tutorial-anim__ring--draw { animation-name: tutorial-draw-ring; }
+.tutorial-anim__chip--draw { animation-name: tutorial-draw-chip; }
+
+/* Clicks land at 10, 24, 38, 52, 66 and (closing) 80 percent. */
+@keyframes tutorial-draw-cursor {
+  0% { opacity: 0; transform: translate(40px, 160px); }
+  3% { opacity: 1; transform: translate(40px, 160px); }
+  10%, 13% { opacity: 1; transform: translate(70px, 50px); }
+  24%, 27% { opacity: 1; transform: translate(200px, 38px); }
+  38%, 41% { opacity: 1; transform: translate(250px, 110px); }
+  52%, 55% { opacity: 1; transform: translate(160px, 150px); }
+  66%, 69% { opacity: 1; transform: translate(60px, 120px); }
+  80%, 83% { opacity: 1; transform: translate(70px, 50px); }
+  90% { opacity: 1; transform: translate(290px, 160px); }
+  93%, 100% { opacity: 0; transform: translate(290px, 160px); }
+}
+
+@keyframes tutorial-draw-press {
+  0%, 10% { transform: scale(1); }
+  11% { transform: scale(0.8); }
+  12%, 24% { transform: scale(1); }
+  25% { transform: scale(0.8); }
+  26%, 38% { transform: scale(1); }
+  39% { transform: scale(0.8); }
+  40%, 52% { transform: scale(1); }
+  53% { transform: scale(0.8); }
+  54%, 66% { transform: scale(1); }
+  67% { transform: scale(0.8); }
+  68%, 80% { transform: scale(1); }
+  81% { transform: scale(0.8); }
+  82%, 100% { transform: scale(1); }
+}
+
+@keyframes tutorial-draw-corner-1 { 0%, 10% { opacity: 0; } 11%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-draw-corner-2 { 0%, 24% { opacity: 0; } 25%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-draw-corner-3 { 0%, 38% { opacity: 0; } 39%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-draw-corner-4 { 0%, 52% { opacity: 0; } 53%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-draw-corner-5 { 0%, 66% { opacity: 0; } 67%, 96% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Each segment draws while the cursor travels to its far corner. */
+@keyframes tutorial-draw-segment-1 { 0%, 12% { stroke-dashoffset: 1; opacity: 1; } 24%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes tutorial-draw-segment-2 { 0%, 26% { stroke-dashoffset: 1; opacity: 1; } 38%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes tutorial-draw-segment-3 { 0%, 40% { stroke-dashoffset: 1; opacity: 1; } 52%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes tutorial-draw-segment-4 { 0%, 54% { stroke-dashoffset: 1; opacity: 1; } 66%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes tutorial-draw-segment-5 { 0%, 68% { stroke-dashoffset: 1; opacity: 1; } 80%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+
+/* The closing click fills the ring and the acreage appears. */
+@keyframes tutorial-draw-ring { 0%, 81% { opacity: 0; } 85%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-draw-chip { 0%, 84% { opacity: 0; } 88%, 96% { opacity: 1; } 100% { opacity: 0; } }
+
+/* --- 3. Read: one click, one mark, one panel; nothing else moves --------- */
+
+.tutorial-anim__cursor--read { animation-name: tutorial-read-cursor; animation-timing-function: ease-in-out; }
+.tutorial-anim__pointer--read { animation-name: tutorial-read-press; }
+.tutorial-anim__mark--read { animation-name: tutorial-read-mark; }
+.tutorial-anim__panel--read { animation-name: tutorial-read-panel; }
+
+@keyframes tutorial-read-cursor {
+  0% { opacity: 0; transform: translate(300px, 168px); }
+  4% { opacity: 1; transform: translate(300px, 168px); }
+  20%, 26% { opacity: 1; transform: translate(150px, 96px); }
+  38% { opacity: 1; transform: translate(300px, 168px); }
+  41%, 100% { opacity: 0; transform: translate(300px, 168px); }
+}
+
+@keyframes tutorial-read-press {
+  0%, 20% { transform: scale(1); }
+  21% { transform: scale(0.8); }
+  22%, 100% { transform: scale(1); }
+}
+
+@keyframes tutorial-read-mark { 0%, 21% { opacity: 0; } 23%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-read-panel { 0%, 23% { opacity: 0; } 28%, 96% { opacity: 1; } 100% { opacity: 0; } }
+
+/* --- 4. Tick: untick, the block leaves; tick, it returns; then commit ---- */
+
+.tutorial-anim__cursor--tick { animation-name: tutorial-tick-cursor; animation-timing-function: ease-in-out; }
+.tutorial-anim__pointer--tick { animation-name: tutorial-tick-press; }
+.tutorial-anim__tick--tick { animation-name: tutorial-tick-tick; }
+.tutorial-anim__block--tick { animation-name: tutorial-tick-block; }
+.tutorial-anim__tab-body--tick { animation-name: tutorial-tick-tab; }
+.tutorial-anim__commit--tick { animation-name: tutorial-tick-commit; }
+
+/* Clicks at 16 (untick), 35 (tick) and 53 (commit) percent. */
+@keyframes tutorial-tick-cursor {
+  0% { opacity: 0; transform: translate(300px, 100px); }
+  4% { opacity: 1; transform: translate(300px, 100px); }
+  15%, 36% { opacity: 1; transform: translate(125px, 156px); }
+  52%, 56% { opacity: 1; transform: translate(268px, 157px); }
+  68% { opacity: 1; transform: translate(300px, 100px); }
+  71%, 100% { opacity: 0; transform: translate(300px, 100px); }
+}
+
+@keyframes tutorial-tick-press {
+  0%, 15% { transform: scale(1); }
+  16% { transform: scale(0.8); }
+  17%, 34% { transform: scale(1); }
+  35% { transform: scale(0.8); }
+  36%, 52% { transform: scale(1); }
+  53% { transform: scale(0.8); }
+  54%, 100% { transform: scale(1); }
+}
+
+@keyframes tutorial-tick-tick { 0%, 16% { opacity: 1; } 17%, 35% { opacity: 0; } 36%, 100% { opacity: 1; } }
+@keyframes tutorial-tick-block { 0%, 16% { opacity: 1; } 19%, 34% { opacity: 0; } 38%, 100% { opacity: 1; } }
+@keyframes tutorial-tick-tab { 0%, 16% { opacity: 1; } 17%, 35% { opacity: 0.45; } 36%, 100% { opacity: 1; } }
+@keyframes tutorial-tick-commit { 0%, 52% { transform: scale(1); } 53.5% { transform: scale(0.94); } 55%, 100% { transform: scale(1); } }
+
+/* REDUCED MOTION: every diagram lands on its resting frame -- which is the
+   markup, undecorated -- and the cursor glyph goes. The foundation already
+   collapses every animation to a single near-instant iteration; this is the
+   diagrams saying so in their own terms, so that the resting frame is the
+   base rule and not the last keyframe. */
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-anim * {
+    animation: none;
+  }
+
+  .tutorial-anim__cursor {
+    display: none;
+  }
 }
