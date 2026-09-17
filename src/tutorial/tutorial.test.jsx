@@ -213,8 +213,14 @@ describe('1. auto-open', () => {
     // NOT ON MOUNT. Nothing has painted; there is nothing to teach over.
     expect(ui.dialog()).toBeNull()
 
+    // AND NOT BY SCROLLING THE PAGE TO ITSELF. Taking focus must not drag a
+    // reader at the top of the page down to the map.
+    const focus = vi.spyOn(window.HTMLElement.prototype, 'focus')
     await ui.paintTiles()
     expect(ui.dialog()).not.toBeNull()
+    expect(focus).toHaveBeenCalled()
+    for (const call of focus.mock.calls) expect(call[0]).toEqual({ preventScroll: true })
+    focus.mockRestore()
     // At card 1.
     expect(ui.title()).toBe(COPY[0].title)
 

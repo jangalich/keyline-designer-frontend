@@ -122,11 +122,19 @@ function Dialogue({ onClose, onDismiss, initialCard, returnTo }) {
   // FOCUS IN, THEN BACK OUT. Captured before the card takes it, restored from
   // the cleanup -- which is the one place that runs on every way this can
   // leave the tree, including the launcher dropping it.
+  //
+  // WITHOUT SCROLLING. focus() scrolls its target into view by default, and
+  // when this opens by itself -- after the tiles paint, while the reader may
+  // still be at the top of the page -- that dragged the page down to the map
+  // and past everything above it. The card waits where the map is; the
+  // reader comes to it. The same on the way out, for symmetry.
   useLayoutEffect(() => {
     const opener = document.activeElement
-    cardRef.current?.focus()
+    cardRef.current?.focus({ preventScroll: true })
     return () => {
-      if (opener && typeof opener.focus === 'function' && opener.isConnected) opener.focus()
+      if (opener && typeof opener.focus === 'function' && opener.isConnected) {
+        opener.focus({ preventScroll: true })
+      }
     }
   }, [])
 
