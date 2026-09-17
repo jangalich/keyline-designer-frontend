@@ -34,6 +34,7 @@ import L from 'leaflet'
 import { Marker, Pane } from 'react-leaflet'
 
 import { useDrawingProgress } from './DrawingProgress.jsx'
+import { visibleFeatures } from './layers.jsx'
 
 /** Above markerPane (600), below tooltipPane (650). See the header. */
 export const CAUTION_PANE_Z = 610
@@ -48,12 +49,28 @@ const cautionIcon = new L.DivIcon({
 /**
  * Every caution currently on the map: the settled drawn shapes' own, plus the
  * in-progress polygon's, which update on each vertex placed.
+ *
+ * ONLY FOR SHAPES THE MAP IS ACTUALLY DRAWING, and that is a bug fix rather
+ * than a refinement. It walked every feature in the draft, which includes the
+ * ones the user has UNCHECKED -- their geometry comes off the map (the
+ * checkbox is what decides what an editable band draws) and their markers
+ * stayed, pointing at ground with nothing under it. A marker that outlives the
+ * shape it describes is the same defect as an eye that cannot be clicked and a
+ * deselected zone whose tab vanished: state kept beside the thing it is about
+ * rather than derived from it.
+ *
+ * SO IT ASKS THE RENDERER'S OWN QUESTION. visibleFeatures() is the one place
+ * that decides what an editable layer draws -- the checkbox for most steps,
+ * the focus for roads' networks -- and this reads its ANSWER instead of its
+ * input. A shape destroyed with the × is gone from the draft entirely and was
+ * never a case; a shape unchecked is still in the draft, which is exactly why
+ * this had to be asked rather than assumed.
  */
 export function cautionMarkersFor(layers, live, focusedFeatureId = null) {
   const markers = []
   for (const layer of layers) {
     if (layer.source !== 'draft' || !Array.isArray(layer.features)) continue
-    for (const feature of layer.features) {
+    for (const feature of visibleFeatures(layer, focusedFeatureId)) {
       // THE FOCUSED FEATURE'S ONLY. Every drawn shape's markers at once turned
       // the map into a field of exclamation marks with no way to tell which
       // shape any of them belonged to -- and on a parcel with several drawn

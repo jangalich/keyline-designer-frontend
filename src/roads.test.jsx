@@ -546,6 +546,60 @@ describe('2. the tool is not armed on entry', () => {
   })
 })
 
+describe('2b. arming clears the focus', () => {
+  /**
+   * THE SAME RULE, THROUGH THE SAME DOOR. "Add access point" is an
+   * armButton(), so WizardCursor's arm() blurs before it arms -- the panel
+   * that was describing a routed network closes, because the user has stopped
+   * reading it and started placing a point.
+   *
+   * AND ON THIS STEP THE BLUR TAKES THE TICK WITH IT, which is roads' own
+   * declared rule rather than anything this gesture invents: `selection:
+   * { follows: 'focus' }` makes the focus and the commit decision ONE fact
+   * here, and `show: 'focused'` means the map draws only what is focused. A
+   * tick surviving a blur would be a commit with no geometry on screen --
+   * exactly what a click on bare map has always refused to leave behind. The
+   * generate that follows the point focuses the network it routes, which is
+   * how the pair comes back together.
+   */
+  liveIt('closes the network panel when "Add access point" is armed', async () => {
+    const ui = await renderApp()
+    await throughWaterCommit(ui)
+    const first = await placeAndGenerate(ui, ACCESS_A)
+
+    expect(ui.cursor.focusedFeatureId).toBe(first.network_id)
+    expect(ui.find('detail-roads')).not.toBeNull()
+    expect(selectDraft(ui.state, 'roads').selectedFeatureIds).toEqual(first.feature_ids)
+
+    await ui.click('access-roads')
+
+    expect(ui.cursor.armed).toBe('draw')
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+    expect(ui.find('detail-roads')).toBeNull()
+    // The step's own rule, stated: nothing focused is nothing drawn and
+    // nothing ticked, and roads' empty commit is legal.
+    expect(selectDraft(ui.state, 'roads').selectedFeatureIds).toEqual([])
+
+    // AND THE NEXT GENERATE PUTS BOTH BACK, on the network it routes. The
+    // gesture is finished by hand rather than through placeAndGenerate,
+    // because the tool is already armed: arming moved the step into EDITING,
+    // where the banner offers Cancel and Generate rather than a second "Add
+    // access point".
+    const before = ui.networks.length
+    await ui.clickMap(ACCESS_B)
+    await ui.click('generate-roads')
+    await ui.waitFor(
+      'a second network',
+      () => ui.networks.length === before + 1 && ui.state.drafts.roads !== undefined
+    )
+    const second = ui.networks[ui.networks.length - 1]
+    expect(ui.cursor.focusedFeatureId).toBe(second.network_id)
+    expect(selectDraft(ui.state, 'roads').selectedFeatureIds).toEqual(second.feature_ids)
+
+    await ui.unmount()
+  })
+})
+
 describe('3 & 4. the cap, and the discard', () => {
   liveIt(
     'refuses a fourth access point with the reason, and a discard calls the server and frees the slot',

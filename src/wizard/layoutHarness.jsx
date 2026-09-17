@@ -528,18 +528,30 @@ if (DRAWN_BLOCK) {
   FORMAT_TABS[1] = DRAWN_TAB
 }
 
+/** What a drawn block crosses, as the panel receives it. */
+const FORMAT_CAUTIONS = [
+  { type: 'canopy', label: 'tree canopy', acres: 0.14, pct: 28.4, overlapLabel: 'canopy overlap %' },
+  {
+    type: 'slope',
+    label: 'slope above 20.0%',
+    acres: 0.07,
+    pct: 14.2,
+    overlapLabel: 'steep ground overlap %',
+  },
+]
+
 const FORMAT_ROWS = {
   /* THE DRAWN BLOCK'S PANEL -- the suggestion's own rows, off the same
-     builder, plus the two that say whose judgment the boundary is. Seven rows
-     against Block 2's five, which is the growth the strip must absorb. */
+     builder, and nothing else. It carried a `confidence` row and a `source`
+     row for one branch; both are gone, and what a drawn block adds to the
+     suggested panel is its CAUTIONS, which are rows of this same grid (see
+     FORMAT_CAUTIONS and the detail hook below). */
   'drawn-1': [
     categoricalRow('south facing', 'aspect'),
     categoricalRow('upper field', 'position'),
     measuredRow(measure(3.2), 'median slope %'),
     ...labelledRun(['62% Gilpin silt loam'], 'soil'),
     categoricalRow('well drained', 'drainage'),
-    categoricalRow('low', 'confidence'),
-    categoricalRow('drawn by hand', 'source'),
   ],
   /* Block 1: everything measured that can be, and THE SOIL RUN AT ITS
      LONGEST -- three map units, which is the cap, the first labelled `soil`
@@ -2257,7 +2269,17 @@ const HARNESS_STEP = documentStep({
     // tell the tab's header from the detail's.
     if (SHARED_FORMAT) {
       return FORMAT_ROWS[featureId]
-        ? { name: 'not the header', rows: FORMAT_ROWS[featureId], cautions: [] }
+        ? {
+            name: 'not the header',
+            rows: FORMAT_ROWS[featureId],
+            // THE CAUTIONS ARE THE DRAWN BLOCK'S, in the shape cautionsFor()
+            // produces them -- a share of the block, an acreage above the
+            // floor, and a label the step composed from the crossing's stable
+            // type. They are rows of the panel's own grid now, and whether
+            // their figures share the column with every other figure is a
+            // question only a real engine can answer.
+            cautions: featureId === 'drawn-1' ? FORMAT_CAUTIONS : [],
+          }
         : null
     }
     return DETAIL_ROWS > 0

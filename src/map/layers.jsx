@@ -495,6 +495,13 @@ function groupResolver(layer) {
  * from that one step-level declaration rather than written on a layer -- see
  * stepDefinitions.js, LAYER SCHEMA items 7 and 12, and index.css beside the
  * levels it departs from.
+ *
+ * EXPORTED BECAUSE THE CAUTION MARKERS ASK THE SAME QUESTION. A marker points
+ * at a crossing of a drawn shape; unchecking that shape takes it off the map,
+ * and a marker pointing at ground nothing is drawing is state that outlived
+ * the thing it describes. CautionMarkers.jsx used to walk `layer.features` --
+ * every shape in the draft, checked or not -- which is this function's input
+ * rather than its answer. One rule, two readers.
  */
 function visibleFeatures(layer, focusedFeatureId) {
   const { of, focused } = groupResolver(layer)

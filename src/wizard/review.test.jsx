@@ -428,13 +428,18 @@ describe('1. review', () => {
     expect(ui.text('detail-value-median slope %')).toBe('6.0')
     expect(ui.find('tab-zone-1').dataset.focused).toBe('true')
 
-    // AND A CLICK ON A TAB IS THE SAME ACT. The drawn zone reads as one --
-    // traced by hand, never scored -- which is the same answer an active step
-    // gives for it.
+    // AND A CLICK ON A TAB IS THE SAME ACT. The drawn block reads as one, in
+    // the SAME rows a suggestion reads in -- which is the same answer an
+    // active step gives for it, and the whole of what the drawn panel is now.
+    // It carried a `source` row saying "drawn by hand" for one branch; the
+    // row is gone, the tab's own name is what says which kind of block this
+    // is, and the panel is the suggested panel plus this block's cautions.
     await ui.click('tab-focus-drawn-1')
     expect(ui.cursor.focusedFeatureId).toBe('drawn-1')
     expect(ui.text('detail-name-landform')).toBe('Drawn 1')
-    expect(ui.text('detail-value-source')).toBe('drawn by hand')
+    expect(ui.find('detail-value-source')).toBeNull()
+    expect(ui.find('detail-value-confidence')).toBeNull()
+    expect(ui.find('detail-value-median slope %')).not.toBeNull()
 
     // NOTHING WAS ARMED AND NO DRAFT WAS MINTED. Looking is not editing.
     expect(ui.cursor.armed).toBeNull()

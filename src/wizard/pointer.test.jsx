@@ -973,6 +973,121 @@ describeIf('the × on a drawn tab', () => {
 })
 
 /* ===========================================================================
+   2b. THE CANCELLED RING LEAVES NOTHING TO PRESS
+   =========================================================================== */
+
+describeIf('a cancelled ring', () => {
+  /** A [lat, lng] on the parcel as a page coordinate, through Leaflet's own projection. */
+  const pixelFor = (latlng) =>
+    evaluate((coords) => {
+      const p = window.__probe.map.latLngToContainerPoint(coords)
+      const box = window.__probe.map.getContainer().getBoundingClientRect()
+      return { x: box.x + p.x, y: box.y + p.y }
+    }, latlng)
+
+  const clickMap = async (latlng) => {
+    const point = await pixelFor(latlng)
+    await page.mouse.move(point.x, point.y)
+    await page.mouse.click(point.x, point.y)
+    await page.waitForTimeout(120)
+    return point
+  }
+
+  /**
+   * Every VERTEX the zone tool has on the map right now.
+   *
+   * `.vertex-marker` rather than `.leaflet-marker-icon`: a caution marker is a
+   * Leaflet marker too, and the ring's own crossings are exactly what a
+   * half-drawn block over the hydric mask puts on the map. Counting both would
+   * make this test about two things and fail for whichever moved.
+   */
+  const vertexMarkers = () =>
+    evaluate(() => document.querySelectorAll('.vertex-marker').length)
+
+  /** And every caution the gesture is showing -- cleared with the ring. */
+  const cautionMarkers = () =>
+    evaluate(() => document.querySelectorAll('.caution-marker').length)
+
+  /**
+   * WHAT THE BROWSER FINDS AT A VERTEX'S OWN POSITION.
+   *
+   * THIS IS THE TEST. A cancelled ring's vertices were left on the map with no
+   * way to clear them, so "gone" has to mean gone from the hit-testing too --
+   * a marker that is invisible but still under the pointer is the same class
+   * of defect as the eye that could not be clicked, one level down. Asked of
+   * elementFromPoint rather than of the DOM, because a node that is still
+   * there and a node that is not look identical to every other test in this
+   * repo.
+   */
+  const whatIsAt = (point) =>
+    evaluate(({ x, y }) => {
+      const top = document.elementFromPoint(x, y)
+      const stack = document.elementsFromPoint(x, y)
+      return {
+        top: top ? top.className?.baseVal ?? String(top.className) : 'nothing',
+        markers: stack.filter((node) => node.classList?.contains('vertex-marker')).length,
+      }
+    }, point)
+
+  liveIt('leaves no vertex, no panel and nothing under the pointer', async () => {
+    // The step is landform and nothing is armed -- the sections above left it
+    // generated, with one drawn tab destroyed by the mouse.
+    expect(await statusOf('landform')).toBe('generated')
+
+    // DRAW THREE CORNERS WITH THE MOUSE, and do not close the ring.
+    await press('draw-landform')
+    expect(await evaluate(() => window.__probe.cursor.armed)).toBe('draw')
+    const corners = [
+      [40.6448, -79.9825],
+      [40.6446, -79.9818],
+      [40.6442, -79.9822],
+    ]
+    const placed = []
+    for (const corner of corners) placed.push(await clickMap(corner))
+
+    // The gesture is live: the panel counts the vertices and the map carries
+    // one marker per corner.
+    expect(await evaluate(() => document.querySelector('[data-testid="detail-name-landform"]')?.textContent))
+      .toBe('Drawing a zone')
+    expect(await vertexMarkers()).toBe(corners.length)
+
+    // CANCEL, with the mouse.
+    await press('cancel-landform')
+
+    // THE TOOL IS OFF, the panel is out of the drawing state, and the ring is
+    // gone from the DOM.
+    expect(await evaluate(() => window.__probe.cursor.armed)).toBeNull()
+    expect(await evaluate(() => document.querySelector('[data-testid="detail-vertices-landform"]'))).toBeNull()
+    expect(await vertexMarkers()).toBe(0)
+    // The ring's live cautions go with it: they were the gesture's, and the
+    // gesture is over.
+    expect(await cautionMarkers()).toBe(0)
+
+    // AND NOTHING IS LEFT UNDER THE POINTER at any corner the user placed.
+    for (const [index, point] of placed.entries()) {
+      const at = await whatIsAt(point)
+      expect(at.markers, `nothing to press where corner ${index + 1} was`).toBe(0)
+    }
+
+    // THE NEXT RING STARTS FROM ONE. The abandoned gesture is not waiting to
+    // be finished, which is what "no way to clear them" meant for the user.
+    await press('draw-landform')
+    await clickMap(corners[0])
+    expect(
+      await evaluate(
+        () => document.querySelector('[data-testid="detail-vertices-landform"] .measure')?.textContent
+      )
+    ).toBe('1')
+    expect(await vertexMarkers()).toBe(1)
+
+    // Leave the step as this section found it: nothing armed, nothing drawn.
+    await press('cancel-landform')
+    expect(await vertexMarkers()).toBe(0)
+    expect(await evaluate(() => window.__probe.selectDraft(window.__probe.state, 'landform').drawnFeatures.length)).toBe(0)
+  })
+})
+
+/* ===========================================================================
    3. WATER: THE STEP THE BUG WAS REPORTED ON
    =========================================================================== */
 

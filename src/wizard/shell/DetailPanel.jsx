@@ -150,7 +150,19 @@ import { Fragment, useEffect, useRef } from 'react'
 
 import { useDrawingProgress } from '../../map/DrawingProgress.jsx'
 import { useWizardCursor } from '../WizardCursor.jsx'
-import { CONTINUATION, MEASURED, TERM, breakLabel, headerFor, isBreak, panelBody } from './panelFormat.js'
+import {
+  CAUTION,
+  CONTINUATION,
+  MEASURED,
+  PANEL_BREAK,
+  TERM,
+  breakLabel,
+  cautionRow,
+  headerFor,
+  isBreak,
+  measuredRow,
+  panelBody,
+} from './panelFormat.js'
 
 /**
  * THE CAUTIONS WORTH A LINE. A caution at exactly zero acres is the checker
@@ -167,7 +179,8 @@ function cautionsWorthALine(cautions) {
 }
 
 /**
- * One caution, in whichever of the two forms the step declared.
+ * One caution, as a row of the panel's own grid, in whichever of the two forms
+ * the step declared.
  *
  * A SHARE OF THE BLOCK, when the step composed a label for it. Landform does:
  * "12" against "wet soil overlap %", the same row an overlap takes in the
@@ -180,7 +193,12 @@ function cautionsWorthALine(cautions) {
  * grounds are committed claims whose labels already read as nouns ("committed
  * production area"), and the acreage of an overlap with another zone is the
  * figure that step's reader wants. A caution with no `overlapLabel` renders
- * exactly as it always did.
+ * with the words it always had.
+ *
+ * IT IS A ROW NOW AND NOT A LIST ITEM, which is the whole of the change: the
+ * figure takes the number track and the words take the label track, like every
+ * other pair in the panel. See panelFormat's cautionRow() for what the list
+ * was doing wrong.
  *
  * A sub-floor intersection never reaches here IN EITHER FORM -- cautionsFor()
  * drops it, on an ABSOLUTE acreage floor that does not scale with the block,
@@ -188,17 +206,12 @@ function cautionsWorthALine(cautions) {
  * crossings. What is displayed is a share; what decides whether anything is
  * displayed is an area. See zoneGeometry.CAUTION_MIN_ACRES.
  */
-function CautionLine({ caution }) {
+function rowForCaution(caution) {
   const asShare = caution.overlapLabel != null && caution.pct != null
-  return (
-    <li className="chrome-detail__caution" data-testid={`caution-${caution.type}`}>
-      <span className="measure">
-        {asShare ? Number(caution.pct).toFixed(0) : Number(caution.acres).toFixed(1)}
-      </span>
-      <span className="chrome-detail__caution-label">
-        {asShare ? caution.overlapLabel : `acres — ${caution.label}`}
-      </span>
-    </li>
+  return cautionRow(
+    asShare ? Number(caution.pct).toFixed(0) : Number(caution.acres).toFixed(1),
+    asShare ? caution.overlapLabel : `acres — ${caution.label}`,
+    caution.type
   )
 }
 
@@ -233,76 +246,106 @@ function CautionLine({ caution }) {
  * label divides one list, and there is one heading in that panel and it is the
  * feature's name. This one is the case that note was leaving room for.
  */
-function PanelRows({ body, stepId }) {
+function PanelRows({ body, stepId, cautions = [] }) {
   return (
     <div className="chrome-detail__rows" data-testid={`detail-rows-${stepId}`}>
-      {body.map((row, index) => {
-        if (isBreak(row)) {
-          const label = breakLabel(row)
-          return (
-            <Fragment key={`break-${index}`}>
-              <hr className="chrome-detail__break" data-testid={`detail-break-${stepId}`} />
-              {label ? (
-                <h4 className="chrome-detail__heading" data-testid={`detail-heading-${stepId}`}>
-                  {label}
-                </h4>
-              ) : null}
-            </Fragment>
-          )
-        }
-        // A CONTINUATION IS A CATEGORICAL'S VALUE WITH THE LABEL TAKEN AWAY,
-        // and it is rendered through that value's OWN class rather than one
-        // beside it. The two are the same run on screen -- "62% Gilpin silt
-        // loam" with `soil` against it, then "23% Ernest silt loam" with
-        // nothing -- so they have to take the same tracks and the same face,
-        // and two rules that agree by hand is one edit away from a list whose
-        // first entry wraps where the rest do not. There is no second rule:
-        // the same `.chrome-detail__phrase` sets both.
-        //
-        // NOT A TERM, which spans track 3 as well. See panelFormat's
-        // CONTINUATION note -- the run's label is IN track 3 on its first row.
-        if (row.kind === CONTINUATION) {
-          return (
-            <p key={`continuation-${index}`} className="chrome-detail__row" data-row={row.kind}>
-              <span
-                className="chrome-detail__phrase"
-                data-testid={`detail-continuation-${row.value}`}
-              >
-                {row.value}
-              </span>
-            </p>
-          )
-        }
-        if (row.kind === TERM) {
-          return (
-            <p
-              key={`${row.value}-${index}`}
-              className="chrome-detail__row"
-              data-row={row.kind}
-            >
-              <span className="chrome-detail__term" data-testid={`detail-term-${row.value}`}>
-                {row.value}
-              </span>
-            </p>
-          )
-        }
-        return (
-          <p key={`${row.label}-${index}`} className="chrome-detail__row" data-row={row.kind}>
-            <span
-              className={
-                row.kind === MEASURED
-                  ? 'measure chrome-detail__figure'
-                  : 'chrome-detail__phrase'
-              }
-              data-testid={`detail-value-${row.label}`}
-            >
-              {row.value}
-            </span>
-            <span className="chrome-detail__row-label">{row.label}</span>
-          </p>
-        )
-      })}
+      {body.map((row, index) => renderRow(row, index, stepId))}
+      {/* THE CAUTION RUN, IN THE SAME GRID AND UNDER ITS OWN NAME.
+          `display: contents` on the wrapper, so its rows ARE rows of the grid
+          above them and the figures share the one column -- what it buys is
+          the run's identity, which four steps' tests and the map's own
+          reasoning address as `detail-cautions-<step>`. A wrapper that laid
+          out would be the second grid this change exists to remove. */}
+      {cautions.length ? (
+        <div className="chrome-detail__cautions" data-testid={`detail-cautions-${stepId}`}>
+          {cautions.map((row, index) => renderRow(row, `caution-${index}`, stepId))}
+        </div>
+      ) : null}
     </div>
+  )
+}
+
+/** One row of the body, in whichever of the four faces it declared. */
+function renderRow(row, index, stepId) {
+  if (isBreak(row)) {
+    const label = breakLabel(row)
+    return (
+      <Fragment key={`break-${index}`}>
+        <hr className="chrome-detail__break" data-testid={`detail-break-${stepId}`} />
+        {label ? (
+          <h4 className="chrome-detail__heading" data-testid={`detail-heading-${stepId}`}>
+            {label}
+          </h4>
+        ) : null}
+      </Fragment>
+    )
+  }
+  // A CONTINUATION IS A CATEGORICAL'S VALUE WITH THE LABEL TAKEN AWAY,
+  // and it is rendered through that value's OWN class rather than one
+  // beside it. The two are the same run on screen -- "62% Gilpin silt
+  // loam" with `soil` against it, then "23% Ernest silt loam" with
+  // nothing -- so they have to take the same tracks and the same face,
+  // and two rules that agree by hand is one edit away from a list whose
+  // first entry wraps where the rest do not. There is no second rule:
+  // the same `.chrome-detail__phrase` sets both.
+  //
+  // NOT A TERM, which spans track 3 as well. See panelFormat's
+  // CONTINUATION note -- the run's label is IN track 3 on its first row.
+  if (row.kind === CONTINUATION) {
+    return (
+      <p key={`continuation-${index}`} className="chrome-detail__row" data-row={row.kind}>
+        <span
+          className="chrome-detail__phrase"
+          data-testid={`detail-continuation-${row.value}`}
+        >
+          {row.value}
+        </span>
+      </p>
+    )
+  }
+  if (row.kind === TERM) {
+    return (
+      <p
+        key={`${row.value}-${index}`}
+        className="chrome-detail__row"
+        data-row={row.kind}
+      >
+        <span className="chrome-detail__term" data-testid={`detail-term-${row.value}`}>
+          {row.value}
+        </span>
+      </p>
+    )
+  }
+  // A TONE SETS THE FIGURE AND NOTHING ELSE, and there is one: a
+  // caution's --ochre. The row is a measured row in every other respect
+  // -- the number track, the label track, the same baseline -- which is
+  // the point of it being a row at all.
+  //
+  // `rowTestId` IS AN IDENTITY THE ROW CARRIES FOR A CALLER THAT ALREADY
+  // HAD ONE. A caution was addressed as `caution-<type>` when it was a
+  // list item, by the panel's tests and by nothing else; the row keeps
+  // that name rather than making every reader learn a new one.
+  const caution = row.tone === CAUTION
+  return (
+    <p
+      key={`${row.label}-${index}`}
+      className={caution ? 'chrome-detail__row chrome-detail__caution' : 'chrome-detail__row'}
+      data-row={row.kind}
+      data-tone={row.tone ?? undefined}
+      data-testid={row.rowTestId ?? undefined}
+    >
+      <span
+        className={
+          row.kind === MEASURED
+            ? 'measure chrome-detail__figure'
+            : 'chrome-detail__phrase'
+        }
+        data-testid={`detail-value-${row.label}`}
+      >
+        {row.value}
+      </span>
+      <span className="chrome-detail__row-label">{row.label}</span>
+    </p>
   )
 }
 
@@ -429,10 +472,22 @@ export default function DetailPanel({ machine }) {
   const tab = detail?.rows
     ? machine.tabs.find((entry) => entry.id === focusedFeatureId) ?? null
     : null
-  const body = detail?.rows ? panelBody(tab, detail.rows) : null
 
   // Computed once, for the branch that is about to render.
   const cautions = cautionsWorthALine(drawing ? liveCautions : detail.cautions)
+
+  // THE CAUTIONS ARE ROWS OF THE SAME BODY, under a rule. They were a list of
+  // their own beside the grid; panelBody() puts the rule in and trims it back
+  // out when there is nothing under it, which is the same handling every other
+  // declared break gets. See panelFormat's cautionRow().
+  const cautionRows = cautions.map(rowForCaution)
+  // THE RULE ABOVE THE CAUTIONS IS A PANEL_BREAK, declared here and trimmed
+  // back out by panelBody() when there is nothing under it -- the same
+  // handling every other break gets. It used to be a border on the list's own
+  // box, which is a second way of drawing the panel's one hairline.
+  const body = detail?.rows
+    ? panelBody(tab, [...detail.rows, ...(cautionRows.length ? [PANEL_BREAK] : [])])
+    : null
 
   return (
     <aside
@@ -445,24 +500,27 @@ export default function DetailPanel({ machine }) {
           <p className="chrome-detail__name" data-testid={`detail-name-${stepId}`}>
             Drawing a zone
           </p>
+          {/* THE GESTURE'S OWN BODY, IN THE SAME GRID THE SETTLED PANEL
+              USES. The in-flight vertex count says something is happening
+              while the map is where the work is (it was the panel column's
+              `landform-vertex-count` and it went with it), and the ring's
+              live crossings sit under it as the same rows they will be once
+              the shape closes. One grid, so the figure does not move between
+              the gesture and the panel that replaces it. */}
           <div className="chrome-detail__body">
-            {/* The in-flight vertex count, so the panel says something is
-                happening while the map is where the work is. It was the panel
-                column's `landform-vertex-count` and it went with it. */}
-            <p className="chrome-detail__field" data-testid={`detail-vertices-${stepId}`}>
-              <span className="measure">{points.length}</span>
-              <span className="chrome-detail__label">
-                point{points.length === 1 ? '' : 's'} placed
-                {points.length < 3 ? ' — 3 close the shape' : ''}
-              </span>
-            </p>
-            {cautions.length ? (
-              <ul className="chrome-detail__cautions" data-testid={`detail-cautions-${stepId}`}>
-                {cautions.map((caution) => (
-                  <CautionLine key={caution.type} caution={caution} />
-                ))}
-              </ul>
-            ) : null}
+            <PanelRows
+              body={panelBody(null, [
+                measuredRow(
+                  String(points.length),
+                  `point${points.length === 1 ? '' : 's'} placed` +
+                    (points.length < 3 ? ' — 3 close the shape' : ''),
+                  { rowTestId: `detail-vertices-${stepId}` }
+                ),
+                ...(cautionRows.length ? [PANEL_BREAK] : []),
+              ])}
+              stepId={stepId}
+              cautions={cautionRows}
+            />
           </div>
         </>
       ) : (
@@ -488,8 +546,13 @@ export default function DetailPanel({ machine }) {
               longer reordered to do it. See GROUPS above. */}
           <div className="chrome-detail__body">
             {body ? (
-              <PanelRows body={body} stepId={stepId} />
+              <PanelRows body={body} stepId={stepId} cautions={cautionRows} />
             ) : (
+              // THE LEGACY GROUPS PATH, and it carries no cautions -- see
+              // groupsOf(): no step reaches it, the layout harness is its one
+              // caller, and the harness declares `cautions: []`. A step that
+              // declared groups AND cautions would be declaring a panel the
+              // shared format has already replaced.
               groupsOf(detail).map((group, index) => (
                 <Group
                   key={group.id ?? group.label ?? `group-${index}`}
@@ -499,13 +562,6 @@ export default function DetailPanel({ machine }) {
                 />
               ))
             )}
-            {cautions.length ? (
-              <ul className="chrome-detail__cautions" data-testid={`detail-cautions-${stepId}`}>
-                {cautions.map((caution) => (
-                  <CautionLine key={caution.type} caution={caution} />
-                ))}
-              </ul>
-            ) : null}
           </div>
         </>
       )}

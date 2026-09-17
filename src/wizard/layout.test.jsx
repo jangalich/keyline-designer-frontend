@@ -1312,7 +1312,15 @@ describeIf('the shared panel format, in a real engine', () => {
   async function rowsOf(page) {
     return page.evaluate(() => {
       const face = (el) => getComputedStyle(el).fontFamily.split(',')[0].replace(/["']/g, '').trim()
-      return [...document.querySelectorAll('.chrome-detail__rows > *')].map((node) => {
+      // THE CAUTION RUN IS A `display: contents` WRAPPER, so its rows are rows
+      // of this grid on screen and children of a node here. Flattened, because
+      // what this reads is the grid as laid out -- a wrapper counted as one row
+      // would be a row with no box, and would hide however many cautions are
+      // under it.
+      const nodes = [...document.querySelectorAll('.chrome-detail__rows > *')].flatMap((node) =>
+        node.classList.contains('chrome-detail__cautions') ? [...node.children] : [node]
+      )
+      return nodes.map((node) => {
         if (node.tagName === 'HR') return { break: true }
         // A CONTINUATION AND A TERM HAVE NO LABEL SPAN AT ALL, which is the
         // thing about them this file measures -- so the label is read as null
@@ -1630,6 +1638,103 @@ describeIf('the shared panel format, in a real engine', () => {
     ).toBeLessThanOrEqual(drawn.strip.y)
     const stage = await ui.stage()
     expect(drawn.strip.y + drawn.strip.height).toBeLessThanOrEqual(stage.y + stage.height - INSET)
+
+    await ui.close()
+  }, SLOW)
+
+  /**
+   * A CAUTION IS A ROW, WHICH IS WHAT THIS MEASURES.
+   *
+   * THE BUG: the cautions rendered as a grid of their own under the panel's --
+   * two tracks against three -- so a caution's label sat immediately beside
+   * its figure, in the middle of the panel, while every other label in the
+   * panel sat at the right edge, and its figure was in a column that only
+   * looked like the one above it. What the reader got was a composed line
+   * under a column of aligned readings.
+   *
+   * ASKED OF THE PIXELS AND THE RESOLVED STYLES, because that is the whole of
+   * the claim: the same left edge for every label, the same right edge for
+   * every figure, the mono face with tabular figures on the value, and prose
+   * nowhere near the number track.
+   */
+  it('sets a caution as a row of the panel’s own grid, in the same two columns', async () => {
+    const ui = await openHarness({ format: 1, drawn: 1 })
+    await openBlock(ui, 'drawn-1')
+
+    const rows = await rowsOf(ui.page)
+    const cautions = await ui.page.evaluate(() =>
+      [...document.querySelectorAll('[data-tone="caution"]')].map((node) => {
+        const [value, label] = node.children
+        const style = getComputedStyle(value)
+        return {
+          testId: node.dataset.testid,
+          value: value.textContent,
+          label: label ? label.textContent : null,
+          face: style.fontFamily.split(',')[0].replace(/["']/g, '').trim(),
+          numeric: style.fontVariantNumeric,
+          align: style.textAlign,
+          color: style.color,
+          valueRight: value.getBoundingClientRect().right,
+          labelLeft: label.getBoundingClientRect().left,
+        }
+      })
+    )
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `    panel  cautions: ${cautions
+        .map((c) => `${c.value} ${c.label} (value right ${c.valueRight.toFixed(1)}, label left ${c.labelLeft.toFixed(1)})`)
+        .join('; ')}`
+    )
+
+    // TWO OF THEM, EACH WITH ITS OWN CELLS. A composed string would be one
+    // node with both halves in it.
+    expect(cautions).toHaveLength(2)
+    expect(cautions.map((c) => c.testId)).toEqual(['caution-canopy', 'caution-slope'])
+    expect(cautions.map((c) => `${c.value} ${c.label}`)).toEqual([
+      '28 canopy overlap %',
+      '14 steep ground overlap %',
+    ])
+
+    // THE VALUE IS A MEASURED VALUE: mono, tabular, right-aligned.
+    for (const caution of cautions) {
+      expect(caution.face).toBe('IBM Plex Mono')
+      expect(caution.numeric).toBe('tabular-nums')
+      expect(caution.align).toBe('right')
+    }
+
+    // THE SAME TWO COLUMNS AS EVERY OTHER ROW IN THIS PANEL. The measured
+    // rows above the cautions share a right edge with them, and every label
+    // in the panel shares a left edge -- which is what "one grid" means and
+    // what two grids could not have produced.
+    const measured = rows.filter((row) => row.kind === 'measured' && row.labelLeft != null)
+    const figureRights = new Set(
+      [...measured.map((row) => row.right), ...cautions.map((c) => c.valueRight)].map((x) =>
+        x.toFixed(1)
+      )
+    )
+    const labelLefts = new Set(
+      [...rows.filter((row) => row.labelLeft != null).map((row) => row.labelLeft),
+        ...cautions.map((c) => c.labelLeft)].map((x) => x.toFixed(1))
+    )
+    expect(figureRights.size, 'every figure shares one right edge').toBe(1)
+    expect(labelLefts.size, 'every label shares one left edge').toBe(1)
+
+    // AND THE FIGURE IS THE ONE THING CARRYING THE CAUTION COLOUR, off the
+    // token -- read as a resolved colour, so a rule that stopped applying
+    // would show here rather than in the stylesheet.
+    const ochre = await ui.page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--ochre').trim()
+    )
+    const asRgb = await ui.page.evaluate((hex) => {
+      const probe = document.createElement('span')
+      probe.style.color = hex
+      document.body.appendChild(probe)
+      const resolved = getComputedStyle(probe).color
+      probe.remove()
+      return resolved
+    }, ochre)
+    for (const caution of cautions) expect(caution.color).toBe(asRgb)
 
     await ui.close()
   }, SLOW)

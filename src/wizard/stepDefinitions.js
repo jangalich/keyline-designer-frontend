@@ -2535,8 +2535,8 @@ export const LANDFORM_STEP = documentStep({
         // "Drawn 1" and carries which one of several it is.
         name: 'Drawn block',
         rows: [
-          // THE SAME MIDDLE BLOCK A SUGGESTION SHOWS, off the same builder and
-          // the same field names. It was absent entirely -- a drawn block
+          // THE SAME ROWS A SUGGESTION SHOWS, off the same builder and the
+          // same field names. They were absent entirely -- a drawn block
           // showed acres, an em-dashed score, confidence and source -- because
           // nothing had measured the ground under it. The server measures it
           // now, on the run the suggestions were measured against, so the two
@@ -2544,18 +2544,19 @@ export const LANDFORM_STEP = documentStep({
           //
           // AN UNMEASURED BLOCK STILL RENDERS, all em dashes, which is what a
           // reading that did not arrive should look like. See productionBlockRows.
+          //
+          // AND THAT IS THE WHOLE PANEL: the suggested panel's rows, plus this
+          // block's own cautions under them. A `confidence` row and a `source`
+          // row sat here for one branch, on the argument that they say the
+          // boundary is the user's judgment rather than the tool's finding --
+          // withdrawn. THE FIELDS THEMSELVES STAY ON THE FEATURE: the commit
+          // contract requires `confidence` and a non-empty `confidence_notes`
+          // on every feature (feature_schema.py refuses one without them), so
+          // they are still authored when the ring closes and still travel to
+          // the document. What changed is that the panel does not print them;
+          // what a drawn block IS, the strip already says -- its tab is called
+          // "Drawn 1".
           ...productionBlockRows(drawn.properties ?? {}),
-          // CONFIDENCE AND SOURCE STAY, AND THEY STAY LAST -- after the
-          // readings, immediately above the cautions. They say who chose this
-          // boundary, which is true whatever the block scores: a drawn block
-          // reading 62 with these two rows under it reads as "good ground,
-          // your call", and the same 62 without them reads as a
-          // recommendation the tool made. They sit at the bottom because
-          // everything above them is a measurement of the ground and these
-          // two are a statement about the block's PROVENANCE -- the last
-          // thing said about it, and the thing the cautions under it qualify.
-          categoricalRow(drawn.properties?.confidence ?? EM_DASH, 'confidence'),
-          categoricalRow('drawn by hand', 'source'),
         ],
         cautions: drawn.properties?.cautions ?? [],
       }
