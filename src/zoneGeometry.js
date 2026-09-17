@@ -34,6 +34,16 @@ import {
  * anything under rounds to "0.0 acres", which states a measurement of zero
  * over ground the user is being warned about. See cautionsFor() for what is
  * shown instead.
+ *
+ * IT STAYS IN ACRES THOUGH THE PANEL NOW SHOWS A SHARE, and the two must not
+ * be confused. This floor is about MEASUREMENT RESOLUTION — a 5 m cell
+ * staircase disagreeing with a hand-drawn ring along their shared edge — and
+ * that disagreement is the same size whatever the block is. A floor expressed
+ * as a percentage would scale with the block: 0.05 acres is 10% of a half-acre
+ * block and 0.4% of a twelve-acre one, so the same unreadable sliver would be
+ * dropped on one and shown on the other. What the panel shows is a share of
+ * the block, because "12% of what you drew" is the sentence a reader can act
+ * on; what decides whether there is anything to show is an absolute area.
  */
 export const CAUTION_MIN_ACRES = 0.05
 
@@ -96,10 +106,25 @@ export function clampToBoundary(points, boundaryPoints) {
  * ground and unioning them first would lose which was which.
  *
  * Returns one entry per crossed ground, above the floor:
- *   { type, label, acres, at: [lat, lng] }
+ *   { type, label, acres, pct, at: [lat, lng] }
+ *
+ * `acres` AND `pct` ARE ONE MEASUREMENT STATED TWICE, and THIS IS THE ONE
+ * PLACE THE SECOND IS DERIVED FROM THE FIRST. The commit records acreage --
+ * the server's own clip of the same crossing, in the document, where a
+ * decision is kept -- and the panel shows the share, because a reader asking
+ * "how much of what I drew is wet?" is asking a proportion. Those are two
+ * renderings of one clip and not two measurements, so the division happens
+ * here, beside the intersection it divides, and nowhere else: a percentage
+ * computed in a component would be a second answer, computed from a block
+ * acreage that component would have to find for itself.
  */
 export function cautionsFor(multi, grounds) {
   if (!multi.length) return []
+
+  // The drawn block's own acreage -- the denominator for every share below,
+  // measured on the SAME clamped geometry the crossings are clipped out of,
+  // so the parts and the whole cannot disagree.
+  const blockAcres = multiPolygonAreaAcres(multi)
 
   const cautions = []
   for (const ground of grounds) {
@@ -125,6 +150,10 @@ export function cautionsFor(multi, grounds) {
 
     cautions.push({
       type: ground.type,
+      // The share of the DRAWN BLOCK this crossing covers. Null rather than a
+      // number on a block with no measurable area at all -- a share of nothing
+      // is not zero.
+      pct: blockAcres > 0 ? (acres / blockAcres) * 100 : null,
       // The ground's own label, verbatim. For an exclusion gate it states the
       // TEST that was applied ("slope above 20.0%"), which is what someone
       // overriding an exclusion is entitled to read; for a committed claim it

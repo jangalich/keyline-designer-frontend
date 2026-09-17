@@ -1567,6 +1567,74 @@ describeIf('the shared panel format, in a real engine', () => {
   }, SLOW)
 
   /**
+   * AND THE DRAWN BLOCK'S PANEL, WHICH IS THE OTHER THING THAT GREW.
+   *
+   * A drawn block showed two rows below the break -- confidence and source --
+   * because nothing had measured the ground under it. It shows seven now: the
+   * whole middle block a suggestion shows (aspect, position, median slope, the
+   * soil run, drainage) plus those same two. That is five more rows, more than
+   * the soil run adds, and it arrives on the tab the user clicks straight
+   * after drawing.
+   *
+   * SAME QUESTION, SAME METHOD. Two tabs of one page, the difference measured
+   * across the click that changes the panel's height in the app.
+   */
+  it('gives a drawn block the whole middle block without moving the tab strip', async () => {
+    const ui = await openHarness({ format: 1, drawn: 1 })
+
+    await openBlock(ui, 'production-area-2')
+    const suggested = {
+      rows: (await rowsOf(ui.page)).length,
+      panel: await ui.box(REGIONS.detail),
+      strip: await ui.box(REGIONS.tabs),
+      action: await ui.box(REGIONS.action),
+    }
+
+    await openBlock(ui, 'drawn-1')
+    const drawn = {
+      rows: (await rowsOf(ui.page)).length,
+      panel: await ui.box(REGIONS.detail),
+      strip: await ui.box(REGIONS.tabs),
+      action: await ui.box(REGIONS.action),
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `    panel  drawn block: ${suggested.rows} rows (${suggested.panel.height.toFixed(1)}px) -> ` +
+        `${drawn.rows} rows (${drawn.panel.height.toFixed(1)}px);  strip y ` +
+        `${suggested.strip.y.toFixed(1)} -> ${drawn.strip.y.toFixed(1)};  cap ${PANEL_CAP}`
+    )
+
+    // THE PANEL REALLY IS TALLER. Two more rows than the em-dash-soil block on
+    // this page (its soil run is one row, the drawn block's is one row, and
+    // confidence and source are the difference).
+    expect(drawn.rows, 'the drawn block renders two rows more than block 2').toBe(
+      suggested.rows + 2
+    )
+    expect(drawn.panel.height).toBeGreaterThan(suggested.panel.height)
+
+    // AND THE STRIP DID NOT MOVE.
+    expect(drawn.strip.y, 'the tab strip must not move when the drawn panel grows').toBeCloseTo(
+      suggested.strip.y,
+      0
+    )
+    expect(drawn.strip.x).toBeCloseTo(suggested.strip.x, 0)
+    expect(drawn.strip.height).toBeCloseTo(suggested.strip.height, 0)
+    expect(drawn.action.y).toBeCloseTo(suggested.action.y, 0)
+
+    // The panel stays under its cap and clear of the strip, on the stage.
+    expect(drawn.panel.height, 'the panel stays under its cap').toBeLessThanOrEqual(PANEL_CAP)
+    expect(
+      drawn.panel.y + drawn.panel.height,
+      'the panel stays clear of the tab strip'
+    ).toBeLessThanOrEqual(drawn.strip.y)
+    const stage = await ui.stage()
+    expect(drawn.strip.y + drawn.strip.height).toBeLessThanOrEqual(stage.y + stage.height - INSET)
+
+    await ui.close()
+  }, SLOW)
+
+  /**
    * AND A LONG CATEGORICAL DOES NOT MOVE THE LABELS. The failure the trees
    * branch measured, asked directly: block 2's aspect is "northeast facing",
    * five characters longer than block 1's, and every label in the panel must

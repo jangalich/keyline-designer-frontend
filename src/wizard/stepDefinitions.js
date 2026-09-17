@@ -78,11 +78,22 @@
  *                      features is a legal commit. registryProposalFeatures()
  *                      is what fills it in.
  *
- *   shape              null, or {live(context), close(context)}. HOW THIS
- *                      STEP READS A SHAPE THE USER DRAWS -- what it clamps it
- *                      to, what it warns about, and what Feature it becomes.
- *                      Null means the generic behaviour: the ring as drawn,
- *                      unclamped, uncautioned. See LANDFORM_SHAPE.
+ *   shape              null, or {live(context), close(context), measure?}.
+ *                      HOW THIS STEP READS A SHAPE THE USER DRAWS -- what it
+ *                      clamps it to, what it warns about, and what Feature it
+ *                      becomes. Null means the generic behaviour: the ring as
+ *                      drawn, unclamped, uncautioned. See LANDFORM_SHAPE.
+ *
+ *                      `measure` IS THE OPTIONAL SECOND HALF, and it is the
+ *                      only asynchronous part: the shape lands in the draft
+ *                      from close(), and measure({feature, points, actions,
+ *                      stepId}) asks the server what the ground under it is
+ *                      like and merges the reading onto it. Landform declares
+ *                      one -- slope, aspect, position and soil are readings
+ *                      only the server holds. Nothing waits on it: a drawn
+ *                      ring is a decision the moment it closes, and a reading
+ *                      that never arrives leaves the panel's em dashes, which
+ *                      is what "not measured" should look like.
  *
  *                      IT IS THE STEP'S BECAUSE THE GEOMETRY IS. Clamping to
  *                      the parcel and clipping against exclusion gates are
@@ -497,7 +508,13 @@ import {
   selectStepStatus,
   PROVENANCE_USER_ADDED,
 } from '../session/SessionStore'
-import { pointInRing, polygonAreaAcres, pointFromGeoJSON, pointToGeoJSON } from '../geo.js'
+import {
+  pointInRing,
+  polygonAreaAcres,
+  pointFromGeoJSON,
+  pointToGeoJSON,
+  ringToGeoJSON,
+} from '../geo.js'
 import { commitInputsFor, commitValueOf, requiredInputsMissing } from './stepInputs.js'
 import { cautionsFor, clampToBoundary, exclusionGrounds } from '../zoneGeometry.js'
 import {
@@ -1680,11 +1697,101 @@ export const PRODUCTION_AREA_LAYER = 'production_area_candidate'
  * drawn by hand is the honest value for a shape with no survey behind it, and
  * it is what the backend's own drawn-zone fixtures carry.
  */
+/**
+ * The parameter the backend's landform PLACEMENT takes, verbatim.
+ * step_registry's LANDFORM entry declares `Placement(input="ring", ...)` and
+ * the orchestrator refuses a body naming anything else. Mirrored here for the
+ * reason PRODUCTION_AREA_LAYER is: the client does not spell a server's
+ * parameter out of memory at a call site.
+ */
+export const LANDFORM_RING_INPUT = 'ring'
+
+/**
+ * THE MEASUREMENT PROPERTIES A SCORED DRAWN BLOCK KEEPS, and the ONLY ones.
+ *
+ * The server answers with a whole Feature -- its own id, its clamped
+ * geometry, the four schema properties -- and almost none of that is this
+ * block's. The BLOCK is the shape the user drew, with the id the draw
+ * assigned it and the confidence_notes that say a person drew it; what the
+ * round trip adds is the READING. So the merge is a declared list rather than
+ * a spread of whatever came back: a spread would quietly replace the drawn
+ * block's own `label`, `confidence` and `confidence_notes` with the scorer's,
+ * and a hand-drawn block would start describing itself in the words the
+ * pipeline uses for a suggestion it made.
+ *
+ * `acres` IS NOT ON THE LIST, deliberately. The client already measured the
+ * clamped ring when it closed it, and the server's own figure is a second
+ * measurement of the same shape through a different projection. Taking it
+ * would move the acreage on the tab for no reason a reader could see.
+ *
+ * NEITHER IS `elevation_percentile_of_parcel`, for a sharper reason. The
+ * panel prints the WORD the backend derived from it ("upper field") and holds
+ * none of the bands that turn one into the other; keeping the number on this
+ * side would put the raw material for a second derivation one field away from
+ * a panel that must never make it.
+ */
+const DRAWN_BLOCK_READING_FIELDS = Object.freeze([
+  'block_origin',
+  'score',
+  'factors',
+  'slope_min_pct',
+  'slope_max_pct',
+  'slope_median_pct',
+  'avg_slope_pct',
+  'dominant_aspect',
+  'aspect_consistency_pct',
+  'aspect_available',
+  'position_in_parcel',
+  'soil_components',
+  'drainage_class',
+  'soil_available',
+  'elevation_position',
+  'percent_of_parcel',
+])
+
+/**
+ * HAVE THE SERVER MEASURE A BLOCK THE USER JUST DREW.
+ *
+ * WHY THERE IS A ROUND TRIP AT ALL. Everything in the drawn panel above the
+ * source row is a reading of the ground under the block -- its slope, which
+ * way it faces, where it sits in the parcel, the soil beneath it -- and not
+ * one of those is derivable from a ring of coordinates. The DEM, the STEP 1
+ * slope and aspect grids and the SSURGO attribution are all in the session's
+ * memory on the server, which is where the suggestions were measured, so
+ * measuring the drawn block anywhere else would mean a second instrument.
+ *
+ * IT IS A READ. Nothing is persisted, the document does not move, and the
+ * same ring can be asked about any number of times -- the same posture the
+ * structures step's placed site takes.
+ *
+ * A FAILURE LEAVES THE BLOCK UNMEASURED, AND THAT IS THE EM DASH WORKING.
+ * The block is already in the draft and already committable; if the scorer
+ * refuses the ring (too thin to cover a DEM cell) or the request fails, the
+ * reading rows print their em dash, which is the true answer to "what is the
+ * slope here" when nothing measured it. No notice: the store has already
+ * reported anything that was a step failure, and a sentence about a reading
+ * that did not arrive would be a warning about a block that is fine.
+ */
+async function measureDrawnBlock({ feature, points, actions, stepId }) {
+  const answer = await actions.scorePlacedFeature(stepId, {
+    [LANDFORM_RING_INPUT]: ringToGeoJSON(points),
+  })
+  if (!answer || answer.refused || !answer.feature) return
+  const properties = answer.feature.properties ?? {}
+  const reading = {}
+  for (const field of DRAWN_BLOCK_READING_FIELDS) {
+    if (field in properties) reading[field] = properties[field]
+  }
+  actions.measureDrawnFeature(stepId, feature.id, reading)
+}
+
 export const LANDFORM_SHAPE = Object.freeze({
   live: ({ points, parcel, references }) => {
     if (points.length < 3) return []
     const { multi } = clampToBoundary(points, parcel)
-    return cautionsFor(multi, exclusionGrounds(references[LANDFORM_EXCLUSIONS_LAYER]))
+    return productionCautions(
+      cautionsFor(multi, exclusionGrounds(references[LANDFORM_EXCLUSIONS_LAYER]))
+    )
   },
 
   close: ({ points, parcel, references }) => {
@@ -1699,7 +1806,9 @@ export const LANDFORM_SHAPE = Object.freeze({
       }
     }
 
-    const cautions = cautionsFor(multi, exclusionGrounds(references[LANDFORM_EXCLUSIONS_LAYER]))
+    const cautions = productionCautions(
+      cautionsFor(multi, exclusionGrounds(references[LANDFORM_EXCLUSIONS_LAYER]))
+    )
     return {
       feature: {
         type: 'Feature',
@@ -1721,6 +1830,7 @@ export const LANDFORM_SHAPE = Object.freeze({
       // Said only when the clamp actually took something. A notice on every
       // drawn block would train the user to ignore the one that matters.
       //
+      //
       // PARTS RATHER THAN A SENTENCE, so the acreage the clamp removed is set
       // in the data face like every other measured value. It was a template
       // literal, which put a pipeline figure into prose -- the one thing the
@@ -1731,6 +1841,13 @@ export const LANDFORM_SHAPE = Object.freeze({
           : null,
     }
   },
+
+  // THE SERVER MEASURES WHAT WAS DRAWN, once the shape is in the draft. See
+  // measureDrawnBlock: the ring goes up, the reading comes back, and the panel
+  // fills in. Awaited by the tool but never blocking the block's arrival --
+  // the shape is added first, scored second, so a slow answer never delays
+  // what the user drew.
+  measure: measureDrawnBlock,
 })
 
 /* ---------------------------------------------------------------------------
@@ -1752,6 +1869,51 @@ export const LANDFORM_SHAPE = Object.freeze({
  * layers()), and the labels there describe the TEST ("wet (hydric) soil")
  * where this has to describe the CONSEQUENCE.
  */
+/**
+ * WHAT A CROSSING IS CALLED IN AN OVERLAP ROW, keyed on the payload's stable
+ * `type` -- the one word the panel puts in front of "overlap %".
+ *
+ * THIS SIDE COMPOSES A WORD FROM A KEY, WHICH IS NOT WHAT IT USUALLY DOES.
+ * The standing rule is that display prose comes off the wire verbatim (a
+ * ground's `label`, a drainage class, an elevation-position word), because a
+ * copy of the backend's words here goes stale the first time they are edited
+ * and nothing detects the day it does. A caution row is the case that rule
+ * does not fit: an exclusion gate's label states the TEST that was applied --
+ * "slope above 20.0%", "wet (hydric) soil" -- which is the right sentence for
+ * "what did I cross" and cannot be folded into "X overlap %" without reading
+ * as nonsense ("slope above 20.0% overlap %").
+ *
+ * WHAT IS HELD HERE IS A NOUN, NOT A THRESHOLD OR A BAND. The number in
+ * "slope above 20.0%" is the backend's and stays there; this is the name of
+ * the gate, and the gate's identity is exactly what `type` is guaranteed to
+ * be (exclusion_zones._wire_layers() splits the two fields so a consumer can
+ * branch on identity without being broken by a copy edit). A type this map
+ * does not carry falls back to the gate's own label, so a sixth gate shows a
+ * crossing rather than an empty word.
+ */
+const CROSSING_NOUN = {
+  hydric: 'wet soil',
+  roads: 'farm road',
+  canopy: 'canopy',
+  slope: 'steep ground',
+  setback: 'boundary setback',
+}
+
+/**
+ * Landform's cautions, with the overlap label each row prints.
+ *
+ * The percentage itself is cautionsFor()'s -- ONE conversion, beside the clip
+ * it divides (see zoneGeometry.js). This adds only the words.
+ */
+function productionCautions(cautions) {
+  return cautions.map((caution) => ({
+    ...caution,
+    overlapLabel: CROSSING_NOUN[caution.type]
+      ? `${CROSSING_NOUN[caution.type]} overlap %`
+      : caution.label,
+  }))
+}
+
 const UNAVAILABLE_CONSEQUENCE = {
   hydric: 'Soil survey data was unavailable, so wet ground has not been excluded.',
   roads: 'Road data was unavailable, so existing farm roads have not been excluded.',
@@ -1958,6 +2120,100 @@ function scoreDenominator(carrier, quantity) {
 export function aspectPhrase(zone) {
   if (!zone?.aspect_available || !zone.dominant_aspect) return EM_DASH
   return `${zone.dominant_aspect} facing`
+}
+
+/**
+ * WHAT THE PANEL SAYS ABOUT THE GROUND UNDER ONE BLOCK -- suggested or drawn,
+ * ONE BUILDER.
+ *
+ * TWO KINDS OF BLOCK, ONE SHAPE OF ANSWER, and now literally one list. A
+ * suggestion's readings arrive in the payload's `zones` table, joined on
+ * `feature_id`; a drawn block's arrive on its own properties, from the
+ * server's own scorer measuring the ring against the same run (see
+ * measureDrawnBlock). The FIELD NAMES ARE THE SAME on both, because the
+ * backend publishes a drawn block's reading in the shape a suggestion's row
+ * already had -- so a second row list here would be two renderings of one
+ * contract, agreeing until the first edit.
+ *
+ * EVERY ROW PRINTS AN EM DASH WHERE ITS VALUE IS MISSING, which is what a
+ * drawn block shows in the moment between the ring closing and the reading
+ * landing, and what it keeps if the reading could not be taken at all.
+ */
+function productionBlockRows(reading) {
+  return [
+    categoricalRow(aspectPhrase(reading), 'aspect'),
+    // THE BACKEND'S OWN WORD, RENDERED. `elevation_position` ships as
+    // "lower field" / "mid field" / "upper field", or null on a parcel with
+    // no relief at all, where "upper" and "lower" describe nothing.
+    //
+    // NOT COMPUTED FROM `elevation_percentile_of_parcel`. The bands are
+    // production_area_ceiling.ELEVATION_POSITION_BANDS and they are public
+    // there precisely so the tool and the report say the same word about
+    // the same ground -- the tree and structure steps import them for the
+    // same reason. A copy of those cuts on this side is a second source of
+    // truth that goes stale silently the first time they are retuned, and
+    // the reader has no way to detect the day it does.
+    categoricalRow(reading.elevation_position ?? EM_DASH, 'position'),
+    // THE MEDIAN, NOT THE RANGE. The panel says what the ground is like and
+    // one figure does that; the min/max pair was two decimal points in one
+    // cell, which is a cell that can align neither.
+    measuredRow(measure(reading.slope_median_pct), 'median slope %'),
+    // THE SOIL UNDER THIS BLOCK, AND HOW IT DRAINS. Two em-dashed rows
+    // waiting on a backend branch until that branch landed; these are the
+    // values, and the em dash is now the real no-coverage answer rather
+    // than a placeholder for one.
+    //
+    // A RANKED LIST, RENDERED AS A LABELLED RUN. A block typically spans
+    // several SSURGO map units and the backend publishes one to three of
+    // them in rank order, floored at a 10% share of the block's own cells
+    // and capped at three. The FIRST row carries the label; the rest
+    // CONTINUE it. See panelFormat's CONTINUATION and labelledRun().
+    //
+    // `entry.label` IS THE WHOLE VALUE CELL AND IT IS RENDERED VERBATIM.
+    // The backend composes "78% Gilpin" itself, in the module that holds
+    // both halves, precisely so ONE STRING lands in one value position.
+    // `cell_share_pct` and `component_name` ship beside it for anything
+    // that needs the parts -- and recomposing the label from them HERE
+    // would be this app deciding how a share is spelled, which is a second
+    // source of truth for a string the backend already settled (it rounds
+    // the share half-up to whole percent on purpose: the arithmetic is
+    // exact, the 1:24,000 boundary it measures against is not).
+    //
+    // NOTHING SAYS THE LIST IS EXHAUSTIVE, and nothing may. The floor and
+    // the cap make it a NAMING of the soils under a block rather than a
+    // partition of it -- the backend drops the remainder rather than
+    // summing it into an "other" entry, and asserts the shares fall short
+    // of 100 as part of its own contract. A total, a remainder row, or a
+    // "and N more" would all be this side claiming a completeness the data
+    // does not have.
+    ...labelledRun(
+      (reading.soil_components ?? []).map((entry) => entry.label),
+      'soil'
+    ),
+    // ONE DRAINAGE ROW, from the DOMINANT map unit's dominant component --
+    // not one per soil. The backend decides which that is and ships the
+    // single value; a class per soil would be three rows of long repeating
+    // phrases under three names.
+    //
+    // NO VOCABULARY ON THIS SIDE. SSURGO's drainage classes are a fixed
+    // seven-class set from "very poorly drained" to "excessively drained",
+    // and not one of those seven words is written down in this app. The
+    // backend republishes whatever the survey says, unmapped, and the panel
+    // sets it lower case in CSS like every other word below the header --
+    // which changes how it is SET and leaves the survey's own words alone.
+    //
+    // BOTH ARE NULL TOGETHER, and the backend guarantees it: they are two
+    // readings of one attribution and a drainage class beside an em-dashed
+    // soil row would describe ground the block could not name. So the
+    // no-coverage case is both rows as em dashes, which is exactly what
+    // they rendered before this branch.
+    //
+    // THE RUN AND THIS ROW STAY LAST. They were last because they were
+    // pending; they stay last because the run is one to three rows long,
+    // and a variable-height run above the other readings would move them
+    // every time the reader changes block.
+    categoricalRow(reading.drainage_class ?? EM_DASH, 'drainage'),
+  ]
 }
 
 /** Start drawing a block of your own. */
@@ -2223,7 +2479,14 @@ export const LANDFORM_STEP = documentStep({
         selected: selected.has(feature.id),
         rows: [
           { value: measure(feature.properties?.acres), label: 'acres' },
-          { value: measure(null), label: 'score', denominator },
+          // THE SAME ROW A SUGGESTION'S TAB CARRIES, off the same scale. A
+          // drawn block used to print an em dash here because nothing had
+          // scored it; the server scores it now, on the instrument that
+          // scored the suggestions, and the two figures are comparable.
+          // measure() still prints the em dash when the reading has not
+          // arrived (or could not be taken), which is the honest answer to
+          // "what does this block score" in exactly that case.
+          { value: measure(feature.properties?.score), label: 'score', denominator },
         ],
       })
     })
@@ -2272,9 +2535,25 @@ export const LANDFORM_STEP = documentStep({
         // "Drawn 1" and carries which one of several it is.
         name: 'Drawn block',
         rows: [
-          // Traced by hand: the pipeline never scored it, never measured its
-          // slope and never read its aspect. Said as an absence rather than
-          // omitted, so the panel reads the same for both kinds of block.
+          // THE SAME MIDDLE BLOCK A SUGGESTION SHOWS, off the same builder and
+          // the same field names. It was absent entirely -- a drawn block
+          // showed acres, an em-dashed score, confidence and source -- because
+          // nothing had measured the ground under it. The server measures it
+          // now, on the run the suggestions were measured against, so the two
+          // panels answer the same questions about the same parcel.
+          //
+          // AN UNMEASURED BLOCK STILL RENDERS, all em dashes, which is what a
+          // reading that did not arrive should look like. See productionBlockRows.
+          ...productionBlockRows(drawn.properties ?? {}),
+          // CONFIDENCE AND SOURCE STAY, AND THEY STAY LAST -- after the
+          // readings, immediately above the cautions. They say who chose this
+          // boundary, which is true whatever the block scores: a drawn block
+          // reading 62 with these two rows under it reads as "good ground,
+          // your call", and the same 62 without them reads as a
+          // recommendation the tool made. They sit at the bottom because
+          // everything above them is a measurement of the ground and these
+          // two are a statement about the block's PROVENANCE -- the last
+          // thing said about it, and the thing the cautions under it qualify.
           categoricalRow(drawn.properties?.confidence ?? EM_DASH, 'confidence'),
           categoricalRow('drawn by hand', 'source'),
         ],
@@ -2287,80 +2566,7 @@ export const LANDFORM_STEP = documentStep({
 
     return {
       name: `Block ${zone.rank}`,
-      rows: [
-        categoricalRow(aspectPhrase(zone), 'aspect'),
-        // THE BACKEND'S OWN WORD, RENDERED. `elevation_position` ships as
-        // "lower field" / "mid field" / "upper field", or null on a parcel with
-        // no relief at all, where "upper" and "lower" describe nothing.
-        //
-        // NOT COMPUTED FROM `elevation_percentile_of_parcel`. The bands are
-        // production_area_ceiling.ELEVATION_POSITION_BANDS and they are public
-        // there precisely so the tool and the report say the same word about
-        // the same ground -- the tree and structure steps import them for the
-        // same reason. A copy of those cuts on this side is a second source of
-        // truth that goes stale silently the first time they are retuned, and
-        // the reader has no way to detect the day it does.
-        categoricalRow(zone.elevation_position ?? EM_DASH, 'position'),
-        // THE MEDIAN, NOT THE RANGE. The panel says what the ground is like and
-        // one figure does that; the min/max pair was two decimal points in one
-        // cell, which is a cell that can align neither.
-        measuredRow(measure(zone.slope_median_pct), 'median slope %'),
-        // THE SOIL UNDER THIS BLOCK, AND HOW IT DRAINS. Two em-dashed rows
-        // waiting on a backend branch until that branch landed; these are the
-        // values, and the em dash is now the real no-coverage answer rather
-        // than a placeholder for one.
-        //
-        // A RANKED LIST, RENDERED AS A LABELLED RUN. A block typically spans
-        // several SSURGO map units and the backend publishes one to three of
-        // them in rank order, floored at a 10% share of the block's own cells
-        // and capped at three. The FIRST row carries the label; the rest
-        // CONTINUE it. See panelFormat's CONTINUATION and labelledRun().
-        //
-        // `entry.label` IS THE WHOLE VALUE CELL AND IT IS RENDERED VERBATIM.
-        // The backend composes "78% Gilpin" itself, in the module that holds
-        // both halves, precisely so ONE STRING lands in one value position.
-        // `cell_share_pct` and `component_name` ship beside it for anything
-        // that needs the parts -- and recomposing the label from them HERE
-        // would be this app deciding how a share is spelled, which is a second
-        // source of truth for a string the backend already settled (it rounds
-        // the share half-up to whole percent on purpose: the arithmetic is
-        // exact, the 1:24,000 boundary it measures against is not).
-        //
-        // NOTHING SAYS THE LIST IS EXHAUSTIVE, and nothing may. The floor and
-        // the cap make it a NAMING of the soils under a block rather than a
-        // partition of it -- the backend drops the remainder rather than
-        // summing it into an "other" entry, and asserts the shares fall short
-        // of 100 as part of its own contract. A total, a remainder row, or a
-        // "and N more" would all be this side claiming a completeness the data
-        // does not have.
-        ...labelledRun(
-          (zone.soil_components ?? []).map((entry) => entry.label),
-          'soil'
-        ),
-        // ONE DRAINAGE ROW, from the DOMINANT map unit's dominant component --
-        // not one per soil. The backend decides which that is and ships the
-        // single value; a class per soil would be three rows of long repeating
-        // phrases under three names.
-        //
-        // NO VOCABULARY ON THIS SIDE. SSURGO's drainage classes are a fixed
-        // seven-class set from "very poorly drained" to "excessively drained",
-        // and not one of those seven words is written down in this app. The
-        // backend republishes whatever the survey says, unmapped, and the panel
-        // sets it lower case in CSS like every other word below the header --
-        // which changes how it is SET and leaves the survey's own words alone.
-        //
-        // BOTH ARE NULL TOGETHER, and the backend guarantees it: they are two
-        // readings of one attribution and a drainage class beside an em-dashed
-        // soil row would describe ground the block could not name. So the
-        // no-coverage case is both rows as em dashes, which is exactly what
-        // they rendered before this branch.
-        //
-        // THE RUN AND THIS ROW STAY LAST. They were last because they were
-        // pending; they stay last because the run is one to three rows long,
-        // and a variable-height run above the other readings would move them
-        // every time the reader changes block.
-        categoricalRow(zone.drainage_class ?? EM_DASH, 'drainage'),
-      ],
+      rows: productionBlockRows(zone),
       // A suggested block is a strict subset of ground that already cleared
       // every gate, so it cannot cross an exclusion. Empty, and asserted so in
       // DEV by assertSuggestedZonesAreClean.

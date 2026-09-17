@@ -167,16 +167,37 @@ function cautionsWorthALine(cautions) {
 }
 
 /**
- * One caution: the acreage, then the layer's own label, verbatim.
+ * One caution, in whichever of the two forms the step declared.
  *
- * A sub-floor intersection never reaches here -- cautionsFor() drops it, and
- * with it the map marker, so the panel and the map report the same crossings.
+ * A SHARE OF THE BLOCK, when the step composed a label for it. Landform does:
+ * "12" against "wet soil overlap %", the same row an overlap takes in the
+ * water panel, because "how much of what I drew is wet" is a proportion and
+ * a bare acreage leaves the reader to divide. The number is cautionsFor()'s
+ * own -- computed once, beside the clip it divides -- and the words are the
+ * step's, composed from the crossing's stable `type` (see CROSSING_NOUN).
+ *
+ * THE ACREAGE FORM IS STILL THE DEFAULT, and trees is what keeps it. Its
+ * grounds are committed claims whose labels already read as nouns ("committed
+ * production area"), and the acreage of an overlap with another zone is the
+ * figure that step's reader wants. A caution with no `overlapLabel` renders
+ * exactly as it always did.
+ *
+ * A sub-floor intersection never reaches here IN EITHER FORM -- cautionsFor()
+ * drops it, on an ABSOLUTE acreage floor that does not scale with the block,
+ * and drops the map marker with it, so the panel and the map report the same
+ * crossings. What is displayed is a share; what decides whether anything is
+ * displayed is an area. See zoneGeometry.CAUTION_MIN_ACRES.
  */
 function CautionLine({ caution }) {
+  const asShare = caution.overlapLabel != null && caution.pct != null
   return (
     <li className="chrome-detail__caution" data-testid={`caution-${caution.type}`}>
-      <span className="measure">{Number(caution.acres).toFixed(1)}</span>
-      <span className="chrome-detail__caution-label">acres — {caution.label}</span>
+      <span className="measure">
+        {asShare ? Number(caution.pct).toFixed(0) : Number(caution.acres).toFixed(1)}
+      </span>
+      <span className="chrome-detail__caution-label">
+        {asShare ? caution.overlapLabel : `acres — ${caution.label}`}
+      </span>
     </li>
   )
 }

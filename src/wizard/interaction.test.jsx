@@ -149,8 +149,20 @@ function drawnZone(id = 'drawn-1') {
       confidence: 'low',
       confidence_notes: 'Drawn by hand on the map; no survey backs it.',
       acres: 3.4,
+      // THE SHAPE cautionsFor() PRODUCES, through the landform step's own
+      // composer: the stable type, the ground's label verbatim, the acreage
+      // the commit records, the SHARE of the block the panel prints, and the
+      // word that share is labelled with (composed from `type`, never from
+      // the label -- see CROSSING_NOUN).
       cautions: [
-        { type: 'hydric', label: 'wet (hydric) soil', acres: 0.09, at: [40.723, -74.001] },
+        {
+          type: 'hydric',
+          label: 'wet (hydric) soil',
+          acres: 0.09,
+          pct: (0.09 / 3.4) * 100,
+          overlapLabel: 'wet soil overlap %',
+          at: [40.723, -74.001],
+        },
       ],
     },
   }
@@ -561,7 +573,7 @@ describe('2. the detail panel', () => {
     await ui.unmount()
   })
 
-  it('shows the selected zone’s cautions, with the layer’s own label verbatim', async () => {
+  it('shows the selected block’s cautions as a share of what was drawn', async () => {
     installFetch(standardRoutes())
     const ui = await renderSurface()
     await throughGenerate(ui)
@@ -570,11 +582,18 @@ describe('2. the detail panel', () => {
     await ui.click('tab-focus-drawn-1')
     const caution = ui.find('caution-hydric')
     expect(caution).not.toBeNull()
-    // ACREAGE, THEN THE LABEL VERBATIM. The label is the exclusion layer's own
-    // words off the payload; the branching is on the stable `type`. Rewriting
-    // it here would put this app's vocabulary in front of the backend's.
-    expect(caution.textContent).toBe('0.1acres — wet (hydric) soil')
-    expect(caution.querySelector('.measure').textContent).toBe('0.1')
+    // A SHARE OF THE BLOCK, LABELLED FROM THE STABLE TYPE. It read
+    // "0.1 acres — wet (hydric) soil" -- the gate's own label, which states
+    // the TEST that was applied and cannot be folded into "X overlap %"
+    // without reading as nonsense. The row matches water's overlap rows now:
+    // a whole percent against a noun. The number is cautionsFor()'s, computed
+    // once beside the clip it divides; the noun is composed from `type`, which
+    // is the one field the backend guarantees a consumer may branch on.
+    expect(caution.textContent).toBe('3wet soil overlap %')
+    expect(caution.querySelector('.measure').textContent).toBe('3')
+    // 0.09 acres of a 3.4-acre block. The figure on screen is the share, and
+    // the acreage it came from is still on the caution for the commit.
+    expect(Math.round((0.09 / 3.4) * 100)).toBe(3)
 
     // A suggestion crosses nothing -- it is a strict subset of ground that
     // already cleared every gate -- so it has no caution list at all.

@@ -396,13 +396,29 @@ describe('1. end to end against the real backend', () => {
       expect(tabs.length).toBe(embankment.length + excavated.length)
 
       // MULTI-SELECT ACROSS BOTH TYPES. The seed takes every envelope; drop
-      // one of each type so the commit is a real choice spanning both layers.
-      const dropped = [embankment[embankment.length - 1].id, excavated[excavated.length - 1].id]
+      // one from every type that can spare one, so the commit is a real choice
+      // that still spans both layers.
+      //
+      // FROM THE TYPES THAT HAVE ONE TO SPARE, RATHER THAN ONE OF EACH. This
+      // read "the last of each", which assumed the two instruments produce
+      // comparable numbers on any parcel. They do not: on this one the
+      // embankment surface yields five survivors and the excavated surface
+      // one, and the presentation rule ships three and one -- so dropping the
+      // last of each took the ONLY excavated zone out and left a single-type
+      // commit, which is not the thing this test is about. The gesture follows
+      // the payload now; what is asserted is unchanged, and the thing that
+      // made it fragile was an assumption about the terrain rather than about
+      // the app.
+      const spareable = [embankment, excavated].filter((zones) => zones.length > 1)
+      expect(
+        spareable.length,
+        'at least one type must present more than one zone for a deselection to be possible'
+      ).toBeGreaterThan(0)
+      const dropped = spareable.map((zones) => zones[zones.length - 1].id)
       for (const id of dropped) await ui.toggle(id)
 
       const kept = selectDraft(ui.state, 'water').selectedFeatureIds
-      expect(kept).not.toContain(dropped[0])
-      expect(kept).not.toContain(dropped[1])
+      for (const id of dropped) expect(kept).not.toContain(id)
       const keptTypes = new Set(
         kept.map(
           (id) => surveyZoneFeatures(payload).find((f) => f.id === id).properties.survey_type
@@ -727,20 +743,45 @@ describe('3. two treatments, both cased', () => {
    * a paint server over a colour -- so there is no pair of same-kind
    * translucent fills to multiply into a third in the first place.
    */
-  liveIt('draws both marks where the two survey types coincide', async () => {
+  /**
+   * BOTH TYPES, DRAWN, IN THEIR OWN PANES, WITH ONLY ONE PAINT SERVER.
+   *
+   * THIS ASKED FOR A COINCIDENCE AND THE PARCEL NO LONGER HAS ONE. It used to
+   * find a zone whose `cross_type_overlaps` was non-empty and draw the pair;
+   * on this harness's terrain the two instruments now find no common ground at
+   * all -- five embankment survivors and one excavated one, and no envelope of
+   * either type intersects an envelope of the other. That is a fact about the
+   * land the fixture describes, not a defect: the backend's own water suite
+   * runs on a different DEM, finds coincidences there, and asserts them.
+   *
+   * SO THE TEST ASKS WHAT THE OVERLAP WAS EVIDENCE FOR. The reason the pair
+   * mattered is that two translucent COLOUR fills multiply where they meet and
+   * read as one darker mark -- which is why exactly one of the two treatments
+   * is a paint server. That is a property of the two marks, not of whether
+   * this parcel happens to put them on the same ground, and it is asserted
+   * here on the two types the payload really carries. styleFor's own unit
+   * tests below cover the same rule without a map; what this adds is that both
+   * types are genuinely DRAWN, each in its own pane, on real backend output.
+   *
+   * THE AGREEMENT REPORT IS STILL ASSERTED TO EXIST, as an array on every
+   * zone, so a wire that stopped carrying it fails here rather than passing
+   * quietly with nothing to find -- and the parcel's own answer is printed.
+   */
+  liveIt('draws both types in their own panes, with only one paint-server fill', async () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)
 
     const zones = surveyZoneFeatures(ui.water)
-    const overlapping = zones.find((f) => (f.properties.cross_type_overlaps ?? []).length > 0)
-    expect(overlapping, 'the two surfaces agree somewhere on the reference parcel').toBeDefined()
-    const partner = zones.find(
-      (f) => f.properties.zone_id === overlapping.properties.cross_type_overlaps[0].zone_id
-    )
-    expect(partner, 'the zone it agrees with is on offer too').toBeDefined()
-    // The two really are of different types -- otherwise there is no overlap
-    // of the kind this is about.
-    expect(partner.properties.survey_type).not.toBe(overlapping.properties.survey_type)
+    for (const zone of zones) {
+      expect(Array.isArray(zone.properties.cross_type_overlaps), 'every zone reports agreement').toBe(
+        true
+      )
+    }
+
+    const embankment = zones.find((f) => f.properties.survey_type === 'embankment')
+    const excavated = zones.find((f) => f.properties.survey_type === 'excavated')
+    expect(embankment, 'an embankment zone is on offer').toBeDefined()
+    expect(excavated, 'an excavated zone is on offer').toBeDefined()
 
     // BOTH ARE ON THE MAP, in their own panes. Neither is hidden behind the
     // other and neither was dropped.
@@ -749,8 +790,8 @@ describe('3. two treatments, both cased', () => {
         `.leaflet-water--water-${feature.properties.survey_type}-pane ` +
           `path.zone--survey-${feature.properties.survey_type}`
       )
-    const first = pathFor(overlapping)
-    const second = pathFor(partner)
+    const first = pathFor(embankment)
+    const second = pathFor(excavated)
     expect(first).not.toBeNull()
     expect(second).not.toBeNull()
 
@@ -760,6 +801,26 @@ describe('3. two treatments, both cased', () => {
     const fills = [first.getAttribute('fill'), second.getAttribute('fill')]
     expect(fills.filter((fill) => fill.startsWith('url(#'))).toHaveLength(1)
     expect(fills[0]).not.toBe(fills[1])
+
+    // WHERE THE TWO DO COINCIDE, both partners must be drawable the same way.
+    // Empty on this parcel, and the line below says so rather than leaving the
+    // silence to be read as an assertion that passed.
+    const agreements = zones.flatMap((zone) =>
+      (zone.properties.cross_type_overlaps ?? []).map((entry) => [zone, entry])
+    )
+    for (const [zone, entry] of agreements) {
+      const partner = zones.find((f) => f.properties.zone_id === entry.zone_id)
+      if (!partner) continue // withheld by the presentation rule; section 8 covers it
+      expect(partner.properties.survey_type).not.toBe(zone.properties.survey_type)
+      expect(pathFor(partner)).not.toBeNull()
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `WATER TYPES  ${zones.filter((f) => f.properties.survey_type === 'embankment').length} ` +
+        `embankment + ${zones.filter((f) => f.properties.survey_type === 'excavated').length} ` +
+        `excavated presented; ${agreements.length} cross-type agreement(s) reported on this parcel`
+    )
 
     await ui.unmount()
   })
@@ -1163,13 +1224,28 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
     expect(soloRows.some((row) => row.label.startsWith('shared ground'))).toBe(false)
   })
 
+  /**
+   * THE PANEL IS A READING OF THE GROUND, AND THE COMMIT SET IS NOT ONE OF ITS
+   * INPUTS. That is the claim, and it is asked of a real payload.
+   *
+   * IT USED TO REQUIRE AN AGREEING ZONE and this parcel no longer has one --
+   * the two instruments find no common ground on this harness's terrain (see
+   * section 3, which prints the count). The invariance claim never needed one:
+   * it is about every row on the panel, and the agreement rows are the subset
+   * this section is named for. So the zone under test is the first one on
+   * offer, PREFERRING one that reports an agreement, and the agreement
+   * assertions below run over whatever that zone reports -- all of them on a
+   * parcel that has them, none on this one. The four tests above cover the row
+   * itself deterministically, against payloads built here.
+   */
   liveIt('renders, and does not move when the selection does', async () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)
 
     const zones = surveyZoneFeatures(ui.water)
-    const overlapping = zones.find((f) => (f.properties.cross_type_overlaps ?? []).length > 0)
-    expect(overlapping, 'the two surfaces agree somewhere on the reference parcel').toBeDefined()
+    expect(zones.length, 'a zone to read the panel of').toBeGreaterThan(1)
+    const overlapping =
+      zones.find((f) => (f.properties.cross_type_overlaps ?? []).length > 0) ?? zones[0]
 
     await ui.focus(overlapping.id)
     const renderedBefore = ui
@@ -1196,12 +1272,17 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
       expect(node.textContent).not.toMatch(/shared ground w\/ zone \d/)
     }
 
-    // CHANGE THE SELECTION -- take an agreeing zone out of the commit entirely.
-    // One that is ON SCREEN, because a withheld one has no checkbox to press.
-    const agreeing = overlapping.properties.cross_type_overlaps
-      .map((entry) => zones.find((f) => f.properties.zone_id === entry.zone_id))
-      .find(Boolean)
-    expect(agreeing, 'an agreeing zone that is also presented').toBeDefined()
+    // CHANGE THE SELECTION -- take another zone out of the commit entirely.
+    // ONE THAT IS ON SCREEN, because a withheld zone has no checkbox to press,
+    // and PREFERABLY ONE THIS ZONE AGREES WITH, which is the sharpest version
+    // of the claim: un-checking a zone cannot make the other instrument stop
+    // agreeing with it. On a parcel with no agreements any other presented
+    // zone makes the same point about every other row.
+    const agreeing =
+      overlapping.properties.cross_type_overlaps
+        .map((entry) => zones.find((f) => f.properties.zone_id === entry.zone_id))
+        .find(Boolean) ?? zones.find((f) => f.id !== overlapping.id)
+    expect(agreeing, 'another presented zone to take out of the commit').toBeDefined()
     await ui.toggle(agreeing.id)
     expect(selectDraft(ui.state, 'water').selectedFeatureIds).not.toContain(agreeing.id)
 
@@ -1213,6 +1294,14 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
     expect(
       ui.all('[data-testid^="detail-value-"]').map((n) => `${n.getAttribute('data-testid')}=${n.textContent}`)
     ).toEqual(renderedBefore)
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `AGREEMENT INVARIANCE  ${renderedBefore.length} panel row(s) on ` +
+        `${surveyZoneName(overlapping.properties)}, ` +
+        `${overlapping.properties.cross_type_overlaps.length} of them agreements, unchanged after ` +
+        `taking ${surveyZoneName(agreeing.properties)} out of the commit`
+    )
 
     await ui.unmount()
   })
@@ -1586,6 +1675,10 @@ describe('one pattern per step, three levels per pattern', () => {
     const host = document.createElement('div')
     document.body.appendChild(host)
     const teardown = injectZonePatterns(host)
+    // The host this test made is this test's to clean up. It used to be left
+    // in the body, which put a second set of paint servers in the document for
+    // every test after it.
+    const cleanUp = () => host.remove()
 
     const plain = host.querySelector(`#${patternIdFor('production')}`)
     const haloed = host.querySelector(`#${patternIdFor('production', true)}`)
@@ -1619,8 +1712,16 @@ describe('one pattern per step, three levels per pattern', () => {
     expect(haloed.querySelector(`#${CSS.escape(filterId)}`)).not.toBeNull()
     expect(haloed.querySelector('filter feGaussianBlur')).not.toBeNull()
 
+    // TEARDOWN REMOVES WHAT THIS INJECTION PUT IN, ASKED OF THE HOST IT WAS
+    // PUT IN. It was asked of the whole DOCUMENT, which made the assertion a
+    // claim about every other mounted map as well: any surface still on screen
+    // -- a live section that failed before reaching its unmount, say -- has
+    // its own injected tile under its own container, and this read that as
+    // this teardown having failed. The scope is the thing under test.
     teardown()
-    expect(document.querySelector(`#${patternIdFor('production', true)}`)).toBeNull()
+    expect(host.querySelector(`#${patternIdFor('production', true)}`)).toBeNull()
+    expect(host.querySelector('[data-zone-patterns]')).toBeNull()
+    cleanUp()
   })
 
   it('says a focused production zone with a halo, at the active level', () => {

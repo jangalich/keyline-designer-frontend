@@ -438,6 +438,39 @@ const DETAIL_ROW_CYCLE = [
  */
 const SHARED_FORMAT = params.get('format') === '1'
 
+/**
+ * ?drawn=1  swap Block 3 for a DRAWN block, which is the panel that grew.
+ *
+ * WHAT IT IS FOR. A drawn block's panel used to be two rows -- confidence and
+ * source -- because nothing had measured the ground under it. It carries the
+ * whole middle block now (the server scores the ring and reads the soil under
+ * it), which is five more rows, and the claim that needs a real engine is that
+ * a taller panel does not push the tab strip down. That is the same claim the
+ * soil-run case makes and it is asked the same way: two tabs of ONE page, with
+ * the difference measured across a click.
+ *
+ * A SWAP RATHER THAN A FIFTH TAB, deliberately. Four tabs is one strip row
+ * (TAB_COLUMNS); a fifth would wrap the strip and change the geometry every
+ * other measurement on this page is taken against, so the comparison would be
+ * between two different layouts rather than between two panels.
+ */
+const DRAWN_BLOCK = params.get('drawn') === '1'
+
+const DRAWN_TAB = {
+  id: 'drawn-1',
+  name: 'Drawn 1',
+  drawn: true,
+  checkbox: true,
+  removable: true,
+  selected: true,
+  rows: [
+    { value: measure(0.5), label: 'acres' },
+    // SCORED, like a suggestion, and on the same scale. The em dash this row
+    // used to print is still what an unmeasured block shows.
+    { value: measure(62.4), label: 'score', denominator: 100 },
+  ],
+}
+
 const FORMAT_TABS = [
   {
     id: 'production-area-1',
@@ -491,7 +524,23 @@ const FORMAT_TABS = [
   },
 ]
 
+if (DRAWN_BLOCK) {
+  FORMAT_TABS[1] = DRAWN_TAB
+}
+
 const FORMAT_ROWS = {
+  /* THE DRAWN BLOCK'S PANEL -- the suggestion's own rows, off the same
+     builder, plus the two that say whose judgment the boundary is. Seven rows
+     against Block 2's five, which is the growth the strip must absorb. */
+  'drawn-1': [
+    categoricalRow('south facing', 'aspect'),
+    categoricalRow('upper field', 'position'),
+    measuredRow(measure(3.2), 'median slope %'),
+    ...labelledRun(['62% Gilpin silt loam'], 'soil'),
+    categoricalRow('well drained', 'drainage'),
+    categoricalRow('low', 'confidence'),
+    categoricalRow('drawn by hand', 'source'),
+  ],
   /* Block 1: everything measured that can be, and THE SOIL RUN AT ITS
      LONGEST -- three map units, which is the cap, the first labelled `soil`
      and the two after it CONTINUING the list. The values are the shape the
