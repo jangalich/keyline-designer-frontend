@@ -128,18 +128,31 @@ function mountTilePane() {
   return { pane, tile }
 }
 
+const mounted = new Set()
+
 async function renderShell() {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   installFetch()
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
+  const handle = {
+    async unmount() {
+      mounted.delete(handle)
+      await React.act(async () => root.unmount())
+      container.remove()
+    },
+  }
+  mounted.add(handle)
 
   await React.act(async () => {
     root.render(
       <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
         <WizardCursorProvider definitions={STEP_DEFINITIONS}>
-          <WizardShell />
+          {/* The stage App.jsx puts the chrome in: the overlay lives inside it. */}
+          <div className="map-stage" data-testid="stage">
+            <WizardShell />
+          </div>
         </WizardCursorProvider>
       </SessionProvider>
     )
@@ -151,6 +164,7 @@ async function renderShell() {
     container,
     find,
     dialog: () => find('tutorial-card'),
+    stage: () => container.querySelector('[data-testid="stage"]'),
     help: () => container.querySelector('[data-testid="tutorial-help"]'),
     title: () => find('tutorial-title')?.textContent,
     async click(id) {
@@ -172,10 +186,7 @@ async function renderShell() {
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
     },
-    async unmount() {
-      await React.act(async () => root.unmount())
-      container.remove()
-    },
+    unmount: handle.unmount,
   }
 }
 
@@ -185,8 +196,9 @@ beforeEach(() => {
   window.history.replaceState({}, '', '/')
 })
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks()
+  for (const handle of [...mounted]) await handle.unmount()
   for (const pane of document.querySelectorAll('.leaflet-tile-pane')) pane.remove()
 })
 
@@ -209,7 +221,7 @@ describe('1. auto-open', () => {
     // Closing writes the preference, beside the session id's key.
     await ui.click('tutorial-close')
     expect(ui.dialog()).toBeNull()
-    expect(TUTORIAL_DISMISSED_KEY).toBe('kd.tutorial.dismissed')
+    expect(TUTORIAL_DISMISSED_KEY).toBe('keyline.tutorial.dismissed')
     expect(window.localStorage.getItem(TUTORIAL_DISMISSED_KEY)).not.toBeNull()
 
     // ONCE. Another paint in the same page does not bring it back.
@@ -266,7 +278,7 @@ describe('1. auto-open', () => {
    =========================================================================== */
 
 describe('2. the help control', () => {
-  it('sits at the foot of the rail, is a labelled button, and opens the overlay at card 1', async () => {
+  it('is its own control on the chrome, not a row of the rail, and opens the overlay at card 1', async () => {
     window.localStorage.setItem(TUTORIAL_DISMISSED_KEY, '1')
     const ui = await renderShell()
     const help = ui.help()
@@ -275,17 +287,88 @@ describe('2. the help control', () => {
     expect(help.getAttribute('aria-label')).toBe(HELP_LABEL)
     expect(HELP_LABEL).toBe('How the map works')
 
-    // AT THE FOOT: inside the rail, after the list of steps.
+    // A DIRECT CHILD OF THE OVERLAY, beside the regions and inside none of
+    // them -- least of all the rail, where it read as an eighth step.
+    const chrome = ui.container.querySelector('.chrome')
+    expect(help.parentElement).toBe(chrome)
     const rail = ui.container.querySelector('[data-testid="step-rail"]')
-    expect(rail.contains(help)).toBe(true)
-    const list = rail.querySelector('[data-testid="wizard-order"]')
-    expect(list.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(list.contains(help)).toBe(false)
+    expect(rail.contains(help)).toBe(false)
+    expect(readFileSync(path.join(SRC, 'wizard', 'shell', 'StepRail.jsx'), 'utf8')).not.toContain('Tutorial')
+
+    // IN THE BOTTOM-LEFT CORNER, with the action buttons' casing: the
+    // bottom row's gutter track, at the area's start and end edges.
+    const rule = propsOf(ruleFor(decl(COMPONENTS), '.chrome-help'))
+    expect(rule['grid-area']).toBe('bottom')
+    expect(rule['justify-self']).toBe('start')
+    expect(rule['align-self']).toBe('end')
+    expect(rule['box-shadow']).toBe('var(--casing-control)')
+    expect(rule.background).toBe('var(--paper)')
+    expect(rule.border).toBe('var(--hairline)')
+    expect(rule['border-radius']).toBe('50%')
+    expect(rule).not.toHaveProperty('outline')
 
     await ui.click('tutorial-help')
     expect(ui.dialog()).not.toBeNull()
     expect(ui.title()).toBe(COPY[0].title)
     expect(help.getAttribute('aria-expanded')).toBe('true')
+
+    // AND THE OVERLAY IS IN THE MAP: inside the stage, over the chrome, and
+    // not on the page around it.
+    expect(ui.stage().contains(ui.dialog())).toBe(true)
+    expect(ui.find('tutorial').parentElement).toBe(ui.stage())
+    await ui.unmount()
+  })
+
+  it('stows the card into the control on close, and closes at once where nothing animates', async () => {
+    window.localStorage.setItem(TUTORIAL_DISMISSED_KEY, '1')
+    const ui = await renderShell()
+
+    // jsdom has no animate(): the close is immediate (every other test here
+    // relies on that). With one, the card runs a motion toward the control
+    // and the close waits for it.
+    const calls = []
+    let finish = null
+    const finished = new Promise((resolve) => {
+      finish = resolve
+    })
+    const original = window.HTMLElement.prototype.animate
+    window.HTMLElement.prototype.animate = function animate(keyframes, options) {
+      calls.push({ element: this, keyframes, options })
+      return { finished, cancel() {} }
+    }
+    // Give the card and the control a place to measure from.
+    const rect = (x, y, w, h) => ({ left: x, top: y, width: w, height: h, right: x + w, bottom: y + h })
+    ui.help().getBoundingClientRect = () => rect(20, 700, 32, 32)
+    ui.help().focus()
+    await ui.click('tutorial-help')
+    ui.dialog().getBoundingClientRect = () => rect(400, 160, 480, 470)
+
+    try {
+      window.localStorage.removeItem(TUTORIAL_DISMISSED_KEY)
+      await ui.click('tutorial-close')
+      // Not gone yet: the motion is running. The preference is already
+      // written, though: the user decided, and a reload mid-motion keeps it.
+      expect(ui.dialog()).not.toBeNull()
+      expect(window.localStorage.getItem(TUTORIAL_DISMISSED_KEY)).not.toBeNull()
+      const card = calls.find((c) => c.element === ui.dialog())
+      expect(card).toBeDefined()
+      // Toward the control's centre (36, 716) from the card's (640, 395).
+      const end = card.keyframes[card.keyframes.length - 1]
+      expect(end.transform).toContain('translate(-604px, 321px)')
+      expect(end.transform).toContain('scale(')
+      expect(end.opacity).toBe(0)
+      // The control takes it with a pulse.
+      expect(calls.some((c) => c.element === ui.help())).toBe(true)
+
+      await React.act(async () => {
+        finish()
+        await finished
+      })
+      expect(ui.dialog()).toBeNull()
+      expect(document.activeElement).toBe(ui.help())
+    } finally {
+      window.HTMLElement.prototype.animate = original
+    }
     await ui.unmount()
   })
 
@@ -424,7 +507,7 @@ describe('3. paging and closing', () => {
     // A fixed, full-viewport layer above the page, with a full backdrop under
     // the card: every click that is not on the card is on the backdrop.
     const overlay = propsOf(ruleFor(TUTORIAL_CSS, '.tutorial'))
-    expect(overlay.position).toBe('fixed')
+    expect(overlay.position).toBe('absolute')
     expect(overlay.inset).toBe('0')
     expect(Number(overlay['z-index'])).toBeGreaterThan(400)
     const backdrop = propsOf(ruleFor(TUTORIAL_CSS, '.tutorial__backdrop'))
@@ -502,15 +585,49 @@ describe('5. reduced motion', () => {
 
     await ui.click('tutorial-dot-3')
     expect(figure().querySelectorAll('.tutorial-anim__block')).toHaveLength(3)
+    expect(figure().querySelectorAll('.tutorial-anim__tab')).toHaveLength(3)
     expect(figure().querySelector('.tutorial-anim__mark')).not.toBeNull()
+    expect(figure().querySelector('.tutorial-anim__tab-mark')).not.toBeNull()
     expect(figure().querySelector('.tutorial-anim__panel')).not.toBeNull()
     expect(figure().textContent).toContain('42.4')
     expect(figure().textContent).toContain('/100 score')
+    // The three clicks: block, bare ground, tab -- the mark and the panel go
+    // out and come back once between the first click and the last.
+    const markStart = TUTORIAL_CSS.indexOf('@keyframes tutorial-read-mark')
+    const mark = TUTORIAL_CSS.slice(markStart, TUTORIAL_CSS.indexOf('@keyframes', markStart + 1))
+    expect(mark.match(/opacity: 1/g)).toHaveLength(2)
+    expect(mark.match(/opacity: 0/g)).toHaveLength(3)
+    expect(ruleFor(TUTORIAL_CSS, '.tutorial-anim__tab-mark--read')).toContain('tutorial-read-mark')
 
     await ui.click('tutorial-dot-4')
     expect(figure().querySelectorAll('.tutorial-anim__block')).toHaveLength(2)
     expect(figure().querySelectorAll('.tutorial-anim__tick')).toHaveLength(2)
     expect(figure().querySelector('.tutorial-anim__commit')).not.toBeNull()
+
+    // THE ZONES ARE THE MAP'S: every block is hatched from a pattern in its
+    // own diagram, in the map's tokens (oxide rising for production, tree
+    // falling for trees), and its outline is a curve, not a polygon.
+    for (const card of [2, 3, 4]) {
+      await ui.click(`tutorial-dot-${card}`)
+      const patterns = [...figure().querySelectorAll('pattern')]
+      expect(patterns.length, `card ${card} defines its hatch`).toBeGreaterThan(0)
+      for (const block of figure().querySelectorAll('.tutorial-anim__block, .tutorial-anim__ring')) {
+        const ref = block.getAttribute('fill')
+        expect(ref).toMatch(/^url\(#tutorial-hatch-/)
+        expect(patterns.map((p) => p.id)).toContain(ref.slice(5, -1))
+      }
+      for (const block of figure().querySelectorAll('.tutorial-anim__block')) {
+        expect(block.tagName.toLowerCase()).toBe('path')
+        expect(block.getAttribute('d')).toMatch(/C/)
+      }
+    }
+    expect(propsOf(ruleFor(TUTORIAL_CSS, '.tutorial-anim__hatch--production')).stroke).toBe('var(--oxide)')
+    expect(propsOf(ruleFor(TUTORIAL_CSS, '.tutorial-anim__hatch--tree')).stroke).toBe('var(--tree)')
+    expect(propsOf(ruleFor(TUTORIAL_CSS, '.tutorial-anim__screen')).fill).toBe('var(--rule)')
+    // Spacing 8, weight 1: the map's own.
+    expect(propsOf(ruleFor(TUTORIAL_CSS, '.tutorial-anim__hatch'))['stroke-width']).toBe('1')
+    await ui.click('tutorial-dot-3')
+    expect(figure().querySelector('pattern').getAttribute('width')).toBe('8')
 
     // Every card that shows a gesture carries a cursor glyph to hide -- the
     // overview shows none, it has no gesture -- and every diagram is marked
@@ -554,11 +671,16 @@ describe('6. the treatment', () => {
     expect(TUTORIAL_CSS.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).toEqual([])
     expect(TUTORIAL_CSS).not.toMatch(/\b(rgb|rgba|hsl|hsla)\(/)
     for (const file of ['cards.jsx', 'animations.jsx', 'TutorialOverlay.jsx', 'TutorialHelp.jsx']) {
-      const source = readFileSync(path.join(HERE, file), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+      const source = readFileSync(path.join(HERE, file), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        // A pattern reference is a paint server in the same tree, not a colour.
+        .replace(/url\(#tutorial-hatch-[a-z-]+\)/g, 'url()')
       expect(source.match(/#[0-9a-fA-F]{3,8}\b/g) ?? [], file).toEqual([])
       expect(source, file).not.toMatch(/\b(rgb|rgba|hsl|hsla)\(/)
       // No colour and no face set inline: the tokens live in the stylesheet.
-      expect(source, file).not.toMatch(/\b(fill|stroke|color|fontFamily)=/)
+      // The one inline fill is the hatch reference, allowed above.
+      expect(source, file).not.toMatch(/\b(stroke|color|fontFamily)=/)
+      expect(source.match(/\bfill=(?!\{?[`"]url\()/g) ?? [], file).toEqual([])
     }
     for (const [prop, value] of Object.entries(propsOf(TUTORIAL_CSS.replace(/[^{}]+\{|\}/g, ';')))) {
       if (!/^(color|background|background-color|border-color|outline-color|fill|stroke)$/.test(prop)) continue
@@ -572,14 +694,19 @@ describe('6. the treatment', () => {
       .filter(([, body]) => /--oxide/.test(body))
       .map(([selector]) => selector)
     expect(oxide.length).toBeGreaterThan(0)
-    for (const selector of oxide) expect(selector).toMatch(/^\.tutorial__button--primary/)
+    // THE ONE EXCEPTION IS THE MAP'S OWN MARK: a production block is hatched
+    // in --oxide on the real map, and a diagram of one is hatched the same
+    // way. It is a mark on ground inside the diagram, never a control.
+    const mapMarks = ['.tutorial-anim__hatch--production', '.tutorial-anim__block--production']
+    for (const selector of oxide) {
+      if (mapMarks.includes(selector)) continue
+      expect(selector).toMatch(/^\.tutorial__button--primary/)
+    }
     for (const selector of ['.tutorial__dot', '.tutorial__close', '.tutorial__button']) {
       expect(ruleFor(TUTORIAL_CSS, selector)).not.toContain('--oxide')
     }
-    // The rail's help control is not oxide either.
-    const railHelp = decl(COMPONENTS)
-    expect(ruleFor(railHelp, '.chrome-rail__help')).not.toContain('--oxide')
-    expect(ruleFor(railHelp, '.chrome-rail__help-glyph')).not.toContain('--oxide')
+    // The help control is not oxide either.
+    expect(ruleFor(decl(COMPONENTS), '.chrome-help')).not.toContain('--oxide')
     // The diagrams' own commit button is ink, not a second accent.
     expect(ruleFor(TUTORIAL_CSS, 'rect.tutorial-anim__solid,\n.tutorial-anim__commit rect')).toContain('var(--ink)')
   })
@@ -604,10 +731,12 @@ describe('6. the treatment', () => {
     expect(card['border-radius']).toBe('var(--radius)')
     // Fits a narrow viewport: never wider than the frame, never taller.
     expect(card.width).toContain('100%')
-    expect(card['max-height']).toContain('100dvh')
+    expect(card['max-height']).toBe('100%')
     expect(TUTORIAL_CSS).not.toMatch(/outline:\s*(none|0)\b/)
     expect(propsOf(ruleFor(TUTORIAL_CSS, '.tutorial__button--primary:focus-visible'))['outline-color']).toBe('var(--ink)')
-    const help = propsOf(ruleFor(decl(COMPONENTS), '.chrome-rail__help:focus-visible'))
-    expect(help['outline-offset']).toBe('-3px')
+    // The help control's ring is restated ROUND, never removed.
+    const help = propsOf(ruleFor(decl(COMPONENTS), '.chrome-help:focus-visible'))
+    expect(help['border-radius']).toBe('50%')
+    expect(help).not.toHaveProperty('outline')
   })
 })

@@ -17,23 +17,34 @@
  * animates it AWAY from that and back. So with `animation: none` -- which is
  * what App.css applies under prefers-reduced-motion -- each card is a
  * finished diagram: the ring closed with its acreage, the block marked with
- * its panel open, both blocks ticked with the commit button. The cursor glyph
- * is the one thing hidden there, because a pointer that never moves is a
- * smudge, not a cue.
+ * its panel open and its tab pressed, both blocks ticked with the commit
+ * button. The cursor glyph is the one thing hidden there, because a pointer
+ * that never moves is a smudge, not a cue.
  *
  * ABSTRACT LINEWORK, NOT SCREENSHOTS. Faint contours for ground, flat shapes
  * for features, a drawn cursor glyph. A screenshot goes stale on the next
  * chrome change; a diagram of "steps down the left, tabs along the bottom"
  * survives it, and reads in the bulletin voice the rest of the page is set in.
  *
+ * THE ZONES ARE THE MAP'S ZONES. A production block is the map's own mark
+ * for one -- a ruled hatch rising to the right in --oxide over a faint
+ * --rule screen, spacing 8, weight 1 -- and a tree zone is the same hatch
+ * falling, in --tree (ProductionHatchPattern.jsx's table, copied by eye
+ * rather than imported, because that module injects patterns into the map's
+ * own document and this is a picture of one). Their outlines are organic:
+ * a suggested block follows ground, and a diagram of squares would teach a
+ * reader to expect squares. The one ring that IS a polygon is the one the
+ * cursor draws corner by corner, because that is what drawing does.
+ *
  * MEASURED VALUES ARE THE DATA FACE, tabular; nothing else in a card is. The
  * readouts are value left, label right -- `4.0 acres`, `42.4 /100 score` --
  * which is the order the real detail panel prints them in.
  *
- * No colour literal and no fragment reference lives in this file: fills and
- * strokes are class-driven so the tokens stay in one place, and there is no
- * <clipPath> or <marker>, because a url() fragment reference would be the one
- * hash in a tree that a style check greps for.
+ * NO COLOUR LITERAL LIVES IN THIS FILE: fills and strokes are class-driven so
+ * the tokens stay in one place. The one fill set inline is a reference to a
+ * <pattern> in the same tree -- a paint server, not a colour -- which is the
+ * only way a hatch can be pointed at, and it is set here rather than in the
+ * stylesheet so the stylesheet stays free of fragment references.
  */
 
 /** Every card draws on the same frame. */
@@ -42,8 +53,42 @@ const VIEW = '0 0 320 180'
 /** The pointer glyph, tip at the origin, so a translate puts the tip on the target. */
 const CURSOR_PATH = 'M0 0 L0 14.5 L3.6 11.2 L6.1 16.6 L8.7 15.5 L6.2 10.2 L11.2 10.2 Z'
 
+/** The hatch tile, in user units: the map's spacing, at the diagram's scale. */
+const HATCH = 8
+
 /**
- * Faint ground. Three contour passes inside the frame, hand-placed so no card
+ * A hatch, the way the map rules one. `rise: 'up'` runs bottom-left to
+ * top-right (production); `'down'` the other way (tree). The tile's two
+ * corner stubs keep the ruling continuous across tile edges.
+ */
+function Hatch({ id, kind }) {
+  const rising = kind === 'production'
+  const d = rising
+    ? `M0 ${HATCH} L${HATCH} 0 M-1 1 L1 -1 M${HATCH - 1} ${HATCH + 1} L${HATCH + 1} ${HATCH - 1}`
+    : `M0 0 L${HATCH} ${HATCH} M-1 ${HATCH - 1} L1 ${HATCH + 1} M${HATCH - 1} -1 L${HATCH + 1} 1`
+  return (
+    <defs>
+      <pattern id={id} width={HATCH} height={HATCH} patternUnits="userSpaceOnUse">
+        <rect className={`tutorial-anim__screen tutorial-anim__screen--${kind}`} width={HATCH} height={HATCH} />
+        <path className={`tutorial-anim__hatch tutorial-anim__hatch--${kind}`} d={d} />
+      </pattern>
+    </defs>
+  )
+}
+
+/** A zone: an organic outline filled with its kind's hatch. */
+function Zone({ d, kind, hatchId, modifier }) {
+  return (
+    <path
+      className={`tutorial-anim__block tutorial-anim__block--${kind}${modifier ? ` tutorial-anim__block--${modifier}` : ''}`}
+      d={d}
+      fill={`url(#${hatchId})`}
+    />
+  )
+}
+
+/**
+ * Faint ground. Four contour passes inside the frame, hand-placed so no card
  * needs a clip. Shared, so the four cards read as one piece of land.
  */
 function Ground() {
@@ -93,6 +138,34 @@ function Reading({ x, y, value, label }) {
         {label}
       </tspan>
     </text>
+  )
+}
+
+/**
+ * A tab, as the strip draws one: name over its figure on the left, the
+ * checkbox on the right. `modifier` names the one tab a card animates.
+ */
+function Tab({ x, y, width, name, value, modifier }) {
+  const suffix = modifier ? ` tutorial-anim__tab--${modifier}` : ''
+  const bodySuffix = modifier ? ` tutorial-anim__tab-body--${modifier}` : ''
+  const tickSuffix = modifier ? ` tutorial-anim__tick--${modifier}` : ''
+  const cx = x + width - 16
+  const cy = y + 9
+  return (
+    <g className={`tutorial-anim__tab${suffix}`}>
+      <rect className="tutorial-anim__tab-card" x={x} y={y} width={width} height="26" rx="2" />
+      <g className={`tutorial-anim__tab-body${bodySuffix}`}>
+        <text className="tutorial-anim__name" x={x + 6} y={y + 10}>
+          {name}
+        </text>
+        <Reading x={x + 6} y={y + 21} value={value} label="acres" />
+      </g>
+      <rect className="tutorial-anim__check" x={cx} y={cy} width="10" height="10" rx="1" />
+      <polyline
+        className={`tutorial-anim__tick${tickSuffix}`}
+        points={`${cx + 2.2},${cy + 5.2} ${cx + 4.6},${cy + 7.6} ${cx + 8.4},${cy + 2.4}`}
+      />
+    </g>
   )
 }
 
@@ -211,20 +284,32 @@ export function OverviewAnimation() {
    2. DRAW — five corners, then the first one again
    =========================================================================== */
 
+/** The corners, in the order they are clicked. App.css's cursor path visits these. */
 const DRAW_CORNERS = [
-  [70, 50],
-  [200, 38],
-  [250, 110],
-  [160, 150],
-  [60, 120],
+  [60, 44],
+  [150, 34],
+  [178, 96],
+  [120, 138],
+  [44, 110],
 ]
+
+/** A committed production block, already on the ground: the trees step's context. */
+const DRAW_CONTEXT_BLOCK =
+  'M214,98 C226,82 252,74 274,82 C292,88 292,106 298,120 C304,134 290,148 270,150 C250,152 228,150 218,136 C208,122 204,110 214,98 Z'
 
 export function DrawAnimation() {
   const ring = DRAW_CORNERS.map(([x, y]) => `${x},${y}`).join(' ')
   return (
     <svg className="tutorial-anim tutorial-anim--draw" viewBox={VIEW} role="img" aria-hidden="true" focusable="false">
+      <Hatch id="tutorial-hatch-production-draw" kind="production" />
+      <Hatch id="tutorial-hatch-tree-draw" kind="tree" />
       <Ground />
-      <polygon className="tutorial-anim__ring tutorial-anim__ring--draw" points={ring} />
+      <Zone d={DRAW_CONTEXT_BLOCK} kind="production" hatchId="tutorial-hatch-production-draw" />
+      <polygon
+        className="tutorial-anim__ring tutorial-anim__ring--draw"
+        points={ring}
+        fill="url(#tutorial-hatch-tree-draw)"
+      />
       {DRAW_CORNERS.map(([x, y], index) => {
         const [nx, ny] = DRAW_CORNERS[(index + 1) % DRAW_CORNERS.length]
         return (
@@ -249,8 +334,8 @@ export function DrawAnimation() {
         />
       ))}
       <g className="tutorial-anim__chip tutorial-anim__chip--draw">
-        <rect x="118" y="82" width="70" height="20" rx="2" />
-        <Reading x="126" y="96" value="4.0" label="acres" />
+        <rect x="70" y="76" width="70" height="20" rx="2" />
+        <Reading x="78" y="90" value="4.0" label="acres" />
       </g>
       <Cursor modifier="draw" />
     </svg>
@@ -258,32 +343,52 @@ export function DrawAnimation() {
 }
 
 /* ===========================================================================
-   3. READ — click one of three blocks; the panel opens
+   3. READ — click a block, click bare ground, click its tab
    =========================================================================== */
 
 const READ_BLOCKS = [
-  '24,60 84,48 96,104 40,116',
-  '112,80 178,66 192,120 130,134',
-  '200,40 214,34 226,66 206,76',
+  'M32,64 C38,44 62,32 84,42 C100,50 98,70 104,84 C110,100 96,114 78,116 C58,118 40,110 34,94 C30,84 28,74 32,64 Z',
+  'M118,80 C126,60 152,52 174,58 C192,62 196,78 204,92 C212,108 200,124 184,128 C166,132 148,134 134,122 C118,110 110,96 118,80 Z',
+  'M228,104 C238,92 258,88 274,94 C290,100 300,112 292,124 C286,134 270,140 254,140 C240,140 226,132 224,120 C222,112 224,108 228,104 Z',
+]
+
+const READ_TABS = [
+  { x: 14, name: 'Block 1', value: '2.5' },
+  { x: 82, name: 'Block 2', value: '4.0' },
+  { x: 150, name: 'Block 3', value: '1.2' },
 ]
 
 export function ReadAnimation() {
   return (
     <svg className="tutorial-anim tutorial-anim--read" viewBox={VIEW} role="img" aria-hidden="true" focusable="false">
+      <Hatch id="tutorial-hatch-production-read" kind="production" />
       <Ground />
-      {READ_BLOCKS.map((points, index) => (
-        <polygon key={points} className="tutorial-anim__block" points={points} />
+      {READ_BLOCKS.map((d) => (
+        <Zone key={d} d={d} kind="production" hatchId="tutorial-hatch-production-read" />
       ))}
-      <polygon className="tutorial-anim__mark tutorial-anim__mark--read" points={READ_BLOCKS[1]} />
+      {/* THE MARK: the heavier edge the map gives the block you are reading. */}
+      <path className="tutorial-anim__mark tutorial-anim__mark--read" d={READ_BLOCKS[1]} />
+      {READ_TABS.map((tab) => (
+        <Tab key={tab.name} x={tab.x} y={144} width={64} name={tab.name} value={tab.value} />
+      ))}
+      {/* THE TAB'S MARK: the same heavier edge, on the tab of the block in hand. */}
+      <rect
+        className="tutorial-anim__tab-mark tutorial-anim__tab-mark--read"
+        x={READ_TABS[1].x}
+        y="144"
+        width="64"
+        height="26"
+        rx="2"
+      />
       <g className="tutorial-anim__panel tutorial-anim__panel--read">
-        <rect x="216" y="14" width="94" height="86" rx="2" />
-        <text className="tutorial-anim__title" x="224" y="32">
+        <rect x="216" y="12" width="94" height="80" rx="2" />
+        <text className="tutorial-anim__title" x="224" y="30">
           Block 2
         </text>
-        <line className="tutorial-anim__rule" x1="224" y1="40" x2="302" y2="40" />
-        <Reading x="224" y="56" value="4.0" label="acres" />
-        <Reading x="224" y="72" value="42.4" label="/100 score" />
-        <Reading x="224" y="88" value="2–8" label="% slope" />
+        <line className="tutorial-anim__rule" x1="224" y1="37" x2="302" y2="37" />
+        <Reading x="224" y="52" value="4.0" label="acres" />
+        <Reading x="224" y="66" value="42.4" label="/100 score" />
+        <Reading x="224" y="80" value="2–8" label="% slope" />
       </g>
       <Cursor modifier="read" />
     </svg>
@@ -294,38 +399,23 @@ export function ReadAnimation() {
    4. TICK — untick a tab, the block leaves; tick it, it returns; commit
    =========================================================================== */
 
-const TICK_BLOCKS = ['40,44 118,32 130,96 56,112', '150,60 232,46 246,110 168,124']
-
-function Tab({ x, name, value, modifier }) {
-  return (
-    <g className={`tutorial-anim__tab${modifier ? ` tutorial-anim__tab--${modifier}` : ''}`}>
-      <rect className="tutorial-anim__tab-card" x={x} y="140" width="92" height="28" rx="2" />
-      <rect className="tutorial-anim__check" x={x + 8} y="149" width="10" height="10" rx="1" />
-      <polyline
-        className={`tutorial-anim__tick${modifier ? ` tutorial-anim__tick--${modifier}` : ''}`}
-        points={`${x + 10.2},${154.2} ${x + 12.6},${156.6} ${x + 16.4},${151.4}`}
-      />
-      <g className={`tutorial-anim__tab-body${modifier ? ` tutorial-anim__tab-body--${modifier}` : ''}`}>
-        <text className="tutorial-anim__name" x={x + 24} y="151">
-          {name}
-        </text>
-        <Reading x={x + 24} y="163" value={value} label="acres" />
-      </g>
-    </g>
-  )
-}
+const TICK_BLOCKS = [
+  'M48,56 C60,36 92,30 116,40 C132,48 130,66 136,82 C142,100 128,116 108,120 C86,124 60,120 50,104 C42,90 40,70 48,56 Z',
+  'M154,66 C170,48 202,44 224,52 C244,60 240,80 246,96 C252,112 236,126 216,128 C196,130 172,130 160,116 C148,102 142,80 154,66 Z',
+]
 
 export function TickAnimation() {
   return (
     <svg className="tutorial-anim tutorial-anim--tick" viewBox={VIEW} role="img" aria-hidden="true" focusable="false">
+      <Hatch id="tutorial-hatch-production-tick" kind="production" />
       <Ground />
-      <polygon className="tutorial-anim__block" points={TICK_BLOCKS[0]} />
-      <polygon className="tutorial-anim__block tutorial-anim__block--tick" points={TICK_BLOCKS[1]} />
-      <Tab x={14} name="Block 1" value="4.0" />
-      <Tab x={112} name="Block 2" value="2.6" modifier="tick" />
+      <Zone d={TICK_BLOCKS[0]} kind="production" hatchId="tutorial-hatch-production-tick" />
+      <Zone d={TICK_BLOCKS[1]} kind="production" hatchId="tutorial-hatch-production-tick" modifier="tick" />
+      <Tab x={14} y={142} width={92} name="Block 1" value="4.0" />
+      <Tab x={112} y={142} width={92} name="Block 2" value="2.6" modifier="tick" />
       <g className="tutorial-anim__commit tutorial-anim__commit--tick">
-        <rect x="232" y="140" width="74" height="28" rx="2" />
-        <text className="tutorial-anim__commit-label" x="269" y="158" textAnchor="middle">
+        <rect x="232" y="142" width="74" height="26" rx="2" />
+        <text className="tutorial-anim__commit-label" x="269" y="159" textAnchor="middle">
           Commit
         </text>
       </g>

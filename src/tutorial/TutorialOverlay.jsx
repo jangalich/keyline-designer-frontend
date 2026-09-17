@@ -12,14 +12,27 @@
  * opened and after it closes. The only state it holds is which card is
  * showing, and that is thrown away on close.
  *
- * THE CARD IS THE ONLY THING THAT TAKES POINTER EVENTS while it is open. It
- * renders through a portal onto <body>, above the map's own stacking (the
- * chrome is z-index 400 inside the page; this is 1000 beside the page), and
- * the backdrop is a fixed full-viewport surface under the card -- so every
- * click that is not on the card lands on the backdrop and closes it, and
- * none reaches the map or the chrome. Keyboard focus is held inside the card
- * the same way: Tab cycles its controls rather than walking out into the
- * rail behind it.
+ * IT LIVES IN THE MAP. The launcher hands it the map's stage element and it
+ * renders there through a portal, absolutely positioned over the whole
+ * stage: the dim covers the map and its chrome and nothing beyond them --
+ * the page around the map is not what the cards are about. Above the
+ * chrome's own z-index inside the same stacking context.
+ *
+ * THE CARD IS THE ONLY THING THAT TAKES POINTER EVENTS while it is open. The
+ * backdrop is a full-stage surface under the card, so every click that is
+ * not on the card lands on the backdrop and closes it, and none reaches the
+ * map or the chrome. Keyboard focus is held inside the card the same way:
+ * Tab cycles its controls rather than walking out into the rail behind it.
+ *
+ * CLOSING STOWS THE CARD INTO THE HELP CONTROL. Every way out runs the same
+ * short motion: the card shrinks along a line to the control that reopens
+ * it, and the control takes it with a small pulse. That is the one piece of
+ * motion in here that says WHERE THE THING WENT -- the answer to "how do I
+ * get that back" is drawn rather than explained. It is the Web Animations
+ * API rather than a keyframe rule because the destination is a measured
+ * point that differs per viewport; it is skipped under
+ * prefers-reduced-motion and wherever animate() is absent (jsdom), in which
+ * case the close is immediate.
  *
  * FOCUS MOVES IN ON OPEN AND BACK OUT ON CLOSE. The card's own element takes
  * focus when it opens (so a screen reader announces the dialogue by its
@@ -45,25 +58,49 @@ export const NEXT_LABEL = 'Next'
 export const BACK_LABEL = 'Back'
 export const DONE_LABEL = 'Got it'
 
+/** How long the card takes to stow into the help control, in ms. */
+export const STOW_MS = 380
+
 /**
  * @param {object} props
  * @param {boolean} props.open        whether the overlay is up.
- * @param {() => void} props.onClose  called for every way out; the launcher
- *                                    decides what dismissal means.
+ * @param {() => void} props.onClose  called for every way out, once the
+ *                                    stow has run: the moment to unmount.
+ * @param {() => void} [props.onDismiss] called for every way out, at once,
+ *                                    before the stow: the moment the user
+ *                                    decided, which is when a preference
+ *                                    should be written -- a reload during
+ *                                    the motion must not lose it.
  * @param {number} [props.initialCard] which card to open on, by index.
+ * @param {Element} [props.container] where to render: the map's stage.
+ * @param {{current: Element|null}} [props.returnTo] the control the card
+ *                                    stows into, and that gets focus back.
  */
-export default function TutorialOverlay({ open, onClose, initialCard = 0 }) {
+export default function TutorialOverlay({
+  open,
+  onClose,
+  onDismiss,
+  initialCard = 0,
+  container,
+  returnTo,
+}) {
   if (!open) return null
-  return createPortal(<Dialogue onClose={onClose} initialCard={initialCard} />, document.body)
+  const target = container ?? document.body
+  return createPortal(
+    <Dialogue onClose={onClose} onDismiss={onDismiss} initialCard={initialCard} returnTo={returnTo} />,
+    target
+  )
 }
 
 /**
  * The dialogue itself, mounted only while open so its state (the card in
  * hand, the element to give focus back to) starts fresh every time.
  */
-function Dialogue({ onClose, initialCard }) {
+function Dialogue({ onClose, onDismiss, initialCard, returnTo }) {
   const [index, setIndex] = useState(() => clamp(initialCard))
   const cardRef = useRef(null)
+  const backdropRef = useRef(null)
+  const closing = useRef(false)
   const titleId = useId()
   const card = CARDS[index]
   const last = index === CARDS.length - 1
@@ -71,6 +108,16 @@ function Dialogue({ onClose, initialCard }) {
 
   const next = useCallback(() => setIndex((i) => Math.min(i + 1, CARDS.length - 1)), [])
   const back = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), [])
+
+  // ONE CLOSE, for every way out: say it was dismissed, stow, then tell the
+  // launcher to take it down. A second request while the stow runs is
+  // ignored rather than queued.
+  const close = useCallback(() => {
+    if (closing.current) return
+    closing.current = true
+    onDismiss?.()
+    stow(cardRef.current, backdropRef.current, returnTo?.current ?? null).then(onClose)
+  }, [onClose, onDismiss, returnTo])
 
   // FOCUS IN, THEN BACK OUT. Captured before the card takes it, restored from
   // the cleanup -- which is the one place that runs on every way this can
@@ -88,11 +135,11 @@ function Dialogue({ onClose, initialCard }) {
   // even if something has moved it. Arrows page; Tab is held inside.
   useEffect(() => {
     function onKeyDown(event) {
-      if (event.defaultPrevented) return
+      if (event.defaultPrevented || closing.current) return
       switch (event.key) {
         case 'Escape':
           event.preventDefault()
-          onClose()
+          close()
           return
         case 'ArrowRight':
           event.preventDefault()
@@ -110,7 +157,7 @@ function Dialogue({ onClose, initialCard }) {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose, next, back])
+  }, [close, next, back])
 
   const { Animation } = card
 
@@ -118,7 +165,12 @@ function Dialogue({ onClose, initialCard }) {
     <div className="tutorial" data-testid="tutorial">
       {/* THE DIM. A surface of its own under the card, so a click anywhere
           that is not the card is a click on this, and this closes. */}
-      <div className="tutorial__backdrop" data-testid="tutorial-backdrop" onClick={onClose} />
+      <div
+        ref={backdropRef}
+        className="tutorial__backdrop"
+        data-testid="tutorial-backdrop"
+        onClick={close}
+      />
       <div
         ref={cardRef}
         className="tutorial__card"
@@ -134,7 +186,7 @@ function Dialogue({ onClose, initialCard }) {
           className="tutorial__close"
           aria-label={CLOSE_LABEL}
           data-testid="tutorial-close"
-          onClick={onClose}
+          onClick={close}
         >
           <span aria-hidden="true">×</span>
         </button>
@@ -184,7 +236,7 @@ function Dialogue({ onClose, initialCard }) {
             type="button"
             className="tutorial__button tutorial__button--primary"
             data-testid="tutorial-next"
-            onClick={last ? onClose : next}
+            onClick={last ? close : next}
           >
             {last ? DONE_LABEL : NEXT_LABEL}
           </button>
@@ -197,6 +249,48 @@ function Dialogue({ onClose, initialCard }) {
 function clamp(index) {
   if (!Number.isInteger(index)) return 0
   return Math.min(Math.max(index, 0), CARDS.length - 1)
+}
+
+/** Does this environment animate, and does the user want it to? */
+function motionAllowed(element) {
+  if (!element || typeof element.animate !== 'function') return false
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true
+  return !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+/**
+ * Stow the card into `target`: shrink it along the line from its centre to
+ * the control's centre while the dim lifts, then pulse the control as it
+ * takes it. Resolves when the card has gone; immediately when nothing can
+ * or should move.
+ */
+export function stow(card, backdrop, target) {
+  if (!motionAllowed(card) || !target) return Promise.resolve()
+  const from = card.getBoundingClientRect()
+  const to = target.getBoundingClientRect()
+  if (!from.width || !to.width) return Promise.resolve()
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2)
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2)
+  const easing = 'cubic-bezier(0.4, 0, 0.2, 1)'
+
+  const motion = card.animate(
+    [
+      { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+      { transform: `translate(${dx}px, ${dy}px) scale(0.05)`, opacity: 0.3, offset: 0.9 },
+      { transform: `translate(${dx}px, ${dy}px) scale(0.05)`, opacity: 0 },
+    ],
+    { duration: STOW_MS, easing, fill: 'forwards' }
+  )
+  if (backdrop && typeof backdrop.animate === 'function') {
+    backdrop.animate([{ opacity: 0.55 }, { opacity: 0 }], { duration: STOW_MS, easing, fill: 'forwards' })
+  }
+  if (typeof target.animate === 'function') {
+    target.animate(
+      [{ transform: 'scale(1)' }, { transform: 'scale(1.25)', offset: 0.4 }, { transform: 'scale(1)' }],
+      { duration: 280, delay: STOW_MS - 80, easing }
+    )
+  }
+  return motion.finished.catch(() => undefined)
 }
 
 /** Everything inside the card a Tab can land on, in document order. */

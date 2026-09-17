@@ -908,51 +908,52 @@
   color: var(--ink-muted);
 }
 
-/* THE HELP CONTROL, AT THE FOOT OF THE RAIL. A circled ? below the last
-   step, the one way back into the tutorial overlay (src/tutorial). It is on
-   the rail because the rail is the one region that is persistent,
-   navigational and present in every machine state; a control that has to be
-   findable at every moment cannot live in a region whose content changes.
+/* --- THE HELP CONTROL, bottom left ------------------------------------------
+   A circled ? in the corner the tab strip leaves empty: the bottom row's
+   first track is a gutter exactly --rail-width wide (see .chrome__bottom),
+   and nothing else uses it. It shares the `bottom` grid area with that row
+   and sits at the area's start and end edges, so it is in the corner by
+   construction rather than by an offset.
 
-   A ROW OF THE RAIL IN EVERYTHING BUT WHAT IT SAYS: the same padding, the
-   same hairline above it, the same hover, the same inset ring. Muted, because
-   it is not a step and must not read as the eighth one -- the glyph is drawn
-   in the data face at the index column's size, which is the rail's own
-   voice for a mark that is not a name. */
-.chrome-rail__help {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  border: none;
-  border-top: var(--hairline);
-  background: transparent;
-  color: var(--ink-muted);
+   NOT A ROW OF THE RAIL. It was, briefly, and read as an eighth step. It is
+   a control on the map with no card of its own, so it takes the action
+   buttons' answer to that: an opaque --paper surface, a hairline, and the
+   casing. Round, because it is a glyph in a ring and not a word in a box,
+   and so the focus ring is restated round too -- the reset's ring would
+   square its corners while focused.
+   --------------------------------------------------------------------------- */
+
+.chrome-help {
+  grid-area: bottom;
+  justify-self: start;
+  align-self: end;
+  /* Above the bottom row it shares the area with; the row itself takes no
+     pointer events, so nothing here can be shadowed by it. */
+  position: relative;
+  z-index: 1;
+  margin: 0 0 var(--space-3) var(--space-3);
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: var(--hairline);
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  line-height: 1;
+  box-shadow: var(--casing-control);
   cursor: pointer;
 }
 
-.chrome-rail__help:hover {
+.chrome-help:hover {
   background: var(--stock);
-  color: var(--ink);
 }
 
-/* Inside the rail's clip, for the step row's reason (see above). */
-.chrome-rail__help:focus-visible {
-  outline-offset: -3px;
-}
-
-.chrome-rail__help-glyph {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.125rem;
-  height: 1.125rem;
-  border: 1px solid currentColor;
+.chrome-help:focus-visible {
   border-radius: 50%;
-  font-family: var(--font-data);
-  font-size: var(--text-xs);
-  line-height: 1;
 }
 
 /* --- B: the instruction card -------------------------------------------------
@@ -2354,10 +2355,6 @@
   .chrome-rail {
     width: auto;
     max-width: 60vw;
-    /* A ROW, so the help control sits at the rail's end rather than under
-       it: the foot of a horizontal rail is its right-hand edge. */
-    display: flex;
-    align-items: stretch;
   }
 
   /* THE PANEL IS CAPPED AGAINST THE VIEWPORT HERE, NOT AGAINST ITS ROW, AND
@@ -2396,14 +2393,13 @@
   .chrome-rail__list {
     display: flex;
     overflow-x: auto;
-    flex: 1 1 auto;
-    min-width: 0;
   }
 
-  .chrome-rail__help {
-    width: auto;
-    border-top: none;
-    border-left: var(--hairline);
+  /* The bottom row's gutter is gone with the rail's width, so the help
+     control moves up into the free map above the tab row, still at the
+     left. */
+  .chrome-help {
+    grid-area: free;
   }
 
   .chrome-rail__item + .chrome-rail__item {
@@ -2851,6 +2847,12 @@
    diagrams draw map features in --field, which the chrome's own rules may
    not, because a diagram inside an opaque card is a map, not a control.
 
+   IT LIVES IN THE MAP. Absolutely positioned over the stage it is portalled
+   into (TutorialHelp finds the nearest .map-stage), so the dim covers the
+   map and its chrome and nothing beyond: the page around the map is not
+   what the cards are about. z-index above the chrome's 400, inside the
+   stage's own stacking.
+
    THE CARD IS A CARD, by the rule every region takes: an opaque --paper
    surface, a rule hairline on all four sides, the radius. It sits on a dim
    rather than on imagery, so it needs no casing.
@@ -2865,14 +2867,16 @@
    --------------------------------------------------------------------------- */
 
 .tutorial {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  /* Above the page (z-index 1), which is the stacking context the chrome's
-     400 and Leaflet's 1000 both live inside. This is a sibling of the page,
-     portalled onto <body>, so it only has to clear the page itself. */
+  /* Above the chrome (400). Leaflet's own controls are isolated inside the
+     map container and cannot reach out of it. */
   z-index: 1000;
-  display: grid;
-  place-items: center;
+  /* Flex rather than grid so the card's percentage max-height resolves
+     against this box's definite height. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: var(--space-4);
 }
 
@@ -2890,10 +2894,10 @@
 .tutorial__card {
   position: relative;
   width: min(100%, 30rem);
-  /* Never taller than the viewport, and scrolls inside itself if it must, so
+  /* Never taller than the stage, and scrolls inside itself if it must, so
      the dots at its foot are always reachable -- a phone in landscape is the
      case that makes this a rule rather than a courtesy. */
-  max-height: calc(100dvh - 2 * var(--space-4));
+  max-height: 100%;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -3150,23 +3154,58 @@ rect.tutorial-anim__solid,
   stroke-dasharray: 2 2;
 }
 
-/* Features: flat shapes in the map's own green. */
-.tutorial-anim__block,
-.tutorial-anim__ring {
-  fill: var(--field);
-  fill-opacity: 0.22;
-  stroke: var(--field);
-  stroke-width: 1.25;
+/* ZONES, AS THE MAP DRAWS THEM. The fill is a <pattern> in the diagram's
+   own tree -- the markup points at it, because a fragment reference does
+   not belong in this file -- and the pattern is the map's hatch: --oxide
+   rising to the right over a faint --rule screen for a production block,
+   --tree falling for a tree zone, spacing 8 and weight 1 in both. The
+   outline is the hatch's own colour, lighter, so an organic edge reads
+   against the ruling. */
+.tutorial-anim__hatch {
+  fill: none;
+  stroke-width: 1;
+}
+
+.tutorial-anim__hatch--production {
+  stroke: var(--oxide);
+}
+
+.tutorial-anim__hatch--tree {
+  stroke: var(--tree);
+}
+
+.tutorial-anim__screen {
+  fill: var(--rule);
+  fill-opacity: 0.12;
+}
+
+.tutorial-anim__screen--tree {
+  fill: none;
+}
+
+.tutorial-anim__block {
+  stroke-width: 1;
+  stroke-opacity: 0.7;
   stroke-linejoin: round;
 }
 
+.tutorial-anim__block--production {
+  stroke: var(--oxide);
+}
+
+.tutorial-anim__block--tree {
+  stroke: var(--tree);
+}
+
+/* The ring the cursor draws: its edge is the segments, so none of its own. */
 .tutorial-anim__ring {
   stroke: none;
 }
 
-/* The focused block: the heavier ink edge the map gives the one you are
-   reading. */
-.tutorial-anim__mark {
+/* The focused block, and its tab: the heavier ink edge the map and the
+   strip give the one you are reading. */
+.tutorial-anim__mark,
+.tutorial-anim__tab-mark {
   fill: none;
   stroke: var(--ink);
   stroke-width: 2;
@@ -3306,16 +3345,16 @@ rect.tutorial-anim__solid,
 
 /* Clicks land at 10, 24, 38, 52, 66 and (closing) 80 percent. */
 @keyframes tutorial-draw-cursor {
-  0% { opacity: 0; transform: translate(40px, 160px); }
-  3% { opacity: 1; transform: translate(40px, 160px); }
-  10%, 13% { opacity: 1; transform: translate(70px, 50px); }
-  24%, 27% { opacity: 1; transform: translate(200px, 38px); }
-  38%, 41% { opacity: 1; transform: translate(250px, 110px); }
-  52%, 55% { opacity: 1; transform: translate(160px, 150px); }
-  66%, 69% { opacity: 1; transform: translate(60px, 120px); }
-  80%, 83% { opacity: 1; transform: translate(70px, 50px); }
-  90% { opacity: 1; transform: translate(290px, 160px); }
-  93%, 100% { opacity: 0; transform: translate(290px, 160px); }
+  0% { opacity: 0; transform: translate(300px, 30px); }
+  3% { opacity: 1; transform: translate(300px, 30px); }
+  10%, 13% { opacity: 1; transform: translate(60px, 44px); }
+  24%, 27% { opacity: 1; transform: translate(150px, 34px); }
+  38%, 41% { opacity: 1; transform: translate(178px, 96px); }
+  52%, 55% { opacity: 1; transform: translate(120px, 138px); }
+  66%, 69% { opacity: 1; transform: translate(44px, 110px); }
+  80%, 83% { opacity: 1; transform: translate(60px, 44px); }
+  90% { opacity: 1; transform: translate(300px, 30px); }
+  93%, 100% { opacity: 0; transform: translate(300px, 30px); }
 }
 
 @keyframes tutorial-draw-press {
@@ -3351,29 +3390,39 @@ rect.tutorial-anim__solid,
 @keyframes tutorial-draw-ring { 0%, 81% { opacity: 0; } 85%, 96% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes tutorial-draw-chip { 0%, 84% { opacity: 0; } 88%, 96% { opacity: 1; } 100% { opacity: 0; } }
 
-/* --- 3. Read: one click, one mark, one panel; nothing else moves --------- */
+/* --- 3. Read: click the block, click bare ground, click its tab --------- */
 
 .tutorial-anim__cursor--read { animation-name: tutorial-read-cursor; animation-timing-function: ease-in-out; }
 .tutorial-anim__pointer--read { animation-name: tutorial-read-press; }
 .tutorial-anim__mark--read { animation-name: tutorial-read-mark; }
+.tutorial-anim__tab-mark--read { animation-name: tutorial-read-mark; }
 .tutorial-anim__panel--read { animation-name: tutorial-read-panel; }
 
+/* Clicks at 15 (the block: panel opens), 35 (bare ground: it closes) and
+   55 (the tab: it opens again) percent. The mark, the tab's mark and the
+   panel are the only things that move; the blocks and the tabs stay put. */
 @keyframes tutorial-read-cursor {
   0% { opacity: 0; transform: translate(300px, 168px); }
   4% { opacity: 1; transform: translate(300px, 168px); }
-  20%, 26% { opacity: 1; transform: translate(150px, 96px); }
-  38% { opacity: 1; transform: translate(300px, 168px); }
-  41%, 100% { opacity: 0; transform: translate(300px, 168px); }
+  14%, 18% { opacity: 1; transform: translate(158px, 94px); }
+  34%, 38% { opacity: 1; transform: translate(168px, 24px); }
+  54%, 58% { opacity: 1; transform: translate(100px, 157px); }
+  70% { opacity: 1; transform: translate(300px, 168px); }
+  73%, 100% { opacity: 0; transform: translate(300px, 168px); }
 }
 
 @keyframes tutorial-read-press {
-  0%, 20% { transform: scale(1); }
-  21% { transform: scale(0.8); }
-  22%, 100% { transform: scale(1); }
+  0%, 15% { transform: scale(1); }
+  16% { transform: scale(0.8); }
+  17%, 35% { transform: scale(1); }
+  36% { transform: scale(0.8); }
+  37%, 55% { transform: scale(1); }
+  56% { transform: scale(0.8); }
+  57%, 100% { transform: scale(1); }
 }
 
-@keyframes tutorial-read-mark { 0%, 21% { opacity: 0; } 23%, 96% { opacity: 1; } 100% { opacity: 0; } }
-@keyframes tutorial-read-panel { 0%, 23% { opacity: 0; } 28%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-read-mark { 0%, 15% { opacity: 0; } 16%, 35% { opacity: 1; } 36%, 55% { opacity: 0; } 56%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-read-panel { 0%, 16% { opacity: 0; } 19%, 35% { opacity: 1; } 37%, 56% { opacity: 0; } 59%, 96% { opacity: 1; } 100% { opacity: 0; } }
 
 /* --- 4. Tick: untick, the block leaves; tick, it returns; then commit ---- */
 
@@ -3388,8 +3437,8 @@ rect.tutorial-anim__solid,
 @keyframes tutorial-tick-cursor {
   0% { opacity: 0; transform: translate(300px, 100px); }
   4% { opacity: 1; transform: translate(300px, 100px); }
-  15%, 36% { opacity: 1; transform: translate(125px, 156px); }
-  52%, 56% { opacity: 1; transform: translate(268px, 157px); }
+  15%, 36% { opacity: 1; transform: translate(191px, 154px); }
+  52%, 56% { opacity: 1; transform: translate(269px, 154px); }
   68% { opacity: 1; transform: translate(300px, 100px); }
   71%, 100% { opacity: 0; transform: translate(300px, 100px); }
 }

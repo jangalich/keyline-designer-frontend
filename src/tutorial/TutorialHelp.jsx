@@ -1,12 +1,12 @@
 /**
  * TutorialHelp.jsx  —  THE HELP CONTROL, AND THE ONE TIME THE OVERLAY OPENS ITSELF.
  *
- * A small circled ? at the foot of the step rail, below the last step. The
- * rail is the only persistent, navigational region and it is present in
- * every machine state, which is why the control goes there and not in the
- * detail panel, the tab strip or the action banner -- all of which hold
- * content that changes. It is labelled for a screen reader ("How the map
- * works") and opens the overlay at card 1.
+ * A small circled ? in the bottom-left corner of the map -- the gutter the
+ * tab strip leaves under the rail -- with the same casing the action buttons
+ * take, because it is on aerial photography with no card of its own. It is
+ * its own thing, not a row of the rail: a control that reads as part of the
+ * step list reads as a step, and this is not one. It is labelled for a screen
+ * reader ("How the map works") and opens the overlay at card 1.
  *
  * AUTO-OPEN, EXACTLY ONCE, AND ONLY FOR A FIRST-TIME USER.
  *
@@ -29,14 +29,19 @@
  *   is already working and this stays down.
  *
  *   DISMISSED ONCE IS DISMISSED FOR GOOD. Every way out writes
- *   `kd.tutorial.dismissed` to localStorage, and with that key present it
- *   never auto-opens again -- on any session, on any parcel. The help
+ *   `keyline.tutorial.dismissed` to localStorage, and with that key present
+ *   it never auto-opens again -- on any session, on any parcel. The help
  *   control is the only way back in.
  *
  * DISMISSAL IS A BROWSER PREFERENCE, NOT A DOCUMENT FACT. It lives beside
  * the session id in localStorage and nowhere near the session store: it says
  * nothing about the design, it must not survive into a document, and it
  * must not go on the wire. SessionStore.jsx is untouched.
+ *
+ * THE OVERLAY LIVES IN THE MAP. It is portalled into the nearest `.map-stage`
+ * -- the element the chrome floats over -- rather than onto <body>, so the
+ * dim covers the map and nothing else, and closing it stows the card into
+ * this control (see TutorialOverlay's stow).
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -45,13 +50,16 @@ import { initialSessionId, useSession } from '../session/SessionStore'
 import TutorialOverlay from './TutorialOverlay.jsx'
 
 /** The localStorage key, beside `keyline.sessionId`. */
-export const TUTORIAL_DISMISSED_KEY = 'kd.tutorial.dismissed'
+export const TUTORIAL_DISMISSED_KEY = 'keyline.tutorial.dismissed'
 
 /** What the control says to a screen reader. */
 export const HELP_LABEL = 'How the map works'
 
 /** Leaflet's own mark on a tile whose image has arrived. */
 const TILE_LOADED_SELECTOR = '.leaflet-tile-loaded'
+
+/** The element the overlay is placed in: the map's stage. */
+const STAGE_SELECTOR = '.map-stage'
 
 // Guarded like the store's own reads: localStorage throws in a Safari private
 // window and is absent outside a DOM, and neither is a reason not to render.
@@ -137,28 +145,44 @@ export default function TutorialHelp() {
     setOpen(true)
   }, [candidate, painted, state.sessionId])
 
-  function close() {
+  // THE PREFERENCE IS WRITTEN WHEN THE USER DECIDES, not when the card has
+  // finished stowing: a reload during the motion must still count as a
+  // dismissal.
+  function dismiss() {
     persistTutorialDismissed()
+  }
+
+  function close() {
     setOpen(false)
   }
+
+  // The stage is looked up when the overlay is about to render, by which
+  // time the control is in the document; <body> only if there is no stage,
+  // which is the case in a test that renders the shell bare.
+  const container = open ? (button.current?.closest(STAGE_SELECTOR) ?? document.body) : null
 
   return (
     <>
       <button
         ref={button}
         type="button"
-        className="chrome-rail__help"
+        className="chrome-help"
         aria-label={HELP_LABEL}
         aria-haspopup="dialog"
         aria-expanded={open ? 'true' : 'false'}
         data-testid="tutorial-help"
         onClick={() => setOpen(true)}
       >
-        <span className="chrome-rail__help-glyph" aria-hidden="true">
-          ?
-        </span>
+        <span aria-hidden="true">?</span>
       </button>
-      <TutorialOverlay open={open} onClose={close} initialCard={0} />
+      <TutorialOverlay
+        open={open}
+        onClose={close}
+        onDismiss={dismiss}
+        initialCard={0}
+        container={container}
+        returnTo={button}
+      />
     </>
   )
 }
