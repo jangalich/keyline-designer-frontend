@@ -75,6 +75,7 @@ import StepRail from './shell/StepRail.jsx'
 import TabStrip from './shell/TabStrip.jsx'
 import { chromeStateFor } from './shell/chromeState.js'
 import { useWizardCursor } from './WizardCursor.jsx'
+import TutorialHelp from '../tutorial/TutorialHelp.jsx'
 import { useStepMachine } from './useStepMachine'
 
 export default function WizardShell() {
@@ -96,6 +97,12 @@ export default function WizardShell() {
       ) : (
         <UnregisteredChrome stepId={cursorStepId} />
       )}
+      {/* THE HELP CONTROL, bottom left, in the gutter the tab strip leaves
+          under the rail. Not a region and not a step: it is present in every
+          machine state, and it opens the tutorial overlay over the map. Last
+          in the DOM so it paints above the bottom row it shares an area with.
+          See TutorialHelp. */}
+      <TutorialHelp />
     </div>
   )
 }
