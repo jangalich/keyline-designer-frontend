@@ -147,6 +147,17 @@ function PointDraw({ layer, armed, stepId }) {
  * declined to put clampToBoundary() here: the rules are a reading of one
  * step's payload, and a copy of them in this file would apply them to every
  * step's drawing on a guess at when they apply.
+ *
+ * AND A STEP MAY ASK THE SERVER WHAT IT DREW. `shape.measure` is the optional
+ * second half of that contract: the shape lands in the draft FIRST, from
+ * `close()`, and the measurement follows when it arrives. Landform declares
+ * one -- the slope, aspect, position and soil under a drawn block are
+ * readings of ground only the server holds -- and SitePlace below is the same
+ * verb the other way round, where the server's answer IS the feature and
+ * there is nothing to show until it lands. The order is the difference and it
+ * is deliberate: a drawn ring is already a decision the moment it closes, so
+ * it must never wait on a request to appear, and a request that fails leaves
+ * the block on the map with em dashes where its readings would be.
  */
 function ShapeDraw({ layer, armed, renders, stepId, definition, references }) {
   const { actions } = useSession()
@@ -200,7 +211,16 @@ function ShapeDraw({ layer, armed, renders, stepId, definition, references }) {
     // to the draft: a draft's inputs are sent with the commit, and a message
     // about a gesture is not a decision. See NOTHING_IN_FLIGHT's `notice`.
     progress.settle(prepared?.notice ?? null)
-    if (prepared?.feature) actions.addDrawnFeature(stepId, prepared.feature)
+    if (!prepared?.feature) return
+    actions.addDrawnFeature(stepId, prepared.feature)
+    // NOT AWAITED, AND NOTHING BRANCHES ON IT. The block is in the draft; the
+    // reading is an addition to it that either arrives or does not, and the
+    // step's own measure() is where a failure is decided about (landform:
+    // leave the em dashes). A rejection reaching the console is the store's
+    // reporting, not a gesture that went wrong.
+    if (shape?.measure) {
+      shape.measure({ feature: prepared.feature, points, actions, stepId })
+    }
   }
 
   return (

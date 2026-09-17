@@ -33,6 +33,7 @@ import {
   DRAFT_SELECTION_TOGGLED,
   DRAFT_SHAPE_ADDED,
   DRAFT_SHAPE_REMOVED,
+  DRAFT_SHAPE_MEASURED,
   FEATURE_WRITING_ACTIONS,
   GENERATED,
   JOB_FORGOTTEN,
@@ -961,6 +962,16 @@ describe('9. no derived design content', () => {
         feature: { type: 'Feature', id: 'drawn-1', properties: {}, geometry: null },
       },
       [DRAFT_SHAPE_REMOVED]: { type: DRAFT_SHAPE_REMOVED, stepId: 'water', featureId: 'drawn-1' },
+      // The server's READING of a shape already in the draft -- landform's
+      // scored drawn block. Server-authored like a document, but it lands on
+      // a DRAFT feature and never on steps[].features, which is the thing
+      // this list exists to hold every action to.
+      [DRAFT_SHAPE_MEASURED]: {
+        type: DRAFT_SHAPE_MEASURED,
+        stepId: 'water',
+        featureId: 'drawn-1',
+        reading: { score: 62.4 },
+      },
       [DRAFT_INPUT_SET]: { type: DRAFT_INPUT_SET, stepId: 'roads', key: 'access_point', value: [40.7, -74.0] },
       [DRAFT_DISCARDED]: { type: DRAFT_DISCARDED, stepId: 'water' },
       // The placeholder a generate writes before the server has issued an id.

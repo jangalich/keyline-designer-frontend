@@ -115,6 +115,7 @@ export const DRAFT_SELECTION_SET = 'draft/selectionSet'
 export const DRAFT_SELECTION_TOGGLED = 'draft/selectionToggled'
 export const DRAFT_SHAPE_ADDED = 'draft/shapeAdded'
 export const DRAFT_SHAPE_REMOVED = 'draft/shapeRemoved'
+export const DRAFT_SHAPE_MEASURED = 'draft/shapeMeasured'
 export const DRAFT_INPUT_SET = 'draft/inputSet'
 export const DRAFT_DISCARDED = 'draft/discarded'
 export const JOB_SUBMITTED = 'job/submitted'
@@ -153,6 +154,7 @@ export const ALL_ACTIONS = Object.freeze([
   DRAFT_SELECTION_TOGGLED,
   DRAFT_SHAPE_ADDED,
   DRAFT_SHAPE_REMOVED,
+  DRAFT_SHAPE_MEASURED,
   DRAFT_INPUT_SET,
   DRAFT_DISCARDED,
   JOB_SUBMITTED,
@@ -608,6 +610,35 @@ function reduce(state, action) {
         selectedFeatureIds: draft.selectedFeatureIds.includes(action.feature.id)
           ? draft.selectedFeatureIds
           : [...draft.selectedFeatureIds, action.feature.id],
+      })
+    }
+
+    case DRAFT_SHAPE_MEASURED: {
+      // A READING ARRIVING FOR A SHAPE ALREADY IN THE DRAFT -- the server's
+      // measurement of a block the user drew, landing a moment after the
+      // block did (landform's measureDrawnBlock).
+      //
+      // IT MERGES INTO PROPERTIES AND REPLACES NOTHING ELSE. The geometry the
+      // user drew, the id the draw assigned and the acreage the clamp
+      // measured are the BLOCK; what arrives here is what the ground under it
+      // is like. The step decides which fields those are (DRAWN_BLOCK_READING_
+      // FIELDS) and this applies them -- a reducer that took whatever a
+      // response carried would let a server reply rewrite a drawn block's own
+      // identity.
+      //
+      // A SHAPE THAT IS NO LONGER THERE IS NOT AN ERROR. The reading is
+      // asynchronous and the × is one click; a block deleted while its
+      // measurement was in flight leaves the state untouched rather than
+      // reviving itself.
+      const draft = draftOf(state, action.stepId)
+      if (!draft.drawnFeatures.some((feature) => feature.id === action.featureId)) return state
+      return withDraft(state, action.stepId, {
+        ...draft,
+        drawnFeatures: draft.drawnFeatures.map((feature) =>
+          feature.id === action.featureId
+            ? { ...feature, properties: { ...feature.properties, ...action.reading } }
+            : feature
+        ),
       })
     }
 
@@ -1742,6 +1773,10 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       toggleSelection: (stepId, featureId) =>
         dispatch({ type: DRAFT_SELECTION_TOGGLED, stepId, featureId }),
       addDrawnFeature: (stepId, feature) => dispatch({ type: DRAFT_SHAPE_ADDED, stepId, feature }),
+      // The server's reading of a shape already in the draft. See the
+      // reducer's DRAFT_SHAPE_MEASURED.
+      measureDrawnFeature: (stepId, featureId, reading) =>
+        dispatch({ type: DRAFT_SHAPE_MEASURED, stepId, featureId, reading }),
       removeDrawnFeature: (stepId, featureId) =>
         dispatch({ type: DRAFT_SHAPE_REMOVED, stepId, featureId }),
       setDraftInput: (stepId, key, value) => dispatch({ type: DRAFT_INPUT_SET, stepId, key, value }),

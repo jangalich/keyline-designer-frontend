@@ -61,7 +61,10 @@ import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx
 import MapLayerStack from './map/MapLayerStack.jsx'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
 import { CAUTION_PANE_Z } from './map/CautionMarkers.jsx'
+import polygonClipping from 'polygon-clipping'
+
 import { CAUTION_MIN_ACRES, cautionsFor, clampToBoundary, exclusionGrounds } from './zoneGeometry.js'
+import { multiPolygonAreaAcres, toMultiPolygon } from './geo.js'
 import captured from './fixtures/landform-session.json'
 import rings from './fixtures/rings.json'
 
@@ -467,6 +470,75 @@ describe('4. a drawn zone over the hydric mask', () => {
 })
 
 /* ===========================================================================
+   4b. A DRAWN BLOCK IS MEASURED
+   =========================================================================== */
+
+describe('4b. a drawn block is scored by the server', () => {
+  liveIt('fills the whole panel in, on the same instrument as the suggestions', async () => {
+    const ui = await renderApp()
+    await throughGenerate(ui)
+
+    const suggestions = ui.state.steps.landform.proposals.zones
+    await drawZone(ui, HYDRIC_RING)
+
+    // THE READING ARRIVES AFTER THE BLOCK DOES. Drawing is a decision and
+    // never waits on a request; the measurement follows it.
+    await ui.waitFor(
+      "the server's reading of the drawn block",
+      () => selectDraft(ui.state, 'landform').drawnFeatures[0]?.properties?.score != null
+    )
+    const drawn = selectDraft(ui.state, 'landform').drawnFeatures[0]
+    const properties = drawn.properties
+
+    // EVERY FACTOR, on the same 0-100 scale the suggestions are read on.
+    expect(Object.keys(properties.factors).sort()).toEqual([
+      'aspect_factor',
+      'shape_factor',
+      'slope_factor',
+      'soil_factor',
+    ])
+    expect(properties.score).toBeGreaterThanOrEqual(ui.state.steps.landform.proposals.scales.range[0])
+    expect(properties.score).toBeLessThanOrEqual(ui.state.steps.landform.proposals.scales.range[1])
+    expect(properties.block_origin).toBe('user_drawn')
+
+    // THE FIVE READINGS THE PANEL SHOWS. This ring sits on the hydric mask,
+    // so the soil under it is named and its drainage class with it.
+    expect(properties.slope_median_pct).toBeGreaterThan(0)
+    expect(properties.dominant_aspect).toBeTruthy()
+    expect(properties.elevation_position).toBeTruthy()
+    expect(properties.soil_components.length).toBeGreaterThan(0)
+    expect(properties.drainage_class).toBeTruthy()
+
+    // NO RANK. It is a position among candidates this block was not one of,
+    // and production's panel shows none -- so the server sends none rather
+    // than inventing one.
+    expect(properties.rank).toBeUndefined()
+
+    // AND THE BLOCK IS STILL THE USER'S. The reading did not overwrite what
+    // the draw decided: the id, the acreage the clamp measured, the low
+    // confidence and the hand-drawn note are all untouched.
+    expect(drawn.id).toMatch(/^drawn-/)
+    expect(properties.confidence).toBe('low')
+    expect(properties.confidence_notes).toContain('Drawn by hand')
+    expect(properties.acres).toBeCloseTo(clampToBoundary(HYDRIC_RING, BOUNDARY).acres, 6)
+
+    // THE PANEL RENDERS IT, through the step's own declaration.
+    const context = { proposals: ui.state.steps.landform.proposals, draft: selectDraft(ui.state, 'landform') }
+    const rows = LANDFORM_STEP.detail(context, drawn.id).rows
+    const labels = rows.filter((row) => row.label).map((row) => row.label)
+    expect(labels).toEqual(['aspect', 'position', 'median slope %', 'soil', 'drainage', 'confidence', 'source'])
+    for (const row of rows) expect(row.value).not.toBe(EM_DASH)
+
+    console.log(
+      `DRAWN SCORED: ${properties.score}/100 on ${properties.acres.toFixed(2)} ac ` +
+        `(${JSON.stringify(properties.factors)}), ${properties.drainage_class.toLowerCase()} soil, ` +
+        `beside suggestions scoring ${suggestions.map((zone) => zone.score).join(', ')}`
+    )
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
    5. CROSSING AGREEMENT -- two implementations, one answer
    =========================================================================== */
 
@@ -486,6 +558,51 @@ describe('5. crossing agreement', () => {
    * the backend's own section 7 cannot make (it ports cautionsFor() into
    * shapely, isolating the projection difference but not the clipping library).
    */
+  /**
+   * THE FLOOR IS ABSOLUTE, AND THE DISPLAY IS A SHARE. The two are different
+   * quantities and this is where the difference is asked about directly.
+   *
+   * The captured `graze` zone is the case: it touches the hydric gate over
+   * 0.0102 acres, which is BELOW CAUTION_MIN_ACRES and dropped -- and that
+   * same crossing is about a ninth of the block, a percentage that would have
+   * comfortably cleared any floor stated as a share. A percentage floor would
+   * show it, and what it would show is a 5 m cell staircase disagreeing with a
+   * hand-drawn ring along their shared edge: the clip itself, not a
+   * measurement of anything. The block being small is exactly what makes the
+   * share big, and is no reason to trust the sliver.
+   */
+  it('drops a sub-floor crossing however large a share of the block it is', () => {
+    const ring = captured.graze.feature.geometry.coordinates[0].map(([lng, lat]) => [lat, lng])
+    const { multi } = clampToBoundary(ring, BOUNDARY)
+    const blockAcres = multiPolygonAreaAcres(multi)
+
+    const hydricLayer = captured.payload.exclusion_layers.filter((layer) => layer.type === 'hydric')
+    const grounds = exclusionGrounds(hydricLayer)
+
+    // What the clip actually finds, with the floor taken out of the way.
+    const raw = polygonClipping.intersection(multi, toMultiPolygon(grounds[0].geometry_wgs84))
+    const rawAcres = multiPolygonAreaAcres(raw)
+    const rawPct = (rawAcres / blockAcres) * 100
+
+    expect(rawAcres).toBeGreaterThan(0)
+    expect(rawAcres).toBeLessThan(CAUTION_MIN_ACRES)
+    // A share no percentage floor worth having would drop.
+    expect(rawPct).toBeGreaterThan(5)
+
+    // AND IT DOES NOT RENDER. Not as a percentage, not as an acreage, not at
+    // all -- and the server dropped it too, which is the agreement the floor
+    // being one constant on both sides buys.
+    expect(cautionsFor(multi, grounds)).toEqual([])
+    expect(captured.graze.recorded_crossings.map((c) => c.type)).not.toContain('hydric')
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `FLOOR  the graze block is ${blockAcres.toFixed(3)} ac and touches hydric over ` +
+        `${rawAcres.toFixed(4)} ac -- ${rawPct.toFixed(1)}% of it, and still under the ` +
+        `${CAUTION_MIN_ACRES} acre floor, so neither the panel nor the document carries it`
+    )
+  })
+
   for (const key of ['hydric', 'graze']) {
     it(`agrees with the server for the ${key} zone, including the floor`, () => {
       const captured_ = captured[key]
@@ -514,6 +631,36 @@ describe('5. crossing agreement', () => {
       // caution in the document the user was never shown.
       expect(CAUTION_MIN_ACRES).toBe(0.05)
       for (const caution of client) expect(caution.acres).toBeGreaterThanOrEqual(CAUTION_MIN_ACRES)
+
+      // THE PANEL'S PERCENTAGE AND THE DOCUMENT'S ACREAGE DESCRIBE ONE
+      // CROSSING, and this is the assertion that says so. The panel prints a
+      // share of the drawn block; the commit records an acreage; multiplying
+      // the share by the block's own acreage has to give the acreage back, or
+      // the two surfaces are describing different ground.
+      //
+      // THE CONVERSION HAPPENS IN ONE PLACE -- cautionsFor(), beside the clip
+      // it divides -- so what is checked here is that ONE division, against
+      // the server's own figure for the same crossing.
+      const blockAcres = multiPolygonAreaAcres(multi)
+      for (let i = 0; i < server.length; i++) {
+        const fromShare = (client[i].pct / 100) * blockAcres
+        expect(fromShare).toBeCloseTo(client[i].acres, 6)
+        expect(Math.abs(fromShare - server[i].acres)).toBeLessThanOrEqual(
+          0.02 + 0.02 * client[i].acres
+        )
+      }
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `SHARE[${key}]  block ${blockAcres.toFixed(3)} ac; ` +
+          client
+            .map(
+              (c) =>
+                `${c.type} ${c.acres.toFixed(4)} ac = ${c.pct.toFixed(1)}% of the block ` +
+                `(document records ${server.find((r) => r.type === c.type).acres} ac)`
+            )
+            .join('; ')
+      )
 
       // AND WHAT BOTH DROPPED. Every available gate this zone touches at all,
       // with the sub-floor ones named, so the silence is visible rather than
@@ -614,7 +761,11 @@ describe('7. an empty commit', () => {
     // nothing selected the commit is offered under its own name, and a user
     // who has taken everything out has to press that rather than the ordinary
     // one.
-    expect(ui.find('commit-landform').textContent).toContain('no zones')
+    // "no blocks", not "no zones": the strip and the panel call a production
+    // zone a Block and the button follows them. This assertion still read
+    // 'no zones' after that rename -- it only runs against a live backend, so
+    // it went unseen -- and it is corrected here rather than left red.
+    expect(ui.find('commit-landform').textContent).toContain('no blocks')
     expect(ui.find('commit-landform').disabled).toBe(false)
 
     await ui.click('commit-landform')
@@ -1430,29 +1581,124 @@ describe('12. the panel, against the shared format', () => {
   })
 
   /**
-   * A DRAWN BLOCK TAKES THE SAME FORMAT, with fewer rows because nothing
-   * measured it. The header is its tab's -- "Drawn 1", which says WHICH one --
-   * rather than the detail's own fallback.
+   * A DRAWN BLOCK TAKES THE SAME FORMAT -- AND NOW THE SAME ROWS.
+   *
+   * It used to take fewer, because nothing had measured it: acres, an em-dash
+   * score, confidence and source. The server measures the ring now, against
+   * the run the suggestions were scored on, so the middle block is the same
+   * five rows a suggestion carries and the score is a figure. The header is
+   * its tab's -- "Drawn 1", which says WHICH one -- rather than the detail's
+   * own fallback.
    */
-  it('gives a drawn block the same shape, and names it from its tab', () => {
-    const drawn = {
-      type: 'Feature',
-      id: 'drawn-1',
-      geometry: { type: 'MultiPolygon', coordinates: [] },
-      properties: { acres: 1.25, confidence: 'low', cautions: [] },
-    }
+  const measuredDrawn = (overrides = {}) => ({
+    type: 'Feature',
+    id: 'drawn-1',
+    geometry: { type: 'MultiPolygon', coordinates: [] },
+    properties: {
+      acres: 0.5,
+      confidence: 'low',
+      cautions: [],
+      // The server's own reading, in the shape a zones row has -- these are
+      // the field names measureDrawnBlock() merges (see DRAWN_BLOCK_READING_
+      // FIELDS), carrying the values the backend's scorer publishes.
+      block_origin: 'user_drawn',
+      score: 62.4,
+      factors: { slope_factor: 84.1, shape_factor: 67.5, aspect_factor: 41.2, soil_factor: 100.0 },
+      slope_median_pct: 3.2,
+      dominant_aspect: 'south',
+      aspect_available: true,
+      soil_components: [{ label: '62% Gilpin silt loam' }],
+      drainage_class: 'well drained',
+      soil_available: true,
+      elevation_position: 'upper field',
+      ...overrides,
+    },
+  })
+
+  it('gives a drawn block the whole middle block, its score, and its own two rows', () => {
+    const drawn = measuredDrawn()
     const { tab, body } = bodyFor('drawn-1', [drawn])
     expect(tab.name).toBe('Drawn 1')
+
+    // [1] THE FULL MIDDLE SECTION -- the same five readings a suggestion
+    // shows, in the same order, off the same builder.
     expect(body.map((row) => (row.panelBreak ? '——' : row.label))).toEqual([
       'acres',
       '/100 score',
       '——',
+      'aspect',
+      'position',
+      'median slope %',
+      'soil',
+      'drainage',
       'confidence',
       'source',
     ])
-    // NEVER SCORED, so an em dash rather than a 0.0 that reads as "scored, and
-    // badly" -- above the break, in the tab's own row.
-    expect(body[0].value).toBe((1.25).toFixed(1))
+    const labelled = Object.fromEntries(
+      body.filter((row) => row.label).map((row) => [row.label, row.value])
+    )
+    expect(labelled.aspect).toBe('south facing')
+    expect(labelled.position).toBe('upper field')
+    expect(labelled['median slope %']).toBe((3.2).toFixed(1))
+    expect(labelled.soil).toBe('62% Gilpin silt loam')
+    expect(labelled.drainage).toBe('well drained')
+
+    // [2] ITS SCORE RENDERS, in the tab's own row, on the same /100 scale the
+    // suggestions are read on.
+    expect(body[0].value).toBe((0.5).toFixed(1))
+    expect(body[1].value).toBe((62.4).toFixed(1))
+    expect(body[1].label).toBe('/100 score')
+    expect(tab.rows[1].value).toBe((62.4).toFixed(1))
+
+    // [3] CONFIDENCE AND SOURCE STILL RENDER, and they are LAST -- after the
+    // readings, where they qualify the whole block rather than sitting above
+    // its measurements. They are what keeps a 62 reading as "good ground,
+    // your call" instead of as a recommendation the tool made.
+    expect(body.at(-2)).toMatchObject({ label: 'confidence', value: 'low' })
+    expect(body.at(-1)).toMatchObject({ label: 'source', value: 'drawn by hand' })
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `PANEL[${tab.name}]  ` +
+        body.map((row) => (row.panelBreak ? '│' : `${row.value} ${row.label}`)).join('  ')
+    )
+  })
+
+  /**
+   * [2b] THE EM-DASH PATH IS STILL THERE, and it is now the answer to a
+   * DIFFERENT question: not "this was never scored" but "this reading has not
+   * arrived" -- the moment between the ring closing and the server answering,
+   * and the state a block keeps if the measurement failed. Every row prints
+   * its em dash and the panel keeps its shape.
+   */
+  it('renders an em dash for a drawn block whose reading has not arrived', () => {
+    const unmeasured = {
+      type: 'Feature',
+      id: 'drawn-1',
+      geometry: { type: 'MultiPolygon', coordinates: [] },
+      properties: { acres: 0.5, confidence: 'low', cautions: [] },
+    }
+    const { body } = bodyFor('drawn-1', [unmeasured])
+    expect(body.map((row) => (row.panelBreak ? '——' : row.label))).toEqual([
+      'acres',
+      '/100 score',
+      '——',
+      'aspect',
+      'position',
+      'median slope %',
+      'soil',
+      'drainage',
+      'confidence',
+      'source',
+    ])
     expect(body[1].value).toBe(EM_DASH)
+    for (const label of ['aspect', 'position', 'median slope %', 'soil', 'drainage']) {
+      expect(body.find((row) => row.label === label).value).toBe(EM_DASH)
+    }
+    // ...and a genuinely absent FACTOR on a measured block still prints one:
+    // the aspect flag false is the pipeline saying the ground faces nowhere.
+    const flat = bodyFor('drawn-1', [measuredDrawn({ aspect_available: false })])
+    expect(flat.body.find((row) => row.label === 'aspect').value).toBe(EM_DASH)
+    expect(flat.body.find((row) => row.label === '/100 score').value).toBe((62.4).toFixed(1))
   })
 })
