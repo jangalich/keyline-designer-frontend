@@ -584,13 +584,13 @@ describe('1. end to end against the real backend', () => {
             node.classList?.contains('chrome-detail__cautions') ? [...node.children] : [node]
           )
           .map((node) => {
-            if (node.tagName === 'HR') return `${' '.repeat(8)}   ${'\u2500'.repeat(24)}`
-            if (node.tagName === 'H4') return `${' '.repeat(8)}   ${node.textContent.toUpperCase()}`
+            if (node.tagName === 'HR') return `${' '.repeat(12)}   ${'\u2500'.repeat(28)}`
+            if (node.tagName === 'H4') return `${' '.repeat(12)}   ${node.textContent.toUpperCase()}`
             const term = node.querySelector('.chrome-detail__term')
-            if (term) return `${' '.repeat(8)}   ${term.textContent}`
+            if (term) return `${' '.repeat(12)}   ${term.textContent}`
             const value = node.querySelector('.chrome-detail__figure, .chrome-detail__phrase')
             const label = node.querySelector('.chrome-detail__row-label')
-            return `${String(value?.textContent ?? '').padStart(8)}   ${label?.textContent ?? ''}`
+            return `${String(value?.textContent ?? '').padStart(12)}   ${label?.textContent ?? ''}`
           })
           .join('\n')
       // eslint-disable-next-line no-console
