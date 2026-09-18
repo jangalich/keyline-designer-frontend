@@ -1291,6 +1291,29 @@ export function defineStep(definition) {
       )
     }
   }
+  /* A SHAPE SAYS WHAT COLOUR IT IS BEING DRAWN IN, and it is refused without
+     one. `shape.accent` names a token below :root -- 'oxide', 'tree' -- and
+     the drawing tool reads `--<accent>` for the in-progress line.
+
+     THE COLOUR COMES FROM THE STEP, NOT THE TOOL. ZoneDrawTool read `--oxide`
+     from a module-level memo, hard-coded, because it was landform's tool and
+     oxide is landform's mark; trees reuses the component and inherited the
+     colour, so a tree zone went down in production's accent and settled into
+     the tree hatch. A tool that knows which step armed it is the one thing
+     the declaration arrangement exists to prevent, and every other thing a
+     step's geometry looks like is already declared (a layer's `treatment`,
+     its band, its pane).
+
+     REFUSED AT DEFINITION TIME rather than defaulted, for defineChrome()'s
+     reason: a default here is a step drawing in another step's colour, which
+     looks deliberate on screen and is invisible in the source. */
+  if (shape && (typeof shape.accent !== 'string' || !shape.accent.trim())) {
+    throw new Error(
+      `Step '${id}' declares a \`shape\` with no \`shape.accent\`. The in-progress ` +
+        'line takes its colour from the step, so a step that draws has to name the ' +
+        'token it draws in.'
+    )
+  }
   if (typeof status !== 'function') {
     throw new Error(`Step '${id}' must say where its status comes from.`)
   }
@@ -1786,6 +1809,13 @@ async function measureDrawnBlock({ feature, points, actions, stepId }) {
 }
 
 export const LANDFORM_SHAPE = Object.freeze({
+  /* OXIDE, WHICH IS THE FORWARD-MOVE ACCENT AND NOT PRODUCTION'S MARK. A ring
+     going down is a decision being made -- the same thing the primary button
+     is -- and it ends when the ring closes, at which point the block takes the
+     production hatch like every other block on the map. The two are
+     deliberately different colours, and this is where that is said. */
+  accent: 'oxide',
+
   live: ({ points, parcel, references }) => {
     if (points.length < 3) return []
     const { multi } = clampToBoundary(points, parcel)
@@ -4546,10 +4576,22 @@ export function treeCrossingGrounds(references) {
  * asserts every scoring field is ABSENT on a drawn zone rather than zeroed.
  */
 export const TREES_SHAPE = Object.freeze({
+  /* THE TREE MARK'S OWN COLOUR. Landform's in-progress line is oxide because
+     oxide is this app's forward-move accent and landform was the step that
+     introduced drawing; trees inherited that colour by reusing the component,
+     which put a tree zone down in production's accent and then settled it into
+     the tree hatch -- two colours for one shape, one of them another step's.
+
+     TREES TAKES ITS OWN. `--tree` is the mark the finished zone carries, so
+     the ring going down and the zone it becomes are one colour, and the
+     distinction the gesture still needs -- dashed, cased, following the cursor
+     -- is carried by the dash rather than by borrowing a hue. */
+  accent: 'tree',
+
   live: ({ points, parcel, references }) => {
     if (points.length < 3) return []
     const { multi } = clampToBoundary(points, parcel)
-    return cautionsFor(multi, treeCrossingGrounds(references))
+    return treeCautions(cautionsFor(multi, treeCrossingGrounds(references)))
   },
 
   close: ({ points, parcel, references }) => {
@@ -4562,7 +4604,7 @@ export const TREES_SHAPE = Object.freeze({
       }
     }
 
-    const cautions = cautionsFor(multi, treeCrossingGrounds(references))
+    const cautions = treeCautions(cautionsFor(multi, treeCrossingGrounds(references)))
     return {
       feature: {
         type: 'Feature',
@@ -4587,7 +4629,161 @@ export const TREES_SHAPE = Object.freeze({
           : null,
     }
   },
+
+  // THE SERVER MEASURES WHAT WAS DRAWN, once the shape is in the draft --
+  // landform's arm of the same contract, over trees' own scorer. See
+  // measureDrawnTreeZone: the ring goes up, the reading comes back, and the
+  // panel fills in. Never blocking the zone's arrival: the shape is added
+  // first and scored second, so a slow answer never delays what the user drew.
+  measure: measureDrawnTreeZone,
 })
+
+/**
+ * WHAT A CROSSING IS CALLED IN AN OVERLAP ROW, keyed on the payload's stable
+ * `type` -- the one word this panel puts in front of "overlap %".
+ *
+ * IT WAS AN ACREAGE AND A COMPOSED SENTENCE: "0.1 acres — committed
+ * production area", the value inside the words, in a panel whose every other
+ * measured row puts the figure in the mono column and the label at the right
+ * edge. The figure was the one thing in that line a reader scans for and it
+ * was the one thing not in the column. Landform's cautions were fixed the
+ * same way and this is the same fix over trees' four grounds; the row
+ * construction is what changed, and no CSS.
+ *
+ * WHY A NOUN IS COMPOSED HERE AT ALL, when the standing rule is that display
+ * prose comes off the wire verbatim. A ground's `label` NAMES THE GROUND --
+ * "committed production area", "existing canopy" -- which is the right
+ * sentence for "what did I cross" and cannot be folded into "X overlap %"
+ * without saying it twice ("committed production area overlap %"). So the
+ * label stays exactly as the server sent it, unread and unreworded, and what
+ * is held here is the short noun the percentage row wants.
+ *
+ * KEYED ON `type`, WHICH IS THE STABLE HALF OF THE PAIR -- the same identity
+ * the map markers, the commit's crossing records and the tests address a
+ * caution by (step_registry.CrossingGround). A type this map does not carry
+ * falls back to the ground's own label, so a fifth ground shows a crossing
+ * rather than an empty word.
+ *
+ * FOUR GROUNDS, NOT PRODUCTION'S FIVE. Trees' are the committed claims plus
+ * existing canopy; hydric and slope are not crossings here at all, and a noun
+ * for either in this table would contradict the step (see TREE_CROSSING_
+ * GROUND_TYPES).
+ */
+const TREE_CROSSING_NOUN = {
+  production: 'production area',
+  water: 'water zone',
+  road: 'road corridor',
+  canopy: 'existing canopy',
+}
+
+/**
+ * Trees' cautions, with the overlap label each row prints.
+ *
+ * The percentage itself is cautionsFor()'s -- ONE conversion, beside the clip
+ * it divides (see zoneGeometry.js) -- and the ABSOLUTE acreage floor that
+ * decides whether a caution appears at all stays there too, in acres, because
+ * it is about what the geometry can resolve and that does not scale with the
+ * zone. This adds only the words. Production's productionCautions() is the
+ * same function over its own nouns.
+ */
+function treeCautions(cautions) {
+  return cautions.map((caution) => ({
+    ...caution,
+    overlapLabel: TREE_CROSSING_NOUN[caution.type]
+      ? `${TREE_CROSSING_NOUN[caution.type]} overlap %`
+      : caution.label,
+  }))
+}
+
+/**
+ * THE MEASUREMENT PROPERTIES A SCORED DRAWN TREE ZONE KEEPS, and the ONLY ones.
+ *
+ * The server answers with a whole Feature -- its own placeholder id, its
+ * clamped geometry, the four schema properties -- and almost none of that is
+ * this zone's. The ZONE is the shape the user drew, with the id the draw
+ * assigned it and the confidence_notes that say a person drew it; what the
+ * round trip adds is the READING. So the merge is a declared list rather than
+ * a spread of whatever came back: a spread would quietly replace the drawn
+ * zone's own `label`, `confidence` and `confidence_notes` with the scorer's,
+ * and a hand-drawn zone would start describing itself in the words the
+ * pipeline uses for a suggestion it made. Landform's
+ * DRAWN_BLOCK_READING_FIELDS, over trees' row.
+ *
+ * `area_acres` IS NOT ON THE LIST, deliberately, and neither is `acres`. The
+ * client already measured the clamped ring when it closed it, and the
+ * server's figure is a second measurement of the same shape through a
+ * different projection. Taking it would move the acreage on the tab for no
+ * reason a reader could see.
+ *
+ * NEITHER IS `elevation_percentile_of_parcel`, for landform's sharper reason:
+ * the panel prints the WORD the backend derived from it and holds none of the
+ * bands that turn one into the other, so keeping the number here would put
+ * the raw material for a second derivation one field away from a panel that
+ * must never make it.
+ *
+ * NOR THE THREE AVAILABILITY FLAGS. They ride the Feature so a consumer can
+ * check the benefit gate for itself, and this panel never does: the gate is
+ * applied where the flags and the factors are both in hand, which is the
+ * backend (see marginalBenefitRows).
+ */
+const DRAWN_TREE_ZONE_READING_FIELDS = Object.freeze([
+  'zone_origin',
+  'score',
+  'factors',
+  'avg_slope_pct',
+  'slope_median_pct',
+  'position_in_parcel',
+  'elevation_position',
+  'marginal_benefits',
+])
+
+/**
+ * HAVE THE SERVER MEASURE A ZONE THE USER JUST DREW.
+ *
+ * WHY THERE IS A ROUND TRIP AT ALL. Every figure in the drawn panel is a
+ * reading of the ground under the zone -- how steep it is, how much of it is
+ * wet, whether its soil is prime farmland, how close the nearest mapped
+ * stream runs -- and not one of those is derivable from a ring of
+ * coordinates. The DEM, the SSURGO geometry and the NHD features are all in
+ * the session's memory on the server, which is where the suggestions were
+ * measured, so measuring the drawn zone anywhere else would mean a second
+ * instrument and two numbers the panel prints in one column.
+ *
+ * IT IS A READ. Nothing is persisted, the document does not move, and the
+ * same ring can be asked about any number of times -- landform's posture and
+ * structures' before it. It also makes no NETWORK call on the far side: every
+ * input the scorer reads is on the generate's own result.
+ *
+ * A FAILURE LEAVES THE ZONE UNMEASURED, AND THAT IS THE EM DASH WORKING. The
+ * zone is already in the draft and already committable; if the scorer refuses
+ * the ring (too thin to cover a DEM cell) or the request fails, the reading
+ * rows print their em dash, which is the true answer to "how steep is it
+ * here" when nothing measured it. No notice: the store has already reported
+ * anything that was a step failure, and a sentence about a reading that did
+ * not arrive would be a warning about a zone that is fine.
+ */
+async function measureDrawnTreeZone({ feature, points, actions, stepId }) {
+  const answer = await actions.scorePlacedFeature(stepId, {
+    [TREES_RING_INPUT]: ringToGeoJSON(points),
+  })
+  if (!answer || answer.refused || !answer.feature) return
+  const properties = answer.feature.properties ?? {}
+  const reading = {}
+  for (const field of DRAWN_TREE_ZONE_READING_FIELDS) {
+    if (field in properties) reading[field] = properties[field]
+  }
+  actions.measureDrawnFeature(stepId, feature.id, reading)
+}
+
+/**
+ * The parameter the backend's trees PLACEMENT takes, verbatim: the TREES
+ * entry declares `Placement(input="ring", ...)` and the orchestrator refuses a
+ * body naming anything else. Mirrored here for the reason
+ * LANDFORM_RING_INPUT is -- the client does not spell a server's parameter out
+ * of memory at a call site -- and asserted equal to the payload's in the live
+ * suite.
+ */
+export const TREES_RING_INPUT = 'ring'
 
 /**
  * THE FOUR FACTORS, AS MERITS.
@@ -4887,10 +5083,17 @@ export const TREES_STEP = documentStep({
   /**
    * ONE TAB PER ZONE -- the candidates in rank order, then whatever the user
    * drew. Acres and score, both measured; the score is already 0-100 on the
-   * backend's SUITABILITY_SCORE_SCALE, so it is printed as sent. A drawn zone
-   * has no score and prints an em dash: it was never scored, and a 0.0 there
-   * would read as "scored, and badly" -- which is the reading the backend
-   * deliberately refuses to produce for one.
+   * backend's SUITABILITY_SCORE_SCALE, so it is printed as sent.
+   *
+   * A DRAWN ZONE'S SCORE PRINTS HERE TOO, on the same axis and under the same
+   * denominator. It used to be a permanent em dash, and the argument was
+   * MIN_TREE_SUITABILITY_SCORE: a drawn zone below that floor would read as
+   * "scored, and badly" rather than as unscored. That argument needed the
+   * floor to be VISIBLE and it no longer is -- the panel dropped the score
+   * floor row with the factor decomposition (see detail) -- so the floor is
+   * not a number the reader ever sees, and a low drawn score beside a higher
+   * suggested one now reads as exactly what it is: this ground scores lower
+   * than the ground the pipeline found, on one axis, in one column.
    */
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
@@ -4945,8 +5148,19 @@ export const TREES_STEP = documentStep({
         removable: true,
         selected: selected.has(feature.id),
         rows: [
+          // THE ACREAGE IS THE CLIENT'S, the score is the server's. The
+          // clamp measured the ring when it closed; the score arrives a
+          // moment later from measureDrawnTreeZone, on the same axis and
+          // under the same denominator the suggestions above print.
+          //
+          // AN EM DASH HERE IS NOW A READING THAT DID NOT ARRIVE, which is
+          // the only thing an em dash has ever meant in this app. It used
+          // to be permanent and mean something else -- "this was never
+          // scored, deliberately" -- which is a statement no other em dash
+          // in the build makes and which the panel had to say in words
+          // underneath because the dash could not carry it.
           { value: measure(feature.properties?.acres), label: 'acres' },
-          { value: measure(null), label: 'score', denominator },
+          { value: measure(feature.properties?.score), label: 'score', denominator },
         ],
       })
     })
@@ -5046,12 +5260,38 @@ export const TREES_STEP = documentStep({
    * name nothing a reader could tell from a measurement, and the backend sends
    * null there deliberately.
    *
-   * A DRAWN ZONE CARRIES NO FACTORS AND NO BENEFITS AT ALL, and the panel shows
-   * the ABSENCE. The backend does not score a drawn zone -- a zone scoring below
-   * the floor would read as scored badly rather than unscored -- so there is no
-   * benefits run here, not an empty one and not a run of dashes. One categorical
-   * row says so in words. Its acres and its em-dash score come off the tab, like
-   * every other feature's.
+   * A DRAWN ZONE SHOWS THIS SAME PANEL, off the same builder -- which is the
+   * change this branch makes and the reason the two arms below are one list.
+   *
+   * IT USED TO SHOW THE ABSENCE: one categorical row saying "not scored: drawn
+   * by hand, no factor measured", and a `confidence` row under it. The backend
+   * declined to score a drawn zone because one below MIN_TREE_SUITABILITY_
+   * SCORE would read as scored badly rather than unscored -- an argument that
+   * needed the floor on screen, which this panel stopped putting there when it
+   * dropped the decomposition above.
+   *
+   * AND THE BENEFITS ARE THE BIGGER GAIN, not the score. MARGINAL BENEFITS is
+   * computed FROM the factors, so a zone with no factors earned none and the
+   * panel had nothing to say about what the user's own ground is good for --
+   * which is the most useful thing this panel does. A drawn zone could not
+   * reach it at all.
+   *
+   * THE GATE ON THOSE BENEFITS IS UNCHANGED and is not this side's: above zero
+   * AND the factor's own availability flag true. A neutral 0.5 standing in for
+   * a source that could not be reached still claims nothing, for a drawn zone
+   * exactly as for a suggested one -- the rule is applied where the flags and
+   * the factors are both in hand. See marginalBenefitRows().
+   *
+   * A LOW DRAWN SCORE IS CORRECT FEEDBACK, NOT A DEFECT, and this is the place
+   * to say so because it is the panel that will be read. Every factor here
+   * rewards a CONDITION rather than measuring quality -- steep scores high,
+   * wet scores high, poor farmland scores high, near a stream scores high --
+   * so a zone drawn on good, flat, dry, prime ground scores near zero. That is
+   * the tool working: it is saying this is not marginal land, and production
+   * probably wants it. Nobody reading a near-zero drawn score later should
+   * take it for a measurement that failed; a failure prints the em dash, which
+   * is what every unmeasured value in this app prints and what this panel
+   * shows in the moment between the ring closing and the reading landing.
    */
   detail: ({ proposals, draft }, featureId) => {
     const drawn = draft.drawnFeatures.find((feature) => feature.id === featureId)
@@ -5060,10 +5300,27 @@ export const TREES_STEP = documentStep({
         // The fallback only; the panel prefers the tab's own name, which is
         // "Drawn 1" and carries which one of several it is.
         name: 'Drawn tree zone',
-        rows: [
-          categoricalRow('not scored: drawn by hand, no factor measured', 'scoring'),
-          categoricalRow(drawn.properties?.confidence ?? EM_DASH, 'confidence'),
-        ],
+        // THE SAME ROWS A SUGGESTION SHOWS, off the same builder and the same
+        // field names -- landform's arrangement, for landform's reason. They
+        // were one sentence saying the zone was not scored and a `confidence`
+        // row under it. The server measures the ground now, on the run the
+        // suggestions were measured against, so the two panels answer the
+        // same questions about the same parcel.
+        //
+        // AN UNMEASURED ZONE STILL RENDERS, all em dashes, which is what a
+        // reading that did not arrive should look like. See treeZoneRows.
+        //
+        // AND THAT IS THE WHOLE PANEL: the suggested panel's rows, plus this
+        // zone's own cautions under them. A `confidence` row sat here on the
+        // argument that it says the boundary is the user's judgment rather
+        // than the tool's finding -- withdrawn, as production's was. THE
+        // FIELD ITSELF STAYS ON THE FEATURE: the commit contract requires
+        // `confidence` and a non-empty `confidence_notes` on every feature
+        // (feature_schema.py refuses one without them), so both are still
+        // authored when the ring closes and still travel to the document.
+        // What changed is that the panel does not print them; what a drawn
+        // zone IS, the strip already says -- its tab is called "Drawn 1".
+        rows: treeZoneRows(drawn.properties ?? {}),
         cautions: drawn.properties?.cautions ?? [],
       }
     }
@@ -5073,24 +5330,52 @@ export const TREES_STEP = documentStep({
 
     return {
       name: `Zone ${zone.rank}`,
-      rows: [
-        categoricalRow(zone.position_in_parcel ?? EM_DASH, 'where in the parcel'),
-        categoricalRow(zone.elevation_position ?? EM_DASH, 'position'),
-        // THE MEDIAN, NOT THE MEAN -- production's and water's row, under the
-        // name all three publish it by. `avg_slope_pct` is still on the wire
-        // and is what slope_factor was computed from; the panel says what the
-        // ground is LIKE and one figure does that, and a mean and a median in
-        // one 15rem column is two figures a reader has to tell apart.
-        measuredRow(measure(zone.slope_median_pct), 'median slope %'),
-        // THE HEADING AND THE TERMS, OR NOTHING. See marginalBenefitRows().
-        ...marginalBenefitRows(zone.marginal_benefits),
-      ],
+      rows: treeZoneRows(zone),
       // A candidate is carved out of the search space, which is the parcel
       // LESS the committed claims -- so it cannot cross either ground.
       cautions: [],
     }
   },
 })
+
+/**
+ * WHAT THE PANEL SAYS ABOUT THE GROUND UNDER ONE TREE ZONE -- suggested or
+ * drawn, ONE BUILDER.
+ *
+ * TWO KINDS OF ZONE, ONE SHAPE OF ANSWER, and literally one list. A
+ * suggestion's readings arrive in the payload's `zones` table, joined on
+ * `feature_id`; a drawn zone's arrive on its own properties, from the
+ * server's own scorer measuring the ring against the same run (see
+ * measureDrawnTreeZone). THE FIELD NAMES ARE THE SAME on both, because the
+ * backend builds both rows with one function (tree_zone_candidates._zone_
+ * row()) -- so a second row list here would be two renderings of one
+ * contract, agreeing until the first edit. Landform's productionBlockRows(),
+ * over trees' fields.
+ *
+ * EVERY ROW PRINTS AN EM DASH WHERE ITS VALUE IS MISSING, which is what a
+ * drawn zone shows in the moment between the ring closing and the reading
+ * landing, and what it keeps if the reading could not be taken at all.
+ *
+ * THE BENEFITS RUN IS THE EXCEPTION, AND IT HAS TO BE. An absent
+ * `marginal_benefits` and an empty one are different answers -- "not measured
+ * yet" and "this zone earned none" -- and neither renders a row, because a
+ * heading over no terms would be the panel asking a question the payload
+ * already answered. See marginalBenefitRows().
+ */
+function treeZoneRows(reading) {
+  return [
+    categoricalRow(reading.position_in_parcel ?? EM_DASH, 'where in the parcel'),
+    categoricalRow(reading.elevation_position ?? EM_DASH, 'position'),
+    // THE MEDIAN, NOT THE MEAN -- production's and water's row, under the
+    // name all three publish it by. `avg_slope_pct` is still on the wire
+    // and is what slope_factor was computed from; the panel says what the
+    // ground is LIKE and one figure does that, and a mean and a median in
+    // one 15rem column is two figures a reader has to tell apart.
+    measuredRow(measure(reading.slope_median_pct), 'median slope %'),
+    // THE HEADING AND THE TERMS, OR NOTHING. See marginalBenefitRows().
+    ...marginalBenefitRows(reading.marginal_benefits),
+  ]
+}
 
 
 /* ===========================================================================

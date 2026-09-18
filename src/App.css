@@ -2458,9 +2458,14 @@
    agreement with the one in the step definitions, and a step added later needs
    no rule here at all.
 
-   WHAT IS STILL SET FROM CSS is below: the focus mark's absence is a deletion
-   rather than a rule, and the drawn zone's outline is a pathOption. Both are
-   in layers.jsx with the geometry they belong to. */
+   WHAT IS STILL SET FROM CSS is below, and it is ONE thing now: the focus
+   mark's absence, which is a deletion rather than a rule.
+
+   THE DRAWN ZONE'S OUTLINE USED TO BE THE SECOND, as a pathOption in
+   layers.jsx. There is no drawn zone outline any more, in any state, on any
+   step -- a shape the user drew takes its treatment's mark and nothing else,
+   exactly as a shape the pipeline proposed does. See layers.jsx's note at
+   LINE_WEIGHT for what the accent edge argued and why it is withdrawn. */
 
 /* THE FOCUSED FEATURE -- the one the detail panel is describing.
 
@@ -2518,11 +2523,14 @@
   pointer-events: none;
 }
 
-/* A drawn zone's casing must not take the hatch — it is the outline's shadow,
-   not a second filled shape. Still true, and no longer this file's doing: the
-   casing pass is rendered with `fill: false` in layers.jsx, and the hatch now
-   arrives as a pathOption on the path itself rather than as a rule here, so
-   there is nothing for the casing to pick up. */
+/* A drawn zone's casing used to need saying here: it must not take the hatch,
+   being the outline's shadow rather than a second filled shape. THERE IS NO
+   CASING AND NO OUTLINE UNDER A DRAWN ZONE ANY MORE -- it is marked exactly as
+   a suggested one is -- so the rule has nothing left to be about. Kept as a
+   sentence rather than deleted silently because the hatch-on-casing failure it
+   describes is real and would come back with any zone stroke: a casing pass is
+   rendered with `fill: false` in layers.jsx, which is where the two marks that
+   still have an edge (a tint, a dot field) are held to it. */
 
 /* Eligible highlight: a feathered edge, so it reads as suitability falling
    off rather than as a line someone drew.
@@ -2741,9 +2749,19 @@
 
    THE STATES ARE THE ZONE'S. The pattern levels say how present the pin is
    -- committed quietest -- and the focused pin takes the ink ring the
-   focused access point takes. A PLACED site's pin carries the accent stroke
-   a drawn zone's edge carries: the site is the user's, the pin says so. A
-   REJECTED one takes --alert, like a rejected zone, with the server's own
+   focused access point takes. A PLACED site's pin carries an accent stroke:
+   the site is the user's, and the pin says so.
+
+   THAT LAST ONE USED TO BORROW ITS ARGUMENT FROM A DRAWN ZONE'S EDGE, and it
+   cannot any more -- a drawn zone has no edge of its own; it takes its
+   treatment's mark exactly as a suggested one does (layers.jsx, at
+   LINE_WEIGHT). The stroke here stands on its own reason instead, and it is a
+   different reason: a POINT has no extent to read an authorship off. A zone
+   is a shape on the ground and the strip says which of them the user drew; a
+   pin is a glyph at a coordinate, identical whoever put it there, and the
+   stroke is the only thing that can carry the distinction.
+
+   A REJECTED one takes --alert, like a rejected zone, with the server's own
    reason beside it. The PENDING one -- a spot clicked and not yet measured
    -- is hollow and dashed, the access-point marker's own "here, pending". */
 .site-pin {

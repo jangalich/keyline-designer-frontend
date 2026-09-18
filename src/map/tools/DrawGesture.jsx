@@ -259,6 +259,12 @@ function ShapeDraw({ layer, armed, renders, stepId, definition, references }) {
         points={points}
         onPointsChange={setPoints}
         onClose={close}
+        // THE COLOUR COMES FROM THE STEP, through the same channel every other
+        // rule about this gesture comes through: `definition.shape`. The tool
+        // is told a token and never learns which step armed it -- see
+        // ZoneDrawTool's `accent` and stepDefinitions' shape.accent, where a
+        // shape declaring no accent is refused at definition time.
+        accent={shape?.accent}
         // Above its own layer's band, so the vertices going down are never
         // under the shapes already placed.
         paneZ={layer.zIndex + 1}
