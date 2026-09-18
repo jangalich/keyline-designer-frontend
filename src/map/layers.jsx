@@ -134,17 +134,29 @@ function tintLevel(name) {
 const LINE_WEIGHT = 2
 const CASING_WEIGHT = 4
 
-// A drawn zone carries the SAME hatch as a suggested one -- it is the same kind
-// of thing, ground to work -- but unlike a suggestion it keeps an outline.
+// A DRAWN ZONE IS MARKED EXACTLY AS A SUGGESTED ONE IS, and the outline it
+// used to keep is gone -- DRAWN_LINE_WEIGHT, DRAWN_CASING_WEIGHT and the
+// `isDrawn` arm of styleFor() with it.
 //
-// That is not a contradiction of the no-outline rule, it is the reason for it.
-// The rule says a hard edge reads as a line someone measured and agreed, which
-// is wrong for a recommendation whose edge is its least certain part. A drawn
-// zone's edge is exactly that: placed vertex by vertex, deliberately, and
-// exact. The hatch says what the ground is for; the edge treatment says whether
-// its boundary is a suggestion or a decision.
-const DRAWN_LINE_WEIGHT = 1.5
-const DRAWN_CASING_WEIGHT = 3
+// WHAT THE OUTLINE ARGUED, AND WHY IT IS WITHDRAWN. The no-stroke rule for
+// zones says a hard edge reads as a line someone measured and agreed, which is
+// wrong for a recommendation whose edge is its least certain part; a drawn
+// zone's edge, placed vertex by vertex, is exactly such a line, so it was
+// drawn in the accent to say the boundary was the USER'S.
+//
+// The cost was that the two kinds of block never settled into one map. While
+// the ring is going down the accent line is the gesture -- dashed, cased,
+// following the cursor -- and the finished zone kept a line of the same colour
+// in the same place, so the shape went on looking like something still being
+// drawn rather than something decided. A drawn block and a suggested block are
+// the same kind of thing (ground to work, at the same stage of the same step),
+// they carry the same mark, the same levels and the same score, and WHICH KIND
+// A BLOCK IS is said by the tab that names it ("Drawn 1") rather than by a
+// second edge treatment on the map.
+//
+// THE GESTURE STILL CARRIES THE ACCENT, which is the distinction this leaves
+// standing and the only one that needs a colour: ZoneDrawTool's in-progress
+// line is the accent, dashed and cased, and it ends when the ring closes.
 
 // The scrim is the only hard gate in this interface and should be the only
 // thing that reads as forbidden. Opaque enough that off-parcel ground is
@@ -755,7 +767,6 @@ function PinLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null 
 function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null }) {
   const { field, accent, ink, halo } = getStackColors()
   const rejections = layer.rejections ?? {}
-  const isDrawn = layer.source === 'draft'
   const isCommitted = layer.band === 'committed'
   // DECLARED, NOT DERIVED, and that is the whole of the field's reason: band
   // and source are three treatments for three MEANINGS, and a step whose two
@@ -783,36 +794,22 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
 
   return (
     <>
-      {/* THE CASING PASS, FIRST so it paints underneath -- within one SVG pane,
-          later elements draw on top.
+      {/* NO CASING PASS RUNS HERE ANY MORE, because nothing in this renderer
+          draws a zone outline to lay one under.
 
-          ONLY A DRAWN SHAPE IS CASED. A tinted zone HAS an outline and could
-          be, and deliberately is not: its line is the wash's own colour and a
-          white ring around it read as a sticker edge rather than as the mark.
-          The cost is stated rather than hidden -- see the --survey-* note in
-          index.css. The halo-casing rule is unchanged for everything that
-          still uses it (the boundary ring, a drawn zone): no single colour
-          clears the range of tones in one aerial frame, so those marks are
-          cased rather than recoloured. Water's mark now answers that with its
-          own two values instead, and takes the exposure that comes with it.
+          IT CASED A DRAWN SHAPE ONLY. The halo-casing rule is real and
+          unchanged where a line is still drawn -- the boundary ring, a road,
+          the in-progress ring of a gesture: no single colour clears the range
+          of tones in one aerial frame, so those marks are cased rather than
+          recoloured. What went is the drawn ZONE's outline (see
+          DRAWN_LINE_WEIGHT's note above), and a casing under a line that is no
+          longer painted is a white ring around nothing.
 
-          A HATCH TAKES NO CASING EITHER, for the older reason: it has no edge
-          to lay one under. */}
-      {isDrawn
-        ? features.map((feature) => (
-            <GeoJSON
-              key={`casing-${feature.id}`}
-              // drawnAs() on BOTH passes, so a casing can never be laid under
-              // a different ring than the one it is casing. A drawn zone
-              // carries no outline, so today this is the feature itself --
-              // which is exactly why it must be the same call and not a second
-              // decision that agrees by accident.
-              data={drawnAs(feature, layer)}
-              interactive={false}
-              style={{ color: halo, weight: DRAWN_CASING_WEIGHT, fill: false }}
-            />
-          ))
-        : null}
+          A tinted zone HAS an outline and is deliberately uncased: its line is
+          the wash's own colour and a white ring around it read as a sticker
+          edge rather than as the mark -- see index.css's --survey-* note. A
+          hatch takes no casing for the older reason: it has no edge to lay one
+          under. */}
       {features.map((feature) => {
         // EVERY FEATURE STILL HERE IS IN THE COMMIT -- the filter above took
         // the others out. The store's selection covers drawn shapes as well as
@@ -838,7 +835,6 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
               feature,
               isFocused,
               isCommitted,
-              isDrawn,
               treatment,
               rejection,
               colors: { field, accent, ink, halo },
@@ -981,7 +977,7 @@ function markLevelFor(mark, state) {
   return patternLevel(stateName(state))
 }
 
-function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, colors }) {
+function styleFor({ isFocused, isCommitted, treatment, rejection, colors }) {
   if (rejection) {
     // THE ONE MARK ON THIS SURFACE THAT STILL CARRIES A STROKE, and it is not
     // a zone STATE -- it is the reason the commit did not happen. The pattern
@@ -1007,24 +1003,13 @@ function styleFor({ isFocused, isCommitted, isDrawn, treatment, rejection, color
   const mark = treatment ? zoneMark(treatment, { focused: isFocused }) : null
   const fillOpacity = markLevelFor(mark, state)
 
-  if (isDrawn) {
-    // A DRAWN ZONE'S OUTLINE IS THE ACCENT'S, WHATEVER ITS MARK, and it is not
-    // an inconsistency -- it is the distinction. A drawn zone's edge was
-    // placed vertex by vertex, deliberately and exactly, so a hard line is
-    // TRUE of it, and the accent is what says the line is the USER'S. The mark
-    // says what the ground is for; the edge says whether its boundary is a
-    // suggestion or a decision, and a tinted zone's own outline says the
-    // opposite of that.
-    return {
-      stroke: true,
-      color: colors.accent,
-      weight: DRAWN_LINE_WEIGHT,
-      fill: true,
-      fillColor: mark ? mark.fill : undefined,
-      fillOpacity,
-      className: focusClass('zone--drawn', isFocused),
-    }
-  }
+  // NO `isDrawn` ARM. A drawn zone took the accent as an outline here,
+  // whatever its mark; it takes its mark and nothing else now, which is the
+  // same treatment a generated zone of the same kind gets. See
+  // DRAWN_LINE_WEIGHT's note at the top of this file for what that argued and
+  // why it is withdrawn. A shape the user drew and a shape the pipeline
+  // proposed are the same kind of ground, and the strip is where they are told
+  // apart.
 
   if (marksItsOwnEdge(mark)) {
     // A MARK THAT DRAWS ITS OWN BOUNDARY, IN ITS OWN COLOUR, AND NOTHING

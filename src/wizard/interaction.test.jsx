@@ -607,6 +607,109 @@ describe('2. the detail panel', () => {
 })
 
 /* ===========================================================================
+   1b. A SETTLED DRAWN BLOCK IS MARKED LIKE A SUGGESTED ONE
+   =========================================================================== */
+
+describe('1b. the drawn block’s mark', () => {
+  /** Every painted attribute of the path Leaflet drew for one feature. */
+  const markOf = (ui, featureId) => {
+    const layer = layerFor(ui, featureId)
+    const path = layer?.getElement?.() ?? null
+    if (!path) return null
+    return {
+      class: path.getAttribute('class'),
+      stroke: path.getAttribute('stroke'),
+      strokeWidth: path.getAttribute('stroke-width'),
+      fill: path.getAttribute('fill'),
+      fillOpacity: path.getAttribute('fill-opacity'),
+    }
+  }
+
+  /**
+   * THE RING IT WAS TRACED WITH DOES NOT SURVIVE THE RING.
+   *
+   * A drawn block kept an accent outline, cased on --halo, on the argument
+   * that its edge was placed vertex by vertex and a hard line is TRUE of it.
+   * What that produced on the map was a finished block still wearing the
+   * colour of the gesture that made it -- the in-progress line is the accent
+   * too -- so a decided shape went on reading as one still being drawn, and
+   * the two kinds of block never settled into one map.
+   *
+   * SO THE MARK IS THE MARK. A block is ground to work, and how it came to be
+   * proposed is the strip's to say: its tab is called "Drawn 1".
+   */
+  it('paints a settled drawn block exactly as it paints a suggestion', async () => {
+    installFetch(standardRoutes())
+    const ui = await renderSurface()
+    await throughGenerate(ui)
+    await ui.run((a) => a.addDrawnFeature('landform', drawnZone()))
+
+    const suggested = markOf(ui, 'zone-1')
+    const drawn = markOf(ui, 'drawn-1')
+    expect(suggested, 'a suggested block is on the map').not.toBeNull()
+    expect(drawn, 'the drawn block is on the map').not.toBeNull()
+
+    // THE SAME MARK, ATTRIBUTE FOR ATTRIBUTE -- the hatch, at the same level,
+    // with no stroke on either.
+    expect(drawn).toEqual(suggested)
+    expect(drawn.class).toContain('zone--production')
+    expect(drawn.class).not.toContain('zone--drawn')
+    expect(drawn.stroke).toBe('none')
+    expect(drawn.fill).toContain('url(#')
+
+    // AND NO CASING PASS UNDER IT. The casing was the drawn shape's alone; a
+    // second path under this one would be a white ring around a line nothing
+    // paints.
+    const drawnPane = ui.container.querySelector('.leaflet-landform--landform-drawn-pane')
+    expect(drawnPane.querySelectorAll('path')).toHaveLength(1)
+
+    await ui.unmount()
+  })
+
+  /**
+   * AND THE GESTURE STILL CARRIES THE ACCENT, which is the distinction that
+   * survives and the only one that needs a colour: while the ring is going
+   * down it is the accent, dashed and cased, following the cursor. It ends
+   * when the ring closes -- which is exactly what the block above no longer
+   * repeats back.
+   */
+  it('keeps the accent on the ring being traced, and only there', async () => {
+    installFetch(standardRoutes())
+    const ui = await renderSurface()
+    await throughGenerate(ui)
+
+    await ui.run((_a, cursor) => cursor.arm('draw'))
+    for (const corner of [
+      [40.716, -74.006],
+      [40.716, -73.996],
+      [40.726, -73.996],
+    ]) {
+      await ui.clickMap(corner)
+    }
+
+    // The in-progress ring is drawn in its own pane, dashed, in two passes.
+    const drawing = ui.container.querySelector('.leaflet-production-drawing-pane')
+    const lines = [...(drawing?.querySelectorAll('path') ?? [])]
+    expect(lines).toHaveLength(2)
+    for (const line of lines) expect(line.getAttribute('stroke-dasharray')).toBeTruthy()
+    expect(ui.all('.vertex-marker')).toHaveLength(3)
+
+    // CLOSE IT: the ring's own pane empties, and what is left is a block with
+    // the same mark every other block has.
+    await ui.clickMap([40.716, -74.006])
+    expect(
+      [...(ui.container.querySelector('.leaflet-production-drawing-pane')?.querySelectorAll('path') ?? [])]
+    ).toHaveLength(0)
+    expect(ui.all('.vertex-marker')).toHaveLength(0)
+
+    const drawnId = selectDraft(ui.state, 'landform').drawnFeatures[0].id
+    expect(markOf(ui, drawnId)).toEqual(markOf(ui, 'zone-1'))
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
    2b. ARMING A TOOL CLOSES THE PANEL
    =========================================================================== */
 
@@ -1026,7 +1129,22 @@ describe('6. the dotted declined treatment', () => {
 
     const css = readFileSync(path.join(SRC, 'App.css'), 'utf8')
     expect(css).toContain('.stack-layer--kind-highlight')
-    expect(layers).toContain('DRAWN_CASING_WEIGHT')
+    // THE DRAWN ZONE'S CASING WENT WITH ITS OUTLINE, and this line asserted
+    // the constant was still there. A drawn zone is marked exactly as a
+    // suggested one now -- the hatch and nothing else -- so there is no line
+    // to lay a casing under. The casing rule itself is untouched for the marks
+    // that are lines; water.test.jsx holds that.
+    //
+    // READ OFF THE CODE, NOT THE FILE. The comment where that constant used to
+    // live still NAMES it, because what a mark used to do and why it stopped
+    // is worth keeping; an absence asserted against the raw file would be an
+    // assertion about the record rather than about the renderer.
+    const layerCode = layers
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    expect(layerCode).not.toContain('DRAWN_CASING_WEIGHT')
+    expect(layerCode).not.toContain('zone--drawn')
     expect(layers).toContain('ScrimLayer')
   })
 })

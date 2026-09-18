@@ -731,7 +731,11 @@ describe('6. a 422 rejection', () => {
     const drawnPane = ui.container.querySelector('.leaflet-landform--landform-drawn-pane')
     const rejected = [...drawnPane.querySelectorAll('path.zone--rejected')]
     expect(rejected.length).toBeGreaterThan(0)
-    expect(drawnPane.querySelectorAll('path.zone--drawn')).toHaveLength(0)
+    // THE REJECTED SHAPE IS NOT DRAWN AS A BLOCK. It said `zone--drawn` here
+    // when a drawn block still had an outline of its own; a block takes the
+    // production mark now, drawn or suggested, so what separates a refused
+    // shape from an accepted one is this class and only this class.
+    expect(drawnPane.querySelectorAll('path.zone--production')).toHaveLength(0)
     expect(ui.container.querySelector('.leaflet-tooltip')?.textContent ?? '').toContain(
       'outside the parcel boundary'
     )

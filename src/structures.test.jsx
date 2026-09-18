@@ -2412,7 +2412,11 @@ describe('12. what the definition declares, and the sweep', () => {
     // there are the pins' own two.
     expect(ui.all('.leaflet-structures--structures-candidates-pane path:not([class^="site-pin"])')).toHaveLength(0)
     expect(ui.all('.leaflet-structures--structures-placed-pane path:not([class^="site-pin"])')).toHaveLength(0)
-    expect(ui.all('.leaflet-structures--structures-placed-pane path.zone--drawn')).toHaveLength(0)
+    // A PLACED SITE IS A PIN AND NEVER A ZONE. It carried no `zone--drawn`
+    // when a drawn zone still had that class, and there is no such class on
+    // this map at all now -- the outline it named is gone. What this holds is
+    // the pane's own contents: pins, and nothing else.
+    expect(ui.all('.leaflet-structures--structures-placed-pane path')).toHaveLength(2)
     // The placed pin says it is the user's; the generated ones do not.
     expect(ui.all('.leaflet-structures--structures-placed-pane .site-pin--placed')).toHaveLength(1)
     expect(ui.all('.leaflet-structures--structures-candidates-pane .site-pin--placed')).toHaveLength(0)
