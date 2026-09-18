@@ -526,7 +526,7 @@ describe('4b. a drawn block is scored by the server', () => {
     const context = { proposals: ui.state.steps.landform.proposals, draft: selectDraft(ui.state, 'landform') }
     const rows = LANDFORM_STEP.detail(context, drawn.id).rows
     const labels = rows.filter((row) => row.label).map((row) => row.label)
-    expect(labels).toEqual(['aspect', 'position', 'median slope %', 'soil', 'drainage', 'confidence', 'source'])
+    expect(labels).toEqual(['aspect', 'position', 'median slope %', 'soil', 'drainage'])
     for (const row of rows) expect(row.value).not.toBe(EM_DASH)
 
     console.log(
@@ -731,7 +731,11 @@ describe('6. a 422 rejection', () => {
     const drawnPane = ui.container.querySelector('.leaflet-landform--landform-drawn-pane')
     const rejected = [...drawnPane.querySelectorAll('path.zone--rejected')]
     expect(rejected.length).toBeGreaterThan(0)
-    expect(drawnPane.querySelectorAll('path.zone--drawn')).toHaveLength(0)
+    // THE REJECTED SHAPE IS NOT DRAWN AS A BLOCK. It said `zone--drawn` here
+    // when a drawn block still had an outline of its own; a block takes the
+    // production mark now, drawn or suggested, so what separates a refused
+    // shape from an accepted one is this class and only this class.
+    expect(drawnPane.querySelectorAll('path.zone--production')).toHaveLength(0)
     expect(ui.container.querySelector('.leaflet-tooltip')?.textContent ?? '').toContain(
       'outside the parcel boundary'
     )
@@ -1615,13 +1619,15 @@ describe('12. the panel, against the shared format', () => {
     },
   })
 
-  it('gives a drawn block the whole middle block, its score, and its own two rows', () => {
+  it('gives a drawn block exactly the suggested panel', () => {
     const drawn = measuredDrawn()
     const { tab, body } = bodyFor('drawn-1', [drawn])
     expect(tab.name).toBe('Drawn 1')
 
     // [1] THE FULL MIDDLE SECTION -- the same five readings a suggestion
-    // shows, in the same order, off the same builder.
+    // shows, in the same order, off the same builder, AND NOTHING ELSE.
+    // A `confidence` row and a `source` row sat under them for one branch; the
+    // argument for them is withdrawn and the rows are gone.
     expect(body.map((row) => (row.panelBreak ? '——' : row.label))).toEqual([
       'acres',
       '/100 score',
@@ -1631,8 +1637,6 @@ describe('12. the panel, against the shared format', () => {
       'median slope %',
       'soil',
       'drainage',
-      'confidence',
-      'source',
     ])
     const labelled = Object.fromEntries(
       body.filter((row) => row.label).map((row) => [row.label, row.value])
@@ -1650,12 +1654,15 @@ describe('12. the panel, against the shared format', () => {
     expect(body[1].label).toBe('/100 score')
     expect(tab.rows[1].value).toBe((62.4).toFixed(1))
 
-    // [3] CONFIDENCE AND SOURCE STILL RENDER, and they are LAST -- after the
-    // readings, where they qualify the whole block rather than sitting above
-    // its measurements. They are what keeps a 62 reading as "good ground,
-    // your call" instead of as a recommendation the tool made.
-    expect(body.at(-2)).toMatchObject({ label: 'confidence', value: 'low' })
-    expect(body.at(-1)).toMatchObject({ label: 'source', value: 'drawn by hand' })
+    // [3] NEITHER `confidence` NOR `source` RENDERS, anywhere in the panel.
+    // The FIELDS are still on the feature -- the commit contract requires a
+    // confidence and a non-empty confidence_notes on every feature, and the
+    // drawn block still authors both -- so this is about what the panel
+    // prints, which is the suggested panel and nothing more.
+    expect(body.map((row) => row.label)).not.toContain('confidence')
+    expect(body.map((row) => row.label)).not.toContain('source')
+    expect(body.map((row) => row.value)).not.toContain('drawn by hand')
+    expect(drawn.properties.confidence).toBe('low')
 
     // eslint-disable-next-line no-console
     console.log(
@@ -1688,8 +1695,6 @@ describe('12. the panel, against the shared format', () => {
       'median slope %',
       'soil',
       'drainage',
-      'confidence',
-      'source',
     ])
     expect(body[1].value).toBe(EM_DASH)
     for (const label of ['aspect', 'position', 'median slope %', 'soil', 'drainage']) {

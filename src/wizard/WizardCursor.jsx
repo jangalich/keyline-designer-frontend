@@ -223,33 +223,6 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
   const armed = armedSlot.stepId === cursorStepId ? armedSlot.tool : null
 
   /**
-   * Arm one of the cursor step's declared tools.
-   *
-   * A NAME THE STEP DOES NOT DECLARE IS REFUSED, and refused loudly in DEV.
-   * The stack mounts tools from the same `tools[]`, so an accepted name here
-   * would arm a gesture with no component behind it -- which reads, from the
-   * user's side, as a tool that does nothing.
-   */
-  const arm = useCallback(
-    (tool) => {
-      if (!tools.includes(tool)) {
-        if (import.meta.env.DEV) {
-          throw new Error(
-            `Step '${cursorStepId}' does not declare the '${tool}' tool, so it ` +
-              `cannot be armed. Its tools are: ${tools.join(', ') || '(none)'}.`
-          )
-        }
-        return false
-      }
-      setArmedSlot({ stepId: cursorStepId, tool })
-      return true
-    },
-    [cursorStepId, tools]
-  )
-
-  const disarm = useCallback(() => setArmedSlot(NOTHING_ARMED), [])
-
-  /**
    * FOCUSED ONLY WHILE THE CURSOR STILL NAMES ITS STEP -- the same derivation
    * that disarms a tool on a cursor move, and it needs no effect either.
    */
@@ -329,6 +302,57 @@ export function WizardCursorProvider({ children, definitions = STEP_DEFINITIONS 
    * something, so it is the same call.
    */
   const blurFeature = useCallback(() => focusFeature(null), [focusFeature])
+
+  /**
+   * Arm one of the cursor step's declared tools.
+   *
+   * A NAME THE STEP DOES NOT DECLARE IS REFUSED, and refused loudly in DEV.
+   * The stack mounts tools from the same `tools[]`, so an accepted name here
+   * would arm a gesture with no component behind it -- which reads, from the
+   * user's side, as a tool that does nothing.
+   *
+   * AND ARMING BLURS, WHICH IS THE OTHER HALF OF WHAT A TOOL GOING LIVE MEANS.
+   * The detail panel is a READING of one feature; arming a tool says the user
+   * has stopped reading and started authoring. The panel used to stay open
+   * over the gesture, describing a block while a new one went down on top of
+   * it -- and the focused block stayed marked on the map, so the map had a
+   * feature lit that the user was no longer pointing at. Exactly what a click
+   * on bare map already does, for the same reason and through the same call.
+   *
+   * ONE DOOR, SO EVERY ARMING GETS IT. Landform's "Draw a block", trees' "Draw
+   * a zone", roads' "Add access point" and structures' "Place a site" are all
+   * armButton()s, and armButton() runs this -- so this is the rule stated
+   * once rather than four handlers each remembering it, which is the
+   * arrangement that produced the focus bugs focusFeature() above describes.
+   *
+   * ON A STEP WHOSE FOCUS IS ITS SELECTION (roads) THE BLUR TAKES THE
+   * SELECTION WITH IT, and that is not an exception this makes -- it is
+   * blurFeature()'s own documented rule, and the same thing a bare-map click
+   * on that step has always done. Roads draws only the focused network
+   * (`show: 'focused'`), so a tick surviving a blur would be a commit with no
+   * geometry on screen; the generate that follows an access point focuses the
+   * network it routes, which is how the selection comes back.
+   */
+  const arm = useCallback(
+    (tool) => {
+      if (!tools.includes(tool)) {
+        if (import.meta.env.DEV) {
+          throw new Error(
+            `Step '${cursorStepId}' does not declare the '${tool}' tool, so it ` +
+              `cannot be armed. Its tools are: ${tools.join(', ') || '(none)'}.`
+          )
+        }
+        return false
+      }
+      blurFeature()
+      setArmedSlot({ stepId: cursorStepId, tool })
+      return true
+    },
+    [blurFeature, cursorStepId, tools]
+  )
+
+  const disarm = useCallback(() => setArmedSlot(NOTHING_ARMED), [])
+
 
   /**
    * Is ANYTHING live on this map.

@@ -249,6 +249,8 @@ async function renderSurface() {
       return map
     },
     find: (id) => container.querySelector(`[data-testid="${id}"]`),
+    /** Every node matching a CSS selector -- the map's own marks, mostly. */
+    all: (selector) => [...container.querySelectorAll(selector)],
     text: (id) => container.querySelector(`[data-testid="${id}"]`)?.textContent ?? null,
     /** The <path> Leaflet drew for one feature, in whichever pane owns it. */
     pathFor(featureId) {
@@ -605,6 +607,169 @@ describe('2. the detail panel', () => {
 })
 
 /* ===========================================================================
+   1b. A SETTLED DRAWN BLOCK IS MARKED LIKE A SUGGESTED ONE
+   =========================================================================== */
+
+describe('1b. the drawn block’s mark', () => {
+  /** Every painted attribute of the path Leaflet drew for one feature. */
+  const markOf = (ui, featureId) => {
+    const layer = layerFor(ui, featureId)
+    const path = layer?.getElement?.() ?? null
+    if (!path) return null
+    return {
+      class: path.getAttribute('class'),
+      stroke: path.getAttribute('stroke'),
+      strokeWidth: path.getAttribute('stroke-width'),
+      fill: path.getAttribute('fill'),
+      fillOpacity: path.getAttribute('fill-opacity'),
+    }
+  }
+
+  /**
+   * THE RING IT WAS TRACED WITH DOES NOT SURVIVE THE RING.
+   *
+   * A drawn block kept an accent outline, cased on --halo, on the argument
+   * that its edge was placed vertex by vertex and a hard line is TRUE of it.
+   * What that produced on the map was a finished block still wearing the
+   * colour of the gesture that made it -- the in-progress line is the accent
+   * too -- so a decided shape went on reading as one still being drawn, and
+   * the two kinds of block never settled into one map.
+   *
+   * SO THE MARK IS THE MARK. A block is ground to work, and how it came to be
+   * proposed is the strip's to say: its tab is called "Drawn 1".
+   */
+  it('paints a settled drawn block exactly as it paints a suggestion', async () => {
+    installFetch(standardRoutes())
+    const ui = await renderSurface()
+    await throughGenerate(ui)
+    await ui.run((a) => a.addDrawnFeature('landform', drawnZone()))
+
+    const suggested = markOf(ui, 'zone-1')
+    const drawn = markOf(ui, 'drawn-1')
+    expect(suggested, 'a suggested block is on the map').not.toBeNull()
+    expect(drawn, 'the drawn block is on the map').not.toBeNull()
+
+    // THE SAME MARK, ATTRIBUTE FOR ATTRIBUTE -- the hatch, at the same level,
+    // with no stroke on either.
+    expect(drawn).toEqual(suggested)
+    expect(drawn.class).toContain('zone--production')
+    expect(drawn.class).not.toContain('zone--drawn')
+    expect(drawn.stroke).toBe('none')
+    expect(drawn.fill).toContain('url(#')
+
+    // AND NO CASING PASS UNDER IT. The casing was the drawn shape's alone; a
+    // second path under this one would be a white ring around a line nothing
+    // paints.
+    const drawnPane = ui.container.querySelector('.leaflet-landform--landform-drawn-pane')
+    expect(drawnPane.querySelectorAll('path')).toHaveLength(1)
+
+    await ui.unmount()
+  })
+
+  /**
+   * AND THE GESTURE STILL CARRIES THE ACCENT, which is the distinction that
+   * survives and the only one that needs a colour: while the ring is going
+   * down it is the accent, dashed and cased, following the cursor. It ends
+   * when the ring closes -- which is exactly what the block above no longer
+   * repeats back.
+   */
+  it('keeps the accent on the ring being traced, and only there', async () => {
+    installFetch(standardRoutes())
+    const ui = await renderSurface()
+    await throughGenerate(ui)
+
+    await ui.run((_a, cursor) => cursor.arm('draw'))
+    for (const corner of [
+      [40.716, -74.006],
+      [40.716, -73.996],
+      [40.726, -73.996],
+    ]) {
+      await ui.clickMap(corner)
+    }
+
+    // The in-progress ring is drawn in its own pane, dashed, in two passes.
+    const drawing = ui.container.querySelector('.leaflet-production-drawing-pane')
+    const lines = [...(drawing?.querySelectorAll('path') ?? [])]
+    expect(lines).toHaveLength(2)
+    for (const line of lines) expect(line.getAttribute('stroke-dasharray')).toBeTruthy()
+    expect(ui.all('.vertex-marker')).toHaveLength(3)
+
+    // CLOSE IT: the ring's own pane empties, and what is left is a block with
+    // the same mark every other block has.
+    await ui.clickMap([40.716, -74.006])
+    expect(
+      [...(ui.container.querySelector('.leaflet-production-drawing-pane')?.querySelectorAll('path') ?? [])]
+    ).toHaveLength(0)
+    expect(ui.all('.vertex-marker')).toHaveLength(0)
+
+    const drawnId = selectDraft(ui.state, 'landform').drawnFeatures[0].id
+    expect(markOf(ui, drawnId)).toEqual(markOf(ui, 'zone-1'))
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   2b. ARMING A TOOL CLOSES THE PANEL
+   =========================================================================== */
+
+describe('2b. arming clears the focus', () => {
+  /**
+   * YOU ARE NO LONGER READING A BLOCK; YOU ARE MAKING ONE.
+   *
+   * THE BUG: pressing "Draw a block" with a panel open left it open, and left
+   * the focused block marked on the map -- so the panel described one shape
+   * while another went down on top of it. Arming is the moment the user stops
+   * reading, and it is the same statement a click on bare map makes.
+   *
+   * THROUGH THE BUTTON, and asserted on the panel rather than on the slot: the
+   * panel closing is the thing the user sees, and the cleared focus is why.
+   */
+  it('closes an open detail panel when the draw tool is armed', async () => {
+    installFetch(standardRoutes())
+    const ui = await renderSurface()
+    await throughGenerate(ui)
+
+    await ui.click('tab-focus-zone-1')
+    expect(ui.cursor.focusedFeatureId).toBe('zone-1')
+    expect(ui.find('detail-landform')).not.toBeNull()
+    expect(ui.text('detail-name-landform')).toBe('Block 1')
+
+    await ui.click('draw-landform')
+
+    expect(ui.cursor.armed).toBe('draw')
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+    expect(ui.find('detail-landform')).toBeNull()
+    // AND NOTHING IS MARKED ON THE MAP either -- the focus is what lit it.
+    expect(ui.find('tab-zone-1').dataset.active).not.toBe('true')
+
+    await ui.unmount()
+  })
+
+  /**
+   * THE SELECTION IS NOT THE FOCUS, and arming must not touch it. On landform
+   * the two are separate facts (`follows: null`), so a block the user has
+   * ticked stays ticked while they draw another one -- otherwise the gesture
+   * would quietly empty their commit.
+   */
+  it('leaves the commit alone while it clears the reading', async () => {
+    installFetch(standardRoutes())
+    const ui = await renderSurface()
+    await throughGenerate(ui)
+
+    const selected = selectDraft(ui.state, 'landform').selectedFeatureIds
+    expect(selected.length).toBeGreaterThan(0)
+
+    await ui.click('tab-focus-zone-1')
+    await ui.click('draw-landform')
+
+    expect(selectDraft(ui.state, 'landform').selectedFeatureIds).toEqual(selected)
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
    3-4. LIVE CAUTIONS DURING A DRAW
    =========================================================================== */
 
@@ -638,6 +803,87 @@ describe('3. a gesture in flight', () => {
     }
 
     // Under three there is no shape to clip, so the panel says how many more.
+    await ui.unmount()
+  })
+
+  /**
+   * CANCEL ENDS THE GESTURE, WHICH MEANS THE RING GOES WITH IT.
+   *
+   * THE BUG: the vertices lived in the draw tool's own state and the Cancel
+   * button only put the arming register back to empty. The points stayed, so
+   * the panel went on reading "Drawing a zone", the live caution markers
+   * stayed on the map, and pressing "Draw a block" again RESUMED the
+   * abandoned ring instead of starting one. There was no way back to an empty
+   * ring except to finish the shape.
+   *
+   * DISARM, NOT RE-ARM, and that is the button's own promise: it says Cancel,
+   * which means leaving rather than starting again. The boundary's equivalent
+   * says "Clear and redraw" and re-arms, which is a different promise, and
+   * neither label is being made to match the other.
+   */
+  it('clears every placed vertex on cancel, disarms, and leaves no draft entry', async () => {
+    installFetch(standardRoutes())
+    const ui = await renderSurface()
+    await throughGenerate(ui)
+
+    const before = selectDraft(ui.state, 'landform')
+
+    await ui.run((_a, cursor) => cursor.arm('draw'))
+    for (const corner of [
+      [40.716, -74.006],
+      [40.716, -73.996],
+    ]) {
+      await ui.clickMap(corner)
+    }
+    expect(ui.text('detail-name-landform')).toBe('Drawing a zone')
+    expect(ui.find('detail-vertices-landform').querySelector('.measure').textContent).toBe('2')
+
+    // CANCEL, through the banner's own button rather than through the
+    // register, because the button is what the user presses.
+    await ui.click('cancel-landform')
+
+    // THE TOOL IS OFF.
+    expect(ui.cursor.armed).toBeNull()
+    expect(ui.cursor.anyArmed).toBe(false)
+
+    // THE RING IS GONE -- no vertices, no live cautions, and the panel is out
+    // of the drawing state. ZoneDrawTool renders nothing while disarmed, so
+    // what this asserts is that nothing is HELD either.
+    expect(ui.find('detail-vertices-landform')).toBeNull()
+    expect(ui.all('.caution-marker')).toHaveLength(0)
+    expect(ui.all('.leaflet-marker-icon')).toHaveLength(0)
+
+    // AND THE DRAFT IS EXACTLY WHAT IT WAS. A cleared ring that left an empty
+    // entry behind would be the same bug one level down: a drawn feature with
+    // no geometry, or an input key holding [].
+    const after = selectDraft(ui.state, 'landform')
+    expect(after.drawnFeatures).toEqual(before.drawnFeatures)
+    expect(after.drawnFeatures).toEqual([])
+    expect(after.inputs).toEqual(before.inputs)
+    expect(Object.keys(after.inputs)).toEqual([])
+    expect(after.selectedFeatureIds).toEqual(before.selectedFeatureIds)
+
+    await ui.unmount()
+  })
+
+  it('starts a fresh ring the next time the tool is armed', async () => {
+    installFetch(standardRoutes())
+    const ui = await renderSurface()
+    await throughGenerate(ui)
+
+    await ui.run((_a, cursor) => cursor.arm('draw'))
+    await ui.clickMap([40.716, -74.006])
+    await ui.clickMap([40.716, -73.996])
+    await ui.click('cancel-landform')
+
+    // ARMED AGAIN: the count starts at one, not at three. The abandoned ring
+    // is not waiting to be finished.
+    await ui.click('draw-landform')
+    expect(ui.cursor.armed).toBe('draw')
+    await ui.clickMap([40.72, -74.0])
+    expect(ui.find('detail-vertices-landform').querySelector('.measure').textContent).toBe('1')
+    expect(ui.text('detail-vertices-landform')).toContain('3 close the shape')
+
     await ui.unmount()
   })
 
@@ -685,6 +931,69 @@ describe('4. caution markers', () => {
       'a-hydric',
       'live-roads',
     ])
+  })
+
+  /**
+   * THE MARKERS GO WITH THE GEOMETRY. THE BUG: unchecking a block takes its
+   * shape off the map -- the checkbox is what decides what an editable band
+   * draws -- and its caution markers stayed, pointing at ground with nothing
+   * under it. State that outlives the thing it describes, which is the same
+   * defect as an eye that could not be clicked and a deselected zone whose
+   * tab vanished.
+   *
+   * ASKED THROUGH THE WHOLE SURFACE, not of the reader alone: the store's
+   * checkbox, the real layer stack, and the markers Leaflet actually put in
+   * the DOM.
+   */
+  it('takes a block’s markers off the map when it is unchecked, and back on when it is not', async () => {
+    installFetch(standardRoutes())
+    const ui = await renderSurface()
+    await throughGenerate(ui)
+    await ui.run((a) => a.addDrawnFeature('landform', drawnZone()))
+    await ui.click('tab-focus-drawn-1')
+
+    // Drawn, checked, on the map: one marker for the one crossing.
+    expect(ui.all('.caution-marker')).toHaveLength(1)
+    expect(layerFor(ui, 'drawn-1'), 'the block is drawn').not.toBeNull()
+
+    // UNCHECKED: the shape goes, and the marker goes with it.
+    await ui.click('tab-check-drawn-1')
+    expect(ui.find('tab-drawn-1').dataset.checked).toBe('false')
+    expect(layerFor(ui, 'drawn-1'), 'the block is off the map').toBeNull()
+    expect(ui.all('.caution-marker')).toHaveLength(0)
+
+    // THE BLOCK IS STILL THERE, which is what makes this a visibility rule
+    // and not a delete: the draft still holds it, the tab is still on the
+    // strip, and its panel still reads.
+    expect(selectDraft(ui.state, 'landform').drawnFeatures.map((f) => f.id)).toEqual(['drawn-1'])
+    expect(ui.find('tab-drawn-1')).not.toBeNull()
+    expect(ui.find('caution-hydric')).not.toBeNull()
+
+    // RECHECKED: both come back.
+    await ui.click('tab-check-drawn-1')
+    expect(layerFor(ui, 'drawn-1')).not.toBeNull()
+    expect(ui.all('.caution-marker')).toHaveLength(1)
+
+    await ui.unmount()
+  })
+
+  it('takes them off with the block the × destroys', async () => {
+    installFetch(standardRoutes())
+    const ui = await renderSurface()
+    await throughGenerate(ui)
+    await ui.run((a) => a.addDrawnFeature('landform', drawnZone()))
+    await ui.click('tab-focus-drawn-1')
+    expect(ui.all('.caution-marker')).toHaveLength(1)
+
+    // DESTROYED, not unchecked: the feature leaves the draft entirely, so the
+    // markers were never a case this one had to fix -- they are derived from
+    // the draft, and this asserts that they still are.
+    await ui.click('tab-remove-drawn-1')
+    expect(selectDraft(ui.state, 'landform').drawnFeatures).toEqual([])
+    expect(layerFor(ui, 'drawn-1')).toBeNull()
+    expect(ui.all('.caution-marker')).toHaveLength(0)
+
+    await ui.unmount()
   })
 
   it('keeps a marker at the intersection it describes, not at a centroid', () => {
@@ -820,7 +1129,22 @@ describe('6. the dotted declined treatment', () => {
 
     const css = readFileSync(path.join(SRC, 'App.css'), 'utf8')
     expect(css).toContain('.stack-layer--kind-highlight')
-    expect(layers).toContain('DRAWN_CASING_WEIGHT')
+    // THE DRAWN ZONE'S CASING WENT WITH ITS OUTLINE, and this line asserted
+    // the constant was still there. A drawn zone is marked exactly as a
+    // suggested one now -- the hatch and nothing else -- so there is no line
+    // to lay a casing under. The casing rule itself is untouched for the marks
+    // that are lines; water.test.jsx holds that.
+    //
+    // READ OFF THE CODE, NOT THE FILE. The comment where that constant used to
+    // live still NAMES it, because what a mark used to do and why it stopped
+    // is worth keeping; an absence asserted against the raw file would be an
+    // assertion about the record rather than about the renderer.
+    const layerCode = layers
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    expect(layerCode).not.toContain('DRAWN_CASING_WEIGHT')
+    expect(layerCode).not.toContain('zone--drawn')
     expect(layers).toContain('ScrimLayer')
   })
 })

@@ -588,11 +588,17 @@ describe('3. two treatments, both cased', () => {
 
   it('leaves both survey outlines uncased, and puts no casing under a dot either', () => {
     /**
-     * THE MARK IS ONE COLOUR, END TO END. Everywhere else on this map a line
+     * THE MARK IS ONE COLOUR, END TO END. Everywhere else on this map a LINE
      * is cased on --halo, because no single colour clears the range of tones
-     * in one aerial frame; the boundary ring and the drawn zones still are,
-     * and this asserts they still are. Water's line is not, because a white
-     * ring around a blue line read as a sticker edge rather than as the mark.
+     * in one aerial frame; the boundary ring, a road and a gesture's
+     * in-progress ring still are, and this asserts the rule is still there.
+     * Water's line is not, because a white ring around a blue line read as a
+     * sticker edge rather than as the mark.
+     *
+     * THE ZONE RENDERER CASES NOTHING NOW, and that is not this rule
+     * loosening: a drawn zone was the only shape it cased, and a drawn zone
+     * no longer draws an outline to lay a casing under (see the test below).
+     * A casing under a line nobody paints is a white ring around nothing.
      *
      * THE COST IS REAL AND IS RECORDED WHERE THE COLOURS ARE, not here: the
      * two blues meet the imagery unassisted and each loses contrast somewhere
@@ -603,12 +609,19 @@ describe('3. two treatments, both cased', () => {
     const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
-    // THE CASING PASS RUNS FOR A DRAWN SHAPE AND NOTHING ELSE.
-    expect(layers).toMatch(/\{isDrawn\s*$/m)
-    expect(layers).not.toMatch(/isDrawn \|\|/)
-    // ...and it is still there for the shapes that do take one.
-    expect(layers).toContain('DRAWN_CASING_WEIGHT')
+      // LINE COMMENTS GO TOO, which they did not have to before this branch
+      // and do now: what a name MEANT is kept in prose where it was removed
+      // ("DRAWN_CASING_WEIGHT ... is gone"), and a test reading for a dead
+      // name has to read the code rather than the record of it.
+      .replace(/^\s*\/\/.*$/gm, '')
+    // NO ZONE IS CASED, which is the whole of the zone renderer's casing rule
+    // now -- the drawn arm it existed for is gone with the outline.
+    expect(layers).not.toContain('DRAWN_CASING_WEIGHT')
+    expect(layers).not.toContain('isDrawn')
+    // ...and the rule is still in force for the marks that ARE lines: the
+    // boundary ring and a road branch, both cased on --halo.
     expect(layers).toContain('CASING_WEIGHT')
+    expect(layers).toMatch(/color: halo, weight: casingWeight/)
 
     // EACH SURVEY MARK'S STYLE CARRIES ONE COLOUR AND NO SECOND VALUE. The
     // wash's fill IS that colour; the dot field's fill is the paint server
@@ -1431,15 +1444,33 @@ describe('the pattern is the mark', () => {
     expect(layers).toMatch(/layer\.features\.filter\(\(feature\) => selected\.has\(feature\.id\)\)/)
   })
 
-  it('DOES still outline a drawn zone, which is the distinction rather than an exception', () => {
-    // A drawn zone's edge was placed vertex by vertex, deliberately and
-    // exactly, so a hard line is TRUE of it. The pattern says what the ground
-    // is for; the edge says whether its boundary is a suggestion or a decision.
+  it('marks a drawn zone exactly as a suggested one, with no outline of its own', () => {
+    // IT USED TO OUTLINE ONE, in the accent, and this test asserted that. The
+    // argument was that a drawn zone's edge was placed vertex by vertex and a
+    // hard line is TRUE of it; the cost was that a finished block went on
+    // looking like a ring still being drawn, in the same colour the gesture
+    // uses, so the two kinds of block never settled into one map. Which kind a
+    // block is is the strip's to say -- its tab is called "Drawn 1".
+    //
+    // ASKED AS AN IDENTITY rather than as "no stroke", because the claim is
+    // that the two are the SAME mark and not merely that one of them lost a
+    // line.
     const drawn = styleFor({ isDrawn: true, treatment: 'production', colors: COLORS })
-    expect(drawn.stroke).toBe(true)
-    expect(drawn.weight).toBeGreaterThan(0)
-    // ...and it carries the pattern too, so it is the same KIND of ground.
+    const suggested = styleFor({ treatment: 'production', colors: COLORS })
+    expect(drawn).toEqual(suggested)
+    expect(drawn.stroke).toBe(false)
+    expect(drawn.weight).toBeUndefined()
+    // ...and it is the hatch, at the same level, which is what "the same kind
+    // of ground" means on this map.
     expect(drawn.fillColor).toContain('url(#')
+    expect(drawn.className).toBe('zone--production')
+
+    // THE FOCUSED PAIR TOO, because focus is where the two could have drifted
+    // apart again: a drawn zone's outline used to take a focus class of its
+    // own.
+    expect(styleFor({ isDrawn: true, isFocused: true, treatment: 'production', colors: COLORS })).toEqual(
+      styleFor({ isFocused: true, treatment: 'production', colors: COLORS })
+    )
   })
 
   it('keeps the 422 outline, which is not a zone state', () => {

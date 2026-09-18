@@ -182,6 +182,33 @@ function ShapeDraw({ layer, armed, renders, stepId, definition, references }) {
   // leaves nothing behind on the map.
   useEffect(() => () => progress.clear(), []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // AND A GESTURE ABANDONED BY DISARMING LEAVES NOTHING EITHER. THIS IS THE
+  // BUG IT CLOSES: the vertices lived in this component's own state, and
+  // Cancel put the arming register back to empty without touching them. What
+  // the user saw was a ring that had stopped responding -- ZoneDrawTool draws
+  // nothing while disarmed, so the vertices went off the map -- with the panel
+  // still reading "Drawing a zone", the live caution markers still on the map
+  // (they are the gesture's, from DrawingProgress), and "Draw a block"
+  // RESUMING the abandoned ring rather than starting one. There was no way
+  // back to an empty ring but to finish the shape.
+  //
+  // THE POINTS ARE THE GESTURE, so they end when it does: this clears them,
+  // and the effect above reports the empty list, which takes the live cautions
+  // and the panel's drawing state with it. WHAT IT DOES NOT CLEAR is the
+  // NOTICE -- what the step said about the LAST shape that closed is not about
+  // this gesture and outlives it by design (see DrawingProgress).
+  //
+  // GUARDED ON THERE BEING POINTS, which is what keeps it out of the close
+  // path: close() empties the points itself and then disarms, so by the time
+  // this runs there is nothing to clear and the notice it just settled
+  // survives. Without the guard this would fire on every mount and after
+  // every closed ring, and the trim notice would never be read.
+  useEffect(() => {
+    if (armed || !points.length) return
+    setPoints([])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [armed])
+
   const close = () => {
     setPoints([])
     disarm()

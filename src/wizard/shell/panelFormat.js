@@ -329,9 +329,54 @@ export function breakLabel(row) {
   return isBreak(row) ? row.label ?? null : null
 }
 
-/** A measured row -- `measuredRow(measure(zone.slope_median_pct), 'median slope %')`. */
-export function measuredRow(value, label) {
-  return Object.freeze({ kind: MEASURED, value, label })
+/**
+ * A measured row -- `measuredRow(measure(zone.slope_median_pct), 'median slope %')`.
+ *
+ * `options` carries the two things a row may need beyond its pair, and both
+ * are the panel's rather than a step's: `tone`, which is how the value is set
+ * (see CAUTION), and `rowTestId`, an identity the row's own container takes so
+ * a caller that had one before the row existed does not lose it.
+ */
+export function measuredRow(value, label, options = null) {
+  return Object.freeze({ kind: MEASURED, value, label, ...(options ?? {}) })
+}
+
+/**
+ * THE ONE TONE A ROW MAY CARRY, and the only thing it changes is the colour of
+ * the figure.
+ *
+ * A caution is the one thing in this panel that reports a problem -- ground the
+ * user owns and may knowingly commit to, crossed by a gate -- so it is set in
+ * --ochre rather than in the ink every other figure takes. It is NOT a fourth
+ * face: it is a MEASURED row, in the number track, mono and tabular, with its
+ * label in the label track like every other pair. What was different about it
+ * was the arrangement, and that is what this replaces.
+ */
+export const CAUTION = 'caution'
+
+/**
+ * A CAUTION, AS A ROW OF THE PANEL'S OWN GRID -- `cautionRow('28', 'canopy
+ * overlap %', 'canopy')`.
+ *
+ * IT WAS A LIST BESIDE THE GRID, AND THAT IS THE BUG THIS CLOSES. The cautions
+ * rendered as their own two-track grid under the panel's three-track one, so a
+ * caution's label sat immediately beside its figure -- in the middle of the
+ * panel -- while every other label in the panel sat at the right edge. Two
+ * grids also size their columns independently, so the figure was in a column
+ * of its own that happened to start in the same place. What the reader saw was
+ * a composed line, "28 canopy overlap %", under a column of aligned readings.
+ *
+ * ONE GRID, SO ONE COLUMN. A caution is a measurement of the drawn block --
+ * how much of it a gate crosses -- and it belongs in the same column as every
+ * other measurement of that block. The rule above the run is a PANEL_BREAK
+ * now, which is the same hairline the format already draws, rather than a
+ * border on a list that only looked like one.
+ *
+ * `type` IS THE STABLE KEY and becomes the row's test id, which is the
+ * identity the map markers and the tests have always addressed a caution by.
+ */
+export function cautionRow(value, label, type) {
+  return measuredRow(value, label, { tone: CAUTION, rowTestId: `caution-${type}` })
 }
 
 /** A categorical row -- `categoricalRow('south facing', 'aspect')`. */

@@ -305,7 +305,11 @@ describe('1. the three faces', () => {
       '.chrome-banner__confirm',
       '.chrome-banner__confirm-cost',
       '.chrome-banner__reset-list',
-      '.chrome-detail__caution-label',
+      // A caution's words used to be prose in a list of their own; a caution
+      // is a row of the panel's grid now, so its label is set by
+      // .chrome-detail__row-label with every other label in the panel. The
+      // selector is gone rather than moved -- see the DATA list below, which
+      // already carries the rule that sets it.
       // A band name or an aspect is pipeline-derived but is not a
       // MEASUREMENT: no decimal to hold still, nothing to line up with. Prose.
       '.chrome-detail__value',
@@ -365,13 +369,22 @@ describe('2. measured values', () => {
     expect(body['grid-template-columns']).toBe('minmax(6ch, max-content) auto')
     expect(body['font-variant-numeric']).toBe('tabular-nums')
 
-    // The same grid in the detail panel, so a figure there lines up with the
-    // same figure in the tab that opened it.
-    for (const selector of ['.chrome-detail__fields', '.chrome-detail__cautions']) {
-      expect(propsOf(ruleFor(COMPONENTS, selector))['grid-template-columns']).toBe(
-        'minmax(6ch, max-content) auto'
-      )
-    }
+    // The same grid in the detail panel's legacy fields block, so a figure
+    // there lines up with the same figure in the tab that opened it.
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-detail__fields'))['grid-template-columns']).toBe(
+      'minmax(6ch, max-content) auto'
+    )
+
+    // THE PANEL'S OWN GRID IS THE THREE-TRACK ONE, and the cautions are IN it
+    // rather than beside it. They had a two-track grid of their own, which put
+    // their labels in the middle of the panel while every other label sat at
+    // the right edge -- and sized its figure column independently of the one
+    // above it. `display: contents` is what says they are rows of the panel's
+    // grid; the number track's 6ch floor is that grid's.
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-detail__cautions'))['display']).toBe('contents')
+    expect(propsOf(ruleFor(COMPONENTS, '.chrome-detail__rows'))['grid-template-columns']).toBe(
+      'minmax(6ch, max-content) minmax(0, 1fr) minmax(0, max-content)'
+    )
 
     // Anything else carrying a figure carries the same pair.
     for (const selector of ['.measure', '.chrome-rail__index']) {

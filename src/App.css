@@ -1559,35 +1559,37 @@
   color: var(--ink-muted);
 }
 
-/* A caution is the one thing in this panel that reports a problem, so it is
-   the one thing carrying --ochre. Not --alert, which is reserved for something
-   that FAILED: an exclusion crossing is a condition of ground the user owns
-   and may knowingly commit to, and colouring it as an error would contradict
-   the whole posture the gates take. */
+/* THE CAUTION RUN, IN THE PANEL'S OWN GRID.
+
+   IT WAS A GRID OF ITS OWN and that is the bug this closes. Two tracks under
+   the panel's three: the figure in a column that only looked like the one
+   above it -- two grids size independently -- and the label immediately beside
+   it, in the middle of the panel, while every other label in the panel sits at
+   the right edge. What the reader got was a composed line under a column of
+   aligned readings.
+
+   `display: contents` ON BOTH, so the run's rows ARE rows of the panel's grid.
+   The wrapper survives only to carry the run's name (detail-cautions-<step>);
+   the rule above the run is a PANEL_BREAK in the body, which is the same
+   hairline the format draws everywhere else rather than a border on a box.
+
+   A caution is the one thing in this panel that reports a problem, so its
+   FIGURE is the one thing carrying --ochre. Not --alert, which is reserved for
+   something that FAILED: an exclusion crossing is a condition of ground the
+   user owns and may knowingly commit to, and colouring it as an error would
+   contradict the whole posture the gates take. The label is set like every
+   other label, because what is cautionary is the measurement and not the
+   noun. */
 .chrome-detail__cautions {
-  margin: var(--space-3) 0 0 0;
-  padding: var(--space-2) 0 0 0;
-  border-top: var(--hairline);
-  list-style: none;
-  display: grid;
-  grid-template-columns: minmax(6ch, max-content) auto;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-2);
+  display: contents;
 }
 
 .chrome-detail__caution {
   display: contents;
 }
 
-.chrome-detail__caution .measure {
-  text-align: right;
+.chrome-detail__caution .chrome-detail__figure {
   color: var(--ochre);
-}
-
-.chrome-detail__caution-label {
-  font-family: var(--font-prose);
-  font-size: var(--text-xs);
-  color: var(--ink-muted);
 }
 
 /* --- D + E: the bottom ROW ---------------------------------------------------

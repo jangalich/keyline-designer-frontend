@@ -413,6 +413,46 @@ const MEASUREMENT_FIELDS = [
 ]
 
 /* ===========================================================================
+   0b. ARMING THE PLACEMENT CLEARS THE FOCUS
+   =========================================================================== */
+
+describe('0b. arming clears the focus', () => {
+  /**
+   * THE SAME RULE LANDFORM'S DRAW TOOL TAKES, and it arrives here by having
+   * one door: "Place a site" is an armButton() like every other arming
+   * gesture, and WizardCursor's arm() blurs before it arms. This step shared
+   * the bug -- a site's panel stayed open over the placement -- and shares
+   * the fix without a line of its own.
+   *
+   * THE SELECTION IS UNTOUCHED, which matters more here than on landform: a
+   * placed site is committable, and a gesture that emptied the commit while
+   * the user reached for a second site would lose the first.
+   */
+  liveIt('closes an open site panel when "Place a site" is armed', async () => {
+    const ui = await renderApp()
+    await throughTreesCommit(ui)
+    await ui.click('generate-structures')
+    await ui.waitFor('structures to generate', () => selectStepStatus(ui.state, 'structures') === GENERATED)
+    await ui.waitFor('the structures draft', () => ui.state.drafts.structures !== undefined)
+
+    const siteId = ui.structures.structure_sites.features[0].id
+    await ui.focus(siteId)
+    expect(ui.cursor.focusedFeatureId).toBe(siteId)
+    expect(ui.find('detail-structures')).not.toBeNull()
+
+    const selected = selectDraft(ui.state, 'structures').selectedFeatureIds
+    await ui.click('place-structures')
+
+    expect(ui.cursor.armed).toBe('draw')
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+    expect(ui.find('detail-structures')).toBeNull()
+    expect(selectDraft(ui.state, 'structures').selectedFeatureIds).toEqual(selected)
+
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
    1. END TO END
    =========================================================================== */
 
@@ -2372,7 +2412,11 @@ describe('12. what the definition declares, and the sweep', () => {
     // there are the pins' own two.
     expect(ui.all('.leaflet-structures--structures-candidates-pane path:not([class^="site-pin"])')).toHaveLength(0)
     expect(ui.all('.leaflet-structures--structures-placed-pane path:not([class^="site-pin"])')).toHaveLength(0)
-    expect(ui.all('.leaflet-structures--structures-placed-pane path.zone--drawn')).toHaveLength(0)
+    // A PLACED SITE IS A PIN AND NEVER A ZONE. It carried no `zone--drawn`
+    // when a drawn zone still had that class, and there is no such class on
+    // this map at all now -- the outline it named is gone. What this holds is
+    // the pane's own contents: pins, and nothing else.
+    expect(ui.all('.leaflet-structures--structures-placed-pane path')).toHaveLength(2)
     // The placed pin says it is the user's; the generated ones do not.
     expect(ui.all('.leaflet-structures--structures-placed-pane .site-pin--placed')).toHaveLength(1)
     expect(ui.all('.leaflet-structures--structures-candidates-pane .site-pin--placed')).toHaveLength(0)

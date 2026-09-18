@@ -1409,7 +1409,14 @@ describe('6 & 7. no eligible highlight, the off-parcel scrim, and the search spa
     const candidatePaths = ui.all('.leaflet-trees--trees-candidates-pane path')
     expect(candidatePaths).toHaveLength(2)
     for (const el of candidatePaths) expect(el.classList.contains('zone--tree')).toBe(true)
-    expect(ui.all('.leaflet-trees--trees-drawn-pane path.zone--drawn')).toHaveLength(1)
+    // THE DRAWN ZONE TAKES THE TREE MARK, exactly as a candidate does. It
+    // carried `zone--drawn` -- an accent outline over the same hatch -- until
+    // the outline went; which zone the user drew is the strip's to say, and
+    // its tab is called "Drawn 1".
+    const drawnPaths = ui.all('.leaflet-trees--trees-drawn-pane path')
+    expect(drawnPaths).toHaveLength(1)
+    expect(drawnPaths[0].classList.contains('zone--tree')).toBe(true)
+    expect(ui.all('.leaflet-trees--trees-drawn-pane path.zone--drawn')).toHaveLength(0)
     // And the two ground panes paint nothing.
     expect(ui.all('.stack-layer--kind-reference path')).toHaveLength(0)
     await ui.unmount()
