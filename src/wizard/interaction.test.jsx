@@ -688,7 +688,7 @@ describe('1b. the drawn block’s mark', () => {
     }
 
     // The in-progress ring is drawn in its own pane, dashed, in two passes.
-    const drawing = ui.container.querySelector('.leaflet-production-drawing-pane')
+    const drawing = ui.container.querySelector('.leaflet-zone-drawing-pane')
     const lines = [...(drawing?.querySelectorAll('path') ?? [])]
     expect(lines).toHaveLength(2)
     for (const line of lines) expect(line.getAttribute('stroke-dasharray')).toBeTruthy()
@@ -698,7 +698,7 @@ describe('1b. the drawn block’s mark', () => {
     // the same mark every other block has.
     await ui.clickMap([40.716, -74.006])
     expect(
-      [...(ui.container.querySelector('.leaflet-production-drawing-pane')?.querySelectorAll('path') ?? [])]
+      [...(ui.container.querySelector('.leaflet-zone-drawing-pane')?.querySelectorAll('path') ?? [])]
     ).toHaveLength(0)
     expect(ui.all('.vertex-marker')).toHaveLength(0)
 

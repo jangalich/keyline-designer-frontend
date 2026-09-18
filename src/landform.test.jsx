@@ -1533,7 +1533,17 @@ describe('12. the panel, against the shared format', () => {
     }
     // AND THE PERCENTILE IS NOT READ AT ALL: the word is the wire's, and a
     // panel deriving it from the number would be the second source of truth.
-    expect(code).toContain('zone.elevation_position')
+    //
+    // READ OFF WHATEVER THE READING IS CALLED. It was `zone.elevation_position`
+    // when trees' panel was the only other reader and read a payload row by
+    // that name; both panels take a `reading` now -- one builder each, serving
+    // a suggestion's row and a drawn feature's properties alike -- so what is
+    // asserted is the FIELD being read and the percentile not being.
+    const reads = code.match(/\b\w+\.elevation_position\b/g) ?? []
+    expect(reads.length, 'every panel with a position row reads the word').toBeGreaterThanOrEqual(3)
+    // AND EVERY ONE OF THEM IS A PLAIN FIELD READ off whatever object holds
+    // the reading -- landform's and trees' `reading`, structures' `p` -- with
+    // nothing derived from the number beside it.
     expect(code).not.toContain('elevation_percentile_of_parcel')
   })
 

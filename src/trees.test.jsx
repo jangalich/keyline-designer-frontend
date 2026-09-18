@@ -86,6 +86,7 @@ import {
   REOPEN_BUTTON,
   STEP_DEFINITIONS,
   TREES_GROUNDS_LAYER,
+  TREES_RING_INPUT,
   TREES_SHAPE,
   TREES_STEP,
   TREE_CROSSING_GROUND_TYPES,
@@ -102,10 +103,12 @@ import { resetStepCatalog } from './wizard/stepCatalog.jsx'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './wizard/WizardCursor.jsx'
 import MapLayerStack from './map/MapLayerStack.jsx'
+import ZoneDrawTool from './ZoneDrawTool.jsx'
 import { composeLayerStack, resolveLayer } from './map/layerStack.js'
+import { styleFor } from './map/layers.jsx'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
 import { injectZonePatterns, marksItsOwnEdge, zoneMark, zoneTreatmentSpec } from './ProductionHatchPattern.jsx'
-import { toMultiPolygon } from './geo.js'
+import { readToken, toMultiPolygon } from './geo.js'
 import { CAUTION_MIN_ACRES, cautionsFor, clampToBoundary, exclusionGrounds } from './zoneGeometry.js'
 import captured from './fixtures/landform-session.json'
 import rings from './fixtures/rings.json'
@@ -518,6 +521,84 @@ describe('1. end to end against the real backend', () => {
       expect(drawn[0].properties.cautions.map((c) => c.type)).not.toContain('hydric')
       expect(drawn[0].properties.cautions.map((c) => c.type)).not.toContain('slope')
 
+      // [tests 1, 2, 4, 11] THE DRAWN ZONE IS SCORED, ON REAL GROUND, BY THE
+      // REAL SERVER. The ring goes up as the step's declared `ring` input and
+      // the reading comes back with the four factors and whatever benefits
+      // the server's own gate rule awarded -- measured against the run the
+      // suggestions above were measured against, which is the whole claim the
+      // panel makes when it prints the two scores in one column.
+      await ui.waitFor(
+        'the drawn zone to be scored',
+        () => selectDraft(ui.state, 'trees').drawnFeatures[0].properties.score != null,
+        30000
+      )
+      const scored = selectDraft(ui.state, 'trees').drawnFeatures[0]
+      expect(scored.properties.zone_origin).toBe('user_drawn')
+      expect(Object.keys(scored.properties.factors).sort()).toEqual([
+        'hydric_overlap',
+        'slope',
+        'soil_marginality',
+        'stream_proximity',
+      ])
+      expect(scored.properties.rank).toBeUndefined()
+      // The zone is still the user's: its own id, its own acreage, its own
+      // note. The server's placeholder id never arrives.
+      expect(scored.properties.confidence_notes).toMatch(/drawn by hand/i)
+      expect(scored.properties.acres).toBeGreaterThan(0)
+
+      await ui.focus(scored.id)
+      expect(ui.text('detail-name-trees')).toBe('Drawn 1')
+      // THE SAME ROWS THE SUGGESTION ABOVE SHOWED, off one builder -- and NO
+      // `confidence` row, NO `source` row and NO "not scored" sentence.
+      expect(ui.find('detail-value-confidence')).toBeNull()
+      expect(ui.find('detail-value-source')).toBeNull()
+      expect(ui.find('detail-value-scoring')).toBeNull()
+      expect(ui.text('detail-value-/100 score')).toBe(Number(scored.properties.score).toFixed(1))
+      expect(ui.text('detail-value-where in the parcel')).toBe(
+        scored.properties.position_in_parcel ?? '—'
+      )
+      expect(ui.text('detail-value-median slope %')).toBe(
+        Number(scored.properties.slope_median_pct).toFixed(1)
+      )
+      const drawnTerms = [...ui.find('detail-rows-trees').querySelectorAll('[data-row="term"]')].map(
+        (node) => node.textContent
+      )
+      expect(drawnTerms).toEqual(scored.properties.marginal_benefits)
+      // EVERY BENEFIT TRACES TO A FACTOR ABOVE ZERO. The availability half of
+      // the gate is the server's and the flags are not merged onto the zone,
+      // so what this side can check is the half it can see -- and it holds.
+      for (const term of drawnTerms) {
+        expect(ui.trees.scales.marginal_benefits.values).toContain(term)
+      }
+      expect(Object.values(scored.properties.factors).some((value) => value > 0)).toBe(
+        drawnTerms.length > 0
+      )
+      // THE RENDERED PANEL, AS A READER SEES IT -- the number track, then the
+      // label track, row by row, cautions included.
+      const renderPanel = () =>
+        [...ui.find('detail-rows-trees').children]
+          // The caution run is a `display: contents` wrapper -- its rows ARE
+          // rows of the one grid -- so it is flattened here for the same
+          // reason the browser flattens it.
+          .flatMap((node) =>
+            node.classList?.contains('chrome-detail__cautions') ? [...node.children] : [node]
+          )
+          .map((node) => {
+            if (node.tagName === 'HR') return `${' '.repeat(12)}   ${'\u2500'.repeat(28)}`
+            if (node.tagName === 'H4') return `${' '.repeat(12)}   ${node.textContent.toUpperCase()}`
+            const term = node.querySelector('.chrome-detail__term')
+            if (term) return `${' '.repeat(12)}   ${term.textContent}`
+            const value = node.querySelector('.chrome-detail__figure, .chrome-detail__phrase')
+            const label = node.querySelector('.chrome-detail__row-label')
+            return `${String(value?.textContent ?? '').padStart(12)}   ${label?.textContent ?? ''}`
+          })
+          .join('\n')
+      // eslint-disable-next-line no-console
+      console.log(
+        `DRAWN TREE ZONE PANEL, live, on real ground\n  ${ui.text('detail-name-trees')}\n` +
+          renderPanel().replace(/^/gm, '  ')
+      )
+
       // [1] ROAD AND CANOPY WARN WHERE CROSSED. A box is found over each of
       // those two grounds -- off the shipped geometry itself, so it crosses
       // by construction -- and drawn through the real gesture.
@@ -643,6 +724,26 @@ const ACROSS_CANOPY = [
   [40.728, -73.984],
   [40.728, -73.989],
 ]
+/**
+ * A ring far too small to resolve a crossing against -- a few metres on a
+ * side, well under CAUTION_MIN_ACRES. Used to show the floor is ABSOLUTE:
+ * a ground covering the whole of this zone is a 100% share and still no
+ * caution, because what the floor is about is what the geometry can
+ * resolve, which does not scale with the zone.
+ */
+const TINY = [
+  [40.7240, -74.0180],
+  [40.7240, -74.01795],
+  [40.72405, -74.01795],
+  [40.72405, -74.0180],
+]
+
+/** A [lat, lng] ring as the {type, coordinates} a ground carries. */
+const ringGeometry = (ring) => ({
+  type: 'Polygon',
+  coordinates: [[...ring, ring[0]].map(([lat, lng]) => [lng, lat])],
+})
+
 /** And one across none of the four. */
 const CLEAR = [
   [40.724, -74.018],
@@ -874,6 +975,23 @@ const contextOver = (proposals, draft = {}) => ({
    2. CAUTIONS -- the committed grounds, through the real gesture
    =========================================================================== */
 
+/**
+ * ONE CAUTION ROW, AS ITS TWO CELLS. The row is addressed by the crossing's
+ * STABLE `type` -- the identity the map markers, the commit's crossing
+ * records and these tests have always used -- and what comes back is the
+ * figure and the words separately, because that separation is the thing
+ * under test.
+ */
+function cautionRowParts(ui, type) {
+  const row = ui.find(`caution-${type}`)
+  if (!row) return { row: null, value: null, label: null }
+  return {
+    row,
+    value: row.querySelector('.chrome-detail__figure')?.textContent ?? null,
+    label: row.querySelector('.chrome-detail__row-label')?.textContent ?? null,
+  }
+}
+
 describe('2. cautions record all four grounds where crossed', () => {
   it('reads the four grounds off its own payload, and declares no gate', () => {
     // THE DECLARATION: one reference layer over the payload's
@@ -928,8 +1046,11 @@ describe('2. cautions record all four grounds where crossed', () => {
     await ui.click('draw-trees')
     for (const point of ACROSS_BOTH) await ui.clickMap(point)
     expect(ui.find('detail-cautions-trees')).not.toBeNull()
-    expect(ui.text('caution-production')).toContain('committed production area')
-    expect(ui.text('caution-water')).toContain('committed water zone')
+    // TWO COLUMNS, NOT A COMPOSED LINE. The share is in the number track and
+    // the words are in the label track, like every other measured pair in
+    // this panel -- see the dedicated test below for the whole of that.
+    expect(cautionRowParts(ui, 'production').label).toBe('production area overlap %')
+    expect(cautionRowParts(ui, 'water').label).toBe('water zone overlap %')
     // ...and the closed shape carries them, in the payload's order, each
     // with a place to put its marker.
     await ui.clickMap(ACROSS_BOTH[0])
@@ -964,7 +1085,10 @@ describe('2. cautions record all four grounds where crossed', () => {
     const canopy = drawn[3].properties.cautions
     expect(canopy.map((c) => [c.type, c.label])).toEqual([['canopy', 'tree canopy root zone']])
     await ui.focus(drawn[3].id)
-    expect(ui.text('caution-canopy')).toContain('tree canopy root zone')
+    // THE GROUND'S OWN LABEL IS STILL ON THE CAUTION, verbatim and unread --
+    // what the ROW prints is the short noun the percentage wants, composed
+    // from the stable key.
+    expect(cautionRowParts(ui, 'canopy').label).toBe('existing canopy overlap %')
     const notice = ui.find(`notice-canopy-${drawn[3].id}-trees`)
     expect(notice, 'the canopy notice names the drawn zone').not.toBeNull()
     expect(notice.textContent).toContain('Drawn 4 sits on')
@@ -1048,6 +1172,131 @@ describe('3. a drawn zone on hydric, steep ground records no caution for either'
       `HYDRIC RING  landform ${JSON.stringify(onLandform.map((c) => c.type))}` +
         `  trees ${JSON.stringify(closed.feature.properties.cautions.map((c) => c.type))}`
     )
+  })
+
+
+  /**
+   * [test 5] A CAUTION IS A PERCENTAGE IN TWO COLUMNS.
+   *
+   * IT WAS A COMPOSED STRING WITH THE VALUE INSIDE IT -- "0.1 acres —
+   * committed production area" -- in a panel where every other measured row
+   * puts the figure in the mono column and the label at the right edge. The
+   * figure was the one thing in that line a reader scans for and the one
+   * thing not in the column. Production's cautions were fixed the same way;
+   * this is the same fix over trees' four grounds.
+   *
+   * THE FIX IS IN THE ROW CONSTRUCTION, NOT THE CSS. cautionsFor() already
+   * returns `pct` beside `acres` -- one conversion, beside the clip it
+   * divides -- and DetailPanel already renders the share when the step hands
+   * it a label. What trees lacked was the label, and the label is composed
+   * from the crossing's STABLE key so a copy edit to the server's prose
+   * cannot move it.
+   */
+  it('renders a caution as a share in the number track and a label in the label track', async () => {
+    const { ui } = await generatedTrees()
+    await ui.draw(ACROSS_BOTH)
+    const drawn = selectDraft(ui.state, 'trees').drawnFeatures[0]
+    await ui.focus(drawn.id)
+
+    for (const [type, label] of [
+      ['production', 'production area overlap %'],
+      ['water', 'water zone overlap %'],
+    ]) {
+      const { row, value, label: printed } = cautionRowParts(ui, type)
+      expect(row, `a caution row for ${type}`).not.toBeNull()
+      // THE VALUE IS A WHOLE PERCENT AND IT IS ALONE IN ITS CELL. No acreage,
+      // no unit, no em dash, and no words: the number track holds a number.
+      expect(value).toMatch(/^\d+$/)
+      // AND THE LABEL IS ALONE IN ITS OWN, at the right edge, with no value
+      // folded into it -- which is what the composed string used to do.
+      expect(printed).toBe(label)
+      expect(printed).not.toMatch(/\d/)
+      expect(printed).not.toContain('—')
+      expect(printed).not.toContain('acres')
+      // THE GROUND'S OWN WORDS ARE NOT REWORDED, they are just not what this
+      // row prints: `label` rides the caution verbatim for anything that
+      // wants to name the ground.
+      const caution = drawn.properties.cautions.find((c) => c.type === type)
+      expect(caution.label).toMatch(/^committed /)
+      expect(printed).not.toBe(caution.label)
+      // THE MONO, TABULAR FIGURE FACE -- the same class every measured value
+      // in this panel takes, which is what makes one decimal point run down
+      // the column. The caution's tone changes the colour and nothing else.
+      expect(row.querySelector('.chrome-detail__figure').classList.contains('measure')).toBe(true)
+      expect(row.dataset.tone).toBe('caution')
+      expect(row.dataset.row).toBe('measured')
+    }
+
+    // THE SHARE IS cautionsFor()'S OWN, rounded for display and computed
+    // nowhere else -- a percentage recomposed in a component would be a
+    // second answer off a block acreage that component had to find for
+    // itself.
+    const production = drawn.properties.cautions.find((c) => c.type === 'production')
+    expect(cautionRowParts(ui, 'production').value).toBe(Number(production.pct).toFixed(0))
+
+    // FOUR GROUNDS, NOT PRODUCTION'S FIVE, and the label for each is composed
+    // from whatever stable key the ground carries.
+    const labels = TREE_CROSSING_GROUND_TYPES.map(
+      (type) =>
+        TREES_SHAPE.close({
+          points: ACROSS_BOTH,
+          parcel: RING,
+          references: {
+            [TREES_GROUNDS_LAYER]: [
+              { type, label: `committed ${type}`, geometry_wgs84: ringGeometry(RING) },
+            ],
+          },
+        }).feature.properties.cautions[0].overlapLabel
+    )
+    expect(labels).toEqual([
+      'production area overlap %',
+      'water zone overlap %',
+      'road corridor overlap %',
+      'existing canopy overlap %',
+    ])
+    expect(TREE_CROSSING_GROUND_TYPES).toHaveLength(4)
+    await ui.unmount()
+  })
+
+  /**
+   * [test 6] THE ABSOLUTE FLOOR STILL DECIDES WHICH CAUTIONS APPEAR, and it
+   * is still in ACRES.
+   *
+   * WHAT IS DISPLAYED IS A SHARE; WHAT DECIDES WHETHER ANYTHING IS DISPLAYED
+   * IS AN AREA, and the two are deliberately different measurements. The
+   * floor is about what the geometry can RESOLVE -- a 5 m cell staircase
+   * disagreeing with an arbitrary drawn ring along their shared edge -- and
+   * that does not scale with the zone. A percentage floor would show a
+   * sliver on a small zone and hide a real crossing on a large one.
+   */
+  it('keeps the acreage floor absolute while the row prints a share', () => {
+    const ground = (geometry) => ({
+      [TREES_GROUNDS_LAYER]: [{ type: 'production', label: 'committed production area', geometry_wgs84: geometry }],
+    })
+    // A sliver that is a LARGE share of a small zone and still below the
+    // absolute floor: no caution, and no marker with it.
+    const sliver = TREES_SHAPE.close({
+      points: TINY,
+      parcel: RING,
+      references: ground(ringGeometry(TINY)),
+    })
+    const slice = toMultiPolygon(sliver.feature.geometry)
+    expect(sliver.feature.properties.acres).toBeLessThan(CAUTION_MIN_ACRES)
+    expect(sliver.feature.properties.cautions).toEqual([])
+    // The control: the SAME ground over a zone above the floor does record
+    // one -- so the empty list above is the floor working, not a clip that
+    // found nothing.
+    const real = TREES_SHAPE.close({
+      points: ACROSS_BOTH,
+      parcel: RING,
+      references: ground(ringGeometry(ACROSS_BOTH)),
+    })
+    expect(real.feature.properties.cautions.map((c) => c.type)).toEqual(['production'])
+    expect(real.feature.properties.cautions[0].acres).toBeGreaterThanOrEqual(CAUTION_MIN_ACRES)
+    // AND THE FLOOR IS THE ONE IN zoneGeometry.js, in acres, unchanged and
+    // read rather than copied.
+    expect(CAUTION_MIN_ACRES).toBe(0.05)
+    expect(slice.length).toBeGreaterThan(0)
   })
 
   /**
@@ -1246,8 +1495,15 @@ describe('4. no benefit name and no factor-to-benefit mapping exists client-side
     const code = section.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
     expect(code).not.toMatch(/0\.5\b/)
     expect(code).not.toMatch(/NEUTRAL_FACTOR/)
-    // AND `marginal_benefits` IS READ EXACTLY ONCE, straight onto the rows.
-    expect(code.match(/marginal_benefits/g) ?? []).toHaveLength(1)
+    // AND `marginal_benefits` IS NAMED TWICE, BOTH TIMES AS A FIELD NAME AND
+    // NEITHER TIME AS A RULE: once in DRAWN_TREE_ZONE_READING_FIELDS, which
+    // says the server's list is one of the things a drawn zone keeps off the
+    // round trip, and once in treeZoneRows(), which hands it straight to
+    // marginalBenefitRows(). It was one before the drawn zone was scored,
+    // and the second is the merge list rather than a second reader.
+    expect(code.match(/marginal_benefits/g) ?? []).toHaveLength(2)
+    expect(code).toContain("'marginal_benefits',")
+    expect(code).toContain('marginalBenefitRows(reading.marginal_benefits)')
   })
 
   it('renders whatever the wire says, which is what a side holding no mapping can do', () => {
@@ -1304,52 +1560,320 @@ describe('4. no benefit name and no factor-to-benefit mapping exists client-side
 })
 
 /* ===========================================================================
-   5. A DRAWN ZONE SHOWS ABSENCE, NOT ZEROS
+   5. A DRAWN ZONE IS SCORED, AND EARNS WHAT ITS FACTORS EARN
    =========================================================================== */
 
-describe('5. a drawn zone shows its scoring absent', () => {
-  it('renders no benefits run, no zero, and says why', () => {
-    const drawn = TREES_SHAPE.close({ points: CLEAR, parcel: RING, references: {} }).feature
-    const detail = TREES_STEP.detail(contextOver(treesPayload(), { drawnFeatures: [drawn] }), drawn.id)
-    expect(detail.name).toBe('Drawn tree zone')
-    // The shared format, like a candidate's -- one panel, one arrangement.
-    expect(detail.groups).toBeUndefined()
-    expect(detail.fields).toBeUndefined()
-    // NO BENEFITS RUN AT ALL: no heading, no rule, no terms. A drawn zone was
-    // never scored, so it earned nothing -- which is a different fact from a
-    // scored zone that earned none, and neither is a row of dashes.
-    expect(detail.rows.some((row) => row.panelBreak)).toBe(false)
-    expect(detail.rows.some((row) => row.kind === 'term')).toBe(false)
+/**
+ * WHAT THE SERVER ANSWERS a drawn ring with -- wire_translation.drawn_tree_
+ * zone_to_feature()'s Feature, in the shape the panel reads. The measurement
+ * row is _zone_row()'s, so it is a SUGGESTION'S row minus the rank, and the
+ * three availability flags ride beside it.
+ */
+function scoredDrawnFeature(overrides = {}) {
+  return {
+    id: 'drawn-tree-zone',
+    type: 'Feature',
+    geometry: { type: 'Polygon', coordinates: [[]] },
+    properties: {
+      layer: TREE_ZONE_LAYER,
+      label: 'Drawn tree zone',
+      confidence: 'low',
+      confidence_notes: 'This identifies GENERAL tree-suitable land …',
+      zone_origin: 'user_drawn',
+      position_in_parcel: 'south',
+      area_acres: 0.41,
+      score: 22.4,
+      avg_slope_pct: 7.7,
+      slope_median_pct: 6.2,
+      elevation_percentile_of_parcel: 22.0,
+      elevation_position: 'lower field',
+      marginal_benefits: ['erosion control'],
+      factors: { hydric_overlap: 0.0, slope: 15.4, soil_marginality: 100.0, stream_proximity: 0.0 },
+      soil_marginality_data_available: true,
+      hydric_data_available: true,
+      stream_data_available: true,
+      ...overrides,
+    },
+  }
+}
+
+/** generatedTrees(), plus the score route the draw's measure() calls. */
+async function generatedTreesThatScore({ feature = scoredDrawnFeature(), status = 200 } = {}) {
+  const document = serverDocument({ trees: { status: GENERATED } })
+  const payload = treesPayload()
+  const calls = installFetch([
+    route('GET', /^\/api\/sessions\/sess-trees$/, { body: document }),
+    route('GET', /\/steps\/trees\/layers$/, { body: payload }),
+    route('POST', /\/steps\/trees\/score$/, {
+      status,
+      body: status === 200 ? { feature } : { error: 'that zone covers no DEM cell center' },
+    }),
+  ])
+  const ui = await renderApp({ center: [40.72, -74.0], zoom: 17 })
+  await ui.run((a) => a.resume('sess-trees'))
+  await ui.waitFor('the trees payload', () => ui.trees != null, 5000)
+  await ui.waitFor('the trees draft', () => ui.state.drafts.trees !== undefined, 5000)
+  return { ui, calls }
+}
+
+describe('5. a drawn zone is scored', () => {
+  /**
+   * [test 1] THE SCORE AND ALL FOUR FACTORS.
+   *
+   * The reading is the SERVER's -- the four factors are derivable from the
+   * zone's own cells, and the DEM, the SSURGO geometry and the NHD features
+   * are all in the session's memory there, which is where the suggestions
+   * were measured. What this asserts is the round trip and the merge: the
+   * ring goes up under the step's declared input name, the reading comes
+   * back, and exactly the declared fields land on the zone the user drew.
+   */
+  it('sends the ring, takes the reading, and keeps the zone its own', async () => {
+    const { ui, calls } = await generatedTreesThatScore()
+    await ui.draw(CLEAR)
+    const drawnId = selectDraft(ui.state, 'trees').drawnFeatures[0].id
+    await ui.waitFor(
+      'the reading to land',
+      () => selectDraft(ui.state, 'trees').drawnFeatures[0].properties.score != null
+    )
+    const drawn = selectDraft(ui.state, 'trees').drawnFeatures[0]
+
+    // THE REQUEST: one POST, under the step's own declared input name.
+    const scoreCalls = calls.filter((c) => c.path.endsWith('/steps/trees/score'))
+    expect(scoreCalls).toHaveLength(1)
+    expect(Object.keys(scoreCalls[0].body.params)).toEqual([TREES_RING_INPUT])
+    expect(TREES_RING_INPUT).toBe('ring')
+    expect(scoreCalls[0].body.params.ring[0]).toHaveLength(2)
+
+    // ALL FOUR FACTORS ARE ON THE ZONE, and so is the score.
+    expect(drawn.properties.score).toBe(22.4)
+    expect(Object.keys(drawn.properties.factors).sort()).toEqual([
+      'hydric_overlap',
+      'slope',
+      'soil_marginality',
+      'stream_proximity',
+    ])
     for (const factor of TREE_FACTORS) {
-      expect(
-        detail.rows.some((row) => String(row.label ?? '').startsWith(factor.label)),
-        `no ${factor.label} row`
-      ).toBe(false)
+      expect(drawn.properties.factors[factor.key], `${factor.key} measured`).not.toBeUndefined()
     }
-    for (const row of detail.rows) {
-      expect(row.value).not.toBe('0.0')
-      expect(row.value).not.toBe('0')
-    }
-    expect(detail.rows.find((row) => row.label === 'scoring').value).toMatch(/not scored/)
-    // AND ITS ACRES AND EM-DASH SCORE COME OFF THE TAB, not off this list --
-    // the format's rule 2, so the two cannot come to disagree.
-    expect(detail.rows.some((row) => row.label === 'acres' || row.label === 'score')).toBe(false)
-    const tab = TREES_STEP.tabs(contextOver(treesPayload(), { drawnFeatures: [drawn] })).find((t) => t.id === drawn.id)
-    expect(tab.rows.find((r) => r.label === 'score').value).toBe('—')
-    expect(tab).toMatchObject({ drawn: true, checkbox: true, removable: true })
+
+    // AND THE ZONE IS STILL THE USER'S. The id the draw minted, the acreage
+    // the clamp measured and the note saying a person drew it all survive
+    // the round trip; the server's placeholder id and its own confidence
+    // notes do not arrive.
+    expect(drawn.id).toBe(drawnId)
+    expect(drawn.id).not.toBe('drawn-tree-zone')
+    expect(drawn.properties.confidence_notes).toMatch(/drawn by hand/i)
+    expect(drawn.properties.area_acres).toBeUndefined()
+    expect(drawn.properties.acres).toBeGreaterThan(0)
+    // Nor anything the merge does not declare.
+    expect(drawn.properties.elevation_percentile_of_parcel).toBeUndefined()
+    expect(drawn.properties.hydric_data_available).toBeUndefined()
+    await ui.unmount()
   })
 
-  it('renders the absence in the panel', async () => {
-    const { ui } = await generatedTrees()
+  /**
+   * [test 2] THE BENEFITS, AND THE GATE THAT IS NOT THIS SIDE'S.
+   *
+   * The panel renders the list it is handed, in the order it arrived, and
+   * applies no rule to it -- which is what makes the second half assertable
+   * at all: a neutral 0.5 behind a false flag is a number ABOVE ZERO, and
+   * the only reason it claims nothing is that the gate was applied where the
+   * flags and the factors were both in hand. The empty list arrives; the
+   * panel renders no heading and no rule for it.
+   */
+  it('renders the benefits it is handed, and nothing at all behind a false gate', async () => {
+    const earned = scoredDrawnFeature({
+      marginal_benefits: ['erosion control', 'nutrient deposition'],
+    })
+    const { ui } = await generatedTreesThatScore({ feature: earned })
     await ui.draw(CLEAR)
+    await ui.waitFor(
+      'the reading to land',
+      () => selectDraft(ui.state, 'trees').drawnFeatures[0].properties.score != null
+    )
     const drawn = selectDraft(ui.state, 'trees').drawnFeatures[0]
     await ui.focus(drawn.id)
-    expect(ui.text('detail-name-trees')).toBe('Drawn 1')
-    expect(ui.find('detail-fields-merits')).toBeNull()
-    expect(ui.find('detail-heading-trees')).toBeNull()
-    expect(ui.text('detail-value-/100 score')).toBe('—')
-    expect(ui.text('detail-value-scoring')).toMatch(/not scored/)
+    expect(ui.text('detail-heading-trees')).toMatch(/marginal benefits/i)
+    const terms = ui.all('[data-testid^="detail-term-"]').map((el) => el.textContent)
+    expect(terms).toEqual(['erosion control', 'nutrient deposition'])
     await ui.unmount()
+
+    // A NEUTRAL 0.5 BEHIND A FALSE FLAG CLAIMS NOTHING. Two of the factors
+    // are the neutral value the scorer uses when a source could not be
+    // reached, their flags are false, and the earned list is EMPTY -- so the
+    // panel shows the score and the ground rows and stops. No heading, no
+    // rule, no terms, and no row of dashes standing in for them.
+    const ungated = scoredDrawnFeature({
+      factors: { hydric_overlap: 50.0, slope: 0.0, soil_marginality: 50.0, stream_proximity: 50.0 },
+      marginal_benefits: [],
+      hydric_data_available: false,
+      soil_marginality_data_available: false,
+      stream_data_available: false,
+    })
+    const second = await generatedTreesThatScore({ feature: ungated })
+    await second.ui.draw(CLEAR)
+    await second.ui.waitFor(
+      'the reading to land',
+      () => selectDraft(second.ui.state, 'trees').drawnFeatures[0].properties.score != null
+    )
+    const neutral = selectDraft(second.ui.state, 'trees').drawnFeatures[0]
+    // The value the gate turns on really is above zero -- otherwise the
+    // assertion below would pass for the wrong reason.
+    expect(neutral.properties.factors.hydric_overlap).toBeGreaterThan(0)
+    await second.ui.focus(neutral.id)
+    expect(second.ui.find('detail-heading-trees')).toBeNull()
+    expect(second.ui.all('[data-testid^="detail-term-"]')).toHaveLength(0)
+    // The score still prints: the factors were composed, they were just
+    // composed from a value nobody measured, which is what the step-level
+    // notice says in words.
+    expect(second.ui.text('detail-value-/100 score')).not.toBe('—')
+    await second.ui.unmount()
+  })
+
+  /**
+   * [test 3] A ZONE ON GOOD, FLAT, DRY GROUND SCORES NEAR ZERO -- and the
+   * panel says so as a reading rather than as a failure.
+   *
+   * ASSERTED BECAUSE THE CODE COMMENT EXPLAINS IT. Every factor here rewards
+   * a CONDITION rather than measuring quality, so ground with none of those
+   * conditions scores nothing, earns nothing, and is the tool correctly
+   * saying this is not marginal land. The backend's own arithmetic for this
+   * case is in test_tree_zone_candidates.py over a fixture whose ground is
+   * hand-checkable; what this side owns is that a near-zero score RENDERS as
+   * a number, distinguishable from the em dash a failed reading prints.
+   */
+  it('renders a near-zero score as a number, not as a failure', async () => {
+    const flatAndDry = scoredDrawnFeature({
+      score: 0.0,
+      factors: { hydric_overlap: 0.0, slope: 0.0, soil_marginality: 0.0, stream_proximity: 0.0 },
+      marginal_benefits: [],
+      slope_median_pct: 1.1,
+    })
+    const { ui } = await generatedTreesThatScore({ feature: flatAndDry })
+    await ui.draw(CLEAR)
+    await ui.waitFor(
+      'the reading to land',
+      () => selectDraft(ui.state, 'trees').drawnFeatures[0].properties.score != null
+    )
+    const drawn = selectDraft(ui.state, 'trees').drawnFeatures[0]
+    await ui.focus(drawn.id)
+    // A NUMBER, and the one the server sent -- not an em dash, which is what
+    // this panel prints when a reading did not arrive at all.
+    expect(ui.text('detail-value-/100 score')).toBe('0.0')
+    expect(ui.text('detail-value-/100 score')).not.toBe('—')
+    // It is below the floor no generated candidate could clear, which is
+    // exactly the case the old refusal to score was worried about.
+    expect(drawn.properties.score).toBeLessThan(
+      treesPayload().summary.selection.min_suitability_score
+    )
+    // And it earned nothing, which is the honest answer for ground with no
+    // marginal condition on it.
+    expect(ui.find('detail-heading-trees')).toBeNull()
+    await ui.unmount()
+  })
+
+  /**
+   * [test 4] `confidence` AND `source` DO NOT RENDER.
+   *
+   * Both rows are gone, as production's are. THE FIELDS THEMSELVES STAY ON
+   * THE FEATURE -- feature_schema.py refuses a feature missing `confidence`
+   * or carrying an empty `confidence_notes`, so both are authored when the
+   * ring closes and both travel to the document. What changed is that the
+   * panel does not print them.
+   */
+  it('renders no confidence row and no source row, and still commits both fields', async () => {
+    const { ui } = await generatedTreesThatScore()
+    await ui.draw(CLEAR)
+    await ui.waitFor(
+      'the reading to land',
+      () => selectDraft(ui.state, 'trees').drawnFeatures[0].properties.score != null
+    )
+    const drawn = selectDraft(ui.state, 'trees').drawnFeatures[0]
+    await ui.focus(drawn.id)
+    expect(ui.find('detail-value-confidence')).toBeNull()
+    expect(ui.find('detail-value-source')).toBeNull()
+    expect(ui.find('detail-value-scoring')).toBeNull()
+    const labels = ui.all('.chrome-detail__row-label').map((el) => el.textContent)
+    expect(labels).not.toContain('confidence')
+    expect(labels).not.toContain('source')
+    expect(labels).not.toContain('scoring')
+    // ON THE FEATURE, AND ON THE WIRE. The commit contract needs both.
+    expect(drawn.properties.confidence).toBe('low')
+    expect(drawn.properties.confidence_notes).toMatch(/drawn by hand/i)
+    await ui.unmount()
+
+    // AND THE DECLARATION SAYS IT ONCE: the drawn arm and the suggested arm
+    // of the panel are the same row list, off one builder, so a `confidence`
+    // row could not come back on one side alone.
+    const drawnZone = TREES_SHAPE.close({ points: CLEAR, parcel: RING, references: {} }).feature
+    // THE SAME BENEFITS THE FIXTURE'S SUGGESTION EARNED, so the two lists
+    // below differ only where the panel would differ -- and they do not.
+    const reading = {
+      ...drawnZone.properties,
+      ...scoredDrawnFeature({
+        marginal_benefits: treesPayload().zones[0].marginal_benefits,
+      }).properties,
+    }
+    const drawnDetail = TREES_STEP.detail(
+      contextOver(treesPayload(), { drawnFeatures: [{ ...drawnZone, properties: reading }] }),
+      drawnZone.id
+    )
+    const suggestedDetail = TREES_STEP.detail(contextOver(treesPayload()), ZONE_A)
+    const labelsOf = (detail) => detail.rows.map((row) => row.label ?? `«${row.kind}»`)
+    expect(labelsOf(drawnDetail)).toEqual(labelsOf(suggestedDetail))
+    expect(drawnDetail.name).toBe('Drawn tree zone')
+  })
+
+  /**
+   * THE READING THAT NEVER ARRIVES. The zone is in the draft the moment the
+   * ring closes and is committable whatever the scorer says -- a refusal or
+   * a transport failure leaves the rows printing their em dash, which is the
+   * true answer to "how steep is it here" when nothing measured it, and no
+   * notice, because a sentence about a reading that did not arrive would be
+   * a warning about a zone that is fine.
+   */
+  it('leaves an unmeasured zone on the map, in em dashes, with no notice', async () => {
+    const { ui } = await generatedTreesThatScore({ status: 400 })
+    await ui.draw(CLEAR)
+    const drawn = selectDraft(ui.state, 'trees').drawnFeatures[0]
+    expect(drawn).toBeTruthy()
+    await ui.focus(drawn.id)
+    expect(ui.text('detail-value-/100 score')).toBe('—')
+    expect(ui.text('detail-value-position')).toBe('—')
+    expect(ui.text('detail-value-where in the parcel')).toBe('—')
+    // NO BENEFITS RUN. An absent list and an empty one both render nothing:
+    // a heading over no terms would be the panel asking a question the
+    // payload already answered.
+    expect(ui.find('detail-heading-trees')).toBeNull()
+    expect(ui.all('[data-testid^="detail-term-"]')).toHaveLength(0)
+    await ui.unmount()
+  })
+
+  it('shows the score on the tab, under the payload’s own denominator', () => {
+    const drawn = TREES_SHAPE.close({ points: CLEAR, parcel: RING, references: {} }).feature
+    const scored = { ...drawn, properties: { ...drawn.properties, score: 22.4 } }
+    const context = contextOver(treesPayload(), { drawnFeatures: [scored] })
+    const tab = TREES_STEP.tabs(context).find((t) => t.id === drawn.id)
+    expect(tab).toMatchObject({ drawn: true, checkbox: true, removable: true })
+    expect(tab.rows.find((r) => r.label === 'score').value).toBe('22.4')
+    // THE SAME DENOMINATOR the candidates above it print, off the payload's
+    // own published scale -- so the two numbers are on one axis.
+    const candidate = TREES_STEP.tabs(context).find((t) => t.id === ZONE_A)
+    expect(tab.rows.find((r) => r.label === 'score').denominator).toBe(
+      candidate.rows.find((r) => r.label === 'score').denominator
+    )
+    // AND THE EM DASH IS BACK TO MEANING ONE THING: a reading that did not
+    // arrive, not a deliberate refusal to take one.
+    const unmeasured = TREES_STEP.tabs(
+      contextOver(treesPayload(), { drawnFeatures: [drawn] })
+    ).find((t) => t.id === drawn.id)
+    expect(unmeasured.rows.find((r) => r.label === 'score').value).toBe('—')
+    // The acreage is still the CLIENT's, measured by the clamp when the ring
+    // closed -- the server's own figure is a second measurement of the same
+    // shape through a different projection and is deliberately not taken.
+    expect(tab.rows.find((r) => r.label === 'acres').value).toBe(
+      unmeasured.rows.find((r) => r.label === 'acres').value
+    )
   })
 })
 
@@ -1902,6 +2426,277 @@ describe('8. the panel renders through the shared format', () => {
     const empty = none.find((n) => n.key === 'no-candidates')
     expect(empty.tone).toBe('caution')
     expect(empty.text.map((p) => p.measure ?? p).join('')).toContain('scored 31.0 or better')
+  })
+})
+
+
+/**
+ * ONE ZoneDrawTool, MOUNTED ALONE, with an accent handed to it -- so the other
+ * half of the colour claim can be made about the SAME component rather than
+ * about a second step's whole live flow.
+ *
+ * WHAT IT RETURNS is the stroke of each pass of the in-progress line, in paint
+ * order: the casing first, then the line.
+ */
+async function paintedRing(accent) {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  let map = null
+  function MapProbe() {
+    map = useMap()
+    return null
+  }
+  const points = CLEAR.slice(0, 3)
+  await React.act(async () => {
+    root.render(
+      <MapContainer center={[40.72, -74.0]} zoom={17} style={{ height: 600, width: 600 }}>
+        <MapProbe />
+        <ZoneDrawTool
+          isDrawing
+          points={points}
+          onPointsChange={() => {}}
+          onClose={() => {}}
+          paneZ={500}
+          accent={accent}
+        />
+      </MapContainer>
+    )
+  })
+  const strokes = [...container.querySelectorAll('.leaflet-zone-drawing-pane path')].map((path) =>
+    path.getAttribute('stroke')
+  )
+  await React.act(async () => root.unmount())
+  container.remove()
+  expect(map).not.toBeNull()
+  return strokes
+}
+
+
+/* ===========================================================================
+   12. THE GESTURE: CANCEL, ARMING, AND WHAT COLOUR THE RING IS
+   =========================================================================== */
+
+describe('12. the trees draw gesture', () => {
+  /**
+   * [test 7] CANCEL CLEARS EVERY VERTEX, DISARMS, AND LEAVES NO DRAFT ENTRY.
+   *
+   * SHARED MACHINERY, ASSERTED FROM TREES' SIDE. The vertices live in
+   * DrawGesture's ShapeDraw -- ONE component, mounted by StepTools over every
+   * step that declares `draw` over a draft polygon layer -- and the effect
+   * that empties them on disarm is that component's. Trees declares the tool
+   * and the layer, so it gets the behaviour; nothing here is trees' own.
+   *
+   * SO WHAT THIS TEST IS FOR is the inheritance rather than the fix: the
+   * landform case (wizard/interaction.test.jsx section 3) proves the effect
+   * works, and this proves trees is actually on it -- through trees' own
+   * Cancel button, over trees' own layer, with trees' own draft checked
+   * afterwards.
+   *
+   * DISARM, NOT RE-ARM. The button says Cancel, which means leaving rather
+   * than starting again: after it, "Draw a zone" is what the banner offers.
+   */
+  it('clears every vertex on cancel, disarms, and leaves no draft entry', async () => {
+    const { ui } = await generatedTrees()
+    const before = selectDraft(ui.state, 'trees')
+
+    await ui.click('draw-trees')
+    for (const corner of CLEAR.slice(0, 2)) await ui.clickMap(corner)
+    expect(ui.text('detail-name-trees')).toBe('Drawing a zone')
+    expect(ui.find('detail-vertices-trees').querySelector('.measure').textContent).toBe('2')
+    expect(ui.all('.vertex-marker')).toHaveLength(2)
+
+    await ui.click('cancel-trees')
+
+    // THE TOOL IS OFF, and the way back in is the draw button -- not a second
+    // Cancel, and not finishing a ring nobody wants.
+    expect(ui.cursor.armed).toBeNull()
+    expect(ui.cursor.anyArmed).toBe(false)
+    expect(ui.find('draw-trees')).not.toBeNull()
+
+    // THE RING IS GONE. ZoneDrawTool draws nothing while disarmed, so what
+    // this asserts is that nothing is HELD either: the vertices, the pane and
+    // the panel's drawing state all end with the gesture.
+    expect(ui.find('detail-vertices-trees')).toBeNull()
+    expect(ui.all('.vertex-marker')).toHaveLength(0)
+    expect(ui.all('.caution-marker')).toHaveLength(0)
+    expect(
+      ui.all('.leaflet-zone-drawing-pane path'),
+      'the in-progress pane is empty'
+    ).toHaveLength(0)
+
+    // AND THE DRAFT IS EXACTLY WHAT IT WAS. An empty entry left behind -- a
+    // drawn feature with no geometry, or a key holding [] -- would be the
+    // same bug one level down, and it is the half a map assertion cannot see.
+    const after = selectDraft(ui.state, 'trees')
+    expect(after.drawnFeatures).toEqual(before.drawnFeatures)
+    expect(after.drawnFeatures).toEqual([])
+    expect(after.inputs).toEqual(before.inputs)
+    expect(after.selectedFeatureIds).toEqual(before.selectedFeatureIds)
+
+    // THE NEXT ARM STARTS A FRESH RING, which is the thing the bug made
+    // impossible: the count comes back at one, not at three.
+    await ui.click('draw-trees')
+    await ui.clickMap(CLEAR[2])
+    expect(ui.find('detail-vertices-trees').querySelector('.measure').textContent).toBe('1')
+    await ui.unmount()
+  })
+
+  /**
+   * [test 8] ARMING CLOSES AN OPEN PANEL AND CLEARS THE FOCUS.
+   *
+   * SHARED MACHINERY AGAIN, AND ONE DOOR: armButton() runs WizardCursor's
+   * arm(), which blurs. Landform's "Draw a block", trees' "Draw a zone",
+   * roads' "Add access point" and structures' "Place a site" are all
+   * armButton()s, so the rule is stated once rather than in four handlers.
+   * This asserts trees is on that door.
+   *
+   * WHAT THE USER SEES is the panel closing; the cleared focus is why, and
+   * the unlit zone on the map is the other half of it.
+   */
+  it('closes an open panel and clears the focus when the draw tool is armed', async () => {
+    const { ui } = await generatedTrees()
+
+    await ui.focus(ZONE_A)
+    expect(ui.cursor.focusedFeatureId).toBe(ZONE_A)
+    expect(ui.find('detail-trees')).not.toBeNull()
+    expect(ui.text('detail-name-trees')).toBe('Zone 1')
+
+    await ui.click('draw-trees')
+
+    expect(ui.cursor.armed).toBe('draw')
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+    expect(ui.find('detail-trees')).toBeNull()
+    // Exactly what a bare-map click already did, through the same call.
+    await ui.click('cancel-trees')
+    await ui.focus(ZONE_A)
+    expect(ui.find('detail-trees')).not.toBeNull()
+    await ui.clickMap([40.715, -73.995])
+    expect(ui.cursor.focusedFeatureId).toBeNull()
+    expect(ui.find('detail-trees')).toBeNull()
+
+    // AND THE COMMIT IS LEFT ALONE. Trees' selection is not its focus
+    // (`follows: null`), so a zone the user ticked stays ticked while they
+    // draw another -- otherwise arming would quietly empty their commit.
+    const selected = selectDraft(ui.state, 'trees').selectedFeatureIds
+    await ui.focus(ZONE_A)
+    await ui.click('draw-trees')
+    expect(selectDraft(ui.state, 'trees').selectedFeatureIds).toEqual(selected)
+    await ui.unmount()
+  })
+
+  /**
+   * [test 9] THE IN-PROGRESS LINE IS `--tree`, AND LANDFORM'S IS STILL
+   * `--oxide`.
+   *
+   * BOTH HALVES, AND THE SECOND IS WHAT MAKES THE FIRST MEAN ANYTHING.
+   * Changing a hard-coded token to another hard-coded token would satisfy the
+   * first assertion and leave the bug exactly where it was -- the tool
+   * knowing which step armed it, and the next step to draw inheriting
+   * whichever colour was typed last. Asserting that landform still gets oxide
+   * off the SAME component, in the same run, is what proves the tool was
+   * PARAMETERISED rather than switched.
+   *
+   * THE COLOUR COMES FROM THE STEP. `shape.accent` is where the two values
+   * are written down, beside the clamping and the cautions -- the same
+   * channel every other rule about a step's drawing comes through -- and a
+   * shape declaring no accent is refused at definition time.
+   */
+  it('draws trees’ ring in --tree and landform’s in --oxide, off one tool', async () => {
+    // THE DECLARATIONS, first: two steps, two tokens, one field.
+    expect(TREES_STEP.shape.accent).toBe('tree')
+    expect(LANDFORM_STEP.shape.accent).toBe('oxide')
+
+    // AND THE TOOL HOLDS NEITHER. A grep, because this is the property that
+    // would silently regress: the component may not name a step's colour.
+    const tool = readFileSync(path.join(SRC, 'ZoneDrawTool.jsx'), 'utf8')
+    const toolCode = tool.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(toolCode).not.toMatch(/--oxide/)
+    expect(toolCode).not.toMatch(/--tree/)
+    expect(toolCode).toContain('`--${accent}`')
+
+    // A STEP THAT DRAWS AND NAMES NO COLOUR IS REFUSED, so a step added later
+    // cannot inherit whichever token happened to be cached.
+    expect(() =>
+      defineStep({ ...TREES_STEP, shape: { live: () => [], close: () => null } })
+    ).toThrow(/shape\.accent/)
+
+    // THE PAINTED RING, on the map, through the real gesture. The two passes
+    // are the casing and the line; the LINE is the step's colour.
+    const { ui } = await generatedTrees()
+    await ui.click('draw-trees')
+    for (const corner of CLEAR.slice(0, 3)) await ui.clickMap(corner)
+    const lines = ui.all('.leaflet-zone-drawing-pane path')
+    expect(lines).toHaveLength(2)
+    for (const line of lines) expect(line.getAttribute('stroke-dasharray')).toBeTruthy()
+    const treeToken = readToken('--tree')
+    const oxideToken = readToken('--oxide')
+    const haloToken = readToken('--halo')
+    expect(treeToken, 'the tokens must resolve, or this compares two empty strings').toBeTruthy()
+    expect(treeToken).not.toBe(oxideToken)
+    expect(lines.map((line) => line.getAttribute('stroke'))).toEqual([haloToken, treeToken])
+    // NOT PRODUCTION'S ACCENT, which is the colour it used to take.
+    expect(lines[1].getAttribute('stroke')).not.toBe(oxideToken)
+    await ui.unmount()
+
+    // AND LANDFORM'S IS STILL OXIDE, off the same component. Asserted at the
+    // component rather than through landform's whole live flow, because what
+    // is under test is the parameter and not the step: the same tool, handed
+    // the other step's declared accent, paints the other step's colour.
+    const painted = await paintedRing(LANDFORM_STEP.shape.accent)
+    expect(painted).toEqual([haloToken, oxideToken])
+    expect(painted[1]).not.toBe(treeToken)
+  })
+
+  /**
+   * [test 10] A COMPLETED DRAWN ZONE RENDERS NO OUTLINE -- hatch only, in
+   * TREES and in PRODUCTION.
+   *
+   * BOTH STEPS, because the rule is the map's and not one step's: a shape the
+   * user drew and a shape the pipeline proposed are the same kind of ground,
+   * they carry the same mark, and WHICH KIND a zone is is said by the tab that
+   * names it. The accent outline a drawn zone used to keep is withdrawn --
+   * see layers.jsx at LINE_WEIGHT for what it argued.
+   */
+  it('renders a completed drawn zone with no outline, in trees and in production', async () => {
+    const { ui } = await generatedTrees()
+    await ui.draw(CLEAR)
+    const markOf = (selector) => {
+      const paths = ui.all(selector)
+      expect(paths).toHaveLength(1)
+      return {
+        stroke: paths[0].getAttribute('stroke'),
+        fill: paths[0].getAttribute('fill'),
+        fillOpacity: paths[0].getAttribute('fill-opacity'),
+        drawnClass: paths[0].classList.contains('zone--drawn'),
+      }
+    }
+    const drawn = markOf('.leaflet-trees--trees-drawn-pane path')
+    expect(drawn.stroke).toBe('none')
+    expect(drawn.fill).toContain('url(#')
+    expect(drawn.drawnClass).toBe(false)
+    // THE SAME MARK A SUGGESTION TAKES, attribute for attribute.
+    const suggested = ui.all('.leaflet-trees--trees-candidates-pane path')[0]
+    expect(drawn.stroke).toBe(suggested.getAttribute('stroke'))
+    expect(drawn.fill).toBe(suggested.getAttribute('fill'))
+    expect(drawn.fillOpacity).toBe(suggested.getAttribute('fill-opacity'))
+    await ui.unmount()
+
+    // AND PRODUCTION'S, off the shared styler rather than through a second
+    // live flow: styleFor() is the one place a zone's mark is decided, and it
+    // has no `isDrawn` arm to give either step an edge.
+    const colors = { ink: readToken('--ink'), halo: readToken('--halo') }
+    for (const treatment of ['production', 'tree']) {
+      const asDrawn = styleFor({ isDrawn: true, treatment, colors })
+      const asSuggested = styleFor({ treatment, colors })
+      expect(asDrawn).toEqual(asSuggested)
+      expect(asDrawn.stroke).toBe(false)
+    }
+    const layerSource = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
+    const layerCode = layerSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(layerCode).not.toContain('isDrawn')
+    expect(layerCode).not.toContain('DRAWN_LINE_WEIGHT')
   })
 })
 

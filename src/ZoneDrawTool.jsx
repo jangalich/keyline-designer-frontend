@@ -12,13 +12,21 @@ const VERTEX_HIT_RADIUS_PX = 15
 // imports App.jsx — and through it this file — before index.css, so a
 // module-evaluation read returns empty strings. First render is after every
 // module has evaluated.
-let zoneColors = null
+//
+// KEYED BY ACCENT NOW, WHICH IS WHY IT IS A Map AND NOT A PAIR. It held one
+// object because it read one hard-coded token: `--oxide`, landform's mark,
+// because this was landform's tool. Trees reuses the component and inherited
+// the colour — a tree zone went down in production's accent and settled into
+// the tree hatch — and a second memo of one value would have been the same
+// bug one step along. THE TOOL DOES NOT KNOW WHICH STEP ARMED IT; it is told
+// a token and caches what it reads under that name.
+const zoneColors = new Map()
 
-function getZoneColors() {
-  if (!zoneColors) {
-    zoneColors = { zone: readToken('--oxide'), halo: readToken('--halo') }
+function getZoneColors(accent) {
+  if (!zoneColors.has(accent)) {
+    zoneColors.set(accent, { zone: readToken(`--${accent}`), halo: readToken('--halo') })
   }
-  return zoneColors
+  return zoneColors.get(accent)
 }
 
 // The in-progress line is cased and dashed, exactly as DrawTool's is, for the
@@ -39,8 +47,8 @@ const zoneClosableIcon = new L.DivIcon({
 /**
  * ZoneDrawTool
  *
- * Places the vertices of a new production zone. Click to add, click the first
- * vertex once three are down to close.
+ * Places the vertices of a new zone -- whichever step armed it. Click to add,
+ * click the first vertex once three are down to close.
  *
  * A PARALLEL COMPONENT TO DrawTool, NOT A GENERALISATION OF IT. DrawTool is
  * coupled to the boundary in four ways that only a rewrite would undo: a
@@ -63,8 +71,16 @@ const zoneClosableIcon = new L.DivIcon({
  * This component's click handler is one of several on this map. It is armed
  * only while `isDrawing`, and App.jsx holds the invariant that no two tools
  * are armed at once.
+ *
+ * `accent` IS THE STEP'S, AND IT IS REQUIRED. It names a token below :root —
+ * 'oxide' for landform, 'tree' for trees — and this reads `--<accent>` for the
+ * in-progress line. It is a parameter rather than a constant because the
+ * colour is a fact about the STEP, and every other thing a step's geometry
+ * looks like is already declared on the step (a layer's `treatment`, its band,
+ * its pane). See stepDefinitions' `shape.accent`, which is where the two
+ * values are written down and where a shape without one is refused.
  */
-function ZoneDrawTool({ isDrawing, points, onPointsChange, onClose, paneZ }) {
+function ZoneDrawTool({ isDrawing, points, onPointsChange, onClose, paneZ, accent }) {
   const map = useMap()
 
   useMapEvents({
@@ -93,10 +109,14 @@ function ZoneDrawTool({ isDrawing, points, onPointsChange, onClose, paneZ }) {
 
   if (!isDrawing || points.length === 0) return null
 
-  const { zone, halo } = getZoneColors()
+  const { zone, halo } = getZoneColors(accent)
 
   return (
-    <Pane name="production-drawing" style={{ zIndex: paneZ }}>
+    // NAMED FOR THE GESTURE, NOT FOR A STEP. It was `production-drawing`
+    // because landform was the only step that drew; the pane is one tool's
+    // scratch layer and every step that draws gets it, so it says what it
+    // holds. No shell component names a step.
+    <Pane name="zone-drawing" style={{ zIndex: paneZ }}>
       {points.length >= 2 && (
         <>
           <Polyline
