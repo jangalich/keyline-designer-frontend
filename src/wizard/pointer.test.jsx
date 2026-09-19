@@ -46,6 +46,12 @@
  * element at its own centre. The second is the hover affordance itself, stated
  * as a claim a suite can hold.
  *
+ * ONE CONTROL HERE IS NOT A TAB AT ALL. The report button sits below the
+ * rail's seven rows and exists in exactly one state of the application -- a
+ * design with every step committed -- which makes it the control least likely
+ * to be noticed if it were unreachable. It gets the same two claims: topmost
+ * at its own centre at both widths, and a real press that does something.
+ *
  * IT RUNS AT TWO STAGE WIDTHS, AND THE NARROW ONE IS THE TEST. The defect was
  * never visible at a roomy width: the tabs had room, nothing overflowed, and
  * the control was on top in both states. It appears the moment the strip is
@@ -1757,6 +1763,119 @@ describeIf('the fencing checkbox', () => {
     await press(`tab-check-${tabId}`)
     const back = JSON.parse(await commitBody('fencing'))
     expect(back.features.features.map((f) => f.id).sort()).toEqual(before.features.features.map((f) => f.id).sort())
+  })
+})
+
+/* ===========================================================================
+   4d. THE REPORT BUTTON, WHICH IS NOT A STEP AND NOT A ROW
+   ===========================================================================
+   THE SAME DEFECT CLASS, ASKED OF THE ONE CONTROL THAT IS ABOUT THE WHOLE
+   SESSION. report.test.jsx drives it through the store in jsdom, which
+   computes no layout: it can say the button renders and that pressing it
+   submits, and it cannot say the browser would give the press to the button.
+
+   THIS CONTROL IS THE ONE MOST EXPOSED TO THAT. It sits BELOW the rail's
+   seven rows, in a region that grows and shrinks with the rail's own length,
+   at the left edge where the map's chrome overlays each other -- and it is
+   rendered only in one state of the whole application, so it is the control
+   least likely to be noticed if it were unreachable.
+
+   IT ALSO ASSERTS THE OTHER HALF: that it is NOT a row. The help control in
+   the corner was a row of this rail once and read as an eighth step, and the
+   thing that stops this one being read that way is that it is outside the
+   <ol> -- which is a claim about the DOM, checked here in the browser that
+   actually builds it.
+
+   THE LAST COMMIT THE PIPELINE NEEDS HAPPENS HERE: 4c leaves fencing
+   generated with every box back on, so committing it makes every step of
+   STEP_ORDER committed -- the one state in which this control exists.
+   PRESSED BUT NOT AWAITED TO A PDF: the report needs a live narrative
+   service, which the test backend has no key for, so what is asserted of the
+   press is that it reached the handler and the screen changed. The PDF
+   itself is the backend suite's assertion, over its bytes.
+   =========================================================================== */
+
+describeIf('the report button', () => {
+  const reportOffered = () =>
+    evaluate(() => Boolean(document.querySelector('[data-testid="report-action"]')))
+
+  const railRows = () =>
+    evaluate(() =>
+      [...document.querySelectorAll('[data-testid="wizard-order"] > li')].map(
+        (li) => li.dataset.stepId
+      )
+    )
+
+  liveIt('is absent until the last step commits, and present the moment it does', async () => {
+    // FENCING IS STILL OPEN HERE, which is exactly the state a report must
+    // not be offered in: five of six committed is a design with a hole in it.
+    expect(await statusOf('fencing')).toBe('generated')
+    expect(await reportOffered(), 'no report while a step is outstanding').toBe(false)
+
+    await commit('fencing')
+    for (const stepId of ['landform', 'water', 'roads', 'trees', 'structures', 'fencing']) {
+      expect(await statusOf(stepId), `${stepId} is committed`).toBe('committed')
+    }
+    expect(await reportOffered(), 'a finished design offers the report').toBe(true)
+  })
+
+  liveIt('is topmost at its own centre, at both widths', async () => {
+    // THE CLAIM THIS FILE EXISTS FOR, over the one control in the app that
+    // only ever appears on a finished design. The squeezed stage is where it
+    // matters: the rail is fixed-width but the regions around it are not, and
+    // a control below a list that grew is where something lands on top.
+    for (const [where, viewport] of STAGES) {
+      await resize(viewport)
+      expect(
+        await topAt('report-generate'),
+        `the report button is topmost at its own centre on ${where}`
+      ).toMatchObject({ hits: true })
+      expect(
+        await evaluate(() => document.querySelector('[data-testid="report-generate"]').disabled),
+        `and is not disabled on ${where}`
+      ).toBe(false)
+    }
+    await resize(ROOMY)
+  })
+
+  liveIt('is not a row of the rail, and the rail is still seven rows', async () => {
+    expect(await railRows()).toEqual([
+      'boundary', 'landform', 'water', 'roads', 'trees', 'structures', 'fencing',
+    ])
+    // OUTSIDE THE LIST, checked in the browser that built the DOM. This is
+    // the structural half of "it must not read as an eighth step"; the
+    // treatment is the other half and is the stylesheet's.
+    expect(
+      await evaluate(() => {
+        const action = document.querySelector('[data-testid="report-action"]')
+        return {
+          inList: Boolean(action.closest('[data-testid="wizard-order"]')),
+          inRail: Boolean(action.closest('[data-testid="step-rail"]')),
+          inBanner: Boolean(action.closest('.chrome-banner')),
+        }
+      })
+    ).toEqual({ inList: false, inRail: true, inBanner: false })
+  })
+
+  liveIt('takes a real press and starts the wait', async () => {
+    // HIT-TESTABLE IS NOT THE SAME CLAIM AS WIRED -- this file's own
+    // argument, applied to its own new control.
+    await press('report-generate')
+    await page.waitForFunction(
+      () => window.__probe.state.report.status !== 'idle',
+      null,
+      { timeout: 60_000 }
+    )
+    // THE PRESS CHANGED THE SCREEN. What the request then does depends on a
+    // narrative service this backend has no key for, so `working` OR a
+    // recorded failure is the honest assertion -- what must NOT happen is
+    // nothing at all.
+    const report = await evaluate(() => window.__probe.state.report)
+    expect(['working', 'ready', 'failed']).toContain(report.status)
+    expect(
+      await evaluate(() => Boolean(document.querySelector('[data-testid="report-action"]'))),
+      'and the control is still on screen whatever happened'
+    ).toBe(true)
   })
 })
 

@@ -908,6 +908,76 @@
   color: var(--ink-muted);
 }
 
+/* --- THE REPORT, BELOW THE ROWS ---------------------------------------------
+   THE ONE THING YOU CAN DO WITH A FINISHED DESIGN, and it is deliberately
+   NOT a row. The help control was a row of this rail once and read as an
+   eighth step; that is the mistake available here, and the defence is that
+   this looks like the shell's ACTIONS rather than like its list -- an oxide
+   primary with the same casing the banner's buttons carry, under a rule
+   that closes the list above it.
+
+   THE RULE IS THE LIST'S OWN HAIRLINE, continued. Every row is separated by
+   one (.chrome-rail__item + .chrome-rail__item), so a border-top here reads
+   as the list ending rather than as a new kind of divider.
+
+   PADDED ON ALL FOUR SIDES, unlike a row, which is the other half of not
+   being one: rows run edge to edge inside the rail's clip and this sits in
+   from it. The rail clips (overflow: hidden) so nothing here needs its own
+   radius handling.
+
+   IT ONLY EXISTS WHEN EVERY STEP IS COMMITTED, so there is no empty-state
+   treatment and none is needed -- ReportAction renders nothing at all
+   otherwise, and the rail is exactly what it was. */
+.chrome-rail__report {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-top: var(--hairline);
+}
+
+/* FULL WIDTH OF THE RAIL, which the banner's buttons are not: they sit in a
+   row beside each other and size to their labels. This is alone in its
+   region and a button narrower than the column it is in would look like it
+   had been left there. */
+.chrome-rail__report-button {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+}
+
+/* THE ANCHOR HAS TO BE TOLD IT IS A BUTTON. .chrome-banner__button is
+   written for <button>, which is already inline-flex and already has no
+   underline; an <a> carrying the same class inherits the fills and the
+   casing but not the box or the reset's link decoration. The download IS a
+   link -- it navigates to a file on another origin, which is what an anchor
+   is for -- so it keeps its element and takes the difference here. */
+a.chrome-rail__report-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* The note under it: the wait line, the failure, or what the link is. One
+   class for all three because they are one slot -- only ever one is on
+   screen -- and a second voice for each would be three treatments for the
+   same piece of prose. */
+.chrome-rail__report-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+}
+
+/* A FAILURE IS NOT AN ALARM HERE. No red fill, no icon, no border: the two
+   things that can go wrong are an expired session and a source that did not
+   answer, and NEITHER is an error about the user's design. Oxide on the
+   text alone marks it as the thing to read without making the rail look
+   broken -- which it is not, and which is the one impression this copy is
+   written to avoid giving. */
+.chrome-rail__report-note--failed {
+  color: var(--oxide);
+}
+
 /* --- THE HELP CONTROL, bottom left ------------------------------------------
    A circled ? in the corner the tab strip leaves empty: the bottom row's
    first track is a gutter exactly --rail-width wide (see .chrome__bottom),

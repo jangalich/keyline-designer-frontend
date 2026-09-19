@@ -47,9 +47,18 @@
  * WORKING lines make, and for the same reason. What is happening in these two
  * states is the same fact for all seven steps, so a per-step declaration would
  * be seven rewrites of four phrases and the shell would be naming steps to
- * pick between them. The two sets differ from each other because the two waits
- * genuinely differ: a commit is out on public data sources, and a generate is
- * work over data this session already has.
+ * pick between them. The sets differ from each other because the waits
+ * genuinely differ: a commit is out on public data sources, a generate is work
+ * over data this session already has, and a report is both of those plus a
+ * language model writing eight sections.
+ *
+ * THERE IS A THIRD SET NOW AND IT IS NOT A MACHINE STATE. REPORTING is keyed
+ * into the same three tables as the other two, and every rule above applies to
+ * it unchanged -- but the report is NOT a step and has no step machine, so its
+ * key is this module's own constant rather than one imported from
+ * useStepMachine. That is the whole of what makes this machinery reusable by
+ * something that is not a step: it is keyed by a STRING, and the caller says
+ * which one.
  *
  * PAST A THRESHOLD THE CYCLING STOPS AND THE COPY SAYS SO. Most commits land
  * in eight to ten seconds; measured runs have reached sixteen, and one reached
@@ -69,6 +78,18 @@ import { COMMITTING, GENERATING } from '../useStepMachine'
 
 /** How long one phrase holds, and how long a wait must last to get one. */
 export const PHRASE_INTERVAL_MS = 2000
+
+/**
+ * THE REPORT'S KEY, AND IT IS DEFINED HERE RATHER THAN IMPORTED.
+ *
+ * COMMITTING and GENERATING are step machine states; this is not one. The
+ * report has no candidates, nothing to select and nothing to commit, so it
+ * has no machine -- adding a `reporting` state to useStepMachine would be
+ * giving a step machine a state no step can ever be in, which is the first
+ * line of treating the report as a seventh step. The phrases live here, so
+ * the key does too.
+ */
+export const REPORTING = 'reporting'
 
 /**
  * THE PHRASES. Sentence case, active voice, plain, and about the land rather
@@ -95,6 +116,37 @@ export const WAIT_PHRASES = Object.freeze({
     'Measuring how the ground falls',
     'Weighing what fits here',
   ]),
+  /**
+   * THE REPORT'S OWN FOUR, AND WHAT THEY ARE ABOUT.
+   *
+   * ORDER-NEUTRAL LIKE THE OTHERS, and for the identical reason: the report
+   * job reports no stage. The narrative, the map render and the imagery all
+   * happen inside one job whose only three answers are running, done and
+   * failed, so a phrase naming a stage would be a fabricated status report
+   * -- right often enough to be believed and wrong exactly when something is
+   * slow, which is when a person is reading this.
+   *
+   * SO NONE OF THESE NAMES A STAGE even though there plainly are three, and
+   * that is the line this set was hardest to keep on: "Drawing the layout
+   * map" is the obvious fourth phrase and it is a claim -- it says the
+   * render is what is running, which is true for about one second of a wait
+   * that is mostly a language model writing. All four are descriptions of
+   * the same fact instead: a document about this land is being put together.
+   * Whichever is on screen when the answer comes back is an accident of
+   * timing.
+   *
+   * AND THEY ARE ABOUT A DOCUMENT rather than about the land, which is the
+   * one way they depart from the other two sets. A commit is out fetching
+   * facts and a generate is measuring ground; this is writing something
+   * down, and a phrase here saying "reading the slopes" would describe work
+   * that finished several steps ago.
+   */
+  [REPORTING]: Object.freeze([
+    'Putting your report together',
+    'Setting out the design you committed',
+    'Working through what is on this land',
+    'Making the pages of your report',
+  ]),
 })
 
 /**
@@ -110,9 +162,41 @@ export const WAIT_PHRASES = Object.freeze({
  * every ordinary generate and the line would mean nothing. 75s is past the top
  * of the documented band.
  */
+/**
+ * A REPORT: ITS OWN NUMBER, AND THE LONGEST HERE BY SOME WAY.
+ *
+ * WHAT IT IS MADE OF, MEASURED. On the reference parcel, against the real
+ * renderer and the real PDF assembly, everything the report does LOCALLY
+ * comes to 1.9 s -- build_session_design() and layout_layers() are pure
+ * reads at 0.01 s together, render_layout_map() is 0.75 s and weasyprint is
+ * 1.11 s. End to end through the route, job submit and polling included,
+ * that measured at 2.9 s.
+ *
+ * WHAT IS NOT IN THAT NUMBER IS THE TWO THINGS THAT DOMINATE IT, and they
+ * were not measurable where the rest was: the basemap imagery (about twenty
+ * NAIP tiles at zoom 18, plus the zoom probe's walk down from the service
+ * ceiling) and the Claude call -- ONE non-streaming completion over a 17 kB
+ * prompt with max_tokens 20000, producing an eight-section narrative. The
+ * second of those is the whole wait. A few seconds of tiles and two seconds
+ * of local work sit under a completion that is the order of a minute.
+ *
+ * SO 150s, AND WHY THAT SHAPE OF NUMBER. The generate's 75 s is set at
+ * roughly a quarter past the top of its documented 30-60 s band, which is
+ * the rule this follows rather than the number. A report's band is the
+ * completion's, and a long one is minutes rather than seconds; 150 s is past
+ * the top of an ordinary one and well short of a wait nobody should still be
+ * sitting through.
+ *
+ * IT IS THE ONE NUMBER HERE STILL SET AGAINST AN UNMEASURED TERM, and the
+ * honest thing is to say so rather than to round it confidently. Re-measure
+ * it against real completions -- the elapsed time a real report takes, from
+ * the 202 to the job reading done -- and move it; nothing else changes when
+ * it does.
+ */
 export const LONG_WAIT_MS = Object.freeze({
   [COMMITTING]: 25000,
   [GENERATING]: 75000,
+  [REPORTING]: 150000,
 })
 
 /**
@@ -124,6 +208,14 @@ export const LONG_WAIT_MS = Object.freeze({
 export const LONG_WAIT_LINE = Object.freeze({
   [COMMITTING]: 'Still working. Some data sources are slow today.',
   [GENERATING]: 'Still working. This parcel is taking longer than most.',
+  // THE REPORT'S: it says the one fact this client holds and offers the
+  // reason that is true of every long report rather than of this one -- a
+  // whole document is being written, and that is the slow part. NO DURATION,
+  // which is the rule the other two are written under as well: nothing here
+  // knows how long the request has left, and "a few minutes" is a promise
+  // this client cannot keep. No retry, no cancel, no apology, nothing that
+  // reads as a fault.
+  [REPORTING]: 'Still working. A full report is the longest thing this makes.',
 })
 
 export const PHRASE = 'phrase'
@@ -220,6 +312,10 @@ export function useWaitingLine(chromeState) {
  * when it arrives.
  */
 export default function WaitingLine({ waiting, stepId }) {
+  // `stepId` IS A TEST-ID SUFFIX, NOT A STEP LOOKUP. Nothing in this
+  // component reads a step; the name is the instruction bar's, which is its
+  // only caller that has one. The report passes its own label ('report'), and
+  // that is the extent of what it takes to reuse this.
   if (waiting.kind === LONG) {
     return (
       /* NO CLASS OF ITS OWN: it is one sentence in the direction slot, set

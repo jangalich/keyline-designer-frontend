@@ -41,6 +41,10 @@ import {
   JOB_STARTED,
   JOB_SUBMITTED,
   NOT_STARTED,
+  REPORT_DISMISSED,
+  REPORT_FAILED,
+  REPORT_READY,
+  REPORT_STARTED,
   RESUME_ABSENT,
   RESUME_STARTED,
   SESSION_CLEARED,
@@ -979,6 +983,21 @@ describe('9. no derived design content', () => {
       [JOB_SUBMITTED]: { type: JOB_SUBMITTED, jobId: 'job-1', stepId: 'water' },
       [JOB_OBSERVED]: { type: JOB_OBSERVED, snapshot: { job_id: 'job-1', status: 'done', result: LAYERS_PAYLOAD } },
       [JOB_FORGOTTEN]: { type: JOB_FORGOTTEN, jobId: 'job-1' },
+      // THE REPORT, WHICH IS SESSION-SCOPED AND TOUCHES NO STEP. Listed here
+      // for the same reason everything else is: a new action has to be
+      // considered against rule 2, and the answer for these four is that
+      // none of them can reach steps[].features at all -- they write one
+      // slice that holds a status, a link and a failure.
+      [REPORT_STARTED]: { type: REPORT_STARTED },
+      [REPORT_READY]: {
+        type: REPORT_READY,
+        download: { url: 'http://api.test/api/reports/r1', filename: 'r.pdf', sizeBytes: 4 },
+      },
+      [REPORT_FAILED]: {
+        type: REPORT_FAILED,
+        failure: { kind: 'unavailable', message: null, stepId: null },
+      },
+      [REPORT_DISMISSED]: { type: REPORT_DISMISSED },
     }
   }
 
