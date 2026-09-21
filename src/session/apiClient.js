@@ -19,8 +19,13 @@
  *   POST   /api/sessions/{id}/steps/{step}/reopen     -> 200 document
  *   GET    /api/sessions/{id}/steps/{step}/layers     -> 200 step payload
  *   POST   /api/sessions/{id}/steps/{step}/score      -> 200 {feature}
+ *   POST   /api/sessions/{id}/report                  -> 202 {job_id, status}
+ *   GET    /api/reports/{id}                          -> 200 application/pdf
  *   GET    /api/jobs/{id}                             -> 200 {status, result|error}
- *                                                        (result: {payload, document})
+ *                                                        (result: {payload, document}
+ *                                                         for a generate; {report_id,
+ *                                                         download_url, filename,
+ *                                                         size_bytes} for a report)
  *   GET    /api/steps                                 -> 200 {step_order}
  *
  * COORDINATE ORDER. Leaflet is [lat, lng]; GeoJSON and this API are
@@ -237,9 +242,9 @@ async function request(path, { method = 'GET', body, signal } = {}) {
 }
 
 /* ---------------------------------------------------------------------------
-   The eight calls
+   The calls
    ---------------------------------------------------------------------------
-   SEVEN OF THEM NEED A SESSION AND ONE DOES NOT. getSteps() is the only call
+   ALL BUT ONE NEED A SESSION. getSteps() is the only call
    here that can be made before anything exists, and it is here rather than in
    the one component that wants it for the reason at the top of this file: the
    rule is that no component fetches for itself, and a route that happens to
@@ -450,6 +455,57 @@ export function getJob(jobId, { signal } = {}) {
  */
 export function getSteps({ signal } = {}) {
   return request('/api/steps', { signal }).then((body) => body.step_order)
+}
+
+/**
+ * GENERATE THE PDF REPORT for this session's committed design. Resolves to
+ * {job_id, status}; the result arrives by polling, like a generate.
+ *
+ * THE REPORT IS NOT A STEP, so there is no step id in this URL. It has no
+ * candidates, nothing to select and nothing to commit — it is a terminal
+ * action over a session whose every step is decided, which is why it is
+ * session-scoped. There is no `report` in `step_order` and no report status
+ * on any document; see the backend's session_report.py.
+ *
+ * A SESSION THAT IS NOT FULLY COMMITTED IS REFUSED SYNCHRONOUSLY: 409 with
+ * `uncommitted_steps` naming every step and its status, and NO job id. That
+ * arrives here as a StepStateError — the 409-without-a-document class, which
+ * is exactly what it is: nothing to reconcile, and the same request into the
+ * same state gets the same answer. The client should never send one (the
+ * button is derived from the same condition), so this is the server refusing
+ * to take the client's word for it rather than a path the UI walks.
+ *
+ * `propertyLabel` is the cover page's subtitle — a geocoded address if the
+ * client has one. Omitted entirely rather than sent empty, so the server's
+ * own default is what fills it.
+ */
+export function generateReport(sessionId, { propertyLabel } = {}, { signal } = {}) {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/report`, {
+    method: 'POST',
+    body: propertyLabel ? { property_label: propertyLabel } : {},
+    signal,
+  })
+}
+
+/**
+ * The absolute URL for a report's `download_url`, which arrives RELATIVE.
+ *
+ * WHY THE JOIN IS HERE AND NOT AT THE LINK. The backend serves
+ * `/api/reports/<id>` — a path, because the server does not know what origin
+ * it is being reached on. The app is served from a different origin than the
+ * API in every deployment this has (see API_URL), so a relative href in an
+ * <a> would resolve against the FRONTEND's origin and 404. This module is
+ * where the API's address lives and is therefore the only place that join
+ * belongs; a component doing it would be a second copy of API_URL.
+ *
+ * AN ABSOLUTE URL IS PASSED THROUGH UNCHANGED, so a server that one day
+ * hands out an object-storage link (which is what the expiring link will be)
+ * needs no change here and none at the link.
+ */
+export function reportDownloadUrl(downloadUrl) {
+  if (typeof downloadUrl !== 'string' || !downloadUrl) return null
+  if (/^https?:\/\//i.test(downloadUrl)) return downloadUrl
+  return `${API_URL}${downloadUrl}`
 }
 
 /**

@@ -55,6 +55,7 @@ import {
   getSession as apiGetSession,
   getStepLayers as apiGetStepLayers,
   reopenStep as apiReopenStep,
+  reportDownloadUrl,
   boundaryToLatLngs,
   CommitRejectedError,
   NotFoundError,
@@ -62,6 +63,7 @@ import {
   StepStateError,
 } from './apiClient'
 import { runGeneration, JOB_DONE, JOB_EVICTED, JOB_FAILED, JOB_RUNNING } from './jobs'
+import { runReport } from './report'
 
 /* ---------------------------------------------------------------------------
    Vocabulary
@@ -122,6 +124,10 @@ export const JOB_SUBMITTED = 'job/submitted'
 export const JOB_OBSERVED = 'job/observed'
 export const JOB_STARTED = 'job/started'
 export const JOB_FORGOTTEN = 'job/forgotten'
+export const REPORT_STARTED = 'report/started'
+export const REPORT_READY = 'report/ready'
+export const REPORT_FAILED = 'report/failed'
+export const REPORT_DISMISSED = 'report/dismissed'
 
 /**
  * The ONLY actions permitted to change a step's `features`, and exactly one of
@@ -161,11 +167,58 @@ export const ALL_ACTIONS = Object.freeze([
   JOB_OBSERVED,
   JOB_STARTED,
   JOB_FORGOTTEN,
+  REPORT_STARTED,
+  REPORT_READY,
+  REPORT_FAILED,
+  REPORT_DISMISSED,
 ])
 
 /* ---------------------------------------------------------------------------
    State
    --------------------------------------------------------------------------- */
+
+/**
+ * THE REPORT SLICE, AND WHAT IT IS AND IS NOT.
+ *
+ *   status    idle | working | ready | failed
+ *   download  {url, filename, sizeBytes} once one exists, null otherwise
+ *   failure   {kind, message} once one has happened, null otherwise
+ *
+ * IT DOES NOT SAY WHETHER A REPORT CAN BE ASKED FOR. That is every step
+ * reading committed, which the document already says, and the button is
+ * DERIVED from it -- see selectReportIsOffered. A second flag here saying
+ * "finished" would be a second notion of finished, and it would be the one
+ * that goes stale: reopening a step cascades in the DOCUMENT, and a flag
+ * would have to be told.
+ *
+ * WHAT IT DOES HOLD IS THE THINGS THE DOCUMENT CANNOT: a request in flight,
+ * a link to a file this server process is holding, and a failure to read.
+ * None of those is a fact about the design.
+ *
+ * NOT KEYED BY STEP, deliberately -- `steps` and `drafts` are maps because
+ * six steps each have one, and the report is ONE thing about the session.
+ * Filing it under a step id would be the first line of treating it as a
+ * seventh step.
+ *
+ * A NEW SESSION STARTS WITH NO REPORT. hydrate() resets this whenever the
+ * document that arrives is for a different session; a link to the previous
+ * session's PDF surviving into this one would offer somebody else's design.
+ */
+export const REPORT_IDLE = 'idle'
+export const REPORT_WORKING = 'working'
+export const REPORT_READY_STATUS = 'ready'
+export const REPORT_FAILED_STATUS = 'failed'
+
+/** The failure kinds, and the whole reason the two are kept apart. */
+export const REPORT_EXPIRED = 'expired'
+export const REPORT_UNAVAILABLE = 'unavailable'
+
+const NO_REPORT = Object.freeze({
+  status: REPORT_IDLE,
+  download: null,
+  failure: null,
+})
+
 
 export const initialState = Object.freeze({
   sessionId: null,
@@ -201,7 +254,10 @@ export const initialState = Object.freeze({
   // stale bookmark, which is not an error and never becomes state.error.
   resume: 'idle',
   error: null,
+  // THE REPORT, WHICH IS SESSION-SCOPED AND IS NOT A STEP. See NO_REPORT.
+  report: NO_REPORT,
 })
+
 
 const EMPTY_DRAFT = Object.freeze({
   selectedFeatureIds: Object.freeze([]),
@@ -401,7 +457,46 @@ function hydrate(state, document) {
     drafts,
     resume: 'ready',
     error: null,
+    // THE REPORT DOES NOT SURVIVE A DOCUMENT THAT NO LONGER MATCHES IT.
+    //
+    // TWO CASES, AND THE SECOND IS THE ONE THAT MATTERS. A document for a
+    // DIFFERENT session would leave a link to somebody else's design on
+    // screen. And a document in which some step is no longer committed --
+    // which is what a reopen's cascade produces -- leaves a link to a PDF of
+    // a design the session has stopped holding: the file still exists and
+    // still describes the design as it was, and offering it beside a rail
+    // that now says four steps are outstanding says the two agree.
+    //
+    // The BUTTON is derived from the same condition and disappears on its
+    // own (selectReportIsOffered); this is the already-produced FILE, which
+    // is state and therefore has to be dropped rather than derived away.
+    report: reportSurvives(state, document, steps, stepOrder) ? state.report : NO_REPORT,
   }
+}
+
+/**
+ * Does the report in hand still describe the document that just arrived?
+ *
+ * ONLY IF IT IS THE SAME SESSION AND EVERY STEP IS STILL COMMITTED. The
+ * second half is the reopen cascade, read off the incoming document rather
+ * than off anything this slice remembers -- which is the same rule
+ * selectReportIsOffered applies to the button, asked of the same source, so
+ * the link and the button cannot disagree about whether this design is
+ * finished.
+ *
+ * A REPORT IN FLIGHT IS KEPT, and that is deliberate rather than an
+ * oversight of the check: `working` has no file to be stale and the request
+ * is already out. It will fail or it will land, and the store's own
+ * REPORT_READY is where a landed one meets this rule again -- the next
+ * hydrate after it drops it if the design has moved on.
+ */
+function reportSurvives(state, document, steps, stepOrder) {
+  if (state.report.status === REPORT_IDLE) return true
+  if (state.sessionId && document.session_id && document.session_id !== state.sessionId) {
+    return false
+  }
+  if (state.report.status === REPORT_WORKING) return true
+  return stepOrder.every((stepId) => steps[stepId]?.status === COMMITTED)
 }
 
 /* ---------------------------------------------------------------------------
@@ -800,6 +895,42 @@ function reduce(state, action) {
       return { ...state, jobs }
     }
 
+    /* --- the report, which is one thing about the session ---------------
+       FOUR ACTIONS AND NO JOB ID AMONG THEM. A generate's job goes into
+       `jobs` because the chrome reads a STEP's job to know that step is
+       generating; there is one report and its status IS the slice, so a
+       second id to look it up by would be an index over one row. The
+       AbortController that cancels the poll is the provider's ref, where
+       the generate's lives too -- it is not state anything renders. */
+
+    /* WORKING CLEARS THE LAST FAILURE AND THE LAST LINK TOGETHER. A press
+       that leaves the previous failure notice under the spinner is telling
+       someone about a request that is no longer the one they are waiting
+       on, and a link left beside it points at the PREVIOUS report while a
+       new one is being made -- a file that is still downloadable and no
+       longer the answer to the question on screen. */
+    case REPORT_STARTED:
+      return { ...state, report: { status: REPORT_WORKING, download: null, failure: null } }
+
+    case REPORT_READY:
+      return {
+        ...state,
+        report: { status: REPORT_READY_STATUS, download: action.download, failure: null },
+      }
+
+    case REPORT_FAILED:
+      return {
+        ...state,
+        report: { status: REPORT_FAILED_STATUS, download: null, failure: action.failure },
+      }
+
+    /* BACK TO IDLE, WITH NOTHING REMEMBERED. What dismissing a notice does,
+       and what a second press does on its way to REPORT_STARTED. It is the
+       whole slice rather than the failure alone, so there is exactly one
+       shape for "nothing has been asked for". */
+    case REPORT_DISMISSED:
+      return { ...state, report: NO_REPORT }
+
     default:
       return state
   }
@@ -981,6 +1112,64 @@ export function selectStepsResetByReopen(state, stepId) {
   return selectDownstreamSteps(state, stepId).filter(
     (downstreamId) => selectStepStatus(state, downstreamId) !== NOT_STARTED
   )
+}
+
+/* ---------------------------------------------------------------------------
+   The report
+   --------------------------------------------------------------------------- */
+
+/**
+ * IS THE DESIGN FINISHED -- is every step in the document's own `step_order`
+ * committed?
+ *
+ * THE ONE PLACE THIS QUESTION IS ANSWERED, and it is answered by READING THE
+ * DOCUMENT rather than by remembering anything. That is the whole of what
+ * makes the report button derived: reopening any step cascades every step
+ * below it back to `not_started` in the document the server sends, this
+ * returns false on the next hydrate, and the button is gone with nothing
+ * having been told.
+ *
+ * A SECOND NOTION OF "FINISHED" WOULD PASS THE FIRST TEST AND FAIL THAT ONE.
+ * A `designComplete` flag set when the last step commits renders the button
+ * in exactly the same place; it survives the reopen, because a reopen is not
+ * where it is written. So this is not a convenience over a flag -- it is the
+ * refusal to have one.
+ *
+ * `stepOrder.length > 0` IS LOAD-BEARING. Before a session exists the order
+ * is empty and `every()` over an empty array is true, which would offer a
+ * report on the boundary screen.
+ *
+ * THE BOUNDARY IS NOT IN THIS ORDER AND DOES NOT NEED TO BE. `step_order` is
+ * the six document steps; the boundary is a top-level document field, and a
+ * document exists at all only because a boundary was committed. The wizard's
+ * own order (which prepends the boundary) is the rail's, and asking it here
+ * would make this store learn a step id it deliberately does not hold.
+ */
+export function selectDesignIsComplete(state) {
+  return (
+    state.stepOrder.length > 0 &&
+    state.stepOrder.every((stepId) => selectStepStatus(state, stepId) === COMMITTED)
+  )
+}
+
+export const selectReport = (state) => state.report
+export const selectReportStatus = (state) => state.report.status
+export const selectReportDownload = (state) => state.report.download
+export const selectReportFailure = (state) => state.report.failure
+
+/**
+ * Is the report control on screen at all?
+ *
+ * THE DESIGN BEING COMPLETE, AND NOTHING ELSE -- not the report's own status.
+ * A report already produced, or in flight, or failed, is still a report of
+ * THIS design, and the control has something to say in every one of those
+ * states. Folding the status in here would mean a failure notice vanished
+ * with the thing that produced it.
+ *
+ * A session must exist, which `stepOrder.length > 0` above already requires.
+ */
+export function selectReportIsOffered(state) {
+  return selectDesignIsComplete(state)
 }
 
 export const selectDraft = (state, stepId) => state.drafts[stepId] ?? EMPTY_DRAFT
@@ -1288,6 +1477,10 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
   // than state: aborting is a side effect on a request, and putting it in
   // state would re-render every consumer for something none of them display.
   const generationsRef = useRef(new Map())
+  // The report's own controller. ONE, not a map: there is one report per
+  // session, and a second press supersedes the first rather than running
+  // beside it.
+  const reportRef = useRef(null)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -1300,6 +1493,8 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       // request and dispatch into an unmounted tree.
       for (const entry of generationsRef.current.values()) entry.controller.abort()
       generationsRef.current.clear()
+      reportRef.current?.abort()
+      reportRef.current = null
     }
   }, [])
 
@@ -1754,6 +1949,133 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
     [state.sessionId, handleFailure]
   )
 
+  /**
+   * WHICH KIND OF REPORT FAILURE THIS IS, read off the KEY the payload
+   * carries rather than the one it lacks.
+   *
+   * The backend sends exactly one of two shapes (session_report.
+   * error_payload()):
+   *
+   *   {error, session_expired: {session_id, step_id, remedy}}  ACTIONABLE
+   *   {error, report_failed: {actionable: false}}              NOT
+   *
+   * AND THE TEST IS FOR `session_expired`, NEVER FOR THE ABSENCE OF IT. A
+   * client reading "no session_expired" as "must be the other kind" is one
+   * new failure shape away from telling someone to reopen and recommit
+   * against something a recommit cannot touch -- and "reopen every step and
+   * commit it again" is the most expensive instruction this app can give.
+   * So an unrecognised shape reads as the one that asks for nothing.
+   *
+   * THE SERVER'S SENTENCE IS CARRIED BUT IS NOT WHAT THE CHROME RENDERS.
+   * session_design.WORKING_DATA_EXPIRED is written for a person and is the
+   * right thing to keep; the copy on screen is this client's, because the
+   * wording of its own UI is its own. See ReportAction.jsx.
+   */
+  const reportFailure = useCallback((error) => {
+    const expired = error?.session_expired
+    if (expired) {
+      return {
+        kind: REPORT_EXPIRED,
+        message: typeof error.error === 'string' ? error.error : null,
+        stepId: expired.step_id ?? null,
+      }
+    }
+    return {
+      kind: REPORT_UNAVAILABLE,
+      message: typeof error?.error === 'string' ? error.error : null,
+      stepId: null,
+    }
+  }, [])
+
+  /**
+   * ASK FOR THE REPORT. Resolves true when a downloadable PDF exists.
+   *
+   * THE LONGEST WAIT IN THE PRODUCT, and the only action in this store that
+   * is about the SESSION rather than about a step -- so it takes no step id,
+   * writes no draft, and touches `steps` not at all.
+   *
+   * IT DOES NOT CHECK THAT THE DESIGN IS COMPLETE. The button is derived
+   * from that condition and the server refuses a session that is not (409,
+   * naming every uncommitted step, with no job created), so a check here
+   * would be a third opinion between the two -- and the one most likely to
+   * go stale, because it would be written against a document this closure
+   * captured. If one ever arrives it is a StepStateError through
+   * handleFailure, like every other refusal.
+   *
+   * A SECOND PRESS SUPERSEDES THE FIRST, the same way a second generate
+   * does: the previous poll is aborted so two reports cannot land into one
+   * slot out of order. The superseded job finishes in the backend's pool and
+   * its PDF is evicted unread, which costs one report's work and is the
+   * honest price of a slot that holds one answer.
+   *
+   * AN ABORT IS NOT A FAILURE AND MUST NOT BECOME ONE. The two things that
+   * abort are this component unmounting and that second press; neither is
+   * something to show the user a notice about, and the second has already
+   * put the slice into `working` for its own request.
+   */
+  const generateReport = useCallback(
+    async ({ propertyLabel } = {}) => {
+      const sessionId = state.sessionId
+      if (!sessionId) return false
+
+      reportRef.current?.abort()
+      const controller = new AbortController()
+      reportRef.current = controller
+
+      // BEFORE THE FIRST AWAIT, for JOB_STARTED's reason: the report is
+      // working from the moment it is asked for, not from the moment the
+      // server agrees to it. The press has to change the screen.
+      dispatchIfMounted({ type: REPORT_STARTED })
+
+      try {
+        const terminal = await runReport(sessionId, {
+          propertyLabel,
+          signal: controller.signal,
+        })
+
+        if (terminal.status === JOB_DONE) {
+          const result = terminal.result ?? {}
+          dispatchIfMounted({
+            type: REPORT_READY,
+            download: {
+              // ABSOLUTE, HERE, ONCE. The server sends a path because it
+              // does not know what origin it is reached on, and the app is
+              // served from a different one in every deployment.
+              url: reportDownloadUrl(result.download_url),
+              filename: result.filename ?? 'report.pdf',
+              sizeBytes: typeof result.size_bytes === 'number' ? result.size_bytes : null,
+            },
+          })
+          return true
+        }
+
+        // JOB_EVICTED: the runner no longer holds the id. For a GENERATE
+        // that is recoverable -- GET .../layers serves the same payload --
+        // and for a report it is NOT: there is no endpoint that serves a
+        // finished one, and the download URL was the only handle on the
+        // file. So it is a failure of the kind that asks for nothing, which
+        // is exactly what it is.
+        dispatchIfMounted({ type: REPORT_FAILED, failure: reportFailure(terminal.error) })
+        return false
+      } catch (error) {
+        if (error?.name === 'AbortError') return false
+        // A REFUSAL OR A TRANSPORT FAILURE, neither of which is a job
+        // outcome. handleFailure sorts it onto the session's own error, and
+        // the slice records that the report did not happen -- without it the
+        // button would sit in `working` for ever on a backend that is down.
+        handleFailure(error, null)
+        dispatchIfMounted({
+          type: REPORT_FAILED,
+          failure: reportFailure(error?.body),
+        })
+        return false
+      } finally {
+        if (reportRef.current === controller) reportRef.current = null
+      }
+    },
+    [state.sessionId, dispatchIfMounted, handleFailure, reportFailure]
+  )
+
   const actions = useMemo(
     () => ({
       startSession,
@@ -1764,6 +2086,8 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       discardCandidate,
       scorePlacedFeature,
       loadLayers,
+      generateReport,
+      dismissReport: () => dispatch({ type: REPORT_DISMISSED }),
       seedDraft: (stepId, selectedFeatureIds, drawnFeatures) =>
         dispatch({ type: DRAFT_SEEDED, stepId, selectedFeatureIds, drawnFeatures }),
       // `featureIds` is the new list, or a function of the current one. See
@@ -1788,7 +2112,17 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
         dispatch({ type: SESSION_CLEARED, resume: 'idle' })
       },
     }),
-    [startSession, resume, generate, commit, reopen, discardCandidate, scorePlacedFeature, loadLayers]
+    [
+      startSession,
+      resume,
+      generate,
+      commit,
+      reopen,
+      discardCandidate,
+      scorePlacedFeature,
+      loadLayers,
+      generateReport,
+    ]
   )
 
   const value = useMemo(() => ({ state, actions }), [state, actions])

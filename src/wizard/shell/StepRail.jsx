@@ -58,10 +58,30 @@
  * "Edit this step" that names what a reopen costs and for the boundary is a
  * sentence saying it cannot be reopened at all. Reopening on the rail click
  * itself would hand someone a cascade they asked for by navigating.
+ *
+ *
+ * AND BELOW THE ROWS, WHEN THERE IS NOTHING LEFT TO DO: THE REPORT.
+ *
+ * THE LIST IS STILL SEVEN ROWS. ReportAction renders OUTSIDE the <ol>, so
+ * whatever it is doing the rail's list is the pipeline and only the pipeline
+ * -- the report is not a step, has no candidates, nothing to select and
+ * nothing to commit, and appears in no document's `step_order`. It is here
+ * rather than in the action banner because the banner is step-scoped chrome
+ * and this is a SESSION-scoped action; the rail is the one component whose
+ * subject is the whole session, so the thing you do with a finished one
+ * belongs at the end of it.
+ *
+ * IT IS NOT AN EIGHTH ROW AND MUST NOT COME TO LOOK LIKE ONE. The help
+ * control in the corner was a row of this rail once and "read as an eighth
+ * step" (App.css); that is the mistake available here, and what keeps it
+ * away is that this carries the action buttons' treatment rather than a
+ * row's. See ReportAction.jsx for when it appears at all -- a derivation off
+ * the same statuses these rows render, never a flag of its own.
  */
 
 import { COMMITTED, GENERATED, selectStepStatus, useSession } from '../../session/SessionStore'
 import { useWizardCursor } from '../WizardCursor.jsx'
+import ReportAction from './ReportAction.jsx'
 
 /** What each status says on a row, in the terms the rail is read in. */
 const STATUS_WORDS = {
@@ -166,6 +186,7 @@ export default function StepRail() {
           )
         })}
       </ol>
+      <ReportAction />
     </nav>
   )
 }
