@@ -12,10 +12,14 @@
  * a step. A step with no entry never auto-fires, and its help control opens
  * the deck instead.
  *
- * SHIPS EMPTY. The cards land one branch at a time, starting with boundary.
+ * The cards land one branch at a time. Boundary is first; its body is a
+ * React node rather than a string because one clause of it is emphasised,
+ * and StepCard renders `body` as a child either way.
  */
 
-export const STEP_CARDS = Object.freeze([])
+import { BOUNDARY_CARD } from './boundaryCard.jsx'
+
+export const STEP_CARDS = Object.freeze([BOUNDARY_CARD])
 
 /** The card registered for a step, or null. */
 export function cardFor(registry, stepId) {

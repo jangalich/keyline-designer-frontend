@@ -121,7 +121,7 @@ function Ground() {
  * set, so travel and press are two animations on two elements sharing one
  * period rather than one keyframe list trying to say both.
  */
-function Cursor({ modifier }) {
+export function Cursor({ modifier }) {
   return (
     <g className={`tutorial-anim__cursor tutorial-anim__cursor--${modifier}`} aria-hidden="true">
       <path className={`tutorial-anim__pointer tutorial-anim__pointer--${modifier}`} d={CURSOR_PATH} />
