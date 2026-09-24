@@ -5,8 +5,8 @@
  * one looping animation over the shared farm (farmScene.jsx).
  *
  * THE SECOND SENTENCE IS WHY THIS CARD EXISTS. People draw the boundary
- * around what they think should be farmed and carve out the woods and the
- * wet ground -- which deletes the very ground the trees, water and roads
+ * around what they think should be farmed and carve out the woods, the
+ * streams and the steep ground -- which deletes the very ground the trees, water and roads
  * steps read, so those steps then correctly report nowhere to put a tree or
  * a pond and the tool reads as broken. A card that taught only the gesture
  * would leave that instinct alone. The copy is the spec's, verbatim, and
@@ -36,11 +36,11 @@
 import { Cursor } from './animations.jsx'
 import { FarmScene, PARCEL, PARCEL_EDGES, PARCEL_PATH, SCENE_VIEWBOX, SceneGround } from './farmScene.jsx'
 
-export const BOUNDARY_TITLE = 'Draw your whole property'
-export const BOUNDARY_LEAD =
-  'Search your address, zoom in, then click each corner of your property line. '
-export const BOUNDARY_EMPHASIS = 'Include the woods, the wet ground and the road'
-export const BOUNDARY_TAIL = ' — those are what the tool reads to place trees, water and access.'
+export const BOUNDARY_TITLE = 'Trace around your whole property'
+export const BOUNDARY_BODY =
+  'Search your address, adjust the map, then click to place points along the property line. ' +
+  'All of the landscape that sits on your parcel, including woods, streams, roads, steep ground, ' +
+  'etc., should be included.'
 
 /** The address already in the field. */
 export const BOUNDARY_ADDRESS = '237 Montour Dr, Jones Mills, PA'
@@ -123,12 +123,6 @@ export function BoundaryAnimation() {
 export const BOUNDARY_CARD = Object.freeze({
   stepId: 'boundary',
   title: BOUNDARY_TITLE,
-  body: (
-    <>
-      {BOUNDARY_LEAD}
-      <strong className="tutorial__em">{BOUNDARY_EMPHASIS}</strong>
-      {BOUNDARY_TAIL}
-    </>
-  ),
+  body: BOUNDARY_BODY,
   Animation: BoundaryAnimation,
 })

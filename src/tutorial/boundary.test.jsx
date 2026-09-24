@@ -47,12 +47,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const APP_CSS = readFileSync(path.join(HERE, '..', 'App.css'), 'utf8')
 
 /** The spec's copy. A rewrite fails here. */
-const TITLE = 'Draw your whole property'
+const TITLE = 'Trace around your whole property'
 const BODY =
-  'Search your address, zoom in, then click each corner of your property line. ' +
-  'Include the woods, the wet ground and the road — those are what the tool reads to ' +
-  'place trees, water and access.'
-const EMPHASIS = 'Include the woods, the wet ground and the road'
+  'Search your address, adjust the map, then click to place points along the property line. ' +
+  'All of the landscape that sits on your parcel, including woods, streams, roads, steep ground, ' +
+  'etc., should be included.'
 
 /** The spec's parcel table. */
 const TABLE = [
@@ -181,7 +180,6 @@ async function renderCard() {
       onAutoChange={() => {}}
       onDismiss={() => {}}
       onClose={() => {}}
-      onOpenDeck={() => {}}
     />
   )
   const unmount = handle.unmount
@@ -195,20 +193,23 @@ async function renderCard() {
 describe('2. the copy', () => {
   it('says exactly the spec, title and body', async () => {
     await renderCard()
+    expect(BOUNDARY_CARD.body).toBe(BODY)
     expect(find('tutorial-step-title').textContent).toBe(TITLE)
     expect(find('tutorial-step-body').textContent).toBe(BODY)
   })
 
-  it('emphasises the clause that is the reason for the card, inline and only that', async () => {
+  it('ends on one row: the auto checkbox beside Got it, and no link to the deck', async () => {
     await renderCard()
-    const body = find('tutorial-step-body')
-    const emphasis = body.querySelectorAll('strong')
-    expect(emphasis).toHaveLength(1)
-    expect(emphasis[0].textContent).toBe(EMPHASIS)
-    // Inline: inside the paragraph, between the two halves of the sentence.
-    expect(emphasis[0].parentElement).toBe(body)
-    expect(body.firstChild.textContent.endsWith('property line. ')).toBe(true)
-    expect(body.lastChild.textContent.startsWith(' — those are')).toBe(true)
+    const done = find('tutorial-step-done')
+    const auto = find('tutorial-step-auto')
+    expect(done.parentElement).toBe(auto.closest('label').parentElement)
+    expect(done.parentElement.classList.contains('tutorial__nav--foot')).toBe(true)
+    expect(find('tutorial-step-deck')).toBeNull()
+    expect(find('tutorial-step-card').textContent).not.toContain('How the map works')
+    expect([...find('tutorial-step-card').querySelectorAll('button')].map((b) => b.dataset.testid)).toEqual([
+      'tutorial-step-close',
+      'tutorial-step-done',
+    ])
   })
 
   it('carries the address as context and the acreage as its one reading', async () => {

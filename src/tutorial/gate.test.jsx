@@ -191,7 +191,7 @@ describe('the gate, on a first arrival', () => {
   })
 
   it('on the button: mounts the chrome, enables the field, restores the placeholder, and opens nothing with an empty registry', async () => {
-    const ui = await renderApp()
+    const ui = await renderApp({ registry: [] })
     await ui.click('tutorial-start')
 
     expect(ui.orientation()).toBeNull()
@@ -202,7 +202,7 @@ describe('the gate, on a first arrival', () => {
     expect(readPrefs().seen).toEqual([ORIENTATION_ID])
     expect(JSON.parse(window.localStorage.getItem(SEEN_KEY))).toEqual([ORIENTATION_ID])
 
-    // THE BOUNDARY SLOT: the shipped registry is empty, so nothing opens --
+    // THE BOUNDARY SLOT: with an empty registry nothing opens --
     // no step card, and not the deck either -- and that is not an error.
     expect(ui.find('tutorial-step-card')).toBeNull()
     expect(ui.find('tutorial-card')).toBeNull()

@@ -36,6 +36,7 @@ import { WizardCursorProvider } from '../wizard/WizardCursor.jsx'
 import { CARDS } from './cards.jsx'
 import { HELP_LABEL, TUTORIAL_DISMISSED_KEY } from './TutorialHelp.jsx'
 import { BACK_LABEL, CLOSE_LABEL, DONE_LABEL, NEXT_LABEL } from './TutorialOverlay.jsx'
+import { StepCardRegistry } from './TutorialContext.jsx'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SRC = path.join(HERE, '..')
@@ -147,14 +148,18 @@ async function renderShell() {
 
   await React.act(async () => {
     root.render(
-      <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
-        <WizardCursorProvider definitions={STEP_DEFINITIONS}>
-          {/* The stage App.jsx puts the chrome in: the overlay lives inside it. */}
-          <div className="map-stage" data-testid="stage">
-            <WizardShell />
-          </div>
-        </WizardCursorProvider>
-      </SessionProvider>
+      // NO STEP CARDS: this file is about the deck, and the boundary's card
+      // would otherwise open on arrival and take the help control.
+      <StepCardRegistry cards={[]}>
+        <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
+          <WizardCursorProvider definitions={STEP_DEFINITIONS}>
+            {/* The stage App.jsx puts the chrome in: the overlay lives inside it. */}
+            <div className="map-stage" data-testid="stage">
+              <WizardShell />
+            </div>
+          </WizardCursorProvider>
+        </SessionProvider>
+      </StepCardRegistry>
     )
   })
 
@@ -564,14 +569,17 @@ describe('5. reduced motion', () => {
   it('draws every diagram finished in the markup: nothing in it rests hidden but the cursor and the leaders', async () => {
     // WHAT MAKES A CARD LEGIBLE WITHOUT MOTION is that the base rule for
     // every animated element is the finished state. The only base rules
-    // allowed to hide anything are the cursor's and the transient leaders'.
+    // allowed to hide anything are the cursor's, the transient leaders' and
+    // the boundary card's snap ring, a pulse at the close.
     const hidden = rulesOf(TUTORIAL_CSS)
       .filter(([selector]) => !selector.startsWith('@') && !/^\d/.test(selector))
       .filter(([, body]) => /(^|;)\s*opacity:\s*0\s*(;|$)/.test(body) || /display:\s*none/.test(body))
       .map(([selector]) => selector)
     // (The cursor's selector appears twice: once resting hidden, once under
     // reduced motion; the claim is about WHICH selectors, not how often.)
-    expect([...new Set(hidden)].sort()).toEqual(['.tutorial-anim__cursor', '.tutorial-anim__leader'].sort())
+    expect([...new Set(hidden)].sort()).toEqual(
+      ['.tutorial-anim__cursor', '.tutorial-anim__leader', '.tutorial-anim__snap'].sort()
+    )
 
     // AND THE RESTING CONTENT IS IN THE DOM of every card, which is what a
     // reader with animations off is looking at: the ring's acreage, the
@@ -703,7 +711,9 @@ describe('6. the treatment', () => {
     // THE ONE EXCEPTION IS THE MAP'S OWN MARK: a production block is hatched
     // in --oxide on the real map, and a diagram of one is hatched the same
     // way. It is a mark on ground inside the diagram, never a control.
-    const mapMarks = ['.tutorial-anim__hatch--production', '.tutorial-anim__block--production']
+    // AND THE SNAP RING, the boundary card's one transient oxide mark: the
+    // map's own snap cue, pulsing once as the ring closes.
+    const mapMarks = ['.tutorial-anim__hatch--production', '.tutorial-anim__block--production', '.tutorial-anim__snap']
     for (const selector of oxide) {
       if (mapMarks.includes(selector)) continue
       expect(selector).toMatch(/^\.tutorial__button--primary/)
