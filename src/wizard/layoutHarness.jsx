@@ -668,15 +668,18 @@ const UNCASED = [
   // ochre. Two cells beside the cased ones, so the halo's worth is a number.
   { treatment: 'structure', state: 'committed', uncased: true },
   { treatment: 'structure', state: 'active', uncased: true },
-  // THE FENCE, ONCE MORE *WITH* A CASING, which is the road's question turned
-  // around. The fence ships BARE -- one hairline, nothing under it -- so
-  // "what is its casing worth" cannot be asked by taking one off. It is asked
-  // by putting the road's back on, and the difference is what the decision to
-  // drop it cost. It was 5.5x over canopy and 9.0x over soil when the mark
-  // carried one; this keeps that a reading rather than a memory.
+  // THE FENCE, WITHOUT ITS CASING WHILE ACTIVE, and WITH its own casing put
+  // back on the committed band: the road's two questions asked of the fence,
+  // which is cased while active and bare once committed like the road.
+  { treatment: 'fence', state: 'active', uncased: true },
   { treatment: 'fence', state: 'committed', cased: true },
-  { treatment: 'fence', state: 'active', cased: true },
-  { treatment: 'fence', state: 'focused', cased: true },
+  // THE SUGGESTED SITE'S PIN, IN --ink. Colour is provenance now: the tool's
+  // site is an ink pin and the user's an ochre one (App.css), so both bodies
+  // are measured. The shipped `structure` cells above are the ochre pin.
+  { treatment: 'structure', id: 'pin-ink', pinToken: '--ink', state: 'committed' },
+  { treatment: 'structure', id: 'pin-ink', pinToken: '--ink', state: 'active' },
+  { treatment: 'structure', id: 'pin-ink', pinToken: '--ink', state: 'committed', uncased: true },
+  { treatment: 'structure', id: 'pin-ink', pinToken: '--ink', state: 'active', uncased: true },
 ]
 
 /**
@@ -1245,72 +1248,35 @@ for (const alpha of HALO_SHIP_ALPHAS) {
   })
 }
 
-const FENCE_CANDIDATES = []
-for (const [id, lineToken] of [
-  ['fence-rule', '--rule'],
-  ['fence-ink-muted', '--ink-muted'],
-]) {
-  for (const state of ['committed', 'active']) {
-    FENCE_CANDIDATES.push({ treatment: 'fence', id, lineToken, state })
-    FENCE_CANDIDATES.push({ treatment: 'fence', id, lineToken, state, cased: true })
-  }
-}
-
 /**
- * THE FENCE'S FOCUS GLOW, AND THE TOKEN IT IS DRAWN IN -- measured the way
- * the line's own colour was, and for the same reason.
+ * THE FENCE'S CASING PAIRS, MEASURED BESIDE THE RENDERS THAT CHOSE ONE.
  *
- * A FENCE SAYS FOCUS WITH A HALO NOW, not with a step in opacity, and the
- * lever that used to say it was the weakest in the build: index.css's --fence
- * note recorded 1.41x active on mid-grey, under the 1.5x every pattern mark
- * meets, because a pale line over a white casing cannot swing against grey.
- * Production hit the same wall and the halo is what it did about it; with
- * one, the fence reads 5.88x.
- *
- * WHICH COLOUR THE GLOW IS, THOUGH, IS NOT PRODUCTION'S ANSWER TRANSFERRED.
- * Production glows in its OWN ink, which works because oxide is dark and
- * saturated against every ground it sits on. The fence's ink is --rule, a
- * near-white -- so a glow in it is a pale field around a pale line, which is
- * most of what the mark already has trouble with over bare soil. Three
- * candidates are drawn instead, over both grounds and on mid-grey, and the
- * numbers choose:
- *
- *   --fence      the mark's own ink, which is production's rule applied
- *                literally, and what ships.
- *   --halo       white. It was the shipped answer while the line was CASED,
- *                on the argument that white is what carried the mark; with
- *                the casing gone that argument is gone with it -- a white
- *                glow under a bare pale line is the casing back in soft
- *                focus, which is the pass the mark just dropped.
- *   --ink        the dark end of the scale, which is the only direction with
- *                headroom over PALE ground -- and the direction that risks
- *                saying "road".
- *
- * `unhaloed` IS THE CONTROL and it is the same control the haloed hatch has:
- * the focused cell with the glow pass lifted off, whose core is at the ACTIVE
- * level. What the glow is worth is the difference between the two, and
- * "focus costs the scale nothing" is the claim that the control equals the
- * active cell.
+ * The pair that ships (ProductionHatchPattern's fence row) was picked by
+ * looking at renders over imagery; these cells put a number beside each pair
+ * that was tried (layout.test.jsx lists the same five), over both grounds, at the active level -- the only level
+ * that carries a casing. `casing` and `weight` override the mark's own for
+ * these cells only; the dash is the mark's.
  */
-const FENCE_GLOW_CANDIDATES = [
-  // THE SHIPPED MARK AT FOCUS is already a cell -- cellsFor() gives every
-  // treatment all three states -- so these are the two dressings of it that
-  // are not: the glow lifted off, and the casing lifted off.
-  { treatment: 'fence', state: 'focused', unhaloed: true },
+const FENCE_PAIRS = [
+  [3, 1],
+  [2.25, 1],
+  [2, 0.75],
+  [1.75, 1],
+  [2, 1.25],
 ]
-for (const [id, glowToken] of [
-  ['fenceglow-halo', '--halo'],
-  ['fenceglow-fence', '--fence'],
-  ['fenceglow-ink', '--ink'],
-]) {
-  FENCE_GLOW_CANDIDATES.push({ treatment: 'fence', id, glowToken, state: 'focused' })
-}
+const FENCE_CANDIDATES = FENCE_PAIRS.map(([casing, weight]) => ({
+  treatment: 'fence',
+  id: `fencepair-${casing}-${weight}`,
+  casing,
+  weight,
+  state: 'active',
+}))
 
 /**
  * THE PROPERTY BOUNDARY RING, WHICH IS A LINE THIS FILE HAD NO CELL FOR.
  *
  * IT IS NOT A TREATMENT AND MUST NOT BECOME ONE. The ring is drawn by
- * RingLayer straight from the stack's own colours -- `--field` at LINE_WEIGHT,
+ * RingLayer straight from the stack's own colours -- `--boundary` at LINE_WEIGHT,
  * with `--halo` under it -- and it carries no `treatment`, because it is the
  * parcel rather than a mark saying what some ground is for. Adding a row to
  * TREATMENT_MARKS for it would put it in the map's vocabulary of marks, which
@@ -1323,22 +1289,21 @@ for (const [id, glowToken] of [
  *
  * WHY IT NEEDED MEASURING AT ALL. The committed ring lost its casing with the
  * committed roads -- one band rule, both of them (layers.jsx's
- * casingWeightFor) -- and --field is a dark green sitting on a ground that is
- * also dark green. That is the road's own failure mode in a second colour, and
- * it had no number until this cell existed.
+ * casingWeightFor). It was --field then, a dark green on a ground that is
+ * also dark green; it is --boundary now, which is --ink -- the road's own
+ * colour, and so the road's own failure mode over canopy, measured here.
  *
- * THE FILL IS NOT IN HERE, deliberately. A closed committed ring also washes
- * the parcel at COMMITTED_FILL_OPACITY, and that wash would swamp this
- * measurement while answering a different question: the wash says which ground
- * is yours, the EDGE says where the line is. This is the edge.
+ * THERE IS NO FILL TO LEAVE OUT. The committed ring used to wash the parcel
+ * at COMMITTED_FILL_OPACITY and this cell left the wash out on purpose; the
+ * ring is an outline in every state now, so the edge is the whole mark.
  */
 const BOUNDARY_RING_CELLS = []
 for (const state of ['committed', 'active']) {
-  BOUNDARY_RING_CELLS.push({ treatment: 'road', id: 'boundary-ring', lineToken: '--field', state })
+  BOUNDARY_RING_CELLS.push({ treatment: 'road', id: 'boundary-ring', lineToken: '--boundary', state })
   BOUNDARY_RING_CELLS.push({
     treatment: 'road',
     id: 'boundary-ring',
-    lineToken: '--field',
+    lineToken: '--boundary',
     state,
     cased: true,
   })
@@ -1615,7 +1580,6 @@ const GROUND_CELLS = () => [
   ...COMBO_CELLS,
   ...HALO_SHIP_CANDIDATES,
   ...FENCE_CANDIDATES,
-  ...FENCE_GLOW_CANDIDATES,
   ...BOUNDARY_RING_CELLS,
   ...HATCH_SCREEN_CANDIDATES,
   ...TREE_SCREEN_CANDIDATES,
@@ -1843,7 +1807,7 @@ function ZoneSwatches() {
         group.setAttribute('transform', `translate(${offset} ${offset}) scale(${scale})`)
         group.setAttribute('opacity', level)
         const passes = svg.dataset.uncased === 'true' ? [] : [['halo', readToken('--halo')]]
-        passes.push(['body', mark.fill])
+        passes.push(['body', svg.dataset.pinToken ? readToken(svg.dataset.pinToken) : mark.fill])
         for (const [pass, colour] of passes) {
           const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
           path.setAttribute('d', PIN_GLYPH_PATH)
@@ -1912,8 +1876,13 @@ function ZoneSwatches() {
         // between the shipped cell and this one, and a cost nothing measures
         // is a cost that gets forgotten. It puts the ROAD's casing on, which
         // is the one both used to carry.
-        const casing = casingWeightFor(mark, svg.dataset.state === 'committed')
-        const cased = svg.dataset.recased === 'true' ? CASING_WEIGHT : casing
+        const casing = svg.dataset.casing
+          ? Number(svg.dataset.casing)
+          : casingWeightFor(mark, svg.dataset.state === 'committed')
+        // RECASED WITH THE MARK'S OWN CASING where it declares one (the fence),
+        // the road's pair otherwise.
+        const cased =
+          svg.dataset.recased === 'true' ? (mark.casing > 0 ? mark.casing : CASING_WEIGHT) : casing
         if (svg.dataset.uncased !== 'true' && cased > 0) {
           passes.push([readToken('--halo'), cased, level, null])
         }
@@ -1921,7 +1890,7 @@ function ZoneSwatches() {
         // FENCE_CANDIDATES. The shipped mark's own cells carry no override.
         passes.push([
           svg.dataset.lineToken ? readToken(svg.dataset.lineToken) : mark.stroke,
-          mark.weight ?? LINE_WEIGHT,
+          svg.dataset.weight ? Number(svg.dataset.weight) : mark.weight ?? LINE_WEIGHT,
           level,
           null,
         ])
@@ -1935,6 +1904,9 @@ function ZoneSwatches() {
           line.setAttribute('stroke-width', String(weight))
           line.setAttribute('stroke-opacity', String(opacity))
           line.setAttribute('stroke-linecap', 'round')
+          // THE MARK'S DASH, on the casing and the line alike -- LineLayer's
+          // dashArray -- and never on a glow.
+          if (mark.dash && effect !== 'blur') line.setAttribute('stroke-dasharray', mark.dash)
           // THE BLUR IS App.css's, BY CLASS, so the harness measures the
           // radius the map draws rather than a copy of it typed here.
           if (effect === 'blur') line.setAttribute('class', 'road--glow')
@@ -2190,6 +2162,9 @@ function ZoneSwatches() {
                 data-unoutlined={cell.unoutlined ? 'true' : undefined}
                 data-line-token={cell.lineToken ?? undefined}
                 data-glow-token={cell.glowToken ?? undefined}
+                data-casing={cell.casing ?? undefined}
+                data-weight={cell.weight ?? undefined}
+                data-pin-token={cell.pinToken ?? undefined}
                 data-unscreened={cell.unscreened ? 'true' : undefined}
                 data-unhaloed={cell.unhaloed ? 'true' : undefined}
                 data-screen-pass-only={cell.screenPassOnly ? 'true' : undefined}

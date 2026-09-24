@@ -1635,9 +1635,10 @@ describe('one pattern per step, three levels per pattern', () => {
     // Every fill opacity a ZONE takes comes from a level; the only literal
     // left is the rejection overlay, which is not a zone state.
     const literals = layers.replace(/\/\*[\s\S]*?\*\//g, '').match(/fillOpacity: [\d.]+/g) ?? []
-    // Exactly one, and it belongs to the rejection overlay -- which is not a
-    // zone state and has no level in the scheme.
-    expect(literals).toEqual(['fillOpacity: 0.25'])
+    // Two, and neither is a zone state: the boundary ring's zero -- an
+    // invisible hit area for an armed ring delete, not a mark -- and the
+    // rejection overlay, which has no level in the scheme.
+    expect(literals).toEqual(['fillOpacity: 0', 'fillOpacity: 0.25'])
   })
 
   it('puts the dot field on the MARK scale and the wash on the SCREEN scale', () => {

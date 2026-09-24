@@ -585,57 +585,68 @@ const TREATMENT_MARKS = [
      marksItsOwnEdge() is false of it, and TILE_BUILDERS has no tile for it,
      so injectZonePatterns() passes it through as it does a tint. */
   { treatment: 'structure', kind: 'pin', token: '--ochre' },
-  /* THE FENCE MARK: A CASED LINE, in --fence -- the road's kind of mark, in a
-     second colour, because a fence is the other LINE on this map and the two
-     are told apart by value rather than by kind. The candidates, the
-     measurements over canopy and bare soil, and the choice are written
-     beside the token in index.css; nothing here picks a colour. Same
-     LINE_WEIGHT / CASING_WEIGHT pair every line on this map takes, drawn by
-     layers.jsx's LineLayer, which reads the DISPLAY-ONLY line the server
-     ships (fence_display_geometry.py's angular-simplified, coincidence-
-     trimmed rendering) rather than the raw ring -- see drawnAs(). No fill,
-     no paint server, no outline: the line IS the mark. */
-  // THE FENCE: A BARE HAIRLINE, AND ITS FOCUS IS A HALO IN ITS OWN COLOUR.
-  //
-  // THINNER THAN THE ROAD AND UNCASED, which are one decision and the
-  // opposite of the road's. A road is a cased line because a road has to be
-  // findable on any ground; a fence is the quietest geometry on this map and
-  // is drawn as one hairline in --rule, with nothing under it.
-  //
-  // WHAT THAT COSTS IS WRITTEN DOWN AND IT IS NOT SMALL. index.css's --fence
-  // note carries the measurements: putting the road's casing back is worth
-  // 7.3x the bare line over canopy and 12.3x over soil, and without it the
-  // mark sits BELOW the 0.004 visibility floor every other mark on this map
-  // meets -- 0.0008 committed and 0.0011 active over bare soil, 0.0039
-  // committed over canopy. Only the FOCUSED fence clears it, on the glow.
-  // layout.test.jsx reports every one of those readings on each run and names
-  // the fence as the one exception to the floor rather than dropping the
-  // measurement. See that note before putting a casing back or taking one off
-  // anything else.
-  //
-  // AND FOCUS IS A HALO, WHICH IS PRODUCTION'S OWN FIX APPLIED TO A LINE.
-  // Focus used to be said here by opacity alone, and index.css states the
-  // cost: 1.41x active on mid-grey, under the 1.5x every pattern mark meets,
-  // because a pale line cannot swing against grey the way a dark core does.
-  // The halo says it with a second kind of ink instead -- a blurred stroke
-  // around the line -- and the core comes back down to the active level with
-  // it (focusIsAHalo, and layers.jsx's markLevelFor). Measured at 5.88x on
-  // mid-grey, 5.96x over canopy and 5.83x over soil.
-  //
-  // THE GLOW IS THE MARK'S OWN COLOUR, which is production's rule exactly:
-  // the block glows at its own ruling, and a fence glows in --rule. It is
-  // also what an uncased line leaves available -- a white glow under a bare
-  // pale line is the casing coming back in soft focus, which is the pass
-  // this row just took off. --halo and --ink measure HIGHER by the ink
-  // difference (a white or dark glow contrasts more with the ground than a
-  // pale one does) and both are kept in the sweep; see index.css.
+  /* THE FENCE MARK: AN --ink DASHED LINE, PENCIL THIN, ON A --halo CASING
+     WHILE ACTIVE. The road's kind of mark, told apart from the road by the
+     dash and the weight rather than by a colour -- both are on the culture
+     plate now (see --fence in index.css). Drawn by layers.jsx's LineLayer
+     from the DISPLAY-ONLY line the server ships, not the raw ring (see
+     drawnAs()). No fill, no paint server, no outline: the line IS the mark.
+
+     THE PAIR AND THE DASH WERE PICKED FROM RENDERS over Esri imagery, at
+     z17-z19, over three grounds: summer pasture and canopy (a Pennsylvania
+     parcel) and harvested bare soil (the same design moved onto Illinois
+     stubble). Casing / line, in px:
+
+       3    / 1     rejected -- a white dashed line with a grey core, as
+                    expected; the white is three times the ink
+       2.25 / 1     rejected -- still reads as WHITE dashes on pasture and
+                    canopy at every zoom tried
+       2    / 0.75  rejected -- the same, and the core is thinner still
+       1.75 / 1     rejected -- the white stops dominating, but the core
+       1.5  / 1     goes under on bare soil (see below)
+       2    / 1.25  SHIPS -- the casing reads as an edge (0.375px a side)
+                    rather than a band, and the core carries the line on soil
+
+     WHY THE CORE, NOT THE RATIO, WAS THE CONSTRAINT. The level applies to
+     each pass: --ink at 0.75 over a --halo casing at 0.75 composites to a
+     mid grey (measured off a render), not ink. At weight 1 that grey is a
+     2-device-pixel line nearly the value of bare soil, and it vanishes;
+     1.25 is the least weight that holds it. Over dark pasture and canopy
+     ink is near the ground's own value whatever the weight, and the casing
+     is what finds the line there -- which is why the casing cannot shrink
+     much below 2 either.
+
+     THE NUMBERS AGREE ABOUT CANOPY AND NOT ABOUT SOIL, and the renders were
+     the tiebreak. layout.test.jsx measures every pair (active, dashed, added
+     ink over the ground): canopy 0.0194 / 0.0126 / 0.0115 / 0.0086 / 0.0082,
+     soil 0.0090 / 0.0065 / 0.0047 / 0.0050 / 0.0040, for 3/1, 2.25/1, 2/0.75,
+     1.75/1, 2/1.25. The measure counts white as ink, so the widest casing
+     scores highest -- which is the "white line with a dark core" the renders
+     rejected. The shipped pair sits AT the 0.004 floor over bare soil, where
+     the uncased line would read louder; that is declared in layout.test.jsx
+     rather than hidden, and it is the cost of an ink line over pale ground at
+     the shared active level.
+
+     THE DASH MUST OUTRUN THE CASING. Round caps extend each dash by half
+     the casing's width at both ends and eat the same from each gap:
+
+       4,4    rejected -- the casing all but closes the gaps; a beaded line
+       6,4    rejected -- short segments that bead at z17
+       8,5    SHIPS -- reads as a dashed line at z17 and z19
+       10,6   rejected -- clean, but sparse on the short runs a zone fence
+              has (two or three dashes on a side)
+
+     THE STATES ARE THE STANDING RULE: colour and mark fixed, only opacity
+     and casing vary. No `halo` field -- focus is --pattern-focused on the
+     same casing, as the road's is (markLevelFor), and the committed band
+     drops the casing (casingWeightFor). */
   {
     treatment: 'fence',
     kind: 'line',
     token: '--fence',
-    weight: 1,
-    casing: 0,
-    halo: { token: '--fence', width: 5, alpha: 0.6 },
+    weight: 1.25,
+    casing: 2,
+    dash: '8,5',
   },
 ]
 
@@ -719,6 +730,7 @@ export function zoneMark(treatment, { focused = false } = {}) {
       stroke: readToken(spec.token),
       weight: spec.weight ?? null,
       casing: spec.casing ?? null,
+      dash: spec.dash ?? null,
       focus: spec.halo ? 'halo' : 'level',
       halo: spec.halo ? { ...spec.halo, colour: readToken(spec.halo.token) } : null,
     }

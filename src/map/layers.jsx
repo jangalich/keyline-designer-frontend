@@ -70,7 +70,7 @@ let stackColors = null
 function getStackColors() {
   if (!stackColors) {
     stackColors = {
-      field: readToken('--field'),
+      boundary: readToken('--boundary'),
       halo: readToken('--halo'),
       scrim: readToken('--scrim'),
       ink: readToken('--ink-muted'),
@@ -174,7 +174,7 @@ const SCRIM_OPACITY = 0.55
 // combination the app never draws.
 export const ELIGIBLE_OPACITY = 0.32
 
-/** Committed geometry is settled: no dash, no fill weight, and no click to make. */
+/** The flat fill of a polygon layer that declares no treatment -- see styleFor. */
 const COMMITTED_FILL_OPACITY = 0.12
 
 /**
@@ -189,11 +189,11 @@ const COMMITTED_FILL_OPACITY = 0.12
  * one of them is five marks all insisting on themselves behind the one the
  * reader is actually working on.
  *
- * IT ALSO TOOK THE FENCE'S OWN SIGNATURE. The fence ships as a bare hairline
- * (ProductionHatchPattern's fence row), and a committed road or boundary in
- * a white casing reads as the same KIND of thing at a glance -- pale line,
- * soft edge -- which is exactly the distinction the fence's colour and weight
- * were chosen to make. Bare committed geometry gives the casing back its
+ * IT IS THE STANDING RULE FOR EVERY LINE: colour and mark are fixed across
+ * the three states, and only opacity and casing vary -- the casing on while
+ * a line is the step in hand, off once it is settled, where the off-parcel
+ * dim does the separating. The road, the fence and the boundary ring are all
+ * --ink and all follow it. Bare committed geometry gives the casing back its
  * meaning: a cased line is live.
  *
  * BAND, NOT STATE. The band is what is read because the band is what the
@@ -275,7 +275,7 @@ export function StackLayer({
  * committed band, and an editable ring on a step that declares no draw.
  */
 function RingLayer({ layer, interactive, onLayerClick }) {
-  const { field, halo } = getStackColors()
+  const { boundary, halo } = getStackColors()
   const closed = layer.ring.length >= 3
   const Shape = closed ? Polygon : Polyline
   const takesClicks = Boolean(interactive && onLayerClick)
@@ -317,11 +317,20 @@ function RingLayer({ layer, interactive, onLayerClick }) {
       <Shape
         positions={layer.ring}
         interactive={takesClicks}
+        // AN OUTLINE, NEVER A WASH. This ring used to carry a --field fill at
+        // COMMITTED_FILL_OPACITY, which laid a green veil over the whole
+        // parcel under every later step's layers -- they were all being read
+        // through it. The boundary is a line in every state (see --boundary
+        // in index.css), and the fill is off in all of them.
+        //
+        // THE ONE EXCEPTION IS INVISIBLE: an armed ring delete still needs the
+        // interior as its hit area (see above), so a ring that takes clicks
+        // keeps a fill at zero opacity -- a target, not a mark.
         pathOptions={{
-          color: field,
+          color: boundary,
           weight: LINE_WEIGHT,
-          fill: closed,
-          fillOpacity: closed ? COMMITTED_FILL_OPACITY : 0,
+          fill: closed && takesClicks,
+          fillOpacity: 0,
         }}
         eventHandlers={
           takesClicks
@@ -644,6 +653,15 @@ export const SITE_PIN_SIZE = 28
 export const SITE_PIN_HALO_WIDTH = 4
 
 /**
+ * THE FOCUSED PIN'S HALO, in the same units. Focus on a pin is its casing
+ * widening -- the standing rule's one other lever besides opacity -- because
+ * the colour is provenance and may not change, and the pin is already at
+ * full strength when active. App.css's .site-pin--focused rule carries the
+ * same number; structures.test.jsx holds the two equal.
+ */
+export const SITE_PIN_FOCUSED_HALO_WIDTH = 7
+
+/**
  * THE SITE PIN, AS A LEAFLET ICON: the silhouette twice -- a halo pass
  * under the body -- in one small SVG, at fixed screen size, anchored at the
  * tip so the pin points at the spot rather than sitting on it.
@@ -716,7 +734,6 @@ function pinPosition(feature) {
  */
 function PinLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null }) {
   const rejections = layer.rejections ?? {}
-  const isPlaced = layer.source === 'draft'
   const isCommitted = layer.band === 'committed'
   const features = visibleFeatures(layer, focusedFeatureId)
 
@@ -727,6 +744,14 @@ function PinLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null 
         if (!position) return null
         const isFocused = isFocusedFeature(layer, feature, focusedFeatureId)
         const rejection = rejections[feature.id] ?? null
+        // PROVENANCE, PER FEATURE AND IN EVERY STATE. A pin's colour says who
+        // chose the spot -- ochre the user, ink the tool -- and colour is fixed
+        // across active, focused and committed, so this cannot be read off the
+        // layer: a committed layer holds both kinds. A site the user placed is
+        // a POINT on the wire (the coordinate they chose; its pad rides beside
+        // it), a generated one is its pad, so the geometry says which --
+        // the same reading the draft layer's source gives while it is live.
+        const isPlaced = layer.source === 'draft' || feature.geometry?.type === 'Point'
         const modifiers = [
           isPlaced ? 'site-pin--placed' : '',
           isCommitted ? 'site-pin--committed' : '',
@@ -765,7 +790,7 @@ function PinLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null 
 }
 
 function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null }) {
-  const { field, accent, ink, halo } = getStackColors()
+  const { accent, ink, halo } = getStackColors()
   const rejections = layer.rejections ?? {}
   const isCommitted = layer.band === 'committed'
   // DECLARED, NOT DERIVED, and that is the whole of the field's reason: band
@@ -837,7 +862,7 @@ function FeatureLayer({ layer, interactive, onFeatureClick, focusedFeatureId = n
               isCommitted,
               treatment,
               rejection,
-              colors: { field, accent, ink, halo },
+              colors: { accent, ink, halo },
             })}
             eventHandlers={
               interactive
@@ -1114,6 +1139,11 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
   // `??` and not `||`, so a declared 0 survives rather than collapsing into
   // the road's 4 and quietly re-casing a line that asked not to be.
   const casingWeight = casingWeightFor(mark, isCommitted)
+  // A DASHED MARK DASHES BOTH PASSES, on the same array, so the casing's
+  // segments sit under the line's rather than running solid beneath them.
+  // Undefined rather than null for a solid line: Leaflet writes the option
+  // straight to stroke-dasharray.
+  const dashArray = mark?.dash ?? undefined
   const features = visibleFeatures(layer, focusedFeatureId)
 
   return (
@@ -1175,6 +1205,7 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
                 color={halo}
                 weight={casingWeight}
                 opacity={level}
+                dashArray={dashArray}
                 className={`${className} road--casing`}
               />
             ) : null}
@@ -1184,6 +1215,7 @@ function LineLayer({ layer, interactive, onFeatureClick, focusedFeatureId = null
               color={rejection ? readToken('--alert') : color}
               weight={weight}
               opacity={level}
+              dashArray={dashArray}
               className={className}
               eventHandlers={
                 interactive

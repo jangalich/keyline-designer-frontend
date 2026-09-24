@@ -893,7 +893,7 @@ describe('5. tabs are two lines', () => {
    =========================================================================== */
 
 describe('6. fence lines draw the display geometry, and lengths come from the real geometry', () => {
-  it('draws each display line as a bare fence hairline, nothing for a null line, and two parts for a severed zone', async () => {
+  it('draws each display line as a cased, dashed fence line, nothing for a null line, and two parts for a severed zone', async () => {
     const payload = fencingPayload()
     const features = registryProposalFeatures(payload, 'fencing')
     const ui = await renderLayer(payload, features.map((f) => f.id))
@@ -916,17 +916,25 @@ describe('6. fence lines draw the display geometry, and lengths come from the re
     const severed = byPositions.get(JSON.stringify(coordsOf(tree2.properties[DISPLAY_LINE])))
     expect(Array.isArray(severed.positions[0])).toBe(true)
     expect(severed.positions).toHaveLength(2)
-    // UNCASED, AND THAT IS THE ASSERTION. The road is a cased line and the
-    // fence declares `casing: 0`, so the mark is ONE path per drawn line and
-    // there is no halo pass under it -- not a zero-weight one, none. See the
-    // fence row in ProductionHatchPattern, and index.css's --fence note for
-    // what the casing was worth and what dropping it costs.
-    expect(ui.all('path.road--casing')).toHaveLength(0)
-    const lines = ui.all('path.road--fence:not(.road--glow)')
+    // CASED WHILE ACTIVE, AND DASHED ON BOTH PASSES. The fence is an --ink
+    // dashed line on a --halo casing on the step in hand (the fence row in
+    // ProductionHatchPattern); the committed band drops the casing. One
+    // casing under each drawn line, sharing its dash so the white sits
+    // under the ink's segments rather than running solid beneath them.
+    const mark = zoneMark('fence')
+    const casings = ui.all('path.road--casing')
+    expect(casings).toHaveLength(3)
+    const lines = ui.all('path.road--fence:not(.road--casing):not(.road--glow)')
     expect(lines).toHaveLength(3)
     for (const path of lines) {
       expect(path.getAttribute('stroke')).toBe(readToken('--fence'))
-      expect(Number(path.getAttribute('stroke-width'))).toBe(1)
+      expect(Number(path.getAttribute('stroke-width'))).toBe(mark.weight)
+      expect(path.getAttribute('stroke-dasharray')).toBe(mark.dash)
+    }
+    for (const path of casings) {
+      expect(path.getAttribute('stroke')).toBe(readToken('--halo'))
+      expect(Number(path.getAttribute('stroke-width'))).toBe(mark.casing)
+      expect(path.getAttribute('stroke-dasharray')).toBe(mark.dash)
     }
     // NOTHING FOCUSED, SO NO GLOW EITHER: the third pass is focus's alone.
     expect(ui.all('path.road--glow')).toHaveLength(0)
@@ -1313,33 +1321,33 @@ describe('11. what the definition declares, and the sweep', () => {
     expect(LAYER_KINDS).not.toContain('fence')
   })
 
-  it('is a bare hairline in --fence, which is --rule and not --road, and every choice is written beside the token with its measurements', () => {
+  it('is an --ink dashed line on a --halo casing, the pair and the dash picked from renders and written beside the mark', () => {
     const mark = zoneMark('fence')
     expect(mark.kind).toBe('line')
     expect(mark.fill).toBeNull()
     expect(mark.stroke).toBe(readToken('--fence'))
-    expect(readToken('--fence')).toBe(readToken('--rule'))
-    expect(readToken('--fence')).not.toBe(readToken('--road'))
+    // THE CULTURE PLATE: the fence, the road and the boundary are all --ink,
+    // told apart by the mark -- the fence by its dash and its weight.
+    expect(readToken('--fence')).toBe(readToken('--ink'))
     expect(readToken('--fence')).not.toBe(readToken('--ochre'))
     const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
-    expect(css).toMatch(/^\s*--fence:\s*var\(--rule\);/m)
-    const note = css.slice(css.indexOf('THE FENCE MARK:'), css.indexOf('--fence: var(--rule)'))
-    expect(note.length).toBeGreaterThan(500)
-    for (const candidate of ['--rule', '--ink-muted']) expect(note).toContain(candidate)
-    for (const ground of ['canopy', 'soil']) expect(note).toContain(ground)
-    expect(note).toContain('#D4A017')
-    // AND THE THREE CHOICES MADE SINCE, each beside its own numbers: the
-    // hairline, the casing dropped, and the glow's token measured against the
-    // two that were not chosen.
-    expect(note).toContain('1px')
-    expect(note).toContain('0.004')
-    // THE FLOOR EXCEPTION IS NAMED IN THE NOTE, not only in the test that
-    // stopped asserting it. A mark below the visibility floor every other
-    // mark meets is the kind of thing that has to be written where the colour
-    // is chosen, or the next reader restores a casing nobody asked for -- or
-    // takes one off something else on the strength of this precedent.
-    expect(note).toContain('BELOW THE VISIBILITY FLOOR')
-    for (const glow of ['--halo', '--fence', '--ink']) expect(note).toContain(glow)
+    expect(css).toMatch(/^\s*--fence:\s*var\(--ink\);/m)
+    // PENCIL THIN AND CASED, WITH A DASH LONGER THAN THE CASING IS WIDE.
+    expect(mark.weight).toBe(1.25)
+    expect(mark.casing).toBe(2)
+    expect(mark.dash).toBe('8,5')
+    expect(mark.weight).toBeLessThan(2) // thinner than the road and the boundary
+    const [dashLength] = mark.dash.split(',').map(Number)
+    expect(dashLength).toBeGreaterThan(mark.casing)
+    // THE STANDING RULE: focus is a level, not a second kind of ink.
+    expect(mark.focus).toBe('level')
+    expect(mark.halo).toBeNull()
+    // THE CHOICE IS WRITTEN BESIDE THE MARK, rejected alternatives included.
+    const table = readFileSync(path.join(SRC, 'ProductionHatchPattern.jsx'), 'utf8')
+    const row = table.slice(table.indexOf('THE FENCE MARK: AN --ink DASHED LINE'), table.indexOf("treatment: 'fence'"))
+    for (const pair of ['3    / 1', '2.25 / 1', '2    / 0.75', '2    / 1.25']) expect(row).toContain(pair)
+    for (const dash of ['4,4', '6,4', '8,5', '10,6']) expect(row).toContain(dash)
+    for (const ground of ['pasture', 'canopy', 'soil']) expect(row).toContain(ground)
     // NO COLOUR LITERAL BELOW :root: the token is a var() reference, and
     // every colour in App.css is one too.
     const appCss = readFileSync(path.join(SRC, 'App.css'), 'utf8')
