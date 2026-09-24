@@ -2735,6 +2735,14 @@ a.chrome-rail__report-button {
   color: var(--ink-muted);
 }
 
+/* WHILE THE TUTORIAL'S GATE IS UP the field takes no input and its
+   placeholder names the control that opens it. Stock rather than paper, so
+   it reads as not yet available rather than as empty. */
+.address-input:disabled {
+  background: var(--stock);
+  cursor: not-allowed;
+}
+
 
 /* --- Map markers -----------------------------------------------------------
    Map geometry, so --field rather than the control accent. The halo is the
@@ -3139,6 +3147,58 @@ a.chrome-rail__report-button {
 /* An oxide ring on an oxide fill is invisible; restated, never removed. */
 .tutorial__button--primary:focus-visible {
   outline-color: var(--ink);
+}
+
+/* THE ORIENTATION CARD AND A STEP'S CARD have one forward control each, and
+   it sits at the end of the row the deck pages in. */
+.tutorial__nav--step {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* A STEP CARD'S FOOT: the auto preference and the way to the deck. Split
+   by a rule, in the muted voice, because it is about the tips rather than
+   about the step. Wraps on a narrow card rather than squeezing either. */
+.tutorial__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: var(--hairline);
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.tutorial__check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.tutorial__check input {
+  margin: 0;
+  accent-color: var(--ink);
+}
+
+/* A link in look, a button in fact: it opens the deck in place and goes
+   nowhere. Ink, underlined -- never the accent. */
+.tutorial__link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.tutorial__link:hover {
+  text-decoration-thickness: 2px;
 }
 
 /* --- The tutorial's diagrams -------------------------------------------------

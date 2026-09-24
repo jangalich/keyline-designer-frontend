@@ -8,6 +8,8 @@ import MapLayerStack from './map/MapLayerStack.jsx'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider } from './wizard/WizardCursor.jsx'
+import { TutorialReady } from './tutorial/TutorialContext.jsx'
+import { GATED_ADDRESS_PLACEHOLDER, OrientationCard, useTutorialGate } from './tutorial/TutorialGate.jsx'
 // ?react is vite-plugin-svgr: the asset becomes a React component and lands
 // inline in the DOM. It has to be inline — the file draws with
 // stroke="currentColor", which resolves against .contour-bg's own colour only
@@ -18,12 +20,24 @@ import ContourBackground from './assets/contour-background.svg?react'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 
-// Starting map view — a neutral, zoomed-out view of the continental US
-// rather than any one specific property. Anyone opening the tool for the
-// first time should see a blank slate, not someone else's land — they'll
-// search their own address or zoom in manually from here.
-const DEFAULT_CENTER = [39.8283, -98.5795]
-const DEFAULT_ZOOM = 4
+/**
+ * THE STARTING VIEW, AND IT IS A DELIBERATE ONE.
+ *
+ * Farmland at a legible zoom: field edges, a woodlot and a road are all in
+ * frame at once, which is what the tool will ask someone to find on their own
+ * ground. It used to be the continental US at zoom 4 -- a blank slate, but
+ * one on which the orientation card's first sentence ("You'll work through
+ * seven steps") had nothing to point at. This is somebody's farmland only in
+ * the sense that all farmland is; it is not a parcel the tool knows anything
+ * about, and the address search replaces it the moment it is used.
+ */
+export const DEFAULT_VIEW = Object.freeze({
+  name: 'Driftless farmland, Vernon County, Wisconsin',
+  center: Object.freeze([43.5795, -90.7985]),
+  zoom: 16,
+})
+const DEFAULT_CENTER = DEFAULT_VIEW.center
+const DEFAULT_ZOOM = DEFAULT_VIEW.zoom
 
 /**
  * The basemap. ONE, now, where there were two.
@@ -110,6 +124,11 @@ function App() {
 function Designer() {
   const [mapCenter, setMapCenter] = useState(null)
 
+  // THE TUTORIAL'S GATE. On a first arrival the orientation card stands in
+  // front of the wizard: the chrome is not mounted, the address field is
+  // disabled, and nothing else here changes. See TutorialGate.
+  const gate = useTutorialGate()
+
   // Two click listeners are attached to this map now — whichever gesture the
   // cursor step armed, and the stack's own background click that clears the
   // focus — and a feature's click stops propagating so the two cannot fire on
@@ -140,7 +159,11 @@ function Designer() {
               and hydrography, then works the Scale of Permanence in order — climate
               through soil.
             </p>
-            <AddressSearch onLocationSelected={setMapCenter} />
+            <AddressSearch
+              onLocationSelected={setMapCenter}
+              disabled={!gate.live}
+              disabledPlaceholder={GATED_ADDRESS_PLACEHOLDER}
+            />
           </section>
 
           {/* THE MAP IS THE DOCUMENT. It is full-bleed and it fills the
@@ -238,8 +261,18 @@ function Designer() {
               {/* THE WIZARD, OVER THE MAP RATHER THAN BESIDE IT. Five floating
                   regions: the step rail, the instruction bar, the reserved
                   detail panel, the tab strip and the action banner. It takes
-                  no height from the map. */}
-              <WizardShell />
+                  no height from the map.
+
+                  NOT WHILE THE GATE IS UP: the orientation card previews
+                  these five regions, and mounting them behind it would make
+                  the preview a caption. READY holds a step's card back until
+                  the chrome has settled. */}
+              {gate.chromeMounted ? (
+                <TutorialReady ready={gate.live}>
+                  <WizardShell />
+                </TutorialReady>
+              ) : null}
+              {gate.gated ? <OrientationCard onStart={gate.start} /> : null}
             </div>
           </section>
 
