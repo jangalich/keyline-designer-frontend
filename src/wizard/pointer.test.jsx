@@ -288,9 +288,10 @@ async function waitForStore(fn, timeout = SLOW) {
 /**
  * EVERY POINT MARKER ON THE MAP RIGHT NOW, BY KIND, WITH THE COLOUR THE
  * BROWSER ACTUALLY PAINTS IT -- the rendered half of the rule written
- * beside --ochre in index.css: ochre means a LIVE point marker, a committed
- * one joins its layer's settled treatment, and no two kinds of point marker
- * share a colour on one map at any step.
+ * beside --ochre in index.css: COLOUR BY PROVENANCE, SHAPE BY KIND. Ochre is
+ * a point the user placed and ink one the tool sited, in every state; two
+ * kinds that share a colour on one map must differ in glyph (a round marker
+ * against a teardrop pin).
  *
  * COMPUTED, NOT DECLARED. A stylesheet can say two classes read two tokens
  * and still paint them the same if the tokens resolve alike; this reads
@@ -335,15 +336,16 @@ async function pointMarkersOnMap() {
 }
 
 /**
- * THE CLAIM, AT ONE STEP: every kind of point marker on the map paints in a
- * colour no other kind on the same map paints in. Modifiers that do not
- * change the colour (placed, focused) are folded into their base kind
- * first, so a focused live pin and a live pin are one kind, as they should
- * be. Returns what it saw, for the log.
+ * THE CLAIM, AT ONE STEP: no two kinds of point marker OF ONE GLYPH on the
+ * map paint in the same colour. Focus does not change a colour and is
+ * folded into its base kind first, so a focused live pin and a live pin are
+ * one kind; `placed` DOES change it (provenance) and stays part of the
+ * kind. Returns what it saw, for the log.
  */
 async function assertPointMarkersDistinct(step) {
   const markers = await pointMarkersOnMap()
-  const base = (kind) => kind.replace(/ \((?:placed|focused)(?:, (?:placed|focused))*\)$/, ' (live)').replace(', placed', '').replace(', focused', '')
+  const base = (kind) => kind.replace(/ \(focused\)$/, ' (live)').replace(', focused', '').replace('(focused, ', '(')
+  const glyph = (kind) => (kind.startsWith('site pin') ? 'pin' : 'dot')
   const byBase = new Map()
   for (const m of markers) {
     const key = base(m.kind)
@@ -353,6 +355,7 @@ async function assertPointMarkersDistinct(step) {
   const kinds = [...byBase.entries()]
   for (let i = 0; i < kinds.length; i++) {
     for (let j = i + 1; j < kinds.length; j++) {
+      if (glyph(kinds[i][0]) !== glyph(kinds[j][0])) continue
       expect(
         kinds[i][1],
         `${step}: "${kinds[i][0]}" and "${kinds[j][0]}" must not share a colour on one map`
@@ -1367,17 +1370,13 @@ describeIf('the trees checkbox and ×', () => {
     await generate('trees')
     expect(await statusOf('trees')).toBe('generated')
     expect((await shownBoxes()).length, 'the fixture yields tree zone candidates').toBeGreaterThan(0)
-    // [4] THE COMMITTED ACCESS POINT HAS TURNED TO INK, at committed muting:
-    // the road's own token, --road, which is --ink; and nothing ochre is
-    // left on the map, because nothing here is a live point.
+    // [4] THE COMMITTED ACCESS POINT STAYS OCHRE -- the user placed it, and
+    // colour is provenance, fixed across states -- at committed muting.
     const atTrees = await assertPointMarkersDistinct('trees')
     const committedAccess = atTrees.find((m) => m.kind === 'access point (committed)')
     expect(committedAccess, 'the committed access point is still on the map').toBeDefined()
-    expect(committedAccess.colour).toBe(await tokenColour('--ink'))
-    expect(committedAccess.colour).toBe(await tokenColour('--road'))
+    expect(committedAccess.colour).toBe(await tokenColour('--ochre'))
     expect(committedAccess.opacity).toBeCloseTo(await tokenNumber('--pattern-committed'), 5)
-    const ochre = await tokenColour('--ochre')
-    expect(atTrees.some((m) => m.colour === ochre)).toBe(false)
   })
 
   for (const [where, viewport] of STAGES) {
@@ -1553,14 +1552,15 @@ describeIf('the structures checkbox and ×', () => {
     await page.waitForTimeout(150)
 
     const atStructures = await assertPointMarkersDistinct('structures')
+    // The tool sited these, so they are ink pins; the committed access point
+    // is ochre, the user's.
     const livePin = atStructures.find((m) => m.kind === 'site pin (live)')
     expect(livePin.count).toBe(siteCount)
-    expect(livePin.colour).toBe(await tokenColour('--ochre'))
+    expect(livePin.colour).toBe(await tokenColour('--ink'))
     expect(livePin.opacity).toBe(1)
     const committedAccess = atStructures.find((m) => m.kind === 'access point (committed)')
-    expect(committedAccess.colour).toBe(await tokenColour('--ink'))
+    expect(committedAccess.colour).toBe(await tokenColour('--ochre'))
     expect(committedAccess.opacity).toBeCloseTo(await tokenNumber('--pattern-committed'), 5)
-    expect(committedAccess.colour).not.toBe(livePin.colour)
   })
 
   for (const [where, viewport] of STAGES) {
@@ -1632,9 +1632,9 @@ describeIf('the structures checkbox and ×', () => {
     if (await page.$('[data-testid="tabs-more-structures"]')) await press('tabs-more-structures')
     expect(await shownTabs()).toContain(placed)
     expect(await checkedOf(placed)).toBe('true')
-    // [5] WITH A PLACED PIN ON THE MAP TOO: it is the live pin's colour --
-    // one kind, marked as the user's by its stroke, not by a colour of its
-    // own -- and still nothing shares a colour with anything else.
+    // [5] WITH A PLACED PIN ON THE MAP TOO: ochre, the user's colour --
+    // shared with the committed access point and told apart from it by
+    // glyph -- and no two pins share a colour.
     const withPlaced = await assertPointMarkersDistinct('structures+placed')
     expect(withPlaced.find((m) => m.kind === 'site pin (placed)')?.colour).toBe(await tokenColour('--ochre'))
   })
@@ -1723,7 +1723,7 @@ describeIf('the fencing checkbox', () => {
     expect(tabs).toEqual(types)
     expect((await shownBoxes()).length).toBe(tabs.length)
     // [5] THE MARKERS THAT SHARE THIS MAP: the committed access point and
-    // the committed site pins, each in its settled colour, nothing live.
+    // the committed site pins, each in its provenance colour, nothing live.
     const markers = await assertPointMarkersDistinct('fencing')
     expect(markers.find((m) => m.kind.startsWith('access point')).kind).toBe('access point (committed)')
     expect(markers.some((m) => m.kind.includes('(live)'))).toBe(false)

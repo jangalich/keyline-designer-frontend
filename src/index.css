@@ -92,18 +92,13 @@
      chrome (never a control's surface -- --oxide is the one action colour).
 
      IT REPLACED "OCHRE MEANS A LIVE POINT", which gave the ochre up on
-     commit and held that no two point markers on one map share a colour.
-     Under provenance an ink pin (the tool's site) and the committed access
-     point (ink, below) can share a map and a colour, and are told apart by
-     GLYPH -- a teardrop pin against a round marker -- which structures.
-     test.jsx's sweep now holds per glyph rather than across all of them.
-
-     THE COMMITTED ACCESS POINT IS STILL --ink at --pattern-committed, and
-     that is the old rule's, left in place: access point markers were out of
-     scope for the change that brought provenance in. Under provenance it
-     would stay ochre -- the user placed it -- and that is logged as a
-     follow-up rather than changed here. App.css's marker rules are where
-     each kind reads its token. */
+     commit. Under provenance nothing gives its colour up: the committed
+     access point stays ochre at --pattern-committed, like a committed
+     placed pin. COLOUR BY PROVENANCE, SHAPE BY KIND -- two markers that
+     share a colour on one map are told apart by glyph (a round marker
+     against a teardrop pin), and structures.test.jsx's sweep holds that
+     no two markers of one glyph that share a map share a token. App.css's
+     marker rules are where each kind reads its token. */
   --ochre: #c99a2e;
   /* MAP GEOMETRY AND THE LEGEND -- never a control's surface or its edge.
      The rule is legibility, not taste: this chrome floats on aerial

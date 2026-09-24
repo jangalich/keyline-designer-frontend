@@ -2524,7 +2524,7 @@ describe('12. what the definition declares, and the sweep', () => {
    * renderer puts on each. The live reading of the same rules, in a real
    * engine, is pointer.test.jsx's.
    */
-  it('[4] reads the access point as ochre while live and as ink at committed muting once committed', async () => {
+  it('[4] reads the access point as ochre while live and ochre at committed muting once committed', async () => {
     const app = readFileSync(path.join(SRC, 'App.css'), 'utf8')
     const rule = (selector) => {
       const at = app.indexOf(`\n${selector} {`)
@@ -2533,12 +2533,10 @@ describe('12. what the definition declares, and the sweep', () => {
     }
     expect(rule('.access-point-marker')).toContain('background: var(--ochre)')
     const committed = rule('.access-point-marker--committed')
-    expect(committed).toContain('background: var(--ink)')
+    // PROVENANCE: the user placed it, so it stays ochre once committed; only
+    // the level changes, which is what the standing rule lets change.
+    expect(committed).toContain('background: var(--ochre)')
     expect(committed).toContain('opacity: var(--pattern-committed)')
-    // --road IS --ink: the token the road line is drawn in, so the committed
-    // point and the committed line are one colour.
-    const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
-    expect(css).toMatch(/--road:\s*var\(--ink\);/)
     // MUTED, AND THE NUMBER IS index.css's TO CHOOSE. This asserted 0.4 --
     // a copy of the token's value, which is the second source of truth this
     // repo warns about everywhere else, and it broke the day the scale was
@@ -2580,8 +2578,8 @@ describe('12. what the definition declares, and the sweep', () => {
       return match[1]
     }
     // [glyph, token]. Colour is PROVENANCE now (index.css, beside --ochre),
-    // so two kinds of different glyph may share a token -- the tool's ink pin
-    // and the committed ink access point -- and are told apart by shape.
+    // so two kinds of different glyph may share a token -- a placed ochre pin
+    // and the committed ochre access point -- and are told apart by shape.
     // Within one glyph, two kinds that share a map must still differ.
     const MARKERS = {
       'vertex (a ring being drawn)': ['dot', fillOf('.vertex-marker', 'background')],
@@ -2621,11 +2619,15 @@ describe('12. what the definition declares, and the sweep', () => {
     const note = css.slice(css.indexOf('OCHRE MEANS THE USER PUT THIS POINT HERE'), css.indexOf('--ochre: #'))
     expect(note.length).toBeGreaterThan(200)
     expect(note).toMatch(/PROVENANCE/)
-    expect(note).toMatch(/GLYPH/)
+    expect(note).toMatch(/SHAPE BY KIND/)
+    expect(note).toMatch(/glyph/i)
     expect(MARKERS['site pin, placed'][1]).toBe('--ochre')
     expect(MARKERS['site pin, suggested'][1]).toBe('--ink')
     expect(MARKERS['access point, live'][1]).toBe('--ochre')
-    expect(MARKERS['access point, committed'][1]).toBe('--ink')
+    expect(MARKERS['access point, committed'][1]).toBe('--ochre')
+    // COLOUR BY PROVENANCE, SHAPE BY KIND: the committed access point and a
+    // placed pin share ochre and differ by glyph; nothing ink is a dot.
+    expect(MARKERS['access point, committed'][1]).toBe(MARKERS['site pin, placed'][1])
   })
 
   it('writes down no weight, no floor, no slope ceiling and no band cut of its own; every figure comes off the wire', () => {

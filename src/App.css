@@ -2797,19 +2797,16 @@ a.chrome-rail__report-button {
   border-style: dashed;
 }
 
-/* THE COMMITTED NETWORK'S POINT TURNS TO INK. Settled with its network and
-   no longer a control: it takes --ink, the token the road line is drawn in
-   (--road is --ink; a MARKER reads the ink directly, because --road is the
-   line's and the sweep in roads.test.jsx keeps it the line's), at the
-   committed level, so it recedes with the network it belongs to rather
-   than sitting at full weight over later steps' work -- and so it stops
-   being ochre. Ochre means a LIVE point marker (index.css, beside the
-   token), and from the structures step on the live one is the site pin; a
-   committed access point still in ochre would put two different things in
-   one colour on one map. In ink it reads as what it has become: the
-   network's endpoint, where the driveway starts, not a pending choice. */
+/* THE COMMITTED NETWORK'S POINT STAYS OCHRE. Colour is provenance and is
+   fixed across states (index.css, beside --ochre): the user placed this
+   point, so it is ochre live and ochre committed. What changes on commit is
+   what the standing rule lets change -- the level, --pattern-committed, so
+   it recedes with the network it belongs to -- and it stops being a
+   control. It shares ochre with a placed site pin from the structures step
+   on; the two are told apart by glyph, a round marker against a teardrop,
+   which is the rule's other half: colour by provenance, shape by kind. */
 .access-point-marker--committed {
-  background: var(--ink);
+  background: var(--ochre);
   opacity: var(--pattern-committed);
   cursor: default;
 }
