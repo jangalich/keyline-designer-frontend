@@ -1,8 +1,8 @@
 /**
  * firing.test.jsx
  *
- * WHEN A STEP'S CARD OPENS BY ITSELF, against a FIXTURE registry -- the
- * shipped one is empty. The rules as a pure function first, then through the
+ * WHEN A STEP'S CARD OPENS BY ITSELF, against a FIXTURE registry, so the
+ * rules are tested apart from whichever cards have shipped. The rules as a pure function first, then through the
  * shipped shell, where the help control launches them.
  */
 
@@ -18,7 +18,7 @@ import WizardShell from '../wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from '../wizard/WizardCursor.jsx'
 import { anyJobRunning, shouldAutoFire } from './firing.js'
 import { AUTO_KEY, SEEN_KEY, readPrefs, resetTutorialPrefsForTests } from './prefs.js'
-import { AUTO_LABEL, DECK_LINK_LABEL } from './StepCard.jsx'
+import { AUTO_LABEL } from './StepCard.jsx'
 import { STEP_CARDS } from './stepCards.js'
 import { StepCardRegistry } from './TutorialContext.jsx'
 
@@ -73,10 +73,10 @@ describe('1. the rules, as a function', () => {
     expect(shouldAutoFire({ ...base, somethingOpen: true })).toBe(false)
   })
 
-  it('does not fire for a step with no card -- and the shipped registry is empty', () => {
+  it('does not fire for a step with no card -- and the shipped registry carries boundary', () => {
     expect(shouldAutoFire({ ...base, stepId: 'water' })).toBe(false)
-    expect(STEP_CARDS).toEqual([])
-    expect(shouldAutoFire({ ...base, registry: STEP_CARDS })).toBe(false)
+    expect(STEP_CARDS.map((card) => card.stepId)).toEqual(['boundary'])
+    expect(shouldAutoFire({ ...base, registry: STEP_CARDS, stepId: 'water' })).toBe(false)
   })
 })
 
@@ -244,7 +244,7 @@ describe('2. through the shell, with a fixture registry', () => {
   })
 
   it('an auto-opened card, dismissed, marks its step seen -- every way out', async () => {
-    for (const way of ['tutorial-step-close', 'tutorial-step-done', 'tutorial-step-backdrop', 'tutorial-step-deck']) {
+    for (const way of ['tutorial-step-close', 'tutorial-step-done', 'tutorial-step-backdrop']) {
       window.localStorage.clear()
       resetTutorialPrefsForTests()
       const ui = await renderShell()
@@ -253,7 +253,6 @@ describe('2. through the shell, with a fixture registry', () => {
       await ui.click(way)
       expect(ui.stepCard(), way).toBeNull()
       expect(seen(), way).toEqual(['boundary'])
-      if (way === 'tutorial-step-deck') expect(ui.deck()).not.toBeNull()
       await ui.unmount()
     }
   })
@@ -287,15 +286,16 @@ describe('2. through the shell, with a fixture registry', () => {
     expect(ui.deck()).not.toBeNull()
   })
 
-  it('the footer carries the auto checkbox, ticked, and the link to the deck', async () => {
+  it('the foot is one row: the auto checkbox, ticked, beside Got it -- and no link to the deck', async () => {
     const ui = await renderShell()
     const box = ui.find('tutorial-step-auto')
     expect(box.type).toBe('checkbox')
     expect(box.checked).toBe(true)
     expect(box.closest('label').textContent).toBe(AUTO_LABEL)
     expect(AUTO_LABEL).toBe('Show these tips automatically')
-    expect(ui.find('tutorial-step-deck').textContent).toBe(DECK_LINK_LABEL)
-    expect(DECK_LINK_LABEL).toBe('How the map works')
+    expect(box.closest('.tutorial__nav')).toBe(ui.find('tutorial-step-done').parentElement)
+    expect(ui.find('tutorial-step-deck')).toBeNull()
+    expect(ui.stepCard().textContent).not.toContain('How the map works')
   })
 
   it('the checkbox writes auto, and unticking it suppresses every later step', async () => {

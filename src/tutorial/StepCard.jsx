@@ -6,16 +6,11 @@
  * registry (stepCards.js): its title, its body, its animation. No paging:
  * one step, one card.
  *
- * THE FOOTER CARRIES THE TWO THINGS EVERY STEP CARD SHARES.
- *
- *   "Show these tips automatically", a checkbox reading and writing
- *   `kd.tutorial.auto`. Unticking it stops every later step's card opening
- *   by itself. Because the same checkbox is on every card, and the help
- *   control always opens the current step's card, turning it back on needs
- *   no settings screen.
- *
- *   "How the map works", which leaves this card for the deck. One control,
- *   two depths: what do I do here, and how does this tool work generally.
+ * ONE ROW AT THE FOOT: "Show these tips automatically" on the left, "Got it"
+ * on the right. The checkbox reads and writes `kd.tutorial.auto`; unticking
+ * it stops every later step's card opening by itself. Because the same
+ * checkbox is on every card, and the help control always opens the current
+ * step's card, turning it back on needs no settings screen.
  *
  * WAYS OUT: the ×, the backdrop, Esc and "Got it", all one close. Whether a
  * close marks the step seen is the launcher's question (TutorialHelp): only
@@ -32,18 +27,16 @@ import { createPortal } from 'react-dom'
 
 import { CLOSE_LABEL, DONE_LABEL, stow, trapTab } from './TutorialOverlay.jsx'
 
-/** The footer's two controls. */
+/** The preference beside the forward control. */
 export const AUTO_LABEL = 'Show these tips automatically'
-export const DECK_LINK_LABEL = 'How the map works'
 
 /**
  * @param {object} props
  * @param {{stepId: string, title: string, body: string, Animation?: Function}} props.card
  * @param {boolean} props.auto            the checkbox's state.
  * @param {(auto: boolean) => void} props.onAutoChange
- * @param {() => void} props.onDismiss    at once, on every way out but the deck link.
+ * @param {() => void} props.onDismiss    at once, on every way out.
  * @param {() => void} props.onClose      once the stow has run.
- * @param {() => void} props.onOpenDeck   the footer link.
  * @param {Element} [props.container]
  * @param {{current: Element|null}} [props.returnTo]
  */
@@ -51,7 +44,7 @@ export default function StepCard({ container, ...props }) {
   return createPortal(<Dialogue {...props} />, container ?? document.body)
 }
 
-function Dialogue({ card, auto, onAutoChange, onDismiss, onClose, onOpenDeck, returnTo }) {
+function Dialogue({ card, auto, onAutoChange, onDismiss, onClose, returnTo }) {
   const cardRef = useRef(null)
   const backdropRef = useRef(null)
   const closing = useRef(false)
@@ -63,12 +56,6 @@ function Dialogue({ card, auto, onAutoChange, onDismiss, onClose, onOpenDeck, re
     onDismiss?.()
     stow(cardRef.current, backdropRef.current, returnTo?.current ?? null).then(onClose)
   }, [onClose, onDismiss, returnTo])
-
-  const toDeck = useCallback(() => {
-    if (closing.current) return
-    closing.current = true
-    onOpenDeck()
-  }, [onOpenDeck])
 
   useLayoutEffect(() => {
     const opener = document.activeElement
@@ -131,19 +118,8 @@ function Dialogue({ card, auto, onAutoChange, onDismiss, onClose, onOpenDeck, re
           </figure>
         ) : null}
 
-        <div className="tutorial__nav tutorial__nav--step">
-          <button
-            type="button"
-            className="tutorial__button tutorial__button--primary"
-            data-testid="tutorial-step-done"
-            onClick={close}
-          >
-            {DONE_LABEL}
-          </button>
-        </div>
-
-        {/* THE FOOT: the preference, and the way to the deck. */}
-        <div className="tutorial__footer">
+        {/* THE FOOT: the preference on the left, the way forward on the right. */}
+        <div className="tutorial__nav tutorial__nav--foot">
           <label className="tutorial__check">
             <input
               type="checkbox"
@@ -155,11 +131,11 @@ function Dialogue({ card, auto, onAutoChange, onDismiss, onClose, onOpenDeck, re
           </label>
           <button
             type="button"
-            className="tutorial__link"
-            data-testid="tutorial-step-deck"
-            onClick={toDeck}
+            className="tutorial__button tutorial__button--primary"
+            data-testid="tutorial-step-done"
+            onClick={close}
           >
-            {DECK_LINK_LABEL}
+            {DONE_LABEL}
           </button>
         </div>
       </div>

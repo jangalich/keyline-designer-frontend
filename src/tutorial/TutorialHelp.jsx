@@ -133,12 +133,6 @@ export default function TutorialHelp() {
     if (open?.kind === 'step' && open.auto) markSeen(open.stepId)
   }, [open])
 
-  // The foot's link: leaving the card for the deck is a way out of it too.
-  const toDeck = useCallback(() => {
-    if (open?.kind === 'step' && open.auto) markSeen(open.stepId)
-    setOpen({ kind: 'deck' })
-  }, [open])
-
   // The stage is looked up when a card is about to render, by which time the
   // control is in the document; <body> only if there is no stage, which is
   // the case in a test that renders the shell bare.
@@ -175,7 +169,6 @@ export default function TutorialHelp() {
           onAutoChange={setAuto}
           onDismiss={dismissStep}
           onClose={close}
-          onOpenDeck={toDeck}
           container={container}
           returnTo={button}
         />

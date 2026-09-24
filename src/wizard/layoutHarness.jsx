@@ -88,6 +88,7 @@ import {
   SITE_PIN_SIZE,
 } from '../map/layers.jsx'
 import { readToken } from '../geo.js'
+import { StepCardRegistry } from '../tutorial/TutorialContext.jsx'
 
 const params = new URLSearchParams(window.location.search)
 const number = (key, fallback) => {
@@ -2313,7 +2314,11 @@ function OpenStep({ stepId }) {
 }
 
 function Harness() {
+  // NO STEP CARDS. The cursor arrives at the boundary before OpenStep moves
+  // it, and the boundary's card would open over the chrome this file
+  // measures. The cards have their own tests (src/tutorial).
   return (
+    <StepCardRegistry cards={[]}>
     <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
       <WizardCursorProvider definitions={REOPEN ? STEP_DEFINITIONS : [BOUNDARY_STEP, HARNESS_STEP]}>
         {REOPEN ? <ResumeDocument /> : null}
@@ -2328,6 +2333,7 @@ function Harness() {
         </div>
       </WizardCursorProvider>
     </SessionProvider>
+    </StepCardRegistry>
   )
 }
 

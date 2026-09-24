@@ -3052,6 +3052,12 @@ a.chrome-rail__report-button {
   color: var(--ink);
 }
 
+/* An emphasised clause in a card's body: weight, not colour -- the card's
+   one accent is its forward control. */
+.tutorial__em {
+  font-weight: 600;
+}
+
 /* The diagram's frame. --stock rather than --paper so the map reads as
    ground against the card, with the same hairline every card takes. */
 .tutorial__figure {
@@ -3149,27 +3155,29 @@ a.chrome-rail__report-button {
   outline-color: var(--ink);
 }
 
-/* THE ORIENTATION CARD AND A STEP'S CARD have one forward control each, and
-   it sits at the end of the row the deck pages in. */
+/* THE ORIENTATION CARD has one forward control, and it sits at the end of
+   the row the deck pages in. */
 .tutorial__nav--step {
   display: flex;
   justify-content: flex-end;
 }
 
-/* A STEP CARD'S FOOT: the auto preference and the way to the deck. Split
-   by a rule, in the muted voice, because it is about the tips rather than
-   about the step. Wraps on a narrow card rather than squeezing either. */
-.tutorial__footer {
+/* A STEP CARD'S FOOT: one row, the auto preference on the left in the muted
+   voice -- it is about the tips, not the step -- and "Got it" on the right.
+   Wraps on a narrow card rather than squeezing either, and the button keeps
+   the right edge when it does. */
+.tutorial__nav--foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
-  padding-top: var(--space-3);
-  border-top: var(--hairline);
   font-family: var(--font-prose);
   font-size: var(--text-sm);
   color: var(--ink-muted);
+}
+
+.tutorial__nav--foot .tutorial__button--primary {
+  margin-left: auto;
 }
 
 .tutorial__check {
@@ -3182,23 +3190,6 @@ a.chrome-rail__report-button {
 .tutorial__check input {
   margin: 0;
   accent-color: var(--ink);
-}
-
-/* A link in look, a button in fact: it opens the deck in place and goes
-   nowhere. Ink, underlined -- never the accent. */
-.tutorial__link {
-  padding: 0;
-  border: none;
-  background: transparent;
-  font: inherit;
-  color: var(--ink);
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-  cursor: pointer;
-}
-
-.tutorial__link:hover {
-  text-decoration-thickness: 2px;
 }
 
 /* --- The tutorial's diagrams -------------------------------------------------
@@ -3238,6 +3229,10 @@ a.chrome-rail__report-button {
 }
 
 .tutorial-anim--tick {
+  --loop: 10s;
+}
+
+.tutorial-anim--boundary {
   --loop: 10s;
 }
 
@@ -3607,6 +3602,260 @@ rect.tutorial-anim__solid,
 @keyframes tutorial-tick-block { 0%, 16% { opacity: 1; } 19%, 34% { opacity: 0; } 38%, 100% { opacity: 1; } }
 @keyframes tutorial-tick-tab { 0%, 16% { opacity: 1; } 17%, 35% { opacity: 0.45; } 36%, 100% { opacity: 1; } }
 @keyframes tutorial-tick-commit { 0%, 52% { transform: scale(1); } 53.5% { transform: scale(0.94); } 55%, 100% { transform: scale(1); } }
+
+/* --- The step cards' farm (farmScene.jsx) --------------------------------
+   One piece of land every step card draws on, so a reader meeting the cards
+   in turn sees the same farm each time. One rule per layer, each
+   independent, so a card can bring one forward and quieten the rest with a
+   tone on the layer rather than a second copy of its path. Drawn in the
+   diagrams' tokens: --field for growing things, the water pair's lighter
+   blue for the stream, --rule and --ink-muted for the made things. */
+
+.farm-scene__ground {
+  fill: var(--stock);
+}
+
+.farm-scene__open {
+  fill: var(--field);
+  fill-opacity: 0.1;
+}
+
+.farm-scene__road-band {
+  fill: none;
+  stroke: var(--rule);
+  stroke-width: 11;
+  stroke-linecap: round;
+}
+
+.farm-scene__road-line {
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-width: 0.8;
+  stroke-dasharray: 6 6;
+  stroke-opacity: 0.55;
+}
+
+.farm-scene__stream {
+  fill: none;
+  stroke: var(--survey-embankment);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.farm-scene__woodmass {
+  fill: var(--field);
+  fill-opacity: 0.22;
+}
+
+.farm-scene__canopy {
+  fill: var(--field);
+  fill-opacity: 0.5;
+}
+
+.farm-scene__building {
+  fill: var(--ink-muted);
+  fill-opacity: 0.55;
+}
+
+/* THE LABELS. Prose, set in capitals and spaced -- a map's lettering, not a
+   measured value, so not the data face. Sized in scene units for the card's
+   narrowest frame: at 380px the figure is about 316px across, and these
+   still set at about 9px there. */
+.farm-scene__label {
+  font-family: var(--font-prose);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  fill: var(--ink-muted);
+}
+
+/* A card that brings one layer forward quietens the others with this. What
+   'prominent' means is the card's own rule, keyed to its layer. */
+.farm-scene__layer--subdued {
+  opacity: 0.4;
+}
+
+/* --- 5. Boundary: zoom twice, trace A to G, close on A ------------------- */
+
+/* The traced ring: heavier than the draw card's, at the scene's scale. */
+.tutorial-anim__segment--boundary {
+  stroke-width: 2.2;
+}
+
+.tutorial-anim__corner--boundary {
+  stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.tutorial-anim__wash {
+  fill: var(--field);
+  opacity: 0.16;
+}
+
+/* THE SNAP RING. The one oxide mark in the scene, and a moment rather than
+   a thing on the map: it rests hidden, like the cursor, and pulses once as
+   the cursor comes back to A. */
+.tutorial-anim__snap {
+  fill: none;
+  stroke: var(--oxide);
+  stroke-width: 1.6;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* The acreage: the data face comes from .tutorial-anim__value; this is only
+   its size in the scene's larger frame. */
+.tutorial-anim__value--boundary {
+  font-size: 11px;
+}
+
+/* THE ZOOM, about the parcel's middle. It rests at 1: zoomed in. */
+.tutorial-anim__zoom--boundary {
+  transform-origin: 200px 156px;
+}
+
+/* The chrome: the address field and the zoom control, in the map's own
+   surface and hairline. */
+.tutorial-anim__address rect,
+.tutorial-anim__zoom-card {
+  fill: var(--paper);
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+.tutorial-anim__address-text {
+  font-family: var(--font-prose);
+  font-size: 11px;
+  fill: var(--ink);
+}
+
+.tutorial-anim__zoom-in {
+  fill: var(--paper);
+}
+
+.tutorial-anim__zoom-glyph {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+
+.tutorial-anim__zoom-rule {
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+.tutorial-anim__zoom--boundary { animation-name: tutorial-boundary-zoom; }
+.tutorial-anim__zoom-in { animation-name: tutorial-boundary-zoom-in; }
+.tutorial-anim__cursor--boundary { animation-name: tutorial-boundary-cursor; animation-timing-function: cubic-bezier(0.4, 0, 0.25, 1); }
+.tutorial-anim__pointer--boundary { animation-name: tutorial-boundary-press; }
+.tutorial-anim__corner--a { animation-name: tutorial-boundary-corner-a; }
+.tutorial-anim__corner--b { animation-name: tutorial-boundary-corner-b; }
+.tutorial-anim__corner--c { animation-name: tutorial-boundary-corner-c; }
+.tutorial-anim__corner--d { animation-name: tutorial-boundary-corner-d; }
+.tutorial-anim__corner--e { animation-name: tutorial-boundary-corner-e; }
+.tutorial-anim__corner--f { animation-name: tutorial-boundary-corner-f; }
+.tutorial-anim__corner--g { animation-name: tutorial-boundary-corner-g; }
+.tutorial-anim__segment--ab { animation-name: tutorial-boundary-segment-ab; }
+.tutorial-anim__segment--bc { animation-name: tutorial-boundary-segment-bc; }
+.tutorial-anim__segment--cd { animation-name: tutorial-boundary-segment-cd; }
+.tutorial-anim__segment--de { animation-name: tutorial-boundary-segment-de; }
+.tutorial-anim__segment--ef { animation-name: tutorial-boundary-segment-ef; }
+.tutorial-anim__segment--fg { animation-name: tutorial-boundary-segment-fg; }
+.tutorial-anim__segment--ga { animation-name: tutorial-boundary-segment-ga; }
+.tutorial-anim__snap { animation-name: tutorial-boundary-snap; }
+.tutorial-anim__wash { animation-name: tutorial-boundary-wash; }
+.tutorial-anim__chip--boundary { animation-name: tutorial-boundary-chip; }
+
+/* Zoom clicks at 8.5 and 18.5 percent; corners at 26, 35, 44, 53, 62, 71
+   and 80; the closing click on A at 89. The land -- ring and all -- fades
+   out over the last 4 percent and the loop opens zoomed out again. */
+@keyframes tutorial-boundary-zoom {
+  0%, 4% { transform: scale(0.74); opacity: 1; }
+  9% { transform: scale(0.87); }
+  15% { transform: scale(0.87); }
+  19% { transform: scale(1); }
+  96% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
+/* The control takes the click: its button flashes --rule and back. */
+@keyframes tutorial-boundary-zoom-in {
+  0%, 7.5% { fill: var(--paper); }
+  8.5% { fill: var(--rule); }
+  10%, 17.5% { fill: var(--paper); }
+  18.5% { fill: var(--rule); }
+  20%, 100% { fill: var(--paper); }
+}
+
+@keyframes tutorial-boundary-cursor {
+  0% { transform: translate(370px, 96px); opacity: 0; }
+  2% { transform: translate(370px, 96px); opacity: 1; }
+  19% { transform: translate(370px, 96px); }
+  26% { transform: translate(96px, 66px); }
+  29% { transform: translate(96px, 66px); }
+  35% { transform: translate(196px, 48px); }
+  38% { transform: translate(196px, 48px); }
+  44% { transform: translate(286px, 72px); }
+  47% { transform: translate(286px, 72px); }
+  53% { transform: translate(330px, 148px); }
+  56% { transform: translate(330px, 148px); }
+  62% { transform: translate(300px, 232px); }
+  65% { transform: translate(300px, 232px); }
+  71% { transform: translate(170px, 250px); }
+  74% { transform: translate(170px, 250px); }
+  80% { transform: translate(92px, 186px); }
+  83% { transform: translate(92px, 186px); }
+  89% { transform: translate(96px, 66px); opacity: 1; }
+  96% { transform: translate(96px, 66px); opacity: 1; }
+  98%, 100% { transform: translate(96px, 66px); opacity: 0; }
+}
+
+@keyframes tutorial-boundary-press {
+  0%, 7.5% { transform: scale(1); } 8.5% { transform: scale(0.82); } 9.5% { transform: scale(1); }
+  17.5% { transform: scale(1); } 18.5% { transform: scale(0.82); } 19.5% { transform: scale(1); }
+  25.5% { transform: scale(1); } 26.5% { transform: scale(0.82); } 27.5% { transform: scale(1); }
+  34.5% { transform: scale(1); } 35.5% { transform: scale(0.82); } 36.5% { transform: scale(1); }
+  43.5% { transform: scale(1); } 44.5% { transform: scale(0.82); } 45.5% { transform: scale(1); }
+  52.5% { transform: scale(1); } 53.5% { transform: scale(0.82); } 54.5% { transform: scale(1); }
+  61.5% { transform: scale(1); } 62.5% { transform: scale(0.82); } 63.5% { transform: scale(1); }
+  70.5% { transform: scale(1); } 71.5% { transform: scale(0.82); } 72.5% { transform: scale(1); }
+  79.5% { transform: scale(1); } 80.5% { transform: scale(0.82); } 81.5% { transform: scale(1); }
+  88.5% { transform: scale(1); } 89.5% { transform: scale(0.82); } 90.5%, 100% { transform: scale(1); }
+}
+
+/* Each corner drops as the cursor lands on it: in small, over, settle. */
+@keyframes tutorial-boundary-corner-a { 0%, 24.9% { opacity: 0; transform: scale(0.2); } 26.2% { opacity: 1; transform: scale(1.3); } 27.6%, 100% { opacity: 1; transform: scale(1); } }
+@keyframes tutorial-boundary-corner-b { 0%, 33.9% { opacity: 0; transform: scale(0.2); } 35.2% { opacity: 1; transform: scale(1.3); } 36.6%, 100% { opacity: 1; transform: scale(1); } }
+@keyframes tutorial-boundary-corner-c { 0%, 42.9% { opacity: 0; transform: scale(0.2); } 44.2% { opacity: 1; transform: scale(1.3); } 45.6%, 100% { opacity: 1; transform: scale(1); } }
+@keyframes tutorial-boundary-corner-d { 0%, 51.9% { opacity: 0; transform: scale(0.2); } 53.2% { opacity: 1; transform: scale(1.3); } 54.6%, 100% { opacity: 1; transform: scale(1); } }
+@keyframes tutorial-boundary-corner-e { 0%, 60.9% { opacity: 0; transform: scale(0.2); } 62.2% { opacity: 1; transform: scale(1.3); } 63.6%, 100% { opacity: 1; transform: scale(1); } }
+@keyframes tutorial-boundary-corner-f { 0%, 69.9% { opacity: 0; transform: scale(0.2); } 71.2% { opacity: 1; transform: scale(1.3); } 72.6%, 100% { opacity: 1; transform: scale(1); } }
+@keyframes tutorial-boundary-corner-g { 0%, 78.9% { opacity: 0; transform: scale(0.2); } 80.2% { opacity: 1; transform: scale(1.3); } 81.6%, 100% { opacity: 1; transform: scale(1); } }
+
+/* Each edge draws while the cursor travels to its far corner. */
+@keyframes tutorial-boundary-segment-ab { 0%, 29% { stroke-dashoffset: 1; } 35%, 100% { stroke-dashoffset: 0; } }
+@keyframes tutorial-boundary-segment-bc { 0%, 38% { stroke-dashoffset: 1; } 44%, 100% { stroke-dashoffset: 0; } }
+@keyframes tutorial-boundary-segment-cd { 0%, 47% { stroke-dashoffset: 1; } 53%, 100% { stroke-dashoffset: 0; } }
+@keyframes tutorial-boundary-segment-de { 0%, 56% { stroke-dashoffset: 1; } 62%, 100% { stroke-dashoffset: 0; } }
+@keyframes tutorial-boundary-segment-ef { 0%, 65% { stroke-dashoffset: 1; } 71%, 100% { stroke-dashoffset: 0; } }
+@keyframes tutorial-boundary-segment-fg { 0%, 74% { stroke-dashoffset: 1; } 80%, 100% { stroke-dashoffset: 0; } }
+@keyframes tutorial-boundary-segment-ga { 0%, 83% { stroke-dashoffset: 1; } 89%, 100% { stroke-dashoffset: 0; } }
+
+/* The close: the snap ring pulses as the cursor reaches A, the parcel
+   washes in, the acreage rises into place. */
+@keyframes tutorial-boundary-snap {
+  0%, 85% { opacity: 0; transform: scale(0.35); }
+  87.5% { opacity: 1; transform: scale(1); }
+  89.5%, 100% { opacity: 0; transform: scale(1.12); }
+}
+
+@keyframes tutorial-boundary-wash { 0%, 89% { opacity: 0; } 91%, 100% { opacity: 0.16; } }
+
+@keyframes tutorial-boundary-chip {
+  0%, 89.5% { opacity: 0; transform: translateY(5px); }
+  92%, 100% { opacity: 1; transform: translateY(0); }
+}
 
 /* REDUCED MOTION: every diagram lands on its resting frame -- which is the
    markup, undecorated -- and the cursor glyph goes. The foundation already
