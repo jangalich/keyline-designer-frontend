@@ -4,6 +4,9 @@ import { useState } from 'react'
 // point at the live backend; falls back to the local dev server.
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
+/** The field's ordinary placeholder, while it is live. */
+export const ADDRESS_PLACEHOLDER = 'Enter an address to center the map...'
+
 /**
  * AddressSearch
  *
@@ -17,8 +20,13 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
  * audience (farmland). Simpler and more reliable wins for now; live
  * suggestions may be worth revisiting later with a paid, more complete
  * service (e.g. Mapbox) during a polish pass.
+ *
+ * DISABLED WHILE THE TUTORIAL'S GATE IS UP. The field and its button take no
+ * input, and the placeholder says what opens them (`disabledPlaceholder`,
+ * which names the start button rather than pointing at it). The ordinary
+ * placeholder returns with the field.
  */
-function AddressSearch({ onLocationSelected }) {
+function AddressSearch({ onLocationSelected, disabled = false, disabledPlaceholder = ADDRESS_PLACEHOLDER }) {
   const [query, setQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
   const [error, setError] = useState(null)
@@ -26,7 +34,7 @@ function AddressSearch({ onLocationSelected }) {
   const handleSearch = async (event) => {
     event.preventDefault()
 
-    if (!query.trim()) return
+    if (disabled || !query.trim()) return
 
     setIsSearching(true)
     setError(null)
@@ -61,11 +69,14 @@ function AddressSearch({ onLocationSelected }) {
       <input
         type="text"
         className="address-input"
-        placeholder="Enter an address to center the map..."
+        placeholder={disabled ? disabledPlaceholder : ADDRESS_PLACEHOLDER}
+        aria-label="Address"
+        disabled={disabled}
+        data-testid="address-input"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      <button type="submit" className="button button--secondary" disabled={isSearching}>
+      <button type="submit" className="button button--secondary" disabled={disabled || isSearching}>
         {isSearching ? 'Searching...' : 'Go'}
       </button>
       {error && <p className="status-error">{error}</p>}

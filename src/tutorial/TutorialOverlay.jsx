@@ -260,7 +260,7 @@ function clamp(index) {
 }
 
 /** Does this environment animate, and does the user want it to? */
-function motionAllowed(element) {
+export function motionAllowed(element) {
   if (!element || typeof element.animate !== 'function') return false
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true
   return !window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -312,7 +312,7 @@ function focusableIn(card) {
  * the first (shift+Tab) to the last, and from the card's own element -- where
  * focus starts -- forward goes to the first control and back to the last.
  */
-function trapTab(event, card) {
+export function trapTab(event, card) {
   const controls = focusableIn(card)
   if (!controls.length) return
   const active = document.activeElement

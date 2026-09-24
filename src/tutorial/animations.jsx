@@ -205,20 +205,6 @@ const OVERVIEW_REGIONS = [
     text: { x: 160, y: 62, anchor: 'middle' },
   },
   {
-    key: 'panel',
-    label: 'the measurements',
-    shape: <rect x="240" y="36" width="66" height="64" rx="2" />,
-    detail: (
-      <>
-        <line x1="248" y1="50" x2="290" y2="50" />
-        <line x1="248" y1="64" x2="284" y2="64" />
-        <line x1="248" y1="78" x2="292" y2="78" />
-      </>
-    ),
-    leader: 'M240 80 L206 80',
-    text: { x: 202, y: 83, anchor: 'end' },
-  },
-  {
     key: 'tabs',
     label: 'the tabs',
     shape: (
@@ -239,8 +225,22 @@ const OVERVIEW_REGIONS = [
     text: { x: 144, y: 120, anchor: 'middle' },
   },
   {
+    key: 'panel',
+    label: 'the measurements',
+    shape: <rect x="240" y="36" width="66" height="64" rx="2" />,
+    detail: (
+      <>
+        <line x1="248" y1="50" x2="290" y2="50" />
+        <line x1="248" y1="64" x2="284" y2="64" />
+        <line x1="248" y1="78" x2="292" y2="78" />
+      </>
+    ),
+    leader: 'M240 80 L206 80',
+    text: { x: 202, y: 83, anchor: 'end' },
+  },
+  {
     key: 'actions',
-    label: 'the buttons',
+    label: 'action buttons',
     shape: (
       <>
         <rect x="222" y="144" width="38" height="22" rx="2" />
