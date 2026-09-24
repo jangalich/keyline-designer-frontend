@@ -68,6 +68,7 @@ import { DrawingProgressProvider } from '../map/DrawingProgress.jsx'
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
 import rings from '../fixtures/rings.json'
+import { StepCardRegistry } from '../tutorial/TutorialContext.jsx'
 
 /** The reference parcel, in Leaflet's [lat, lng] order. */
 const BOUNDARY = rings.boundary.map(([lng, lat]) => [lat, lng])
@@ -134,7 +135,11 @@ function MapProbe() {
 }
 
 function Harness() {
+  // NO STEP CARDS. The boundary's card opens on arrival and its dim would
+  // sit over every control this file hit-tests. The cards have their own
+  // tests (src/tutorial).
   return (
+    <StepCardRegistry cards={[]}>
     <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
       <WizardCursorProvider>
         <DrawingProgressProvider>
@@ -180,6 +185,7 @@ function Harness() {
         </DrawingProgressProvider>
       </WizardCursorProvider>
     </SessionProvider>
+    </StepCardRegistry>
   )
 }
 
