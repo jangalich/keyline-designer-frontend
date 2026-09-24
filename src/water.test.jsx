@@ -3031,149 +3031,51 @@ describe('water delivery', () => {
 })
 
 /* ===========================================================================
-   THE NOTICES
+   NO STEP-LEVEL NOTICES
+   ===========================================================================
+   The water step used to put five kinds of line under the instruction bar
+   after a generate: checks that did not run (soil, canopy, roads,
+   production), nothing clearing the threshold, zones dropped under the
+   floor, and survivors withheld by the presentation rule. All five were
+   removed at the user's request. These cases hold that on every payload
+   shape that used to trigger one, so a later branch that re-adds a notice
+   has to delete this first.
    =========================================================================== */
 
 describe('notices', () => {
-  it('names each check that did not run, in consequence terms, keyed on the flag', () => {
-    const zone = fixtureZone({
+  const DRAFT = { selectedFeatureIds: [], drawnFeatures: [] }
+
+  it('declares none, on every payload shape that used to produce one', () => {
+    const unchecked = fixtureZone({
       canopy_overlap_pct: null,
       road_overlap_pct: null,
-      production_overlap_pct: 4.0,
+      production_overlap_pct: null,
     })
-    const notices = WATER_STEP.notices({
-      proposals: payloadOf([zone], { soil_checked: false, zone_count: 1 }),
-      draft: { selectedFeatureIds: [], drawnFeatures: [] },
-    })
-    const keys = notices.map((n) => n.key)
-    expect(keys).toContain('unchecked-soil')
-    expect(keys).toContain('unchecked-canopy_overlap_pct')
-    expect(keys).toContain('unchecked-road_overlap_pct')
-    // MEASURED, SO NOT NAMED. production was checked and came back 4.0.
-    expect(keys).not.toContain('unchecked-production_overlap_pct')
-
-    // CONSEQUENCE, NOT THE LAYER'S NAME.
-    const soil = notices.find((n) => n.key === 'unchecked-soil')
-    expect(soil.text).toContain('was unavailable')
-    expect(soil.text).toContain('Walk them')
-  })
-
-  it('says what the generate found and is not showing, from the wire count', () => {
-    const zone = fixtureZone({})
-    const none = WATER_STEP.notices({
-      proposals: payloadOf([zone], { dropped_count: 0 }),
-      draft: { selectedFeatureIds: [], drawnFeatures: [] },
-    })
-    expect(none.map((n) => n.key)).not.toContain('dropped')
-
-    const some = WATER_STEP.notices({
-      proposals: payloadOf([zone], { dropped_count: 3 }),
-      draft: { selectedFeatureIds: [], drawnFeatures: [] },
-    })
-    const dropped = some.find((n) => n.key === 'dropped')
-    expect(dropped).toBeDefined()
-    // THE FIGURE IS MEASURED AND SET AS ONE, mid-sentence.
-    expect(dropped.text.some((part) => part?.measure === '3')).toBe(true)
-    // THE FLOOR ITSELF IS NOT QUOTED: MIN_SURVEY_REGION_AREA_ACRES is a
-    // backend constant and no key in this payload carries it.
-    expect(dropped.text.join('')).not.toMatch(/0\.1/)
-  })
-
-  it('tells a withheld survivor apart from a dropped one, and quotes the rule it was withheld by', () => {
-    const zone = fixtureZone({})
-
-    // NOTHING WITHHELD -> NOTHING SAID. The presented set is everything that
-    // survived, so there is no shape to explain.
-    const all = WATER_STEP.notices({
-      proposals: payloadOf([zone], {
-        zone_count: 1,
-        presentation: { presented_count: 1, withheld_count: 0, rule_applied: '1 embankment' },
-      }),
-      draft: { selectedFeatureIds: [], drawnFeatures: [] },
-    })
-    expect(all.map((n) => n.key)).not.toContain('withheld')
-
-    const capped = WATER_STEP.notices({
-      proposals: payloadOf([zone], {
-        zone_count: 11,
-        dropped_count: 2,
+    const shapes = {
+      'no payload': null,
+      'soil and every overlap unchecked': payloadOf([unchecked], { soil_checked: false, zone_count: 1 }),
+      'nothing cleared the threshold': payloadOf([], { zone_count: 0 }),
+      'zones dropped under the floor': payloadOf([fixtureZone({})], { zone_count: 1, dropped_count: 4 }),
+      'survivors withheld by presentation': payloadOf([fixtureZone({})], {
+        zone_count: 8,
         presentation: {
-          presented_count: 4,
-          withheld_count: 7,
-          rule_applied: '2 embankment + 1 excavated + 1 embankment backfill',
+          presented_count: 6,
+          withheld_count: 2,
+          rule_applied: '2 embankment + 2 excavated + 2 embankment clear-ground',
         },
       }),
-      draft: { selectedFeatureIds: [], drawnFeatures: [] },
-    })
-    const withheld = capped.find((n) => n.key === 'withheld')
-    expect(withheld).toBeDefined()
-
-    // BOTH FIGURES MEASURED AND SET AS SUCH, mid-sentence, like the dropped
-    // notice's own count.
-    expect(withheld.text.some((part) => part?.measure === '4')).toBe(true)
-    expect(withheld.text.some((part) => part?.measure === '11')).toBe(true)
-    expect(withheld.text.some((part) => part?.measure === '7')).toBe(true)
-
-    // THE RULE IS THE PAYLOAD'S OWN WORDS, not a second copy of it over here.
-    expect(withheld.text.join('')).toContain(
-      '2 embankment + 1 excavated + 1 embankment backfill'
-    )
-
-    // THE TWO SENTENCES STAY DIFFERENT SENTENCES. A withheld zone passed
-    // every test; a dropped one failed one. Reading the withheld line as a
-    // rejection is the exact confusion this notice exists to prevent.
-    expect(withheld.text.join('')).toContain('passed every test')
-    expect(withheld.text.join('')).not.toMatch(/floor/)
-    const dropped = capped.find((n) => n.key === 'dropped')
-    expect(dropped).toBeDefined()
-    expect(dropped.text.join('')).toMatch(/minimum area floor/)
-
-    // AND IT IS NOT A CAUTION. Nothing is wrong.
-    expect(withheld.tone).toBe('advisory')
+    }
+    for (const [label, proposals] of Object.entries(shapes)) {
+      expect(WATER_STEP.notices({ proposals, draft: DRAFT }), label).toEqual([])
+    }
   })
 
-  liveIt('says nothing untrue about the reference parcel', async () => {
+  liveIt('renders no step notice under the instruction bar after a real generate', async () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)
 
-    const notices = WATER_STEP.notices({
-      proposals: ui.water,
-      draft: selectDraft(ui.state, 'water'),
-    })
-    const keys = notices.map((n) => n.key)
-
-    // The live run reaches soil, canopy, roads and the committed production
-    // areas -- so it claims none of them are unchecked.
-    expect(ui.water.summary.soil_checked).toBe(true)
-    expect(keys).not.toContain('unchecked-soil')
-    expect(keys.filter((k) => k.startsWith('unchecked-'))).toEqual([])
-
-    /**
-     * THE DROPPED NOTICE TRACKS THE WIRE COUNT, WHICHEVER WAY IT READS.
-     *
-     * This asserted `dropped_count === 0` and then that no notice fired -- a
-     * claim about the reference PARCEL's terrain wearing the clothes of a
-     * claim about the notices. It went red the moment the harness terrain
-     * grew the valley constriction the embankment type needs (four zones now
-     * land under the acreage floor), and the notice it was checking had done
-     * nothing wrong: it said so, correctly, with the count the backend sent.
-     *
-     * So the claim is now the one the test's name makes. The notice is
-     * present exactly when the wire says something was dropped, absent when
-     * it does not, and when present it prints the backend's own figure and
-     * quotes no floor of its own.
-     */
-    const dropped = notices.find((n) => n.key === 'dropped')
-    const count = ui.water.summary.dropped_count
-    expect(typeof count).toBe('number')
-    if (count > 0) {
-      expect(dropped, `${count} zones were dropped and the step said nothing`).toBeDefined()
-      expect(dropped.text.some((part) => part?.measure === String(count))).toBe(true)
-      // THE FLOOR IS NOT ON THE WIRE, so the notice does not quote one.
-      expect(dropped.text.join('')).not.toMatch(/\d\.\d/)
-    } else {
-      expect(dropped).toBeUndefined()
-    }
+    expect(WATER_STEP.notices({ proposals: ui.water, draft: selectDraft(ui.state, 'water') })).toEqual([])
+    expect(document.querySelectorAll('[data-testid^="notice-"][data-testid$="-water"]')).toHaveLength(0)
 
     await ui.unmount()
   })

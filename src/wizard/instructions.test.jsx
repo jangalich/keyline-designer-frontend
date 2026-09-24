@@ -205,9 +205,10 @@ describe('2. roads says four different things', () => {
 
    THREE STEPS CARRIED RESULT-SPECIFIC NOTES and every one of them was already
    a notice rather than instruction text -- water's withheld areas and its
-   dropped-below-the-floor count, trees' acreage left to score, structures'
-   road-distance tier and its rough shading proxy. The assertions below are the
-   ones that keep it that way.
+   dropped-below-the-floor count (both since removed, with every other water
+   notice), trees' acreage left to score, structures' road-distance tier and
+   its rough shading proxy. The assertions below keep all of them out of the
+   direction line.
    =========================================================================== */
 
 describe('3. the instruction line carries no result', () => {
@@ -223,9 +224,9 @@ describe('3. the instruction line carries no result', () => {
   })
 
   it('holds none of the three steps’ result-specific notes', () => {
-    // THE NOTES THEMSELVES, by the phrase each one turns on. Every one of
-    // these still renders -- as a notice, which is what the case below
-    // asserts. None of them may reappear in a direction.
+    // THE NOTES THEMSELVES, by the phrase each one turns on. Water's no
+    // longer render at all (section 4); the rest still render as notices.
+    // None of them may reappear in a direction.
     const RESULT_PHRASES = [
       // water: survived the tests and withheld by the presentation rule
       'passed every test',
@@ -252,55 +253,42 @@ describe('3. the instruction line carries no result', () => {
 })
 
 /* ===========================================================================
-   4. THE NOTICE STACK STILL RENDERS WHAT SURVIVED
+   4. WATER'S BAR CARRIES ITS INSTRUCTION AND NO STEP NOTICE
    ===========================================================================
-   The instruction line was replaced; the notice mechanism was not touched. The
-   case that proves it is water's, and it is the case worth proving: a WITHHELD
-   area passed every test the pipeline applies and is being held back only by
-   the backend's presentation rule. Nothing else in the interface says those
-   areas exist. Losing that line while replacing the sentence above it would be
-   a silent deletion of the only place a user can learn it.
+   This section used to prove the notice stack survived the copy pass by
+   rendering water's withheld-areas notice. Water's step-level notices were
+   since removed at the user's request, so the case is now the opposite: a
+   payload that USED to produce that notice renders the direction alone.
    =========================================================================== */
 
-describe('4. the notices the copy pass left alone', () => {
+describe('4. water renders no step notices', () => {
   /** A water payload whose summary carries a presentation that withheld some. */
   const WITHHELD = {
     survey_zones: { features: [] },
     summary: {
-      zone_count: 6,
+      zone_count: 8,
+      dropped_count: 3,
+      soil_checked: false,
       presentation: {
-        presented_count: 4,
+        presented_count: 6,
         withheld_count: 2,
-        rule_applied: '2 embankment + 1 excavated + 1 embankment backfill',
+        rule_applied: '2 embankment + 2 excavated + 2 embankment clear-ground',
       },
     },
   }
 
-  it('renders water’s withheld-areas notice under the new instruction line', () => {
+  it('shows the instruction line and nothing under it, even for a payload that withheld areas', () => {
     const ui = bar({
       definition: WATER_STEP,
       chromeState: REVIEWING,
       context: { proposals: WITHHELD, draft: { drawnFeatures: [], selectedFeatureIds: [] } },
     })
-
-    // THE DIRECTION IS THE NEW ONE...
     expect(ui.direction()).toBe(WATER_STEP.instructions[REVIEWING])
-
-    // ...AND THE NOTICE IS STILL UNDER IT, with the payload's own counts and
-    // the payload's own rule, and the clause that carries the information:
-    // these passed, and you cannot pick them here.
-    const withheld = ui.notice('withheld')
-    expect(withheld).not.toBeNull()
-    expect(withheld).toContain('passed every test')
-    expect(withheld).toContain('cannot be selected here')
-    expect(withheld).toContain('2 embankment + 1 excavated + 1 embankment backfill')
-    // The counts came from the payload and are in the data face.
-    expect(withheld).toContain('4')
-    expect(withheld).toContain('6')
-    expect(withheld).toContain('2')
+    expect(ui.notice('withheld')).toBeNull()
+    expect(ui.noticeCount()).toBe(0)
   })
 
-  it('leaves the stack empty when the payload has nothing to add', () => {
+  it('leaves the stack empty with no payload at all', () => {
     const ui = bar({
       definition: WATER_STEP,
       chromeState: REVIEWING,
