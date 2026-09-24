@@ -1463,22 +1463,26 @@ describe('10. the bare-map click', () => {
   }
 
   /**
-   * WHAT A CLICK ON BARE GROUND INSIDE THE PARCEL ACTUALLY LANDS ON: the
-   * committed boundary ring's painted path, which carries the parcel fill and
-   * therefore spans every square foot of it.
+   * WHAT A CLICK ON BARE GROUND INSIDE THE PARCEL ACTUALLY LANDS ON: the map.
    *
-   * The casing pass beside it is `fill: none`; this is the other one. A DOM
-   * click dispatched on it is the honest simulation of that gesture, and what
-   * it proves is where Leaflet routes the event -- the path is not in the
-   * map's target registry, so the map's own click handler is what runs.
+   * It used to land on the committed boundary ring's painted path, which
+   * carried a parcel fill and so spanned every square foot of it -- and this
+   * helper dispatched a DOM click on that path. The fill is gone: the ring is
+   * an outline in every state (see --boundary in index.css), so there is
+   * nothing painted over the interior to intercept the pointer, and the click
+   * reaches the map itself. That is asserted first, so the honest simulation
+   * -- the map's own click, at the parcel's middle -- is shown to be the
+   * only one there is.
    */
-  function parcelInterior(ui) {
+  async function clickParcelInterior(ui) {
     const pane = ui.pane('boundary--boundary-committed').pane
-    const painted = [...pane.querySelectorAll('path')].find(
+    const painted = [...pane.querySelectorAll('path')].filter(
       (path) => path.getAttribute('fill') !== 'none'
     )
-    if (!painted) throw new Error('the committed ring drew no filled path')
-    return painted
+    expect(painted, 'the committed ring paints no interior').toHaveLength(0)
+    const lat = RING.reduce((sum, [y]) => sum + y, 0) / RING.length
+    const lng = RING.reduce((sum, [, x]) => sum + x, 0) / RING.length
+    await ui.clickMap([lat, lng])
   }
 
   it('leaves the cursor exactly where it was, in water', async () => {
@@ -1489,7 +1493,7 @@ describe('10. the bare-map click', () => {
     await ui.run((_a, cursor) => cursor.focusFeature('pond-1'))
     expect(ui.cursor.focusedFeatureId).toBe('pond-1')
 
-    await ui.clickPath(parcelInterior(ui))
+    await clickParcelInterior(ui)
 
     // THE ASSERTION IS THE CURSOR. The panel going away is the visible half
     // and was never the half that failed.
@@ -1516,7 +1520,7 @@ describe('10. the bare-map click', () => {
     const statusBefore = ui.state.steps.landform.status
     const draftBefore = selectDraft(ui.state, 'landform')
 
-    await ui.clickPath(parcelInterior(ui))
+    await clickParcelInterior(ui)
 
     expect(ui.cursor.cursorStepId).toBe('landform')
     expect(ui.cursor.focusedFeatureId).toBeNull()
@@ -1535,7 +1539,7 @@ describe('10. the bare-map click', () => {
 
     // THE FALL-THROUGH PATH. The committed landform zone is on the map, in a
     // pane of its own, at the same ground -- and the thing the pointer is
-    // over is the parcel fill, which takes no clicks. So the event reaches
+    // over is bare map -- the ring paints no interior. So the event reaches
     // the map rather than the zone, and a click that reached nothing must
     // move nothing.
     const committed = ui.pane('landform--landform-committed').pane
@@ -1544,7 +1548,7 @@ describe('10. the bare-map click', () => {
     await ui.clickMap([40.715, -74.0])
     expect(ui.cursor.cursorStepId).toBe('water')
 
-    await ui.clickPath(parcelInterior(ui))
+    await clickParcelInterior(ui)
     expect(ui.cursor.cursorStepId).toBe('water')
 
     await ui.unmount()
@@ -1568,7 +1572,7 @@ describe('10. the bare-map click', () => {
     }
 
     // And the paint is what the band draws: the COMMITTED ring is ONE path --
-    // its filled line, with no casing under it, because a settled line is
+    // its line, unfilled, with no casing under it, because a settled line is
     // drawn bare (layers.jsx's casingWeightFor) -- and the committed zone
     // still draws its hatch.
     expect(ui.pane('boundary--boundary-committed').pane.querySelectorAll('path')).toHaveLength(1)
@@ -1588,7 +1592,7 @@ describe('10. the bare-map click', () => {
     expect(ui.cursor.cursorStepId).toBe('landform')
 
     // A bare-map click while parked on the committed step: still no move.
-    await ui.clickPath(parcelInterior(ui))
+    await clickParcelInterior(ui)
     expect(ui.cursor.cursorStepId).toBe('landform')
 
     await ui.run((_a, cursor) => cursor.open('water'))

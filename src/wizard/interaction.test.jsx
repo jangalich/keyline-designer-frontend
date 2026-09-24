@@ -1090,9 +1090,15 @@ describe('6. the dotted declined treatment', () => {
     // and absence needs its own vocabulary -- was right while the map was the
     // only place a suggestion appeared. The tab strip carries that signal now.
     const layers = readFileSync(path.join(SRC, 'map', 'layers.jsx'), 'utf8')
-    for (const gone of ['DESELECTED_DASH', 'DESELECTED_STROKE_OPACITY', 'dashArray']) {
+    for (const gone of ['DESELECTED_DASH', 'DESELECTED_STROKE_OPACITY']) {
       expect(layers).not.toContain(gone)
     }
+    // A DASH MAY ONLY COME OFF A MARK. The fence's dash is its declared mark
+    // (ProductionHatchPattern's fence row, read as `mark.dash`); what must not
+    // come back is a dash written into the renderer as a literal, which is
+    // what the declined treatment was.
+    expect(layers).not.toMatch(/dashArray\s*[:=]\s*\{?\s*['"`]/)
+    expect(layers).toContain('const dashArray = mark?.dash ?? undefined')
 
     const css = readFileSync(path.join(SRC, 'App.css'), 'utf8')
     expect(css).not.toContain('zone--deselected')

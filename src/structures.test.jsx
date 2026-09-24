@@ -118,7 +118,7 @@ import {
   marksItsOwnEdge,
   zoneMark,
 } from './ProductionHatchPattern.jsx'
-import { SITE_PIN_HALO_WIDTH, SITE_PIN_SIZE, sitePinIcon } from './map/layers.jsx'
+import { SITE_PIN_FOCUSED_HALO_WIDTH, SITE_PIN_HALO_WIDTH, SITE_PIN_SIZE, sitePinIcon } from './map/layers.jsx'
 import { pointInRing, pointToGeoJSON } from './geo.js'
 import rings from './fixtures/rings.json'
 
@@ -721,6 +721,11 @@ describe('1. end to end against the real backend', () => {
       // the two pads alike.
       expect(ui.cursor.cursorStepId).toBe('fencing')
       expect(ui.all('.leaflet-structures--structures-committed-pane .site-pin--committed')).toHaveLength(4)
+      // PROVENANCE SURVIVES THE COMMIT: colour is fixed across states, so the
+      // two placed sites stay ochre (`--placed`) and the two generated ones
+      // stay ink, inside one committed layer.
+      expect(ui.all('.leaflet-structures--structures-committed-pane .site-pin--committed.site-pin--placed')).toHaveLength(2)
+      expect(ui.all('.leaflet-structures--structures-committed-pane .site-pin--committed:not(.site-pin--placed)')).toHaveLength(2)
       // AND THE COMMITTED ACCESS POINT IS STILL THERE, marked committed --
       // ink at the committed level by App.css's rule -- beside the pins.
       expect(ui.all('.access-point-marker--committed')).toHaveLength(1)
@@ -2456,7 +2461,7 @@ describe('12. what the definition declares, and the sweep', () => {
    * the live-point token, read by App.css; the icon's box is the same number
    * of pixels at any zoom, because a pointer is a pointer, not a footprint.
    */
-  it('[2] is ochre, and the same size on screen at every zoom', async () => {
+  it('[2] is ink for the tool\'s site and ochre for the user\'s, and the same size on screen at every zoom', async () => {
     const mark = zoneMark('structure')
     expect(mark.kind).toBe('pin')
     expect(marksItsOwnEdge(mark)).toBe(false)
@@ -2467,8 +2472,23 @@ describe('12. what the definition declares, and the sweep', () => {
     const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
     expect(css).not.toMatch(/--structure:\s*#/)
     const app = readFileSync(path.join(SRC, 'App.css'), 'utf8')
-    const body = app.slice(app.indexOf('.site-pin__body {'), app.indexOf('}', app.indexOf('.site-pin__body {')))
-    expect(body).toContain('fill: var(--ochre)')
+    // PROVENANCE: the tool's site is an --ink pin, the user's is --ochre, and
+    // neither carries a stroke on its body -- the colour is the distinction.
+    const rule = (selector) => {
+      const at = app.indexOf(`\n${selector} {`)
+      expect(at, `${selector} is styled`).toBeGreaterThan(-1)
+      return app.slice(at, app.indexOf('}', at))
+    }
+    expect(rule('.site-pin__body')).toContain('fill: var(--ink)')
+    const placed = rule('.site-pin--placed .site-pin__body')
+    expect(placed).toContain('fill: var(--ochre)')
+    expect(placed).not.toContain('stroke')
+    expect(app).not.toMatch(/\.site-pin--placed[^{]*\{[^}]*--oxide/)
+    // FOCUS IS THE HALO WIDENING -- the pin's casing -- and nothing else.
+    const focused = rule('.site-pin--focused .site-pin__halo')
+    expect(focused).toContain(`stroke-width: ${SITE_PIN_FOCUSED_HALO_WIDTH};`)
+    expect(SITE_PIN_FOCUSED_HALO_WIDTH).toBeGreaterThan(SITE_PIN_HALO_WIDTH)
+    expect(app).not.toMatch(/\.site-pin--focused \.site-pin__body/)
     // THE HALO: --halo, at the width the harness measured with.
     const halo = app.slice(app.indexOf('.site-pin__halo {'), app.indexOf('}', app.indexOf('.site-pin__halo {')))
     expect(halo).toContain('stroke: var(--halo)')
@@ -2549,7 +2569,7 @@ describe('12. what the definition declares, and the sweep', () => {
    * one step is held to two different tokens. The rendered half, with real
    * computed colours, walks every step in pointer.test.jsx.
    */
-  it('[5] gives every point-marker kind that can share a map a different token', () => {
+  it('[5] gives every point-marker kind that can share a map a different token WITHIN ITS GLYPH', () => {
     const app = readFileSync(path.join(SRC, 'App.css'), 'utf8')
     const fillOf = (selector, property) => {
       const at = app.indexOf(`\n${selector} {`)
@@ -2559,53 +2579,53 @@ describe('12. what the definition declares, and the sweep', () => {
       expect(match, `${selector} reads a token for ${property}`).not.toBeNull()
       return match[1]
     }
+    // [glyph, token]. Colour is PROVENANCE now (index.css, beside --ochre),
+    // so two kinds of different glyph may share a token -- the tool's ink pin
+    // and the committed ink access point -- and are told apart by shape.
+    // Within one glyph, two kinds that share a map must still differ.
     const MARKERS = {
-      'vertex (a ring being drawn)': fillOf('.vertex-marker', 'background'),
-      'caution': fillOf('.caution-marker', 'background'),
-      'access point, live': fillOf('.access-point-marker', 'background'),
-      'access point, committed': fillOf('.access-point-marker--committed', 'background'),
-      'site pin, live': fillOf('.site-pin__body', 'fill'),
-      'site pin, pending': fillOf('.site-pin--pending .site-pin__body', 'fill'),
-      'site pin, rejected': fillOf('.site-pin--rejected .site-pin__body', 'fill'),
+      'vertex (a ring being drawn)': ['dot', fillOf('.vertex-marker', 'background')],
+      'caution': ['dot', fillOf('.caution-marker', 'background')],
+      'access point, live': ['dot', fillOf('.access-point-marker', 'background')],
+      'access point, committed': ['dot', fillOf('.access-point-marker--committed', 'background')],
+      'site pin, suggested': ['pin', fillOf('.site-pin__body', 'fill')],
+      'site pin, placed': ['pin', fillOf('.site-pin--placed .site-pin__body', 'fill')],
+      'site pin, pending': ['pin', fillOf('.site-pin--pending .site-pin__body', 'fill')],
+      'site pin, rejected': ['pin', fillOf('.site-pin--rejected .site-pin__body', 'fill')],
     }
-    // EVERY MARKER READS A TOKEN, never a literal.
-    for (const token of Object.values(MARKERS)) expect(token).toMatch(/^--[a-z-]+$/)
-    // WHAT SHARES A MAP, BY STEP. A live access point exists only on roads;
-    // a live site pin only on structures; the committed access point from
-    // trees onward; a vertex while any ring is drawn; a caution wherever a
-    // drawn zone crosses a ground.
+    for (const [, token] of Object.values(MARKERS)) expect(token).toMatch(/^--[a-z-]+$/)
+    // WHAT SHARES A MAP, BY STEP. Committed pins keep their provenance
+    // colour, so fencing carries both pin kinds.
     const STEPS = {
       boundary: ['vertex (a ring being drawn)'],
       landform: ['vertex (a ring being drawn)', 'caution'],
       water: ['caution'],
       roads: ['access point, live'],
       trees: ['vertex (a ring being drawn)', 'caution', 'access point, committed'],
-      structures: ['access point, committed', 'site pin, live', 'site pin, pending', 'site pin, rejected'],
-      fencing: ['access point, committed', 'site pin, committed'],
+      structures: ['access point, committed', 'site pin, suggested', 'site pin, placed', 'site pin, pending', 'site pin, rejected'],
+      fencing: ['access point, committed', 'site pin, suggested', 'site pin, placed'],
     }
-    MARKERS['site pin, committed'] = MARKERS['site pin, live']
     const clashes = []
     for (const [step, kinds] of Object.entries(STEPS)) {
       for (let i = 0; i < kinds.length; i++) {
         for (let j = i + 1; j < kinds.length; j++) {
-          const a = kinds[i]
-          const b = kinds[j]
-          if (MARKERS[a] === MARKERS[b]) clashes.push(`${step}: ${a} and ${b} both ${MARKERS[a]}`)
+          const [glyphA, tokenA] = MARKERS[kinds[i]]
+          const [glyphB, tokenB] = MARKERS[kinds[j]]
+          if (glyphA === glyphB && tokenA === tokenB) clashes.push(`${step}: ${kinds[i]} and ${kinds[j]} both ${tokenA}`)
         }
       }
     }
     expect(clashes).toEqual([])
-    // THE RULE IS WRITTEN WHERE THE TOKENS ARE, so the next step inherits it.
+    // THE RULE IS WRITTEN WHERE THE TOKENS ARE.
     const css = readFileSync(path.join(SRC, 'index.css'), 'utf8')
-    const note = css.slice(css.indexOf('OCHRE MEANS A LIVE POINT MARKER'), css.indexOf('--ochre: #'))
+    const note = css.slice(css.indexOf('OCHRE MEANS THE USER PUT THIS POINT HERE'), css.indexOf('--ochre: #'))
     expect(note.length).toBeGreaterThan(200)
-    expect(note).toMatch(/ONCE COMMITTED, A POINT MARKER JOINS ITS LAYER'S SETTLED TREATMENT/)
-    expect(note).toMatch(/fencing/)
-    // And the live access point and the live pin are the SAME token: one
-    // colour for one concept, on two steps that never share a map.
-    expect(MARKERS['access point, live']).toBe('--ochre')
-    expect(MARKERS['site pin, live']).toBe('--ochre')
-    expect(MARKERS['access point, committed']).toBe('--ink')
+    expect(note).toMatch(/PROVENANCE/)
+    expect(note).toMatch(/GLYPH/)
+    expect(MARKERS['site pin, placed'][1]).toBe('--ochre')
+    expect(MARKERS['site pin, suggested'][1]).toBe('--ink')
+    expect(MARKERS['access point, live'][1]).toBe('--ochre')
+    expect(MARKERS['access point, committed'][1]).toBe('--ink')
   })
 
   it('writes down no weight, no floor, no slope ceiling and no band cut of its own; every figure comes off the wire', () => {

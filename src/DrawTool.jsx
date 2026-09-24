@@ -54,7 +54,7 @@ let geometryColors = null
 
 function getGeometryColors() {
   if (!geometryColors) {
-    geometryColors = { field: readToken('--field'), halo: readToken('--halo') }
+    geometryColors = { boundary: readToken('--boundary'), halo: readToken('--halo') }
   }
   return geometryColors
 }
@@ -62,12 +62,14 @@ function getGeometryColors() {
 // Boundary geometry has to stay legible over aerial imagery, and imagery is
 // not one background — a single frame runs from dark canopy through pasture
 // and bare soil to bright stubble. No single colour wins against that range:
-// measured against representative imagery tones, --field clears 3:1 only
-// over bright bare ground (1.50 over pasture, 1.58 over soil, 1.59 over
-// canopy).
+// measured against representative imagery tones, the line's old --field
+// green failed on all three (1.50 over pasture, 1.58 over soil, 1.59 over
+// canopy), and green belongs to the trees plate besides. It is --boundary
+// now, which is --ink.
 //
 // So the line is CASED rather than recoloured — a wider --halo stroke
-// underneath, --field on top. Whichever one the ground defeats, the other
+// underneath, --boundary on top. The vertex markers keep --field: they are
+// the drawing tool, not the line. Whichever one the ground defeats, the other
 // separates, and the pair reads on any backdrop. This is the same trick the
 // vertex markers already use with their 2px --halo border, and it needs no
 // new token. General principle for this project: map geometry gets a halo
@@ -146,7 +148,7 @@ function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBounda
     onPointsChange(updated)
   }
 
-  const { field, halo } = getGeometryColors()
+  const { boundary, halo } = getGeometryColors()
 
   // Casing first so it paints underneath: within one SVG pane, later
   // elements draw on top.
@@ -176,7 +178,7 @@ function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBounda
               for. The casing above already says fill: false; this matches. */}
           <Polygon
             positions={points}
-            pathOptions={{ color: field, weight: LINE_WEIGHT, fill: false, interactive: false }}
+            pathOptions={{ color: boundary, weight: LINE_WEIGHT, fill: false, interactive: false }}
           />
         </>
       )}
@@ -194,7 +196,7 @@ function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBounda
           />
           <Polyline
             positions={points}
-            pathOptions={{ color: field, weight: LINE_WEIGHT, dashArray: DASH }}
+            pathOptions={{ color: boundary, weight: LINE_WEIGHT, dashArray: DASH }}
           />
         </>
       )}

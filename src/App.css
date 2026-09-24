@@ -2818,26 +2818,25 @@ a.chrome-rail__report-button {
    silhouette twice, a halo pass under the body (layers.jsx sitePinIcon) --
    at a FIXED SCREEN SIZE, the caution marker's reason: a pointer is a
    pointer, not a footprint, and scaled with the ground it vanishes at the
-   zoom where it matters most. Ochre, because ochre means a LIVE point
-   marker (index.css, beside the token) and the site is the live point of
-   the structures step. The halo is --halo for the reason every marker here
-   is ringed: measured in layout.test.jsx, the bare glyph is lost over bare
-   soil, which is nearly its own colour, and the ring is what carries it
-   there. No colour is written in the SVG; every one is a token read here.
+   zoom where it matters most. The halo is --halo for the reason every
+   marker here is ringed: measured in layout.test.jsx, the bare glyph is
+   lost on some ground, and the ring is what carries it there. No colour is
+   written in the SVG; every one is a token read here.
 
-   THE STATES ARE THE ZONE'S. The pattern levels say how present the pin is
-   -- committed quietest -- and the focused pin takes the ink ring the
-   focused access point takes. A PLACED site's pin carries an accent stroke:
-   the site is the user's, and the pin says so.
+   THE BODY'S COLOUR IS PROVENANCE, and it is fixed across every state:
+   --ochre for a site the USER placed, --ink for one the TOOL sited. It
+   used to be ochre for both, with an oxide stroke on the placed one; the
+   colour carries the distinction now and the stroke is gone. layers.jsx
+   decides which a feature is (`site-pin--placed`), per feature, because a
+   committed layer holds both kinds.
 
-   THAT LAST ONE USED TO BORROW ITS ARGUMENT FROM A DRAWN ZONE'S EDGE, and it
-   cannot any more -- a drawn zone has no edge of its own; it takes its
-   treatment's mark exactly as a suggested one does (layers.jsx, at
-   LINE_WEIGHT). The stroke here stands on its own reason instead, and it is a
-   different reason: a POINT has no extent to read an authorship off. A zone
-   is a shape on the ground and the strip says which of them the user drew; a
-   pin is a glyph at a coordinate, identical whoever put it there, and the
-   stroke is the only thing that can carry the distinction.
+   THE STATES ARE THE STANDING RULE -- colour and mark fixed, only opacity
+   and casing vary. Active: the body at full strength on its 4-unit halo.
+   Focused: the same body on a WIDER halo, the pin's casing (an ink focus
+   ring, which this used to be, would vanish into an ink body). Committed:
+   the whole pin at --pattern-committed. The halo stays on a committed pin,
+   unlike a committed line's casing: it is part of the glyph, measured as
+   what carries the pin over bare soil at the committed level.
 
    A REJECTED one takes --alert, like a rejected zone, with the server's own
    reason beside it. The PENDING one -- a spot clicked and not yet measured
@@ -2863,19 +2862,16 @@ a.chrome-rail__report-button {
 }
 
 .site-pin__body {
-  fill: var(--ochre);
+  fill: var(--ink);
 }
 
 .site-pin--placed .site-pin__body {
-  stroke: var(--oxide);
-  stroke-width: 1.25;
-  stroke-linejoin: round;
+  fill: var(--ochre);
 }
 
-.site-pin--focused .site-pin__body {
-  stroke: var(--ink);
-  stroke-width: 1.5;
-  stroke-linejoin: round;
+/* The width is layers.jsx's SITE_PIN_FOCUSED_HALO_WIDTH. */
+.site-pin--focused .site-pin__halo {
+  stroke-width: 7;
 }
 
 .site-pin--committed {
@@ -2910,7 +2906,8 @@ a.chrome-rail__report-button {
 
 /* THE FOCUS GLOW ON A LINE, BLURRED. LineLayer draws this pass under the
    line -- and under its casing, where it has one -- when a line's mark says
-   focus with a halo (today: the fence, which has no casing); the colour, the
+   focus with a halo (no line does today -- the fence's glow was retired for
+   an opacity step; the pass stays for the next mark that needs one); the colour, the
    width and the alpha are the mark's and arrive as pathOptions like every
    other line property. WHAT IS HERE IS THE BLUR, and only because
    a Leaflet path cannot take a filter through pathOptions -- the same reason
