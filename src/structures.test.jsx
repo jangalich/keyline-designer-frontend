@@ -135,8 +135,21 @@ const ACCESS_A = [40.6434533, -79.9836992]
  * THREE SPOTS ON THE REFERENCE PARCEL, SURVEYED AGAINST THE SERVED BACKEND
  * (a probe over the same fixture the live section drives), [lat, lng]:
  *
- *   CLEAN    twelve metres west of the rank-1 candidate's pad. Scores in the
- *            sixties and clears every siting rule; ranks 4th, below the three.
+ *   CLEAN    upper field on the parcel's north-west side, in the middle of a
+ *            band of ground whose every point 4 m around also clears every
+ *            siting rule. Scores in the high fifties and clears every rule;
+ *            ranks 4th, below the three.
+ *
+ *            RE-SURVEYED after backend b320d2d ("A one-sided station has no
+ *            binding shoulder"). The spot surveyed first, twelve metres west
+ *            of the rank-1 candidate's pad, cleared every rule against the
+ *            water zone this flow commits (zones[0], embankment rank 1) while
+ *            that was a 0.19 ac survey area. b320d2d stopped crediting a
+ *            one-sided dam station with a shoulder, embankment rank 1 became
+ *            a 1.83 ac area, and its envelope reaches under that spot's pad
+ *            -- so the site CORRECTLY broke outside_water_candidate_zone. The
+ *            new spot was chosen well clear of that edge rather than just
+ *            past it, so the next re-ranking does not tip it.
  *   CANOPY   the centre of the fixture's canopy block -- inside the parcel,
  *            under fifteen metres of HAG. Scores 55.0 and breaks two rules:
  *            outside_existing_canopy and within_road_proximity_buffer.
@@ -145,7 +158,7 @@ const ACCESS_A = [40.6434533, -79.9836992]
  *            rehydration caveat is about.
  *   OFF      a hundredth of a degree west of the parcel. Not theirs.
  */
-const CLEAN = [40.64328007915633, -79.98334560864593]
+const CLEAN = [40.644117863164496, -79.98347062729805]
 const CANOPY = [40.64445861283241, -79.98139260998191]
 const EDGE = [40.645782939126406, -79.9837669354553]
 const OFF = [40.6458343, -79.9938154]
