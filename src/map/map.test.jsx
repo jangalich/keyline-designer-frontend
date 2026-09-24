@@ -782,6 +782,13 @@ describe('4. the boundary step', () => {
     expect(ui.cursor.armed).toBeNull()
     expect(selectDraft(ui.state, BOUNDARY_STEP_ID).inputs[BOUNDARY_RING_INPUT]).toEqual(RING)
 
+    // THE FINISHED RING IS AN OUTLINE, NOT A WASH. DrawTool draws it into
+    // Leaflet's overlayPane as a casing and a line, and neither may pick up
+    // Leaflet's default Polygon fill.
+    const finished = [...ui.container.querySelectorAll('.leaflet-overlay-pane path')]
+    expect(finished).toHaveLength(2)
+    for (const path of finished) expect(path.getAttribute('fill')).toBe('none')
+
     // COMMIT. One POST /api/sessions, carrying the ring the map wrote.
     await ui.click(`commit-${BOUNDARY_STEP_ID}`)
     expect(calls.filter((c) => c.path === '/api/sessions')).toHaveLength(1)

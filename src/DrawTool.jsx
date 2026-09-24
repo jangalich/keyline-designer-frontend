@@ -170,9 +170,13 @@ function DrawTool({ isDrawing, isFinished, points, onPointsChange, onCloseBounda
 
               Left interactive on the casing already; this brings the two into
               line rather than introducing a new convention. */}
+          {/* fill: false — the outline alone. Leaflet fills a Polygon by
+              default (its own colour at 0.2), which laid an unstyled green
+              wash over the whole parcel that no token or design rule asked
+              for. The casing above already says fill: false; this matches. */}
           <Polygon
             positions={points}
-            pathOptions={{ color: field, weight: LINE_WEIGHT, interactive: false }}
+            pathOptions={{ color: field, weight: LINE_WEIGHT, fill: false, interactive: false }}
           />
         </>
       )}
