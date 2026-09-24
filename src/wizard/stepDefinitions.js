@@ -2696,37 +2696,9 @@ export function surveyZoneName(properties) {
    the backend's `panel` block now makes, beside the measurements, as data.
    A second table over here would be a second set of words for one set of
    facts, and the one over here is the copy that goes stale silently.
-   (UNAVAILABLE_CONSEQUENCE and WATER_UNCHECKED_CONSEQUENCE stay: those are
-   STEP-LEVEL notices about checks that did not run, which no per-zone panel
-   row answers.) */
-
-/**
- * WHICH CHECKS DID NOT RUN, for a step whose availability signals are shaped
- * nothing like landform's.
- *
- * LANDFORM READS A TABLE; WATER READS SENTINELS, and the difference is the
- * payload's, not this function's. landform's `exclusion_layers` is five
- * wrappers each carrying `{type, label, data_available}` -- a per-gate table a
- * consumer can walk. The water payload has no such table. What it has is:
- *
- *   summary.soil_checked      one step-level boolean, the whole soil answer.
- *   the three overlap fields  None = never checked, 0.0 = checked and
- *                             genuinely none, PER ZONE.
- *
- * So "was canopy checked" is not a field to read; it is a fact about whether
- * every zone's canopy_overlap_pct came back null. That is what makes these
- * three predicates rather than lookups, and it is why the consequence strings
- * live here rather than in a helper shared with landform: there is no shared
- * shape to share.
- */
-const WATER_UNCHECKED_CONSEQUENCE = {
-  canopy_overlap_pct:
-    'Canopy data was unavailable, so wooded ground inside these areas has not been measured.',
-  road_overlap_pct:
-    'Road data was unavailable, so existing farm roads inside these areas have not been measured.',
-  production_overlap_pct:
-    'Overlap with the committed production areas could not be measured, so these areas may sit on ground already given to production.',
-}
+   (UNAVAILABLE_CONSEQUENCE stays for landform: a STEP-LEVEL notice about
+   checks that did not run, which no per-zone panel row answers. Water no
+   longer carries step-level notices at all -- see WATER_STEP.) */
 
 /**
  * Every zone envelope in a water payload, members dropped.
@@ -3195,126 +3167,15 @@ export const WATER_STEP = documentStep({
     [STEP_COMMITTED]: [REOPEN_BUTTON],
   },
 
-  /**
-   * THE TWO THINGS ONLY THIS STEP KNOWS ARE WORTH SAYING.
-   *
-   * 1. WHICH CHECKS DID NOT RUN, in consequence terms, keyed on the stable
-   *    flag rather than on display prose -- landform's rule, applied to a
-   *    payload with a completely different flag surface. See
-   *    WATER_UNCHECKED_CONSEQUENCE.
-   *
-   * 2. WHAT THE GENERATE FOUND AND IS NOT SHOWING. `dropped_count` IS on the
-   *    wire -- the backend carries floor-dropped zones "visible and
-   *    attributed, never silently" and its narrative digest counts them -- so
-   *    this states the count it was given. It is not inferred and it is not
-   *    computed: with no `dropped_count` there would be nothing honest to say
-   *    and this would say nothing.
-   */
-  notices: ({ proposals }) => {
-    if (!proposals) return []
-    const summary = proposals.summary ?? {}
-    const zones = surveyZoneFeatures(proposals)
-    const lines = []
-
-    // SOIL IS ONE STEP-LEVEL BOOLEAN, not a per-zone sentinel: the water
-    // scorer's own posture is all three soil inputs or none, so the answer is
-    // the same for every zone by construction.
-    if (summary.soil_checked === false) {
-      lines.push({
-        key: 'unchecked-soil',
-        tone: 'caution',
-        text:
-          'Soil survey data was unavailable, so soil was not scored for any of these areas. ' +
-          'Walk them before committing to them.',
-      })
-    }
-
-    // THE THREE OVERLAPS, EACH INDEPENDENTLY UNCHECKABLE. A check counts as
-    // not run only when EVERY zone came back null for it -- a single null
-    // among measured values is a fact about one zone and belongs in that
-    // zone's panel, not in a standing line about the parcel.
-    for (const field of Object.keys(WATER_UNCHECKED_CONSEQUENCE)) {
-      if (!zones.length) continue
-      if (!zones.every((feature) => feature.properties?.[field] == null)) continue
-      lines.push({
-        key: `unchecked-${field}`,
-        tone: 'caution',
-        text: WATER_UNCHECKED_CONSEQUENCE[field],
-      })
-    }
-
-    // NOTHING CLEARED THE THRESHOLD. A real answer, and without it the step
-    // reads as a generate that quietly returned nothing.
-    if (summary.zone_count === 0) {
-      lines.push({
-        key: 'no-areas',
-        tone: 'caution',
-        text:
-          'No ground on this parcel scored high enough to be worth surveying for a pond. ' +
-          'Committing no water zones is a decision this design can carry.',
-      })
-    }
-
-    // FOUND AND NOT SHOWN. The COUNT is the payload's; the reason is the
-    // backend's own drop_reason for every one of them.
-    //
-    // THE FLOOR ITSELF IS NOT NAMED, because the floor is not on the wire.
-    // MIN_SURVEY_REGION_AREA_ACRES is a backend constant and no key in this
-    // payload carries it -- so the notice says what happened and declines to
-    // quote a number it would have had to hardcode. A second copy of that
-    // constant on this side goes stale silently the first time it is retuned,
-    // which is the same argument scoreBandName() makes about band thresholds.
-    if (summary.dropped_count > 0) {
-      lines.push({
-        key: 'dropped',
-        tone: 'advisory',
-        text: [
-          'The generate found ',
-          measured(summary.dropped_count, COUNT_DP),
-          ' more survey areas and is not showing them: each one’s envelope measured under the minimum area floor.',
-        ],
-      })
-    }
-
-    /* SURVIVED AND WITHHELD, which is a DIFFERENT SENTENCE from the one above
-       and must stay one. A dropped zone failed a test -- the acreage floor,
-       the catchment ceiling, a dedupe -- and the notice above says so. A
-       WITHHELD zone passed every one of them and is being held back only
-       because the backend's presentation rule sends the top few (the top 2 of
-       each survey type, backfilled to a fixed count). Saying "not showing
-       them" without saying WHICH of those two happened would let a perfectly
-       good pond site read as a rejected one.
-
-       THE COUNT IS THE PAYLOAD'S, like the dropped count beside it, and the
-       rule is the payload's own words (`rule_applied`, e.g. "2 embankment +
-       1 excavated + 1 embankment backfill"). Neither is inferred here and
-       neither is reworded: a second copy of the rule on this side is the
-       copy that goes stale silently the first time the backend retunes it --
-       the same argument the dropped notice makes about the floor constant.
-
-       NOT A CAUTION. Nothing is wrong; the user is being told the shape of
-       what they are looking at. */
-    const presentation = summary.presentation ?? {}
-    if (presentation.withheld_count > 0) {
-      lines.push({
-        key: 'withheld',
-        tone: 'advisory',
-        text: [
-          'Showing the ',
-          measured(presentation.presented_count, COUNT_DP),
-          ' strongest areas of the ',
-          measured(summary.zone_count, COUNT_DP),
-          ' that qualified (',
-          presentation.rule_applied ?? '',
-          '). The other ',
-          measured(presentation.withheld_count, COUNT_DP),
-          ' passed every test and were held back only by that rule — they are in the report and the diagnostic export, but cannot be selected here.',
-        ],
-      })
-    }
-
-    return lines
-  },
+  /* NO STEP-LEVEL NOTICES, BY DECISION. This step used to say which checks
+     did not run, that nothing cleared the threshold, and how many zones were
+     dropped or withheld by the presentation rule -- all below the
+     instruction bar after a generate. They were removed at the user's
+     request: the bar carries the instruction and nothing else here. The
+     facts they stated are still on the payload (summary.soil_checked, the
+     overlap sentinels, dropped_count, presentation.withheld_count) and in the
+     report; `notices` is left undeclared so the shell's default of no
+     notices applies. */
 
   /**
    * ONE TAB PER ZONE ENVELOPE, both types in one strip.
