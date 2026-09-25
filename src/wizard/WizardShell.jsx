@@ -10,7 +10,9 @@
  *   B  InstructionBar   top, centred   the state's direction, plus notices.
  *   F  DetailPanel      top right      reserved; the container and its toggle.
  *   D  TabStrip         bottom left    one tab per feature, capped at 3 rows.
- *   E  ActionBanner     bottom right   the state's buttons.
+ *   E  ActionBanner     bottom right   the state's buttons -- headed, on a
+ *                                      finished design, by the delivery
+ *                                      card (DeliveryPanel).
  *
  * WHAT THIS REPLACES. A column of step panels beside the map, in which almost
  * every interaction happened somewhere other than the thing being edited, and
@@ -69,6 +71,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import ActionBanner from './shell/ActionBanner.jsx'
+import DeliveryPanel from './shell/DeliveryPanel.jsx'
 import DetailPanel from './shell/DetailPanel.jsx'
 import InstructionBar from './shell/InstructionBar.jsx'
 import StepRail from './shell/StepRail.jsx'
@@ -137,7 +140,14 @@ function StepChrome({ definition, definitions }) {
       <div className="chrome__free" aria-hidden="true" />
       <div className="chrome__bottom">
         <TabStrip machine={machine} onRemove={remove} />
-        <ActionBanner machine={machine} chromeState={chromeState} definitions={definitions} />
+        {/* THE ACTION AREA'S COLUMN. On a finished design the delivery card
+            heads it and the step's own banner sits under it, unchanged; on
+            any other design the card renders nothing and this is the banner
+            alone. See DeliveryPanel. */}
+        <div className="chrome__actions">
+          <DeliveryPanel />
+          <ActionBanner machine={machine} chromeState={chromeState} definitions={definitions} />
+        </div>
       </div>
     </>
   )

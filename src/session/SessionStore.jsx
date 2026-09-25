@@ -1953,10 +1953,12 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
    * WHICH KIND OF REPORT FAILURE THIS IS, read off the KEY the payload
    * carries rather than the one it lacks.
    *
-   * The backend sends exactly one of two shapes (session_report.
+   * The backend sends one of three shapes (session_report.
    * error_payload()):
    *
    *   {error, session_expired: {session_id, step_id, remedy}}  ACTIONABLE
+   *   {error, failed_layer: {type, label, reason},
+   *    report_failed: {actionable}}                            A SOURCE
    *   {error, report_failed: {actionable: false}}              NOT
    *
    * AND THE TEST IS FOR `session_expired`, NEVER FOR THE ABSENCE OF IT. A
@@ -1969,7 +1971,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
    * THE SERVER'S SENTENCE IS CARRIED BUT IS NOT WHAT THE CHROME RENDERS.
    * session_design.WORKING_DATA_EXPIRED is written for a person and is the
    * right thing to keep; the copy on screen is this client's, because the
-   * wording of its own UI is its own. See ReportAction.jsx.
+   * wording of its own UI is its own. See ReportOverlay.jsx.
    */
   const reportFailure = useCallback((error) => {
     const expired = error?.session_expired
@@ -1984,6 +1986,11 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
       kind: REPORT_UNAVAILABLE,
       message: typeof error?.error === 'string' ? error.error : null,
       stepId: null,
+      // A REQUIRED REPORT-TIME SOURCE THAT DID NOT ANSWER names itself:
+      // `failed_layer {type, label, reason}`, the shape a generate and a
+      // session creation already carry. Kept whole so the copy can name the
+      // source; still the kind that asks for no reopen.
+      failedLayer: error?.failed_layer ?? null,
     }
   }, [])
 

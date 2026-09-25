@@ -1,8 +1,8 @@
 /**
  * report.test.jsx
  *
- * THE REPORT BUTTON: WHEN IT EXISTS, WHAT PRESSING IT DOES, AND WHAT IT SAYS
- * WHEN IT CANNOT.
+ * THE DELIVERY STATE AND THE REPORT OVERLAY: WHEN THEY EXIST, WHAT PRESSING
+ * THEM DOES, AND WHAT THEY SAY WHEN THE REPORT CANNOT BE MADE.
  *
  * The report is the one action in this app that is about the SESSION rather
  * than about a step. It has no candidates, nothing to select and nothing to
@@ -29,13 +29,21 @@
  *
  * THE CASES:
  *
- *   1. The button renders only when EVERY step is committed.
+ *   1. The delivery card renders only when EVERY step is committed.
  *   2. Reopening a MID-CHAIN step removes it -- the cascade is what does it.
- *   3. Pressing it submits, polls, and produces a downloadable PDF link.
+ *   3. Generating from the overlay submits, polls, and produces a PDF link.
  *   4. The wait cycles phrases; past the threshold, the long-wait copy.
  *   5. An expired session's message says reopen and recommit.
- *   6. A source failure's message does not suggest retrying differently.
- *   7. The rail's SEVEN ROWS are unchanged -- no eighth row, no report step.
+ *   6. A source failure's message does not suggest retrying differently;
+ *      a NAMED source (`failed_layer`) is named.
+ *   7. The rail's SEVEN ROWS are unchanged, and nothing hangs below them.
+ *   8. The overlay: its contents, and its keyboard -- focus in, Tab held,
+ *      Escape out, focus back to the button -- and dismissing it generates
+ *      nothing.
+ *
+ * THE OVERLAY IS PORTALLED into the map stage, or <body> where there is no
+ * stage -- which is the case here -- so the queries below read the document
+ * rather than the shell's own container.
  */
 
 import React from 'react'
@@ -57,7 +65,15 @@ import { BOUNDARY_STEP_ID, STEP_DEFINITIONS, registryProposalFeatures } from './
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
 import { LONG_WAIT_MS, PHRASE_INTERVAL_MS, REPORTING, WAIT_PHRASES } from './shell/WaitingLine.jsx'
-import { REPORT_FAILURE_COPY, REPORT_LABEL } from './shell/ReportAction.jsx'
+import {
+  CLOSE_LABEL,
+  OVERLAY_TITLE,
+  REPORT_CONTENTS,
+  REPORT_FAILURE_COPY,
+  REPORT_LABEL,
+} from './shell/ReportOverlay.jsx'
+import { DELIVERY_LABEL, DELIVERY_TITLE } from './shell/DeliveryPanel.jsx'
+import { AUTO_KEY } from '../tutorial/prefs.js'
 
 const STEP_ORDER = ['landform', 'water', 'roads', 'trees', 'structures', 'fencing']
 
@@ -165,7 +181,7 @@ function installFetch({
     result: {
       report_id: REPORT_ID,
       download_url: DOWNLOAD_PATH,
-      filename: 'scale-of-permanence-report.pdf',
+      filename: 'site-data-report.pdf',
       size_bytes: 425225,
     },
   },
@@ -253,7 +269,8 @@ async function renderShell() {
     await session.actions.resume(SESSION_ID)
   })
 
-  const q = (testid) => container.querySelector(`[data-testid="${testid}"]`)
+  // THE DOCUMENT, NOT THE CONTAINER: the overlay is portalled out of it.
+  const q = (testid) => window.document.querySelector(`[data-testid="${testid}"]`)
 
   return {
     container,
@@ -265,7 +282,9 @@ async function renderShell() {
     },
     q,
     rows: () => [...container.querySelectorAll('[data-testid="wizard-order"] > li')],
-    reportAction: () => q('report-action'),
+    reportAction: () => q('delivery'),
+    openButton: () => q('report-open'),
+    overlay: () => q('report-dialog'),
     generateButton: () => q('report-generate'),
     downloadLink: () => q('report-download'),
     failureNote: () => q('report-failure'),
@@ -273,6 +292,26 @@ async function renderShell() {
     async press(testid) {
       await React.act(async () => {
         q(testid).click()
+      })
+    },
+    /** Open the overlay from the delivery card, then press generate in it. */
+    async generate() {
+      if (!q('report-dialog')) {
+        await React.act(async () => {
+          q('report-open').click()
+        })
+      }
+      await React.act(async () => {
+        q('report-generate').click()
+      })
+    },
+    /** A key, dispatched where focus is, as a keyboard would. */
+    async key(key, init = {}) {
+      await React.act(async () => {
+        const target = window.document.activeElement ?? window.document.body
+        target.dispatchEvent(
+          new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+        )
       })
     },
     async resume() {
@@ -302,7 +341,7 @@ afterEach(() => {
    1. ONLY WHEN EVERY STEP IS COMMITTED
    =========================================================================== */
 
-describe('1. the button renders only when every step is committed', () => {
+describe('1. the delivery card renders only when every step is committed', () => {
   it('is absent on a design with one step outstanding, and present when none is', async () => {
     // FIVE OF SIX. The last step is the one left, which is the state a user
     // is in for the whole of the fencing step -- and the one where a button
@@ -326,7 +365,12 @@ describe('1. the button renders only when every step is committed', () => {
     installFetch({ document: allCommitted() })
     const done = await renderShell()
     expect(done.reportAction(), 'the report is offered on a finished design').not.toBeNull()
-    expect(done.generateButton().textContent).toBe(REPORT_LABEL)
+    expect(done.openButton().textContent).toBe(DELIVERY_LABEL)
+    expect(done.reportAction().textContent).toContain(DELIVERY_TITLE)
+    // ONE ACTION, AND IT OPENS; IT DOES NOT GENERATE. Generation runs from
+    // the overlay, one deliberate press further on.
+    expect(done.reportAction().querySelectorAll('button, a')).toHaveLength(1)
+    expect(done.generateButton(), 'nothing generates from the card').toBeNull()
     expect(selectDesignIsComplete(done.session.state)).toBe(true)
     expect(selectReportIsOffered(done.session.state)).toBe(true)
     await done.unmount()
@@ -358,7 +402,7 @@ describe('1. the button renders only when every step is committed', () => {
     })
     expect(session.state.stepOrder).toEqual([])
     expect(selectDesignIsComplete(session.state)).toBe(false)
-    expect(container.querySelector('[data-testid="report-action"]')).toBeNull()
+    expect(container.querySelector('[data-testid="delivery"]')).toBeNull()
     await React.act(async () => root.unmount())
     container.remove()
   })
@@ -427,7 +471,7 @@ describe('2. reopening any step removes it, because the cascade does', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     installFetch({ document: allCommitted(), jobPolls: 0 })
     const ui = await renderShell()
-    await ui.press('report-generate')
+    await ui.generate()
     await React.act(async () => {
       await vi.advanceTimersByTimeAsync(2000)
     })
@@ -447,7 +491,7 @@ describe('2. reopening any step removes it, because the cascade does', () => {
    3. PRESS, POLL, DOWNLOAD
    =========================================================================== */
 
-describe('3. pressing it submits, polls, and produces a downloadable PDF', () => {
+describe('3. generating from the overlay submits, polls, and produces a downloadable PDF', () => {
   it('POSTs the session report route, polls the job, and offers the link', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     // TWO `running` SNAPSHOTS BEFORE THE ANSWER, so the real poll loop in
@@ -455,7 +499,7 @@ describe('3. pressing it submits, polls, and produces a downloadable PDF', () =>
     const wire = installFetch({ document: allCommitted(), jobPolls: 2 })
     const ui = await renderShell()
 
-    await ui.press('report-generate')
+    await ui.generate()
 
     // THE PRESS CHANGES THE SCREEN BEFORE THE SERVER AGREES -- the store
     // dispatches REPORT_STARTED ahead of the first await, for the same reason
@@ -485,7 +529,7 @@ describe('3. pressing it submits, polls, and produces a downloadable PDF', () =>
     // different one, so a relative href would resolve against the frontend
     // and 404.
     expect(link.getAttribute('href')).toBe(`${API}${DOWNLOAD_PATH}`)
-    expect(link.getAttribute('download')).toBe('scale-of-permanence-report.pdf')
+    expect(link.getAttribute('download')).toBe('site-data-report.pdf')
     expect(ui.q('report-ready-note').textContent).toContain('PDF')
     expect(ui.waitingNote(), 'the wait is over').toBeNull()
     expect(ui.failureNote()).toBeNull()
@@ -504,7 +548,7 @@ describe('4. the wait shows cycling phrases, then the long-wait copy', () => {
     // threshold without the answer arriving first.
     installFetch({ document: allCommitted(), jobPolls: Number.MAX_SAFE_INTEGER })
     const ui = await renderShell()
-    await ui.press('report-generate')
+    await ui.generate()
 
     // NOTHING BEFORE THE FIRST INTERVAL. A wait earns its phrases by lasting;
     // the declared line stands until then.
@@ -550,7 +594,7 @@ describe('4. the wait shows cycling phrases, then the long-wait copy', () => {
     vi.useFakeTimers({ shouldAdvanceTime: false })
     installFetch({ document: allCommitted(), jobPolls: Number.MAX_SAFE_INTEGER })
     const ui = await renderShell()
-    await ui.press('report-generate')
+    await ui.generate()
     await React.act(async () => {
       await vi.advanceTimersByTimeAsync(LONG_WAIT_MS.generating + 1000)
     })
@@ -592,7 +636,7 @@ async function failWith(error) {
     reportTerminal: { job_id: 'job-r1', status: 'failed', error },
   })
   const ui = await renderShell()
-  await ui.press('report-generate')
+  await ui.generate()
   await React.act(async () => {
     await vi.advanceTimersByTimeAsync(2000)
   })
@@ -677,6 +721,49 @@ describe('6. a source failure does not suggest retrying differently', () => {
     await ui.unmount()
   })
 
+  it('NAMES the source when the payload carries failed_layer, as session creation does', async () => {
+    // WHAT A DAYMET OUTAGE SENDS: session_report._failed_layer_payload().
+    // The generic copy used to render here, with the layer thrown away.
+    const ui = await failWith({
+      error:
+        'The report could not be generated: the climate records could not be retrieved. ' +
+        'Your committed design is unharmed and nothing about it needs to change.',
+      failed_layer: { type: 'climate', label: 'climate records', reason: 'source_unavailable' },
+      report_failed: { actionable: true },
+    })
+    const note = ui.failureNote()
+    expect(ui.session.state.report.failure.failedLayer.type).toBe('climate')
+    expect(note.dataset.failure).toBe('unavailable')
+    expect(note.dataset.failedLayer, 'keyed on the stable type').toBe('climate')
+    const text = note.textContent
+    // THE LABEL, VERBATIM -- the backend's display prose, never reworded.
+    expect(text).toContain('The climate records source did not respond')
+    expect(text).not.toBe(REPORT_FAILURE_COPY.default)
+    // AN OUTAGE PASSES, and the backend says a retry can help -- so this one
+    // says to try again, in the session-creation notice's words.
+    expect(text).toContain('Try again in a moment.')
+    // NEVER THE DESIGN'S FAULT, and never the server's own sentence.
+    expect(text.toLowerCase()).toContain('your design is unaffected')
+    expect(text).not.toContain('could not be retrieved')
+    expect(text.toLowerCase()).not.toContain('reopen')
+    await ui.unmount()
+  })
+
+  it('says a source with NO DATA for this land will not change on another attempt', async () => {
+    const ui = await failWith({
+      error: 'There is no climate records data available for this land ...',
+      failed_layer: { type: 'climate', label: 'climate records', reason: 'no_data_for_parcel' },
+      report_failed: { actionable: false },
+    })
+    const text = ui.failureNote().textContent
+    expect(text).toContain('climate records')
+    expect(text).toContain('not an outage')
+    for (const forbidden of ['try again', 'retry', 'reopen', 'recommit', 'check your', 'please']) {
+      expect(text.toLowerCase(), `a permanent gap must not say "${forbidden}"`).not.toContain(forbidden)
+    }
+    await ui.unmount()
+  })
+
   it('does not leave the last failure under a new attempt', async () => {
     const ui = await failWith(UNAVAILABLE_ERROR)
     expect(ui.failureNote()).not.toBeNull()
@@ -686,7 +773,7 @@ describe('6. a source failure does not suggest retrying differently', () => {
     // answer happens to be. Re-installed rather than parameterised: the point
     // is a fresh request, and a fresh request is a fresh wire.
     installFetch({ document: allCommitted(), jobPolls: Number.MAX_SAFE_INTEGER })
-    await ui.press('report-generate')
+    await ui.generate()
 
     expect(ui.session.state.report.status).toBe('working')
     expect(ui.failureNote(), 'the old failure goes when a new request starts').toBeNull()
@@ -701,7 +788,7 @@ describe('6. a source failure does not suggest retrying differently', () => {
    7. THE RAIL IS STILL SEVEN ROWS
    =========================================================================== */
 
-describe('7. the rail is unchanged -- no eighth row and no report step', () => {
+describe('7. the rail is unchanged -- no eighth row, and nothing below the rows', () => {
   it('lists the boundary and the six steps, with the report outside the list', async () => {
     installFetch({ document: allCommitted() })
     const ui = await renderShell()
@@ -718,16 +805,47 @@ describe('7. the rail is unchanged -- no eighth row and no report step', () => {
     expect(action, 'the report is rendered').not.toBeNull()
     expect(action.closest('ol'), 'and it is not inside the rail list').toBeNull()
     expect(action.closest('[data-testid="wizard-order"]')).toBeNull()
-    // IT IS IN THE RAIL, BELOW IT -- not in the action banner, which is
-    // step-scoped chrome.
-    expect(action.closest('[data-testid="step-rail"]'), 'it lives in the rail').not.toBeNull()
+    // IT IS IN THE ACTION AREA, NOT THE RAIL. The rail is a progress
+    // indicator and the report is not a step in it; a button hung below the
+    // last row read as one that had lost its number.
+    expect(action.closest('[data-testid="step-rail"]'), 'it is not in the rail').toBeNull()
+    expect(action.closest('.chrome__actions'), 'it heads the action area').not.toBeNull()
+    // AND IT IS NOT INSIDE THE STEP'S BANNER, which is step-scoped chrome and
+    // keeps its own controls beneath it.
     expect(action.closest('.chrome-banner')).toBeNull()
+    // NOTHING BELOW THE ROWS: the rail holds its list and only its list.
+    const rail = ui.q('step-rail')
+    expect([...rail.children].map((child) => child.tagName)).toEqual(['OL'])
 
     // AND NO DOCUMENT GREW A REPORT STEP.
     expect(ui.session.state.stepOrder).toEqual(STEP_ORDER)
     expect(ui.session.state.steps.report).toBeUndefined()
     expect(ui.cursor.order).toEqual([BOUNDARY_STEP_ID, ...STEP_ORDER])
     expect(STEP_DEFINITIONS.some((definition) => definition.id === 'report')).toBe(false)
+    await ui.unmount()
+  })
+
+  it("keeps the step's own control beneath it, on every step it is shown on", async () => {
+    // THE CARD IS THE SESSION'S, NOT THE STEP'S. On the last step and on any
+    // other, a finished design shows it -- and the committed step's own
+    // reopen stays beneath it, so the way back into the design is still the
+    // step you are looking at.
+    installFetch({ document: allCommitted() })
+    const ui = await renderShell()
+    for (const stepId of ['fencing', 'landform']) {
+      await React.act(async () => {
+        ui.cursor.open(stepId)
+      })
+      expect(ui.reportAction(), `the card on ${stepId}`).not.toBeNull()
+      const banner = ui.q(`banner-${stepId}`)
+      expect(banner, `${stepId}'s own banner is still there`).not.toBeNull()
+      expect(banner.closest('.chrome__actions')).toBe(ui.reportAction().closest('.chrome__actions'))
+      // ONE OXIDE ON SCREEN: the card's. The step's committed control is
+      // secondary.
+      expect(
+        window.document.querySelectorAll('.chrome__actions .chrome-banner__button--primary')
+      ).toHaveLength(1)
+    }
     await ui.unmount()
   })
 
@@ -738,13 +856,137 @@ describe('7. the rail is unchanged -- no eighth row and no report step', () => {
     const count = () => ui.rows().length
 
     expect(count()).toBe(RAIL_ROWS)
-    await ui.press('report-generate')
+    await ui.generate()
     expect(count(), 'seven while it works').toBe(RAIL_ROWS)
     await React.act(async () => {
       await vi.advanceTimersByTimeAsync(2000)
     })
     expect(ui.downloadLink()).not.toBeNull()
     expect(count(), 'seven when it is ready').toBe(RAIL_ROWS)
+    await ui.unmount()
+  })
+})
+
+/* ===========================================================================
+   8. THE OVERLAY: WHAT IT SAYS, AND THE KEYBOARD
+   =========================================================================== */
+
+describe('8. the overlay', () => {
+  // NO STEP CARD. A first visit's tutorial card auto-opens on arrival and is
+  // a dialogue of its own, with its own hold on Tab; what is under test here
+  // is this dialogue's. A returning user has the auto-open off.
+  beforeEach(() => {
+    window.localStorage.setItem(AUTO_KEY, JSON.stringify(false))
+  })
+
+  it('lists the sections, ends on the design, and names no back matter', async () => {
+    installFetch({ document: allCommitted() })
+    const ui = await renderShell()
+    await ui.press('report-open')
+
+    const dialog = ui.overlay()
+    expect(dialog, 'the overlay opens').not.toBeNull()
+    expect(dialog.getAttribute('role')).toBe('dialog')
+    expect(dialog.getAttribute('aria-modal')).toBe('true')
+    const title = window.document.getElementById(dialog.getAttribute('aria-labelledby'))
+    expect(title.textContent).toBe(OVERLAY_TITLE)
+
+    const names = [...dialog.querySelectorAll('dt')].map((dt) => dt.textContent)
+    expect(names).toEqual(REPORT_CONTENTS.map((section) => section.name))
+    // ENDS ON THE DESIGN. The sources-and-methods pages are not listed.
+    expect(names.at(-1)).toBe('The design')
+    const text = dialog.textContent.toLowerCase()
+    for (const absent of ['sources', 'methods', 'references', 'bibliography']) {
+      expect(text, `the overlay does not list "${absent}"`).not.toContain(absent)
+    }
+    // NO EXCLUSIVITY CLAIMED: it says the data is public.
+    expect(text).toContain('public survey data')
+    for (const claim of ['exclusive', 'proprietary', 'only we', 'nowhere else']) {
+      expect(text).not.toContain(claim)
+    }
+
+    // THE THREE LINES THAT DO THE MOST WORK, and they are the emphasised ones.
+    const keys = [...dialog.querySelectorAll('[data-testid="report-key-line"]')].map(
+      (el) => el.textContent
+    )
+    expect(keys).toEqual([
+      'the seasonal water table month by month',
+      'what the soil survey says about building a lane',
+      'what each species yields on this soil',
+    ])
+
+    // NO PREVIEW, NO PLACEHOLDER, NO PRICE: no image, no frame, no currency.
+    expect(dialog.querySelector('img, figure, iframe')).toBeNull()
+    expect(dialog.textContent).not.toMatch(/[$£€]|\bprice\b|\bbuy\b|\bpurchase\b/i)
+
+    // ONE ACTION, and it generates as it always has.
+    expect(ui.generateButton().textContent).toBe(REPORT_LABEL)
+    await ui.unmount()
+  })
+
+  it('takes focus, holds Tab inside, closes on Escape, and returns focus to the button', async () => {
+    const wire = installFetch({ document: allCommitted() })
+    const ui = await renderShell()
+
+    ui.openButton().focus()
+    await ui.press('report-open')
+    const dialog = ui.overlay()
+    expect(window.document.activeElement, 'focus moves into the dialog').toBe(dialog)
+    expect(ui.openButton().getAttribute('aria-expanded')).toBe('true')
+
+    // TAB IS HELD. From the dialog itself forward is the first control (the
+    // close), shift+Tab off the first is the last (the action), and Tab off
+    // the last wraps to the first.
+    const close = dialog.querySelector(`[aria-label="${CLOSE_LABEL}"]`)
+    const action = ui.generateButton()
+    await ui.key('Tab')
+    expect(window.document.activeElement).toBe(close)
+    await ui.key('Tab', { shiftKey: true })
+    expect(window.document.activeElement).toBe(action)
+    await ui.key('Tab')
+    expect(window.document.activeElement).toBe(close)
+
+    // ESCAPE CLOSES, AND FOCUS GOES BACK TO WHAT OPENED IT.
+    await ui.key('Escape')
+    expect(ui.overlay(), 'Escape closes the overlay').toBeNull()
+    expect(window.document.activeElement, 'focus returns to the button').toBe(ui.openButton())
+    expect(ui.openButton().getAttribute('aria-expanded')).toBe('false')
+
+    // DISMISSED WITHOUT GENERATING: nothing was asked of the server.
+    expect(wire.calls.filter((c) => c.path.endsWith('/report'))).toHaveLength(0)
+    expect(ui.session.state.report.status).toBe('idle')
+    await ui.unmount()
+  })
+
+  it('closes from the × and from the dim, without generating', async () => {
+    const wire = installFetch({ document: allCommitted() })
+    const ui = await renderShell()
+    await ui.press('report-open')
+    await ui.press('report-close')
+    expect(ui.overlay()).toBeNull()
+    expect(window.document.activeElement).toBe(ui.openButton())
+    await ui.press('report-open')
+    await ui.press('report-backdrop')
+    expect(ui.overlay()).toBeNull()
+    expect(wire.calls.filter((c) => c.path.endsWith('/report'))).toHaveLength(0)
+    await ui.unmount()
+  })
+
+  it('does not cancel a report when closed mid-wait, and the card says it is under way', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false })
+    installFetch({ document: allCommitted(), jobPolls: Number.MAX_SAFE_INTEGER })
+    const ui = await renderShell()
+    await ui.generate()
+    // THE PRESS DISABLED THE BUTTON; FOCUS STAYED IN THE DIALOGUE.
+    expect(window.document.activeElement).toBe(ui.overlay())
+    await ui.key('Escape')
+    expect(ui.overlay()).toBeNull()
+    expect(ui.session.state.report.status).toBe('working')
+    expect(ui.q('delivery-state').textContent).toBe('Your report is being made.')
+    // AND OPENING IT AGAIN SHOWS THE SAME WAIT.
+    await ui.press('report-open')
+    expect(ui.generateButton().disabled).toBe(true)
+    expect(ui.waitingNote()).not.toBeNull()
     await ui.unmount()
   })
 })

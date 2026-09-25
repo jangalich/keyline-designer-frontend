@@ -50,7 +50,7 @@
  * pick between them. The sets differ from each other because the waits
  * genuinely differ: a commit is out on public data sources, a generate is work
  * over data this session already has, and a report is both of those plus a
- * language model writing eight sections.
+ * twenty-three page document drawn and laid out.
  *
  * THERE IS A THIRD SET NOW AND IT IS NOT A MACHINE STATE. REPORTING is keyed
  * into the same three tables as the other two, and every rule above applies to
@@ -119,32 +119,34 @@ export const WAIT_PHRASES = Object.freeze({
   /**
    * THE REPORT'S OWN FOUR, AND WHAT THEY ARE ABOUT.
    *
-   * ORDER-NEUTRAL LIKE THE OTHERS, and for the identical reason: the report
-   * job reports no stage. The narrative, the map render and the imagery all
-   * happen inside one job whose only three answers are running, done and
-   * failed, so a phrase naming a stage would be a fabricated status report
-   * -- right often enough to be believed and wrong exactly when something is
-   * slow, which is when a person is reading this.
+   * WHAT THE WAIT IS NOW. There is no narrative and no language model: the
+   * job fetches the report-time public data for the parcel (climate, design
+   * storms, wind, imagery), draws every map and chart, and lays out
+   * twenty-three pages. Measured warm, 53 to 66 seconds end to end. The set
+   * was written for the narrated report and three of its four still held;
+   * the fourth, "Working through what is on this land", described analysis
+   * the report no longer does, and is replaced by the one thing the wait
+   * mostly IS -- compiling public records.
    *
-   * SO NONE OF THESE NAMES A STAGE even though there plainly are three, and
-   * that is the line this set was hardest to keep on: "Drawing the layout
-   * map" is the obvious fourth phrase and it is a claim -- it says the
-   * render is what is running, which is true for about one second of a wait
-   * that is mostly a language model writing. All four are descriptions of
-   * the same fact instead: a document about this land is being put together.
-   * Whichever is on screen when the answer comes back is an accident of
-   * timing.
+   * ORDER-NEUTRAL LIKE THE OTHERS, and for the identical reason: the report
+   * job reports no stage. Everything happens inside one job whose only three
+   * answers are running, done and failed, so a phrase naming a stage would
+   * be a fabricated status report -- right often enough to be believed and
+   * wrong exactly when something is slow, which is when a person is reading
+   * this. "Drawing the soils map" is the obvious phrase and it is a claim.
+   * All four describe the whole of the work instead, and whichever is on
+   * screen when the answer comes back is an accident of timing.
    *
    * AND THEY ARE ABOUT A DOCUMENT rather than about the land, which is the
    * one way they depart from the other two sets. A commit is out fetching
-   * facts and a generate is measuring ground; this is writing something
-   * down, and a phrase here saying "reading the slopes" would describe work
-   * that finished several steps ago.
+   * facts and a generate is measuring ground; this is assembling something
+   * to keep, and a phrase here saying "reading the slopes" would describe
+   * work that finished several steps ago.
    */
   [REPORTING]: Object.freeze([
     'Putting your report together',
     'Setting out the design you committed',
-    'Working through what is on this land',
+    'Compiling the public records for this parcel',
     'Making the pages of your report',
   ]),
 })
@@ -163,35 +165,21 @@ export const WAIT_PHRASES = Object.freeze({
  * of the documented band.
  */
 /**
- * A REPORT: ITS OWN NUMBER, AND THE LONGEST HERE BY SOME WAY.
+ * A REPORT: ITS OWN NUMBER, AND THE LONGEST HERE.
  *
- * WHAT IT IS MADE OF, MEASURED. On the reference parcel, against the real
- * renderer and the real PDF assembly, everything the report does LOCALLY
- * comes to 1.9 s -- build_session_design() and layout_layers() are pure
- * reads at 0.01 s together, render_layout_map() is 0.75 s and weasyprint is
- * 1.11 s. End to end through the route, job submit and polling included,
- * that measured at 2.9 s.
+ * WHAT IT IS MADE OF, MEASURED. The site data report has no narrative and no
+ * model call: it fetches the report-time public data for the parcel, draws
+ * every map and chart, and lays out twenty-three pages. Measured warm runs
+ * (diagnose_report_generation_time.py in the backend) take 53 to 66 s end
+ * to end.
  *
- * WHAT IS NOT IN THAT NUMBER IS THE TWO THINGS THAT DOMINATE IT, and they
- * were not measurable where the rest was: the basemap imagery (about twenty
- * NAIP tiles at zoom 18, plus the zoom probe's walk down from the service
- * ceiling) and the Claude call -- ONE non-streaming completion over a 17 kB
- * prompt with max_tokens 20000, producing an eight-section narrative. The
- * second of those is the whole wait. A few seconds of tiles and two seconds
- * of local work sit under a completion that is the order of a minute.
- *
- * SO 150s, AND WHY THAT SHAPE OF NUMBER. The generate's 75 s is set at
- * roughly a quarter past the top of its documented 30-60 s band, which is
- * the rule this follows rather than the number. A report's band is the
- * completion's, and a long one is minutes rather than seconds; 150 s is past
- * the top of an ordinary one and well short of a wait nobody should still be
- * sitting through.
- *
- * IT IS THE ONE NUMBER HERE STILL SET AGAINST AN UNMEASURED TERM, and the
- * honest thing is to say so rather than to round it confidently. Re-measure
- * it against real completions -- the elapsed time a real report takes, from
- * the 202 to the job reading done -- and move it; nothing else changes when
- * it does.
+ * 150 s WAS SET FOR THE NARRATED REPORT, whose wait was a model completion of
+ * the order of a minute or more, and it is left where it is. Against the
+ * measured band it is never reached on a warm run, so what a person sees is
+ * the cycling phrases alone -- which is why their wording is what was fixed
+ * (see WAIT_PHRASES[REPORTING]). A cold run -- a session rebuilt from its
+ * Design Document the next day, refetching Layer 1 -- is unmeasured here,
+ * and is the case this number may still catch.
  */
 export const LONG_WAIT_MS = Object.freeze({
   [COMMITTING]: 25000,
@@ -210,7 +198,7 @@ export const LONG_WAIT_LINE = Object.freeze({
   [GENERATING]: 'Still working. This parcel is taking longer than most.',
   // THE REPORT'S: it says the one fact this client holds and offers the
   // reason that is true of every long report rather than of this one -- a
-  // whole document is being written, and that is the slow part. NO DURATION,
+  // whole document is being assembled, and that is the slow part. NO DURATION,
   // which is the rule the other two are written under as well: nothing here
   // knows how long the request has left, and "a few minutes" is a promise
   // this client cannot keep. No retry, no cancel, no apology, nothing that
