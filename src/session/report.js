@@ -18,18 +18,19 @@
  * true here as it is there. One poller, so the upgrade is one change.
  *
  * THE BACKOFF IS THE GENERATE'S, UNCHANGED, AND IT IS IF ANYTHING TOO EAGER.
- * A report is the longest operation in the product — the full narrative
- * through Claude plus the layout map render plus its imagery — so easing out
- * to a five-second interval costs a handful of extra polls over a wait that is
- * mostly spent asleep. Tuning it would be tuning a number nobody is waiting
- * on; the number a person IS waiting on is the long-wait threshold, which is
- * WaitingLine.jsx's.
+ * A report is the longest operation in the product — the report-time public
+ * data fetched for the parcel, every map and chart drawn, twenty-three pages
+ * laid out; a minute, warm — so easing out to a five-second interval costs a
+ * handful of extra polls over a wait that is mostly spent asleep. Tuning it
+ * would be tuning a number nobody is waiting on; the number a person IS
+ * waiting on is the long-wait threshold, which is WaitingLine.jsx's.
  *
- * THE TWO FAILURES ARE NOT TOLD APART HERE. A failed job resolves with its
- * error payload exactly as a failed generate does; which KIND of failure it is
- * — an expired session the user can act on, or a source outage they cannot —
- * is read off the keys the payload carries, and that reading belongs where the
- * copy is. See reportFailure() in the store.
+ * THE FAILURES ARE NOT TOLD APART HERE. A failed job resolves with its error
+ * payload exactly as a failed generate does; which KIND of failure it is — an
+ * expired session the user can act on, a named source (`failed_layer`) that
+ * did not answer, or an outage with nothing to ask for — is read off the keys
+ * the payload carries, and that reading belongs where the copy is. See
+ * reportFailure() in the store and ReportOverlay.jsx.
  */
 
 import { generateReport as apiGenerateReport } from './apiClient'

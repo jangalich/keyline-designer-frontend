@@ -10,7 +10,9 @@
  *   B  InstructionBar   top, centred   the state's direction, plus notices.
  *   F  DetailPanel      top right      reserved; the container and its toggle.
  *   D  TabStrip         bottom left    one tab per feature, capped at 3 rows.
- *   E  ActionBanner     bottom right   the state's buttons.
+ *   E  ActionBanner     bottom right   the state's buttons -- headed, on a
+ *                                      finished design's last step, by the
+ *                                      delivery card (DeliveryPanel).
  *
  * WHAT THIS REPLACES. A column of step panels beside the map, in which almost
  * every interaction happened somewhere other than the thing being edited, and
@@ -69,6 +71,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import ActionBanner from './shell/ActionBanner.jsx'
+import DeliveryPanel from './shell/DeliveryPanel.jsx'
 import DetailPanel from './shell/DetailPanel.jsx'
 import InstructionBar from './shell/InstructionBar.jsx'
 import StepRail from './shell/StepRail.jsx'
@@ -77,6 +80,7 @@ import { chromeStateFor } from './shell/chromeState.js'
 import { useWizardCursor } from './WizardCursor.jsx'
 import TutorialHelp from '../tutorial/TutorialHelp.jsx'
 import { useStepMachine } from './useStepMachine'
+import { selectReportIsOffered, useSession } from '../session/SessionStore'
 
 export default function WizardShell() {
   const { cursorStepId, definition, definitions } = useWizardCursor()
@@ -119,11 +123,31 @@ export default function WizardShell() {
  */
 function StepChrome({ definition, definitions }) {
   const machine = useStepMachine(definition)
-  const { armed, focusedFeatureId, blurFeature, focusFeature } = useWizardCursor()
+  const { armed, focusedFeatureId, blurFeature, focusFeature, order } = useWizardCursor()
+  const { state } = useSession()
   const chromeState = chromeStateFor({ machineState: machine.machineState, armed })
   const undo = useRemovalUndo(machine, focusedFeatureId, blurFeature)
   const remove = useTabRemoval(machine, undo.remove, focusedFeatureId, blurFeature)
   useSeedFocus(machine, focusedFeatureId, focusFeature)
+
+  /**
+   * THE DELIVERY STATE IS THE END OF THE SEQUENCE, NOT A BANNER OVER IT.
+   *
+   * THREE CONDITIONS. The design is finished (every step committed -- a
+   * derivation, so any reopen takes it away); the cursor is on the LAST step,
+   * where the sequence ends and where a finished design lands; and nothing is
+   * being edited -- a reopen confirmation up on that step is someone on their
+   * way back into the design, and a finish card above that question would
+   * contradict it.
+   *
+   * NOT ON EVERY STEP. Opening Water from the rail to look at it shows Water's
+   * own committed chrome and nothing else; the finish state shown above every
+   * step would be always present, and a thing always present stops saying
+   * anything. It is back the moment the cursor returns to the end.
+   */
+  const lastStepId = order[order.length - 1]
+  const delivering =
+    selectReportIsOffered(state) && definition.id === lastStepId && !machine.confirmingReopen
 
   return (
     <>
@@ -137,7 +161,14 @@ function StepChrome({ definition, definitions }) {
       <div className="chrome__free" aria-hidden="true" />
       <div className="chrome__bottom">
         <TabStrip machine={machine} onRemove={remove} />
-        <ActionBanner machine={machine} chromeState={chromeState} definitions={definitions} />
+        {/* THE ACTION AREA'S COLUMN. At the end of a finished design the
+            delivery card heads it and the step's own banner sits under it,
+            demoted (see .chrome__actions--delivering); otherwise this is the
+            banner alone. See DeliveryPanel. */}
+        <div className={'chrome__actions' + (delivering ? ' chrome__actions--delivering' : '')}>
+          {delivering ? <DeliveryPanel /> : null}
+          <ActionBanner machine={machine} chromeState={chromeState} definitions={definitions} />
+        </div>
       </div>
     </>
   )

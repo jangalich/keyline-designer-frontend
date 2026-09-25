@@ -908,76 +908,6 @@
   color: var(--ink-muted);
 }
 
-/* --- THE REPORT, BELOW THE ROWS ---------------------------------------------
-   THE ONE THING YOU CAN DO WITH A FINISHED DESIGN, and it is deliberately
-   NOT a row. The help control was a row of this rail once and read as an
-   eighth step; that is the mistake available here, and the defence is that
-   this looks like the shell's ACTIONS rather than like its list -- an oxide
-   primary with the same casing the banner's buttons carry, under a rule
-   that closes the list above it.
-
-   THE RULE IS THE LIST'S OWN HAIRLINE, continued. Every row is separated by
-   one (.chrome-rail__item + .chrome-rail__item), so a border-top here reads
-   as the list ending rather than as a new kind of divider.
-
-   PADDED ON ALL FOUR SIDES, unlike a row, which is the other half of not
-   being one: rows run edge to edge inside the rail's clip and this sits in
-   from it. The rail clips (overflow: hidden) so nothing here needs its own
-   radius handling.
-
-   IT ONLY EXISTS WHEN EVERY STEP IS COMMITTED, so there is no empty-state
-   treatment and none is needed -- ReportAction renders nothing at all
-   otherwise, and the rail is exactly what it was. */
-.chrome-rail__report {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border-top: var(--hairline);
-}
-
-/* FULL WIDTH OF THE RAIL, which the banner's buttons are not: they sit in a
-   row beside each other and size to their labels. This is alone in its
-   region and a button narrower than the column it is in would look like it
-   had been left there. */
-.chrome-rail__report-button {
-  width: 100%;
-  justify-content: center;
-  text-align: center;
-}
-
-/* THE ANCHOR HAS TO BE TOLD IT IS A BUTTON. .chrome-banner__button is
-   written for <button>, which is already inline-flex and already has no
-   underline; an <a> carrying the same class inherits the fills and the
-   casing but not the box or the reset's link decoration. The download IS a
-   link -- it navigates to a file on another origin, which is what an anchor
-   is for -- so it keeps its element and takes the difference here. */
-a.chrome-rail__report-button {
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-}
-
-/* The note under it: the wait line, the failure, or what the link is. One
-   class for all three because they are one slot -- only ever one is on
-   screen -- and a second voice for each would be three treatments for the
-   same piece of prose. */
-.chrome-rail__report-note {
-  margin: 0;
-  font-size: var(--text-xs);
-  line-height: var(--leading-body);
-  color: var(--ink-muted);
-}
-
-/* A FAILURE IS NOT AN ALARM HERE. No red fill, no icon, no border: the two
-   things that can go wrong are an expired session and a source that did not
-   answer, and NEITHER is an error about the user's design. Oxide on the
-   text alone marks it as the thing to read without making the rail look
-   broken -- which it is not, and which is the one impression this copy is
-   written to avoid giving. */
-.chrome-rail__report-note--failed {
-  color: var(--oxide);
-}
-
 /* --- THE HELP CONTROL, bottom left ------------------------------------------
    A circled ? in the corner the tab strip leaves empty: the bottom row's
    first track is a gutter exactly --rail-width wide (see .chrome__bottom),
@@ -2400,6 +2330,331 @@ a.chrome-rail__report-button {
   display: flex;
   gap: var(--space-3);
   justify-content: flex-end;
+}
+
+/* --- THE DELIVERY STATE, heading the action area on a finished design ------
+   The bottom-right corner is where every step's controls have lived, so it
+   is where attention already is when the last step commits. On a finished
+   design a card heads that corner: it says the design is complete and offers
+   one action. The map stays as it is behind it -- the finished layout is the
+   thing to be looking at while deciding whether to take the document of it.
+
+   THE COLUMN IS A LAYOUT, like the banner it holds. It stacks the card over
+   the step's own banner, flush right, and takes no pointer events itself: the
+   gap between the two is map. The banner inside it keeps every rule it had.
+
+   THE CARD IS A CARD because it carries prose, by the rule every region here
+   takes: an opaque --paper surface, the hairline, the radius. Its button is
+   ON that surface rather than on imagery, so it takes no casing -- the same
+   reasoning the confirmation's answers are written under.
+
+   ONE OXIDE. The card's action is the forward move on a finished design, and
+   the step's banner beneath it offers only a reopen, which is secondary. */
+.chrome__actions {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-3);
+  min-width: 0;
+  max-width: 100%;
+  pointer-events: none;
+}
+
+.chrome-delivery {
+  display: grid;
+  gap: var(--space-2);
+  width: min(20rem, 100%);
+  padding: var(--space-4);
+  background: var(--paper);
+  border: var(--hairline);
+  border-radius: var(--radius);
+  pointer-events: auto;
+}
+
+/* The titling voice -- the rail's cursor row, the detail panel's name. */
+.chrome-delivery__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-lg);
+  line-height: var(--leading-tight);
+  color: var(--ink);
+}
+
+.chrome-delivery__body {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+/* A report already asked for, while the overlay is closed: machine state, so
+   the data face, in the banner's working line's voice. */
+.chrome-delivery__state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.chrome-delivery__action {
+  margin-top: var(--space-2);
+  width: 100%;
+  text-align: center;
+}
+
+/* ONE ACTION READS, THOUGH TWO EXIST.
+
+   The step's own "Edit this step" stays under the card -- without it the only
+   way back into the last step is reopening an earlier one, which cascades --
+   but beside the card's action it read as a sibling: same size, same shape,
+   adjacent. So the weights are pulled apart on both sides.
+
+   THE CARD'S ACTION GOES UP: the body size and a taller box, full width of
+   its card. The heaviest control in the shell, on the one state where it is
+   the only forward move there is.
+
+   THE REOPEN GOES DOWN: the smallest type in the system, muted ink, a tight
+   box, and a wider gap above it so it no longer stacks against the card as
+   its partner. It keeps its --paper surface and its casing -- it is still on
+   aerial photography and still has to be legible there -- and it takes ink
+   back on hover and focus, so it is quiet rather than hidden. */
+.chrome__actions--delivering {
+  gap: var(--space-4);
+}
+
+.chrome__actions--delivering .chrome-delivery__action {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+}
+
+.chrome__actions--delivering .chrome-banner__button--secondary {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.chrome__actions--delivering .chrome-banner__button--secondary:hover:not(:disabled),
+.chrome__actions--delivering .chrome-banner__button--secondary:focus-visible {
+  color: var(--ink);
+}
+
+/* --- THE REPORT OVERLAY ------------------------------------------------------
+   What the site data report contains, and where it is made. A modal card over
+   the map's stage, on the tutorial's arrangement: the dim covers the map and
+   its chrome and nothing beyond, above the chrome's 400.
+
+   A CONTENTS LIST, NOT A SALES PAGE. The sections are a definition list --
+   the section's name in the titling voice, what it holds in prose -- ruled
+   like the rail's rows. Three phrases carry weight and nothing else carries
+   emphasis: they are the ones the interactive map does not give.
+
+   THE FOOT IS A ROW WITH TWO ENDS, and it stays in view. The trailing end is
+   the action; the leading end is one line of state. A price and a purchase
+   would take those two ends without the layout moving, and nothing here
+   draws a slot for them. Sticky to the card's foot, so on a short screen the
+   contents scroll and the action does not.
+
+   NOTHING BELOW NAMES A COLOUR. The dim is --scrim at an opacity. */
+.report-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.report-overlay__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  opacity: 0.55;
+}
+
+.report-overlay__card {
+  position: relative;
+  width: min(100%, 38rem);
+  max-height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  /* No bottom padding: the foot carries it, so the sticky foot sits flush
+     with the card's edge and nothing scrolls visibly beneath it. */
+  padding: var(--space-5) var(--space-5) 0;
+  background: var(--paper);
+  border: var(--hairline);
+  border-radius: var(--radius);
+}
+
+/* The way out that is not the action. Quiet, top right -- the tutorial's. */
+.report-overlay__close {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-prose);
+  font-size: var(--text-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.report-overlay__close:hover {
+  background: var(--stock);
+  color: var(--ink);
+}
+
+.report-overlay__title {
+  margin: 0;
+  padding-right: var(--space-6);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+  color: var(--ink);
+}
+
+.report-overlay__lede {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+.report-overlay__contents {
+  margin: 0;
+  border-top: var(--hairline);
+}
+
+.report-overlay__section {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: var(--hairline);
+}
+
+.report-overlay__section-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+.report-overlay__section-body {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+}
+
+/* THE THREE LINES THAT DO THE MOST WORK. Weight and full ink against the
+   muted description around them -- not colour, which the action owns. */
+.report-overlay__key {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.report-overlay__foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-top: auto;
+  padding: var(--space-4) 0 var(--space-5);
+  background: var(--paper);
+}
+
+.report-overlay__state {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.report-overlay__note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+}
+
+/* The wait is machine state: the data face, as the banner's working line. */
+.report-overlay__note[data-testid='report-waiting'] {
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+}
+
+/* A FAILURE IS NOT AN ALARM. Full ink so it is read, and no fill, icon or
+   border: none of the three things that can go wrong is about the design. */
+.report-overlay__note--failed {
+  color: var(--ink);
+}
+
+.report-overlay__action {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* THE ANCHOR HAS TO BE TOLD IT IS A BUTTON. .chrome-banner__button is written
+   for <button>; the download is a link to a file on another origin, which is
+   what an anchor is for, so it keeps its element and takes the box here. */
+a.report-overlay__action {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* NARROW: the section names go above their lines, and the foot stacks -- the
+   state over a full-width action. */
+@media (max-width: 40rem) {
+  .report-overlay {
+    padding: var(--space-3);
+  }
+
+  .report-overlay__card {
+    padding: var(--space-4) var(--space-4) 0;
+  }
+
+  .report-overlay__section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .report-overlay__foot {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+    padding-bottom: var(--space-4);
+  }
+
+  .report-overlay__action {
+    justify-content: center;
+    white-space: normal;
+  }
 }
 
 /* --- Narrow screens, for the chrome ----------------------------------------
