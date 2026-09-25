@@ -825,26 +825,67 @@ describe('7. the rail is unchanged -- no eighth row, and nothing below the rows'
     await ui.unmount()
   })
 
-  it("keeps the step's own control beneath it, on every step it is shown on", async () => {
-    // THE CARD IS THE SESSION'S, NOT THE STEP'S. On the last step and on any
-    // other, a finished design shows it -- and the committed step's own
-    // reopen stays beneath it, so the way back into the design is still the
-    // step you are looking at.
+  it('is on the last step only, with that step\'s own control beneath it', async () => {
+    // THE FINISH STATE IS THE END OF THE SEQUENCE. A finished design lands on
+    // the last step, and that is where the card is; opening Water from the
+    // rail to look at it shows Water's own committed chrome and no card.
     installFetch({ document: allCommitted() })
     const ui = await renderShell()
-    for (const stepId of ['fencing', 'landform']) {
+    expect(ui.cursor.cursorStepId).toBe('fencing')
+    expect(ui.reportAction(), 'the card on the last step').not.toBeNull()
+
+    // THE STEP'S OWN REOPEN STAYS, beneath it and in the same column -- the
+    // only way back into the last step that does not cascade.
+    const banner = ui.q('banner-fencing')
+    expect(banner).not.toBeNull()
+    expect(banner.closest('.chrome__actions')).toBe(ui.reportAction().closest('.chrome__actions'))
+    expect(banner.closest('.chrome__actions').classList.contains('chrome__actions--delivering')).toBe(true)
+    // ONE OXIDE: the card's. The reopen is secondary.
+    expect(
+      window.document.querySelectorAll('.chrome__actions .chrome-banner__button--primary')
+    ).toHaveLength(1)
+    expect(ui.q('edit-fencing').dataset.tone).toBe('secondary')
+
+    for (const stepId of ['water', 'landform']) {
       await React.act(async () => {
         ui.cursor.open(stepId)
       })
-      expect(ui.reportAction(), `the card on ${stepId}`).not.toBeNull()
-      const banner = ui.q(`banner-${stepId}`)
-      expect(banner, `${stepId}'s own banner is still there`).not.toBeNull()
-      expect(banner.closest('.chrome__actions')).toBe(ui.reportAction().closest('.chrome__actions'))
-      // ONE OXIDE ON SCREEN: the card's. The step's committed control is
-      // secondary.
-      expect(
-        window.document.querySelectorAll('.chrome__actions .chrome-banner__button--primary')
-      ).toHaveLength(1)
+      expect(ui.reportAction(), `no card while ${stepId} is open`).toBeNull()
+      expect(ui.q(`edit-${stepId}`), `${stepId}'s own reopen is there`).not.toBeNull()
+      expect(ui.container.querySelector('.chrome__actions--delivering')).toBeNull()
+    }
+
+    // BACK TO THE END, AND IT IS BACK.
+    await React.act(async () => {
+      ui.cursor.open('fencing')
+    })
+    expect(ui.reportAction()).not.toBeNull()
+    await ui.unmount()
+  })
+
+  it('stands down while the last step is being reopened, and is gone once water is', async () => {
+    installFetch({ document: allCommitted() })
+    const ui = await renderShell()
+
+    // A REOPEN CONFIRMATION UP ON THE LAST STEP: someone on their way back
+    // into the design. A finish card above that question would contradict it.
+    await ui.press('edit-fencing')
+    expect(ui.q('reopen-confirm-fencing')).not.toBeNull()
+    expect(ui.reportAction(), 'no card over a reopen question').toBeNull()
+    await ui.press('reopen-confirm-no-fencing')
+    expect(ui.reportAction(), 'kept as it is: the card returns').not.toBeNull()
+
+    // REOPENING WATER. The cascade puts water back to generated and every
+    // step below it to not_started, so the design is not finished and there
+    // is no card anywhere -- on water, where the cursor is, or at the end.
+    await React.act(async () => {
+      await ui.session.actions.reopen('water')
+    })
+    for (const stepId of ['water', 'fencing']) {
+      await React.act(async () => {
+        ui.cursor.open(stepId)
+      })
+      expect(ui.reportAction(), `no card on ${stepId} after water is reopened`).toBeNull()
     }
     await ui.unmount()
   })

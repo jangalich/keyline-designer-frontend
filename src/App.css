@@ -2409,6 +2409,42 @@
   text-align: center;
 }
 
+/* ONE ACTION READS, THOUGH TWO EXIST.
+
+   The step's own "Edit this step" stays under the card -- without it the only
+   way back into the last step is reopening an earlier one, which cascades --
+   but beside the card's action it read as a sibling: same size, same shape,
+   adjacent. So the weights are pulled apart on both sides.
+
+   THE CARD'S ACTION GOES UP: the body size and a taller box, full width of
+   its card. The heaviest control in the shell, on the one state where it is
+   the only forward move there is.
+
+   THE REOPEN GOES DOWN: the smallest type in the system, muted ink, a tight
+   box, and a wider gap above it so it no longer stacks against the card as
+   its partner. It keeps its --paper surface and its casing -- it is still on
+   aerial photography and still has to be legible there -- and it takes ink
+   back on hover and focus, so it is quiet rather than hidden. */
+.chrome__actions--delivering {
+  gap: var(--space-4);
+}
+
+.chrome__actions--delivering .chrome-delivery__action {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+}
+
+.chrome__actions--delivering .chrome-banner__button--secondary {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.chrome__actions--delivering .chrome-banner__button--secondary:hover:not(:disabled),
+.chrome__actions--delivering .chrome-banner__button--secondary:focus-visible {
+  color: var(--ink);
+}
+
 /* --- THE REPORT OVERLAY ------------------------------------------------------
    What the site data report contains, and where it is made. A modal card over
    the map's stage, on the tutorial's arrangement: the dim covers the map and

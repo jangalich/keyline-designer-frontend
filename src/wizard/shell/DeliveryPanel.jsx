@@ -30,12 +30,18 @@
  * noticing. A `designComplete` flag written when the last step committed
  * would survive that reopen.
  *
- * IT IS THE SESSION'S, NOT THE STEP'S. Whichever step the cursor is on, a
- * finished design is finished -- so the card is on screen for all of them,
- * and the step's own control (the committed state's "Edit this step") stays
- * beneath it, unchanged. That control is the step's, not the delivery
- * state's: the way back into a finished design is still the step you are
- * looking at.
+ * ON THE LAST STEP, AND ONLY WHILE NOTHING IS BEING EDITED. WizardShell's
+ * StepChrome decides that (it holds the cursor and the machine); this
+ * component still refuses to render on an unfinished design, so it cannot be
+ * mounted into one by mistake. Opening another step from the rail shows that
+ * step's own chrome alone: a finish state present everywhere would dilute it.
+ *
+ * THE STEP'S OWN "Edit this step" STAYS BENEATH IT, DEMOTED. Removing it
+ * would leave no way back into the last step except reopening an earlier one,
+ * which cascades. So two controls exist and one action reads: the card's is a
+ * full-width oxide primary at the body size, and the reopen under it drops to
+ * the smallest control in the shell, in muted ink, with a gap between them
+ * (App.css, .chrome__actions--delivering).
  *
  *
  * THE WORDING. "See your site data report" names the artifact rather than
