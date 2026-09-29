@@ -117,10 +117,11 @@
    correct failure direction — clipping the headline would be worse than losing
    the peek on a device that cannot show it anyway.
 
-   RHYTHM. Four gaps at four deliberately different sizes, so the block groups
+   RHYTHM. Five gaps at five deliberately different sizes, so the block groups
    instead of reading as one evenly-spaced list:
 
-     above headline    generous — flex-end banks the leftover min-height here
+     above eyebrow     generous — flex-end banks the leftover min-height here
+     eyebrow→headline  tight    — --space-3, the label belongs to the headline
      headline→subhead  moderate — one thought, --space-4
      subhead→input     generous — the claim ends and the action begins, --space-7
      input→map         tight    — --space-5, so the peek reads as the next step
@@ -137,6 +138,11 @@
   padding-block: var(--space-7) var(--space-5);
 }
 
+/* A label above the headline, so the data face and a caption colour. */
+.hero .eyebrow {
+  margin: 0 0 var(--space-3);
+}
+
 .hero h1 {
   font-size: var(--text-3xl);
   max-width: 17ch;
@@ -145,7 +151,8 @@
 }
 
 /* --ink, not --ink-muted. This is the only sentence on the page that makes the
-   actual claim — LiDAR, soil survey, hydrography — and a caption colour left
+   actual claim — a LiDAR-derived DEM, read for ridges, valleys, keypoints and
+   water, then the decisions one at a time — and a caption colour left
    the most load-bearing line as the least legible one. Hierarchy under the
    headline comes from size and measure instead of from colour. */
 .hero__subhead {
@@ -275,6 +282,15 @@
 
 /* --- Prose sections --------------------------------------------------------- */
 
+/* THE PAGE'S EYEBROW: the data face at caption size, muted. Used above the
+   hero headline and under each sample report page. */
+.eyebrow {
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  letter-spacing: 0.02em;
+  color: var(--ink-muted);
+}
+
 .section {
   padding-block: var(--space-8);
   border-top: var(--hairline);
@@ -295,7 +311,7 @@
 
 /* Body copy, not a caption — same reasoning as .hero__subhead. Size carries
    the lede's prominence. --ink-muted stays only for genuinely secondary
-   text: the footer, the sample slot, the Scale numerals. */
+   text: the footer, the sample slots and their captions. */
 .section__lede {
   font-size: var(--text-lg);
   color: var(--ink);
@@ -313,60 +329,24 @@
   background: var(--paper);
 }
 
-/* The one place numbering is earned: the order of the Scale of Permanence
-   carries the meaning, so the numerals are content and not decoration.
-
-   Every child is placed EXPLICITLY. The li holds three grid items —
-   ::before, h3, p — and in a two-column grid with implicit placement the p
-   wraps onto a second row in column 1, i.e. into the 2.25rem numeral
-   column, one word per line. Naming the row and column for each is what
-   keeps the definition beside its heading rather than under the numeral. */
-.scale-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  counter-reset: factor;
-}
-
-.scale-list li {
-  counter-increment: factor;
+/* Three report pages side by side, each captioned with its section. */
+.sample-row {
   display: grid;
-  grid-template-columns: 2.25rem 1fr;
-  /* Column gap only. The h3's own margin sets the gap to the definition
-     below it; a row gap here would double it. */
-  gap: 0 var(--space-3);
-  padding-block: var(--space-3);
-  border-top: var(--hairline);
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+  margin: 0 0 var(--space-4);
 }
 
-.scale-list li:first-child {
-  border-top: none;
-}
-
-.scale-list li::before {
-  content: counter(factor);
-  grid-column: 1;
-  grid-row: 1;
-  font-family: var(--font-display);
-  font-weight: 600;
-  color: var(--ink-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.scale-list h3 {
-  grid-column: 2;
-  grid-row: 1;
-  font-size: var(--text-base);
-  margin: 0 0 var(--space-1);
-}
-
-/* The one-line definition of each factor IS this section's content, so it
-   reads at full strength; only the numeral beside it stays muted. */
-.scale-list p {
-  grid-column: 2;
-  grid-row: 2;
+.sample {
   margin: 0;
-  color: var(--ink);
+}
+
+.sample .sample-slot {
+  margin: 0 0 var(--space-2);
+}
+
+.section .sample-note {
+  color: var(--ink-muted);
   font-size: var(--text-sm);
 }
 
@@ -421,6 +401,10 @@
 
   .hero {
     min-height: 60vh;
+  }
+
+  .sample-row {
+    grid-template-columns: 1fr;
   }
 
   .nav {
