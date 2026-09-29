@@ -30,7 +30,9 @@
  * commitment -- the block, then the water area -- each on the 'settled' tone,
  * in the order they were decided. Roads adds the first POINT layer (access
  * points) and the first LINE layer (farm tracks); the later steps' cards are
- * expected to draw on these rather than add their own.
+ * expected to draw on these rather than add their own. Trees adds the tree
+ * zones, on the second crop's hatch: production's, mirrored, at the same
+ * pitch and weight (see CROP_HATCHES), over three settled commitments.
  *
  * NO COLOUR LIVES HERE. Every fill and stroke is a class in App.css's
  * tutorial section, read from index.css's tokens.
@@ -282,37 +284,80 @@ export const SUGGESTED_BLOCKS = Object.freeze(
   ].map(([id, d]) => Object.freeze({ id, d }))
 )
 
-/** The hatch's pitch, in scene units, and its angle. */
-export const HATCH_PITCH = 7
+/**
+ * THE TWO CROPS' HATCH: production and trees, as the map rules them
+ * (ProductionHatchPattern.jsx, the `production` and `tree` rows). ONE PITCH
+ * AND ONE WEIGHT FOR BOTH -- spacing 8, weight 1 -- and they differ in two
+ * things only: colour, which is each rule's class in App.css, and RISE,
+ * which is the pattern's angle. Production rises ("/", `rise: 'up'`);
+ * trees falls ("\", `rise: 'down'`), production's ruling mirrored.
+ *
+ * THE PAIRING IS THE POINT. Production and trees are the two things grown on
+ * this parcel, and a reader should see one family at a glance and two members
+ * of it on inspection. If the two ever differ in pitch or weight as well as
+ * in colour and rise, they stop reading as a pair -- so there is one pitch
+ * here, not one per crop, and the weight is one rule in App.css that both
+ * lines share. It was 7 and 1.5 for production alone, which was not the
+ * map's mark; treesCard.test.jsx holds both crops to the map's rows.
+ *
+ * SPACING HERE IS THE PATTERN'S WIDTH, the distance between rules across the
+ * ruling. The map's tile puts its rule on the tile's diagonal, so on the map
+ * the same 8 is the tile's side; the scene keeps the rotated single rule it
+ * always drew and takes the map's number for it.
+ */
+export const HATCH_PITCH = 8
 export const HATCH_ANGLE = 45
+
+/** Each crop's rise, as the map names it, and the angle it is drawn at. */
+export const CROP_HATCHES = Object.freeze({
+  production: Object.freeze({ treatment: 'production', rise: 'up', angle: HATCH_ANGLE, line: 'farm-scene__hatch-line' }),
+  tree: Object.freeze({ treatment: 'tree', rise: 'down', angle: -HATCH_ANGLE, line: 'farm-scene__tree-line' }),
+})
 
 /**
  * A pattern id for one diagram. Every card is its own <svg>, and a url(#id)
  * resolves document-wide, so two diagrams on one page must not share one;
  * useId's colons are not safe inside url(), so they go.
  */
-export function useHatchId() {
-  return `farm-hatch-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
+export function useHatchId(prefix = 'farm-hatch') {
+  return `${prefix}-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
+}
+
+/** A tree-hatch id for one diagram; see useHatchId. */
+export function useTreeHatchId() {
+  return useHatchId('farm-tree-hatch')
 }
 
 /**
- * THE HATCH: diagonal rules at 45 degrees, HATCH_PITCH apart. Its stroke is
- * the rule's class, read from a token in App.css -- the pattern markup names
- * no colour. Goes in the diagram's <defs>, once, before any block uses it.
+ * ONE CROP'S HATCH: a single rule per tile, HATCH_PITCH wide, turned to the
+ * crop's rise. Its stroke is the rule's class, read from a token in App.css
+ * -- the pattern markup names no colour. Goes in the diagram's <defs>, once,
+ * before any zone uses it.
  */
-export function BlockHatch({ id }) {
+function CropHatch({ id, crop }) {
+  const { angle, line } = CROP_HATCHES[crop]
   return (
     <pattern
       id={id}
-      className="farm-scene__hatch"
+      className={crop === 'production' ? 'farm-scene__hatch' : `farm-scene__hatch farm-scene__hatch--${crop}`}
       width={HATCH_PITCH}
       height={HATCH_PITCH}
       patternUnits="userSpaceOnUse"
-      patternTransform={`rotate(${HATCH_ANGLE})`}
+      patternTransform={`rotate(${angle})`}
     >
-      <line className="farm-scene__hatch-line" x1="0" y1="0" x2="0" y2={HATCH_PITCH} />
+      <line className={line} x1="0" y1="0" x2="0" y2={HATCH_PITCH} />
     </pattern>
   )
+}
+
+/** THE PRODUCTION HATCH: the rising rule, in --oxide. */
+export function BlockHatch({ id }) {
+  return <CropHatch id={id} crop="production" />
+}
+
+/** THE TREE HATCH: production's rule, mirrored, in --tree. */
+export function TreeHatch({ id }) {
+  return <CropHatch id={id} crop="tree" />
 }
 
 /**
@@ -592,6 +637,71 @@ export function SceneFarmTracks({ networks = ROAD_NETWORKS, ...props }) {
             />
           ))}
         </g>
+      ))}
+    </Layer>
+  )
+}
+
+/* ===========================================================================
+   TREE ZONES -- the trees step's mark, as the map draws it
+   =========================================================================== */
+
+/**
+ * THE TWO GENERATED TREE ZONES, on the ground the commitments above left.
+ *
+ * ZONE 1 IS ON BARE GROUND, NOT ON THE WOODLOT: the open strip between the
+ * road and the canopy. A tree zone over existing woods reads as the tool
+ * describing trees the user already has; beside them it reads as ground
+ * proposed for planting, which is what it is. Do not move it onto the canopy.
+ *
+ * ZONE 2 IS A CRESCENT along the southern margin, wrapping below the
+ * committed water area. Neither is a tidy blob: these are the leftover
+ * grounds, and their sprawl -- going around the block, the water and the
+ * track -- is the KSOP order made visible.
+ *
+ * `treatment` is the map's for these zones -- the `tree` row of the mark
+ * table, a hatch with no outline -- so a card and a test can hold the scene
+ * to the map rather than to itself.
+ */
+export const TREE_ZONES = Object.freeze(
+  [
+    ['1', 'M 216 74 C 242 66, 272 76, 290 92 C 302 102, 294 114, 276 116 C 256 118, 240 110, 224 104 C 210 98, 206 86, 216 74 Z'],
+    ['2', 'M 104 184 C 112 208, 132 228, 158 238 C 184 248, 214 242, 236 228 C 226 236, 200 236, 176 228 C 152 220, 134 206, 124 186 C 118 176, 110 176, 104 184 Z'],
+  ].map(([id, d]) => Object.freeze({ id, treatment: 'tree', mark: 'hatch', d }))
+)
+
+/**
+ * ONE TREE ZONE: ONE shape, the tree hatch and nothing under or around it.
+ * Not a block's two stacked shapes -- the map's tree row carries no screen
+ * and no outline, and a zone's extent is where the ruling stops. Takes a
+ * path (`d`, a generated zone) or corners (`points`, one a person clicked),
+ * as Block does, and smooths neither.
+ */
+export function TreeZone({ hatch, id, d, points, className }) {
+  const Shape = points ? 'polygon' : 'path'
+  const geometry = points ? { points } : { d }
+  return (
+    <Shape
+      className={['farm-scene__tree-zone', className].filter(Boolean).join(' ')}
+      data-zone={id}
+      data-treatment="tree"
+      data-mark="hatch"
+      {...geometry}
+      style={{ '--farm-tree-hatch': `url(#${hatch})` }}
+    />
+  )
+}
+
+/**
+ * THE TREE-ZONE LAYER: the generated zones by default, each tagged with its
+ * id (`data-zone`) and able to carry a `className` of its own, so a card can
+ * take one off the map without a compound selector.
+ */
+export function SceneTreeZones({ hatch, zones = TREE_ZONES, ...props }) {
+  return (
+    <Layer id="tree-zones" {...props}>
+      {zones.map((zone) => (
+        <TreeZone key={zone.id} hatch={hatch} {...zone} />
       ))}
     </Layer>
   )

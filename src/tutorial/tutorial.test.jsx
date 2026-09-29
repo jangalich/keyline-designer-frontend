@@ -581,7 +581,8 @@ describe('5. reduced motion', () => {
     // follows its focus hidden, the pending markers replaced, the banner on
     // its reviewing pair (the other three states hidden, with the generate
     // button's disabled face), the armed boundary unlit, and the STREAM
-    // label hidden for the same reason again.
+    // label hidden for the same reason again. The trees card rests with
+    // Zone 2 off the map and its tick gone, and hides the STREAM label too.
     const hidden = rulesOf(TUTORIAL_CSS)
       .filter(([selector]) => !selector.startsWith('@') && !/^\d/.test(selector))
       .filter(([, body]) => /(^|;)\s*opacity:\s*0\s*(;|$)/.test(body) || /display:\s*none/.test(body))
@@ -613,6 +614,8 @@ describe('5. reduced motion', () => {
           '.tutorial-anim__banner--roads-working',
           '.tutorial-anim__disabled--roads',
         ].join(',\n'),
+        ".tutorial-anim--trees .farm-scene__label[data-label='stream']",
+        '.tutorial-anim__zone--trees-2,\n.tutorial-anim__tick--trees-2',
       ].sort()
     )
 
