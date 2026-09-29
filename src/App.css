@@ -117,10 +117,11 @@
    correct failure direction — clipping the headline would be worse than losing
    the peek on a device that cannot show it anyway.
 
-   RHYTHM. Four gaps at four deliberately different sizes, so the block groups
+   RHYTHM. Five gaps at five deliberately different sizes, so the block groups
    instead of reading as one evenly-spaced list:
 
-     above headline    generous — flex-end banks the leftover min-height here
+     above eyebrow     generous — flex-end banks the leftover min-height here
+     eyebrow→headline  tight    — --space-3, the label belongs to the headline
      headline→subhead  moderate — one thought, --space-4
      subhead→input     generous — the claim ends and the action begins, --space-7
      input→map         tight    — --space-5, so the peek reads as the next step
@@ -150,7 +151,8 @@
 }
 
 /* --ink, not --ink-muted. This is the only sentence on the page that makes the
-   actual claim — LiDAR, soil survey, hydrography — and a caption colour left
+   actual claim — a LiDAR-derived DEM, read for ridges, valleys, keypoints and
+   water, then the decisions one at a time — and a caption colour left
    the most load-bearing line as the least legible one. Hierarchy under the
    headline comes from size and measure instead of from colour. */
 .hero__subhead {
