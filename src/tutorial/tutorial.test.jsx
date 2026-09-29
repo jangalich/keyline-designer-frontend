@@ -575,7 +575,8 @@ describe('5. reduced motion', () => {
     // Block 1's mark, tab mark and figures rest hidden; card two rests with
     // Block 2 out, its tick gone and the total at its last reading; the
     // click pulse is a moment; and the scene's STREAM label sits under the
-    // tab strip.
+    // tab strip. The water card rests with the excavated area off the map
+    // and its tick gone, and hides the STREAM label for the same reason.
     const hidden = rulesOf(TUTORIAL_CSS)
       .filter(([selector]) => !selector.startsWith('@') && !/^\d/.test(selector))
       .filter(([, body]) => /(^|;)\s*opacity:\s*0\s*(;|$)/.test(body) || /display:\s*none/.test(body))
@@ -591,6 +592,8 @@ describe('5. reduced motion', () => {
         '.tutorial-anim__pulse',
         '.tutorial-anim__mark--landform-1,\n.tutorial-anim__tab-mark--landform-1,\n.tutorial-anim__panel-body--1',
         ".tutorial-anim--landform-set .farm-scene__block[data-block='2'],\n.tutorial-anim__tick--set-2,\n.tutorial-anim__total--1,\n.tutorial-anim__total--2",
+        ".tutorial-anim--water .farm-scene__label[data-label='stream']",
+        '.tutorial-anim__survey--water-excavated,\n.tutorial-anim__tick--water-excavated',
       ].sort()
     )
 

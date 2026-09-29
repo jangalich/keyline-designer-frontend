@@ -4260,6 +4260,35 @@ rect.tutorial-anim__solid,
   stroke-linejoin: round;
 }
 
+/* --- The farm's survey areas (farmScene.jsx) ----------------------------
+   The water step's two marks, as the map draws them (zoneMark()): TWO KINDS,
+   not one mark in two values. Embankment is a flat tint; excavated is a dot
+   field -- one dot per cell of a regular lattice, no ring round a dot. Each
+   has an outline in its own colour and nothing else. The two overlap on
+   purpose, and a wash under a dot field reads as two areas where two washes
+   would stack into a third. The survey pair are ground, not accents. */
+
+.farm-scene__survey {
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+
+.farm-scene__survey--embankment {
+  fill: var(--survey-embankment);
+  fill-opacity: 0.32;
+  stroke: var(--survey-embankment);
+}
+
+.farm-scene__survey--excavated {
+  fill: var(--farm-stipple);
+  stroke: var(--survey-excavated);
+}
+
+.farm-scene__stipple-dot {
+  fill: var(--survey-excavated);
+  stroke: none;
+}
+
 /* --- 6. Landform: read a block, then build the set -----------------------
    Two cards on the scene, each on its own --loop. The panel, tabs and
    buttons are the map's chrome drawn at the scene's scale; every numeral is
@@ -4494,6 +4523,108 @@ rect.tutorial-anim__solid,
 @media (prefers-reduced-motion: reduce) {
   .tutorial-anim--landform *,
   .tutorial-anim--landform-set .farm-scene__block[data-block='2'] {
+    animation: none;
+  }
+}
+
+/* --- 7. Water: read one survey area, untick the other, commit -----------
+   One card on the scene, 13s. Block 1 is settled context; the two survey
+   areas overlap below it. The embankment area is clicked at 10% on ground
+   the dot field does not cover; Excavated 1 is unticked at 55%; commit is
+   pressed at 79%. Oxide is only the click pulses and the commit button,
+   both from the shared rules above. */
+
+.tutorial-anim--water {
+  --loop: 13s;
+}
+
+/* The scene's STREAM label sits where the tab strip does. */
+.tutorial-anim--water .farm-scene__label[data-label='stream'] {
+  display: none;
+}
+
+/* Type at the scene's scale: about 9px at the card's narrowest. */
+.tutorial-anim--water .tutorial-anim__value,
+.tutorial-anim--water .tutorial-anim__label,
+.tutorial-anim--water .tutorial-anim__name,
+.tutorial-anim--water .tutorial-anim__commit-label {
+  font-size: 11px;
+}
+
+.tutorial-anim__mark--water,
+.tutorial-anim__tab-mark--water {
+  stroke-width: 2.6;
+}
+
+/* RESTING FRAME: the embankment area read, its tab marked and its panel
+   open; the excavated area off the map, its tick gone, its tab dimmed. */
+.tutorial-anim__survey--water-excavated,
+.tutorial-anim__tick--water-excavated {
+  opacity: 0;
+}
+
+.tutorial-anim__tab--water-excavated {
+  opacity: 0.45;
+}
+
+.tutorial-anim__cursor--water { animation-name: tutorial-water-cursor; animation-timing-function: cubic-bezier(0.4, 0, 0.25, 1); }
+.tutorial-anim__pointer--water { animation-name: tutorial-water-press; }
+.tutorial-anim__pulse--water-1 { animation-name: tutorial-water-pulse-1; }
+.tutorial-anim__pulse--water-2 { animation-name: tutorial-water-pulse-2; }
+.tutorial-anim__mark--water,
+.tutorial-anim__tab-mark--water { animation-name: tutorial-water-mark; }
+.tutorial-anim__panel--water { animation-name: tutorial-water-panel; }
+.tutorial-anim__reading--water-1 { animation-name: tutorial-water-row-1; }
+.tutorial-anim__reading--water-2 { animation-name: tutorial-water-row-2; }
+.tutorial-anim__tick--water-excavated { animation-name: tutorial-water-untick; }
+.tutorial-anim__survey--water-excavated { animation-name: tutorial-water-excavated; }
+.tutorial-anim__tab--water-excavated { animation-name: tutorial-water-tab-dim; }
+.tutorial-anim__commit-button--water { animation-name: tutorial-water-commit-button; }
+
+@keyframes tutorial-water-cursor {
+  0% { transform: translate(60px, 268px); opacity: 0; }
+  3% { transform: translate(78px, 252px); opacity: 1; }
+  10%, 46% { transform: translate(150px, 190px); }
+  54%, 70% { transform: translate(142px, 276px); }
+  78% { transform: translate(325px, 236px); }
+  94% { transform: translate(325px, 236px); opacity: 1; }
+  97%, 100% { transform: translate(325px, 236px); opacity: 0; }
+}
+
+@keyframes tutorial-water-press {
+  0%, 10% { transform: scale(1); } 11% { transform: scale(0.82); } 12% { transform: scale(1); }
+  54% { transform: scale(1); } 55% { transform: scale(0.82); } 56% { transform: scale(1); }
+  79% { transform: scale(1); } 80% { transform: scale(0.82); } 81%, 100% { transform: scale(1); }
+}
+
+@keyframes tutorial-water-pulse-1 { 0%, 10% { opacity: 0; transform: scale(0.2); } 13% { opacity: 1; transform: scale(1); } 17%, 100% { opacity: 0; transform: scale(1.2); } }
+@keyframes tutorial-water-pulse-2 { 0%, 54% { opacity: 0; transform: scale(0.2); } 57% { opacity: 1; transform: scale(1); } 61%, 100% { opacity: 0; transform: scale(1.2); } }
+
+@keyframes tutorial-water-mark { 0%, 11% { opacity: 0; } 14%, 96% { opacity: 1; } 100% { opacity: 0; } }
+
+@keyframes tutorial-water-panel {
+  0%, 13% { opacity: 0; transform: translateX(10px); }
+  18%, 96% { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(0); }
+}
+
+@keyframes tutorial-water-row-1 { 0%, 17% { opacity: 0; } 21%, 100% { opacity: 1; } }
+@keyframes tutorial-water-row-2 { 0%, 21% { opacity: 0; } 25%, 100% { opacity: 1; } }
+
+/* The untick: the tick goes, the dot field leaves the map, the tab dims --
+   and the tint stays. All three come back over the loop's last beat, so it
+   opens on both areas without a jump. */
+@keyframes tutorial-water-untick { 0%, 55% { opacity: 1; } 57%, 96% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes tutorial-water-excavated { 0%, 55% { opacity: 1; } 58%, 96% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes tutorial-water-tab-dim { 0%, 56% { opacity: 1; } 59%, 96% { opacity: 0.45; } 100% { opacity: 1; } }
+
+@keyframes tutorial-water-commit-button { 0%, 79% { transform: scale(1); } 80.5% { transform: scale(0.94); } 82%, 100% { transform: scale(1); } }
+
+/* REDUCED MOTION, for the water card: its rules come after the diagrams'
+   own reduced-motion block, so it states it again. It lands on its resting
+   frame; the cursor goes by the shared rule. */
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-anim--water * {
     animation: none;
   }
 }
