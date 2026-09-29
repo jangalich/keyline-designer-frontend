@@ -103,11 +103,7 @@ function Dialogue({ onClose, onDismiss, initialCard, returnTo }) {
   const closing = useRef(false)
   const titleId = useId()
   const card = CARDS[index]
-  const last = index === CARDS.length - 1
-  const first = index === 0
-
-  const next = useCallback(() => setIndex((i) => Math.min(i + 1, CARDS.length - 1)), [])
-  const back = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), [])
+  const { next, back } = usePaging(CARDS.length, setIndex)
 
   // ONE CLOSE, for every way out: say it was dismissed, stow, then tell the
   // launcher to take it down. A second request while the stow runs is
@@ -144,18 +140,11 @@ function Dialogue({ onClose, onDismiss, initialCard, returnTo }) {
   useEffect(() => {
     function onKeyDown(event) {
       if (event.defaultPrevented || closing.current) return
+      if (pageKey(event, next, back)) return
       switch (event.key) {
         case 'Escape':
           event.preventDefault()
           close()
-          return
-        case 'ArrowRight':
-          event.preventDefault()
-          next()
-          return
-        case 'ArrowLeft':
-          event.preventDefault()
-          back()
           return
         case 'Tab':
           trapTab(event, cardRef.current)
@@ -209,49 +198,91 @@ function Dialogue({ onClose, onDismiss, initialCard, returnTo }) {
           <Animation />
         </figure>
 
-        <div className="tutorial__nav">
-          <button
-            type="button"
-            className="tutorial__button"
-            data-testid="tutorial-back"
-            disabled={first}
-            onClick={back}
-          >
-            {BACK_LABEL}
-          </button>
-
-          {/* THE DOTS ARE BUTTONS. Each one names its card for a screen reader
-              and jumps to it; the current one is marked with aria-current and
-              the stylesheet reads that rather than a second class. */}
-          <ol className="tutorial__dots" aria-label="Cards" data-testid="tutorial-dots">
-            {CARDS.map((entry, i) => (
-              <li key={entry.id}>
-                <button
-                  type="button"
-                  className="tutorial__dot"
-                  aria-label={`Card ${i + 1} of ${CARDS.length}: ${entry.title}`}
-                  aria-current={i === index ? 'true' : undefined}
-                  data-testid={`tutorial-dot-${i + 1}`}
-                  onClick={() => setIndex(i)}
-                />
-              </li>
-            ))}
-          </ol>
-
-          {/* THE ONE OXIDE IN THE CARD: the forward move, and on the last
-              card the way out. */}
-          <button
-            type="button"
-            className="tutorial__button tutorial__button--primary"
-            data-testid="tutorial-next"
-            onClick={last ? close : next}
-          >
-            {last ? DONE_LABEL : NEXT_LABEL}
-          </button>
-        </div>
+        <Pager
+          cards={CARDS}
+          index={index}
+          onIndex={setIndex}
+          onDone={close}
+          testid="tutorial"
+        />
       </div>
     </div>
   )
+}
+
+/**
+ * THE PAGER: Back, the dots, and the forward control -- "Next", and on the
+ * last card "Got it", which is `onDone`. The deck's own row, and a step
+ * card with more than one card in it draws the same one rather than a
+ * second: `testid` is the only thing the two tell it differently.
+ */
+export function Pager({ cards, index, onIndex, onDone, testid }) {
+  const last = index === cards.length - 1
+  const first = index === 0
+  return (
+    <div className="tutorial__nav">
+      <button
+        type="button"
+        className="tutorial__button"
+        data-testid={`${testid}-back`}
+        disabled={first}
+        onClick={() => onIndex(Math.max(index - 1, 0))}
+      >
+        {BACK_LABEL}
+      </button>
+
+      {/* THE DOTS ARE BUTTONS. Each one names its card for a screen reader
+          and jumps to it; the current one is marked with aria-current and
+          the stylesheet reads that rather than a second class. */}
+      <ol className="tutorial__dots" aria-label="Cards" data-testid={`${testid}-dots`}>
+        {cards.map((entry, i) => (
+          <li key={entry.id}>
+            <button
+              type="button"
+              className="tutorial__dot"
+              aria-label={`Card ${i + 1} of ${cards.length}: ${entry.title}`}
+              aria-current={i === index ? 'true' : undefined}
+              data-testid={`${testid}-dot-${i + 1}`}
+              onClick={() => onIndex(i)}
+            />
+          </li>
+        ))}
+      </ol>
+
+      {/* THE ONE OXIDE IN THE CARD: the forward move, and on the last
+          card the way out. */}
+      <button
+        type="button"
+        className="tutorial__button tutorial__button--primary"
+        data-testid={`${testid}-next`}
+        onClick={last ? onDone : () => onIndex(Math.min(index + 1, cards.length - 1))}
+      >
+        {last ? DONE_LABEL : NEXT_LABEL}
+      </button>
+    </div>
+  )
+}
+
+/** Forward and back over `count` cards, clamped at both ends. */
+export function usePaging(count, setIndex) {
+  const next = useCallback(() => setIndex((i) => Math.min(i + 1, count - 1)), [count, setIndex])
+  const back = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), [setIndex])
+  return { next, back }
+}
+
+/** The arrows page. True when the key was one of them and has been taken. */
+export function pageKey(event, next, back) {
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    next()
+    return true
+  }
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    back()
+    return true
+  }
+  return false
 }
 
 function clamp(index) {

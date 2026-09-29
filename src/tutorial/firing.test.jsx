@@ -73,9 +73,9 @@ describe('1. the rules, as a function', () => {
     expect(shouldAutoFire({ ...base, somethingOpen: true })).toBe(false)
   })
 
-  it('does not fire for a step with no card -- and the shipped registry carries boundary', () => {
+  it('does not fire for a step with no card -- and the shipped registry carries boundary and landform', () => {
     expect(shouldAutoFire({ ...base, stepId: 'water' })).toBe(false)
-    expect(STEP_CARDS.map((card) => card.stepId)).toEqual(['boundary'])
+    expect(STEP_CARDS.map((card) => card.stepId)).toEqual(['boundary', 'landform'])
     expect(shouldAutoFire({ ...base, registry: STEP_CARDS, stepId: 'water' })).toBe(false)
   })
 })

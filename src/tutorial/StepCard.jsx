@@ -3,11 +3,16 @@
  *
  * The same overlay as the deck and the orientation card -- the same dim, the
  * same card, centred in the same place -- holding one entry from the
- * registry (stepCards.js): its title, its body, its animation. No paging:
- * one step, one card.
+ * registry (stepCards.js): its title, its body, its animation.
+ *
+ * A STEP WITH MORE THAN ONE CARD PAGES, with the deck's own row -- Back, the
+ * dots, Next and "Got it" on the last (TutorialOverlay's Pager) -- above
+ * the foot, and the arrows page as they do in the deck. A step with one card
+ * has no pager and is exactly what it was.
  *
  * ONE ROW AT THE FOOT: "Show these tips automatically" on the left, "Got it"
- * on the right. The checkbox reads and writes `kd.tutorial.auto`; unticking
+ * on the right -- or, on a paged card, the checkbox alone, "Got it" being
+ * the pager's forward control on the last card. The checkbox reads and writes `kd.tutorial.auto`; unticking
  * it stops every later step's card opening by itself. Because the same
  * checkbox is on every card, and the help control always opens the current
  * step's card, turning it back on needs no settings screen.
@@ -22,17 +27,18 @@
  * control, as the deck's does.
  */
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import { CLOSE_LABEL, DONE_LABEL, stow, trapTab } from './TutorialOverlay.jsx'
+import { cardsOf } from './stepCards.js'
+import { CLOSE_LABEL, DONE_LABEL, Pager, pageKey, stow, trapTab, usePaging } from './TutorialOverlay.jsx'
 
 /** The preference beside the forward control. */
 export const AUTO_LABEL = 'Show these tips automatically'
 
 /**
  * @param {object} props
- * @param {{stepId: string, title: string, body: string, Animation?: Function}} props.card
+ * @param {object} props.card           a registry entry, either shape.
  * @param {boolean} props.auto            the checkbox's state.
  * @param {(auto: boolean) => void} props.onAutoChange
  * @param {() => void} props.onDismiss    at once, on every way out.
@@ -44,7 +50,12 @@ export default function StepCard({ container, ...props }) {
   return createPortal(<Dialogue {...props} />, container ?? document.body)
 }
 
-function Dialogue({ card, auto, onAutoChange, onDismiss, onClose, returnTo }) {
+function Dialogue({ card: entry, auto, onAutoChange, onDismiss, onClose, returnTo }) {
+  const cards = cardsOf(entry)
+  const paged = cards.length > 1
+  const [index, setIndex] = useState(0)
+  const { next, back } = usePaging(cards.length, setIndex)
+  const card = cards[index]
   const cardRef = useRef(null)
   const backdropRef = useRef(null)
   const closing = useRef(false)
@@ -70,6 +81,7 @@ function Dialogue({ card, auto, onAutoChange, onDismiss, onClose, returnTo }) {
   useEffect(() => {
     function onKeyDown(event) {
       if (event.defaultPrevented || closing.current) return
+      if (paged && pageKey(event, next, back)) return
       if (event.key === 'Escape') {
         event.preventDefault()
         close()
@@ -79,7 +91,7 @@ function Dialogue({ card, auto, onAutoChange, onDismiss, onClose, returnTo }) {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [close])
+  }, [close, paged, next, back])
 
   const { Animation } = card
 
@@ -94,7 +106,8 @@ function Dialogue({ card, auto, onAutoChange, onDismiss, onClose, returnTo }) {
         aria-labelledby={titleId}
         tabIndex={-1}
         data-testid="tutorial-step-card"
-        data-step={card.stepId}
+        data-step={entry.stepId}
+        data-card={paged ? card.id : undefined}
       >
         <button
           type="button"
@@ -110,12 +123,16 @@ function Dialogue({ card, auto, onAutoChange, onDismiss, onClose, returnTo }) {
           {card.title}
         </h2>
         <p className="tutorial__body" data-testid="tutorial-step-body">
-          {card.body}
+          <Body body={card.body} emphasis={card.emphasis} />
         </p>
         {Animation ? (
           <figure className="tutorial__figure" data-testid="tutorial-step-figure">
-            <Animation />
+            <Animation key={card.id ?? entry.stepId} />
           </figure>
+        ) : null}
+
+        {paged ? (
+          <Pager cards={cards} index={index} onIndex={setIndex} onDone={close} testid="tutorial-step" />
         ) : null}
 
         {/* THE FOOT: the preference on the left, the way forward on the right. */}
@@ -129,16 +146,31 @@ function Dialogue({ card, auto, onAutoChange, onDismiss, onClose, returnTo }) {
             />
             <span>{AUTO_LABEL}</span>
           </label>
-          <button
-            type="button"
-            className="tutorial__button tutorial__button--primary"
-            data-testid="tutorial-step-done"
-            onClick={close}
-          >
-            {DONE_LABEL}
-          </button>
+          {paged ? null : (
+            <button
+              type="button"
+              className="tutorial__button tutorial__button--primary"
+              data-testid="tutorial-step-done"
+              onClick={close}
+            >
+              {DONE_LABEL}
+            </button>
+          )}
         </div>
       </div>
     </div>
+  )
+}
+
+/** The body, with its emphasised clause, if it has one, set in weight. */
+function Body({ body, emphasis }) {
+  const at = emphasis ? body.indexOf(emphasis) : -1
+  if (at < 0) return body
+  return (
+    <>
+      {body.slice(0, at)}
+      <strong className="tutorial__em">{emphasis}</strong>
+      {body.slice(at + emphasis.length)}
+    </>
   )
 }
