@@ -26,6 +26,12 @@
  * water on shows them as settled context, so they live here with the rest
  * of the ground rather than in the landform cards.
  *
+ * SETTLED CONTEXT STACKS. From roads on a card shows more than one upstream
+ * commitment -- the block, then the water area -- each on the 'settled' tone,
+ * in the order they were decided. Roads adds the first POINT layer (access
+ * points) and the first LINE layer (farm tracks); the later steps' cards are
+ * expected to draw on these rather than add their own.
+ *
  * NO COLOUR LIVES HERE. Every fill and stroke is a class in App.css's
  * tutorial section, read from index.css's tokens.
  */
@@ -443,6 +449,150 @@ export function SceneSurveyExcavated({ stipple, ...props }) {
         d={d}
         style={{ '--farm-stipple': `url(#${stipple})` }}
       />
+    </Layer>
+  )
+}
+
+/* ===========================================================================
+   ROADS -- access points and farm tracks, as the map draws them
+   =========================================================================== */
+
+/**
+ * THE ACCESS POINTS: where a farm road meets the boundary. Both sit ON the
+ * parcel's north edge, the run that faces the road -- the first on A to B,
+ * the second on B to C -- because the placement tool snaps a click to the
+ * boundary line and nowhere else (AccessPointTool).
+ */
+export const ACCESS_POINTS = Object.freeze(
+  [
+    ['1', 150, 57],
+    ['2', 240, 60],
+  ].map(([id, x, y]) => Object.freeze({ id, x, y }))
+)
+
+/**
+ * THE MARKER'S TWO STATES, as the map has them (App.css, .access-point-marker):
+ *
+ *   'pending'    placed and not yet generated from: the roads step's draft
+ *                point (`roads-pending-access-point`), hollow and dashed.
+ *   'generated'  one per candidate network (`roads-access-points`): solid
+ *                --ochre, ringed in --halo. Drawn whatever is focused.
+ *
+ * Two map layers, so two scene layers: a card draws a point pending in one
+ * and generated in the other, never one marker restyled.
+ */
+export const ACCESS_POINT_STATES = Object.freeze(['pending', 'generated'])
+
+/** The marker's radius, in scene units, before its ring. */
+export const ACCESS_POINT_RADIUS = 5
+
+/**
+ * THE CANDIDATE NETWORKS, one per access point: a trunk from the point into
+ * the property and one spur off it. The map draws a network as one line per
+ * branch (the backend's wire shape, grouped by `network_id`), so the scene
+ * keeps them as branches too.
+ *
+ * `treatment` is the map's for these lines -- the `road` row of the mark
+ * table (ProductionHatchPattern.jsx), read from --road -- so a card and a
+ * test can hold the scene to the map rather than to itself.
+ *
+ * THEY ANSWER TO WHAT IS ALREADY COMMITTED. Network 1 skirts Block 1 rather
+ * than crossing it, and both stop short of the committed embankment area:
+ * roads come after land and water, and a track drawn through either would
+ * contradict the order the whole tool is built on. Do not route them
+ * through those shapes.
+ */
+export const ROAD_NETWORKS = Object.freeze(
+  [
+    [
+      '1',
+      '1',
+      'M 150 57 C 164 74, 186 82, 196 102 C 204 120, 202 138, 196 152',
+      'M 198 130 C 210 140, 218 154, 220 170',
+    ],
+    [
+      '2',
+      '2',
+      'M 240 60 C 238 88, 232 112, 222 134 C 214 152, 210 166, 208 178',
+      'M 224 128 C 234 138, 240 148, 240 158',
+    ],
+  ].map(([id, accessPoint, main, branch]) =>
+    Object.freeze({
+      id,
+      accessPoint,
+      treatment: 'road',
+      branches: Object.freeze([
+        Object.freeze({ id: 'main', d: main }),
+        Object.freeze({ id: 'branch', d: branch }),
+      ]),
+    })
+  )
+)
+
+/**
+ * THE ACCESS-POINT LAYER, in one state. `points` defaults to both; each may
+ * carry a `className` of its own so a card can move one marker without a
+ * compound selector. Each marker is tagged with its id (`data-point`) and
+ * its state (`data-state`).
+ */
+export function SceneAccessPoints({ state = 'generated', points = ACCESS_POINTS, ...props }) {
+  if (!ACCESS_POINT_STATES.includes(state)) {
+    throw new Error(`An access point is ${ACCESS_POINT_STATES.join(' or ')}, not '${state}'.`)
+  }
+  const id = state === 'pending' ? 'access-points-pending' : 'access-points'
+  return (
+    <Layer id={id} {...props}>
+      {points.map(({ id: pointId, x, y, className }) => (
+        <circle
+          key={pointId}
+          className={[
+            'farm-scene__access-point',
+            `farm-scene__access-point--${state}`,
+            className,
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          data-point={pointId}
+          data-state={state}
+          cx={x}
+          cy={y}
+          r={ACCESS_POINT_RADIUS}
+        />
+      ))}
+    </Layer>
+  )
+}
+
+/**
+ * THE FARM-TRACK LAYER: every branch of every network given, each network in
+ * its own group (`data-network`), each branch a plain stroke -- no casing.
+ * `pathLength="1"` normalises every branch, so a card can draw one along its
+ * length whatever that length is. A network, or a branch, may carry a
+ * `className` of its own, for the reason the access points may.
+ */
+export function SceneFarmTracks({ networks = ROAD_NETWORKS, ...props }) {
+  return (
+    <Layer id="tracks" {...props}>
+      {networks.map(({ id, treatment, branches, className }) => (
+        <g
+          key={id}
+          className={['farm-scene__network', className].filter(Boolean).join(' ')}
+          data-network={id}
+          data-treatment={treatment}
+        >
+          {branches.map((branch) => (
+            <path
+              key={branch.id}
+              className={['farm-scene__track', `farm-scene__track--${branch.id}`, branch.className]
+                .filter(Boolean)
+                .join(' ')}
+              data-branch={branch.id}
+              d={branch.d}
+              pathLength="1"
+            />
+          ))}
+        </g>
+      ))}
     </Layer>
   )
 }
