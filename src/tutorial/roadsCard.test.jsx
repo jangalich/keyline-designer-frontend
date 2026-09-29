@@ -279,7 +279,7 @@ describe('1. the roads entry registers one card', () => {
     expect(entry.Animation).toBe(RoadsAnimation)
   })
 
-  it('opens by itself on arrival at roads, through the shipped shell and registry', async () => {
+  it('opens by itself on "Add access point", not on arrival, through the shipped shell and registry', async () => {
     window.localStorage.setItem(SEEN_KEY, JSON.stringify(['orientation', 'boundary', 'landform', 'water']))
     const doc = serverDocument({ landform: { status: COMMITTED }, water: { status: COMMITTED } })
     globalThis.fetch = vi.fn(async (rawUrl, init = {}) => {
@@ -290,6 +290,12 @@ describe('1. the roads entry registers one card', () => {
       if (url.pathname.startsWith('/api/sessions/') && (init.method ?? 'GET') === 'GET') {
         return { ok: true, status: 200, json: async () => doc }
       }
+      // THE GENERATE: accepted, and its job held running -- the wait the
+      // card opens into.
+      if (url.pathname.endsWith(`/steps/roads/generate`) && init.method === 'POST') {
+        return { ok: true, status: 202, json: async () => ({ job_id: 'job-1', status: 'running' }) }
+      }
+      if (url.pathname.startsWith('/api/jobs/')) return new Promise(() => {})
       return { ok: false, status: 404, json: async () => ({}) }
     })
     let session = null
@@ -314,6 +320,11 @@ describe('1. the roads entry registers one card', () => {
       await session.actions.resume('sess-1')
     })
     expect(cursor.cursorStepId).toBe('roads')
+    // Arrived: nothing, until "Add access point" is pressed -- before the
+    // point is placed, since the card is about where it goes.
+    expect(find('tutorial-step-card')).toBeNull()
+    await React.act(async () => find('access-roads').click())
+    expect(cursor.armed).toBe('draw')
     const card = find('tutorial-step-card')
     expect(card).not.toBeNull()
     expect(card.dataset.step).toBe('roads')

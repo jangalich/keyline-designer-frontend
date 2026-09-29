@@ -13,11 +13,29 @@
  * the step seen: checking the help on a step must not disarm a card the
  * person has not yet been given.
  *
- * A STEP'S CARD OPENS BY ITSELF on arrival at the step, under the rules in
- * firing.js -- a card, not seen, auto on, `not_started`, no job running,
- * nothing else open. Arrival is evaluated ONCE per arrival: a step reached
- * while something was open or a job was running stays quiet until it is
- * next arrived at. Two things are not arrivals:
+ * A STEP'S CARD OPENS BY ITSELF ON ITS GENERATE PRESS, under the rules in
+ * firing.js -- a card, not seen, auto on, `not_started`, no other job
+ * running, nothing else open. The press is read off the store: a generate
+ * puts its step's job in the table as running before its first await
+ * (SessionStore's JOB_STARTED), so the step's job going from not running to
+ * running IS the press, whichever button made it. The card opens into the
+ * wait, and marks its step seen as it opens, so a regenerate never fires
+ * it again.
+ *
+ * THE CARD AND THE JOB ARE INDEPENDENT. Dismissing does not wait for the
+ * job, and the job landing does not close the card: its results arrive
+ * behind it. The one exception is a FAILED job, which closes the card at
+ * once, so the error is not waiting behind a tutorial the person is about
+ * to dismiss.
+ *
+ * A CARD THAT DECLARES `firesOn: 'arm'` -- roads -- fires instead when the
+ * step's first tool is armed ("Add access point"), under the same rules.
+ *
+ * A STEP WITH NO GENERATE -- boundary, drawn and committed -- fires on
+ * arrival instead, which for a first-time person is the gate's hand-over.
+ * Arrival is evaluated ONCE per arrival: a step reached while something was
+ * open or a job was running stays quiet until it is next arrived at. Two
+ * things are not arrivals:
  *
  *   BEFORE READY. While the gate is handing over (TutorialGate) the chrome
  *   is still settling, and the boundary card waits for it.
@@ -26,8 +44,8 @@
  *   the boundary as `not_started` whatever the document will say; a person
  *   who committed it last week would be taught it again for one frame.
  *
- * Closing a card that opened by itself adds its step to the seen list. That
- * is the only dismissal.
+ * Closing a card that opened by itself adds its step to the seen list (a
+ * card that opened on a press has already added it).
  *
  * THE DECK NO LONGER OPENS BY ITSELF, EVER. It is reference material: the
  * help control on a step with no card, and the "How the map works" link at
@@ -45,9 +63,17 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { initialSessionId, selectResumeState, selectSessionId, useSession } from '../session/SessionStore'
+import {
+  initialSessionId,
+  selectJobForStep,
+  selectResumeState,
+  selectSessionId,
+  selectStepError,
+  useSession,
+} from '../session/SessionStore'
+import { JOB_FAILED, JOB_RUNNING } from '../session/jobs'
 import { useWizardCursor } from '../wizard/WizardCursor.jsx'
-import { anyJobRunning, shouldAutoFire } from './firing.js'
+import { ON_ARM, ON_ARRIVAL, ON_GENERATE, anyJobRunning, shouldAutoFire } from './firing.js'
 import { markSeen, setAuto, useTutorialPrefs } from './prefs.js'
 import { cardFor } from './stepCards.js'
 import StepCard from './StepCard.jsx'
@@ -95,7 +121,7 @@ const CLOSED = null
 
 export default function TutorialHelp() {
   const { state } = useSession()
-  const { cursorStepId, statuses } = useWizardCursor()
+  const { cursorStepId, statuses, definitions, armed } = useWizardCursor()
   const registry = useStepCardRegistry()
   const ready = useTutorialReady()
   const prefs = useTutorialPrefs()
@@ -105,19 +131,80 @@ export default function TutorialHelp() {
   const evaluated = useRef(null)
 
   const status = statuses?.get(cursorStepId)
-  const jobRunning = anyJobRunning(state)
+  const generates = definitions?.get(cursorStepId)?.generate != null
+  const job = cursorStepId == null ? null : selectJobForStep(state, cursorStepId)
+  const generating = job?.status === JOB_RUNNING
+  const failed = job?.status === JOB_FAILED || (cursorStepId != null && selectStepError(state, cursorStepId) != null)
   const arrival = ready && !resumePending(state) ? cursorStepId : null
 
+  const somethingOpen = () => open !== CLOSED || document.querySelector(DIALOG_SELECTOR) != null
+
   // ONE EVALUATION PER ARRIVAL. The ref is what makes it an arrival rather
-  // than a condition that fires whenever it next comes true mid-step.
+  // than a condition that fires whenever it next comes true mid-step. Only a
+  // step with no generate can fire here; firing.js says so, not this.
   useEffect(() => {
     if (arrival == null || evaluated.current === arrival) return
     evaluated.current = arrival
-    const somethingOpen = open !== CLOSED || document.querySelector(DIALOG_SELECTOR) != null
-    if (shouldAutoFire({ registry, stepId: arrival, prefs, status, jobRunning, somethingOpen })) {
-      setOpen({ kind: 'step', stepId: arrival, auto: true })
-    }
-  }, [arrival, registry, prefs, status, jobRunning, open])
+    const fire = shouldAutoFire({
+      registry,
+      stepId: arrival,
+      prefs,
+      status,
+      jobRunning: anyJobRunning(state),
+      somethingOpen: somethingOpen(),
+      trigger: ON_ARRIVAL,
+      generates,
+    })
+    if (fire) setOpen({ kind: 'step', stepId: arrival, auto: true })
+  }, [arrival, registry, prefs, status, state, generates, open])
+
+  // THE PRESS: a step's generate, or its first tool armed. Each is an edge --
+  // this step's job going from not running to running, or its armed tool
+  // from nothing to something -- seeded with what is true at mount and on
+  // every move of the cursor, so neither reads as a press. `status` is still
+  // the step's status from before the press: a generate changes the job
+  // table, not the document, until it lands. Which press a step's card
+  // answers to is firing.js's question (firingMoment), not this one's.
+  function firePressed(trigger, jobRunning) {
+    const fire = shouldAutoFire({
+      registry,
+      stepId: cursorStepId,
+      prefs,
+      status,
+      jobRunning,
+      somethingOpen: somethingOpen(),
+      trigger,
+      generates,
+    })
+    if (!fire) return
+    markSeen(cursorStepId)
+    setOpen({ kind: 'step', stepId: cursorStepId, auto: true })
+  }
+
+  const wasGenerating = useRef({ stepId: cursorStepId, generating })
+  useEffect(() => {
+    const before = wasGenerating.current
+    wasGenerating.current = { stepId: cursorStepId, generating }
+    if (before.stepId !== cursorStepId || before.generating || !generating) return
+    firePressed(ON_GENERATE, anyJobRunning(state, cursorStepId))
+  }, [cursorStepId, generating])
+
+  const wasArmed = useRef({ stepId: cursorStepId, armed })
+  useEffect(() => {
+    const before = wasArmed.current
+    wasArmed.current = { stepId: cursorStepId, armed }
+    if (before.stepId !== cursorStepId || before.armed != null || armed == null) return
+    firePressed(ON_ARM, anyJobRunning(state))
+  }, [cursorStepId, armed])
+
+  // A FAILED GENERATE CLOSES THE STEP'S CARD, on the failure's arrival and
+  // not on a failure already standing when the card was opened by hand.
+  const wasFailed = useRef(failed)
+  useEffect(() => {
+    const before = wasFailed.current
+    wasFailed.current = failed
+    if (failed && !before && open?.kind === 'step' && open.stepId === cursorStepId) setOpen(CLOSED)
+  }, [failed, open, cursorStepId])
 
   function openHelp() {
     const card = cardFor(registry, cursorStepId)
