@@ -20,10 +20,16 @@
  *                   which holds the whole of that and the argument for why it
  *                   must stay that way.
  *
- *   THE NOTICES     Everything the user has to know that is not that. They sit
- *                   under the direction rather than replacing it, because a
- *                   caution that erases the instruction leaves someone holding
- *                   a warning and no way forward. Each one is a ROW, under a
+ *   THE NOTICES     What stops or undoes work -- a step that cannot start, a
+ *                   request that failed -- and the undo for a destroyed
+ *                   shape. They sit under the direction rather than replacing
+ *                   it, because a failure that erases the instruction leaves
+ *                   someone holding an error and no way forward. NO CHECKS AND
+ *                   NO INFORMATIONAL NOTES: every step's cautions and
+ *                   advisories, and every draw or place tool's note about the
+ *                   last shape, were removed from here at the user's request.
+ *                   The bar carries the instruction, failures, and the undo.
+ *                   Each one is a ROW, under a
  *                   rule, led by a one-word kind label in the data face -- see
  *                   NOTICE_KIND, and .chrome-bar__notices in App.css for why
  *                   they stack rather than wrap.
@@ -38,24 +44,18 @@
  * head repeated in the card under it is the same fact twice, in the region
  * with the least room for it.
  *
- * THE DIRECTION IS THE DEFINITION'S AND THE NOTICES ARE MOSTLY NOT.
+ * THE DIRECTION IS THE DEFINITION'S AND THE NOTICES ARE NOT.
  *
- * Six of the seven notice kinds below are read off the MACHINE and are the
- * same for every step -- an unreachable step naming what is in its way, a
- * failed generate naming the layer, a commit's per-feature rejections, a
- * COMMIT THAT DID NOT LAND naming the source that did not answer, a step
- * error, and what a draw gesture said about the last shape it closed. None of
- * those needed a step to declare anything, so none of them does. (The other
+ * Every notice kind below is read off the MACHINE and is the same for every
+ * step -- an unreachable step naming what is in its way, a failed generate
+ * naming the layer, a commit's per-feature rejections, a COMMIT THAT DID NOT
+ * LAND naming the source that did not answer, a step error, and the undo. None
+ * of those needed a step to declare anything, so none of them does. (The other
  * machine-side reason a user can be stuck -- why a commit is REFUSED before it
  * is sent -- is on the refused button itself in the banner, where the pointer
  * already is. A commit that was sent and did not land is a different thing and
  * belongs here: the button is not refusing anything, it has come back ready to
  * be pressed again, and by itself that says nothing at all.)
- *
- * The last is `definition.notices(context)`: what only THIS step can know
- * is worth saying. Landform's 80% ceiling advisory is the whole of the current
- * use, and it is here rather than under a totals chip because the chip is gone
- * and the advisory was the only part of it that asked for a decision.
  *
  * THE 422s ARE NOT COLLAPSED INTO A COUNT. The count is a summary; the reason
  * stays attached to its feature id, which is what lets the map colour the
@@ -64,11 +64,10 @@
  * is exactly what the backend's _rejection_payload() refuses to make them do.
  */
 
-import { useDrawingProgress } from '../../map/DrawingProgress.jsx'
 /* WHICH STATES ARE "A REQUEST IS OUT". Read for the bar's own state mark, not
    for anything it renders -- see BAR_TONE. */
 import { COMMITTING, GENERATING, LOADING } from '../useStepMachine'
-/* A notice's text is prose with measured values in it, and so is the reopen
+/* A notice's text is prose, possibly with measured values in it, and so is the reopen
    confirmation's per-step note. One renderer, in MeasuredText.jsx. */
 import MeasuredText from './MeasuredText.jsx'
 /* WHAT THE DIRECTION SAYS WHILE A REQUEST IS OUT, for the two states that can
@@ -92,22 +91,22 @@ function titleFor(stepId, definitions) {
  * modelled on; an extension bulletin sets those labels in the plainest face it
  * has, which here is the data face.
  *
- * AND IT IS NOT DECORATION. Before this, a caution and a failure were told
+ * AND IT IS NOT DECORATION. Before this, a note and a failure were told
  * apart by COLOUR ALONE -- --alert against --ink-muted -- which is the one
  * distinction a reader with a colour deficiency does not get, in the region
  * whose whole job is to say what has gone wrong. The word carries it now and
  * the colour agrees with the word.
  *
- * THE SET IS CLOSED AND IT IS THE TONES THAT EXIST. Four: two the machine
- * raises (a step that cannot start, a request that failed) and two a step
- * declares about its own payload. A tone with no entry renders no label rather
- * than an invented one -- the same posture the reset list takes towards a step
- * that cannot say what it loses.
+ * THE SET IS CLOSED AND IT IS THE TONES THAT EXIST. Three: two the machine
+ * raises (a step that cannot start, a request that failed) and the undo's.
+ * There is no 'check' any more: the cautions that wore it were removed with
+ * every step-level and gesture notice. A tone with no entry renders no label
+ * rather than an invented one -- the same posture the reset list takes
+ * towards a step that cannot say what it loses.
  */
 const NOTICE_KIND = Object.freeze({
   blocked: 'blocked',
   error: 'failed',
-  caution: 'check',
   advisory: 'note',
 })
 
@@ -196,7 +195,6 @@ function dataSourceNotice(failedLayer) {
 
 export default function InstructionBar({ machine, chromeState, definitions, undo = null }) {
   const { definition, stepId } = machine
-  const { notice: gestureNotice } = useDrawingProgress()
 
   const direction = definition.instructions[chromeState] ?? definition.blurb
 
@@ -313,23 +311,6 @@ export default function InstructionBar({ machine, chromeState, definitions, undo
       testId: `error-${stepId}`,
       text: machine.error.message,
     })
-  }
-
-  // WHAT THE STEP SAID ABOUT THE LAST SHAPE CLOSED -- what a clamp trimmed, or
-  // why a shape was refused outright. It comes from the gesture rather than
-  // from the draft, deliberately: a message about a gesture is not a decision,
-  // and the draft is where decisions go.
-  if (gestureNotice) {
-    notices.push({
-      key: 'gesture',
-      tone: 'caution',
-      testId: `${stepId}-notice`,
-      text: gestureNotice,
-    })
-  }
-
-  for (const notice of definition.notices(machine.context)) {
-    notices.push({ ...notice, testId: `notice-${notice.key}-${stepId}` })
   }
 
   /**

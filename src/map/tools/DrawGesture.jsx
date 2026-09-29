@@ -194,15 +194,12 @@ function ShapeDraw({ layer, armed, renders, stepId, definition, references }) {
   //
   // THE POINTS ARE THE GESTURE, so they end when it does: this clears them,
   // and the effect above reports the empty list, which takes the live cautions
-  // and the panel's drawing state with it. WHAT IT DOES NOT CLEAR is the
-  // NOTICE -- what the step said about the LAST shape that closed is not about
-  // this gesture and outlives it by design (see DrawingProgress).
+  // and the panel's drawing state with it.
   //
   // GUARDED ON THERE BEING POINTS, which is what keeps it out of the close
   // path: close() empties the points itself and then disarms, so by the time
-  // this runs there is nothing to clear and the notice it just settled
-  // survives. Without the guard this would fire on every mount and after
-  // every closed ring, and the trim notice would never be read.
+  // this runs there is nothing to clear. Without the guard this would fire on
+  // every mount and after every closed ring.
   useEffect(() => {
     if (armed || !points.length) return
     setPoints([])
@@ -229,15 +226,12 @@ function ShapeDraw({ layer, armed, renders, stepId, definition, references }) {
             properties: { provenance: PROVENANCE_USER_ADDED },
             geometry: { type: 'Polygon', coordinates: [ringToGeoJSON(points)] },
           },
-          notice: null,
         }
 
     // The step may refuse a shape outright -- landform does, for a ring that
-    // fell entirely off the parcel -- and says why through the notice rather
-    // than by swallowing the gesture. The notice goes to DrawingProgress, NOT
-    // to the draft: a draft's inputs are sent with the commit, and a message
-    // about a gesture is not a decision. See NOTHING_IN_FLIGHT's `notice`.
-    progress.settle(prepared?.notice ?? null)
+    // fell entirely off the parcel -- and nothing is added. No note is left
+    // under the instruction bar: see NOTHING_IN_FLIGHT in DrawingProgress.
+    progress.clear()
     if (!prepared?.feature) return
     actions.addDrawnFeature(stepId, prepared.feature)
     // NOT AWAITED, AND NOTHING BRANCHES ON IT. The block is in the draft; the
@@ -282,11 +276,10 @@ function ShapeDraw({ layer, armed, renders, stepId, definition, references }) {
  * THE STEP SAYS WHAT A CLICK MEANS. `definition.placement.place()` is handed
  * the point, the parcel ring, the sites already placed and the step's own
  * payload, and answers with
- * {feature, notice}: the scored Feature to add, or null and a sentence
- * saying why not (off the parcel; no slot left; the same spot twice; the
- * server's own refusal). ShapeDraw's contract with `definition.shape`,
- * exactly -- this file knows no rule about buildings, and the notice goes to
- * DrawingProgress rather than the draft for the reason given there.
+ * {feature}: the scored Feature to add, or null when no site is placed (off
+ * the parcel; no slot left; the same spot twice; the server's own refusal).
+ * ShapeDraw's contract with `definition.shape`, exactly -- this file knows no
+ * rule about buildings.
  *
  * ONE AT A TIME, AND THE TOOL GOES DOWN AFTER EACH. A second click while the
  * first is being measured is dropped rather than queued: the pending marker
@@ -303,7 +296,6 @@ function ShapeDraw({ layer, armed, renders, stepId, definition, references }) {
 function SitePlace({ layer, armed, renders, stepId, definition }) {
   const { state, actions } = useSession()
   const { disarm } = useWizardCursor()
-  const progress = useDrawingProgress()
   const [pending, setPending] = useState(null)
   const liveRef = useRef(true)
 
@@ -317,9 +309,6 @@ function SitePlace({ layer, armed, renders, stepId, definition }) {
   const place = async (point) => {
     if (pending) return
     setPending(point)
-    // The notice from the last placement stops being about anything on
-    // screen the moment a new one starts.
-    progress.clear()
     let prepared = null
     try {
       prepared = await definition.placement.place({
@@ -336,7 +325,6 @@ function SitePlace({ layer, armed, renders, stepId, definition }) {
       if (liveRef.current) setPending(null)
     }
     if (!liveRef.current) return
-    progress.settle(prepared?.notice ?? null)
     if (prepared?.feature) actions.addDrawnFeature(stepId, prepared.feature)
     disarm()
   }

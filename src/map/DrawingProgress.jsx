@@ -30,36 +30,20 @@ const DrawingProgressContext = createContext(null)
 const NOTHING_IN_FLIGHT = Object.freeze({
   points: Object.freeze([]),
   cautions: Object.freeze([]),
-  // What the step said about the LAST shape closed -- what the clamp trimmed,
-  // or why a shape was refused outright. It outlives the gesture that produced
-  // it (the panel has to be able to read it after the ring closed) and is
-  // cleared by the next gesture starting, which is the moment it stops being
-  // about anything on screen.
-  //
-  // IT IS NOT A DRAFT INPUT, and it was one for exactly one test run. A
-  // draft's `inputs` are the step's DECLARED user inputs and
-  // buildCommitBody() sends all of them: a notice parked there rode along on
-  // the commit, was stored on the step entry, and made the next reopen 400
-  // with "step 'landform' accepts user inputs (); got unknown
-  // ['__drawNotice']". A message about a gesture is not a decision, and the
-  // draft is where decisions go.
-  notice: null,
+  // NO `notice`. What a step said about the LAST shape closed -- what the
+  // clamp trimmed, why a shape or a site was refused -- used to be kept here
+  // and printed under the instruction bar. It outlived the gesture by design,
+  // and because this provider sits above the step switch it outlived the STEP
+  // too: a structures placement note was still on the bar after moving on to
+  // fencing, and any draw step's note followed the user the same way. The
+  // notes were removed at the user's request, and this is where the leak was.
 })
 
 export function DrawingProgressProvider({ children }) {
   const [progress, setProgress] = useState(NOTHING_IN_FLIGHT)
 
   const report = useCallback((points, cautions) => {
-    setProgress((previous) =>
-      points.length
-        ? { points, cautions: cautions ?? [], notice: previous.notice }
-        : { ...NOTHING_IN_FLIGHT, notice: previous.notice }
-    )
-  }, [])
-
-  /** The gesture ended. Points go; whatever the step said about them stays. */
-  const settle = useCallback((notice) => {
-    setProgress({ ...NOTHING_IN_FLIGHT, notice: notice ?? null })
+    setProgress(points.length ? { points, cautions: cautions ?? [] } : NOTHING_IN_FLIGHT)
   }, [])
 
   const clear = useCallback(() => setProgress(NOTHING_IN_FLIGHT), [])
@@ -68,12 +52,10 @@ export function DrawingProgressProvider({ children }) {
     () => ({
       points: progress.points,
       cautions: progress.cautions,
-      notice: progress.notice,
       report,
-      settle,
       clear,
     }),
-    [progress, report, settle, clear]
+    [progress, report, clear]
   )
 
   return (
@@ -93,6 +75,5 @@ export function useDrawingProgress() {
 const NOTHING_IN_FLIGHT_WITH_NOOPS = Object.freeze({
   ...NOTHING_IN_FLIGHT,
   report: () => {},
-  settle: () => {},
   clear: () => {},
 })

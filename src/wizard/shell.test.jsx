@@ -39,14 +39,12 @@ import {
   BOUNDARY_RING_INPUT,
   BOUNDARY_STEP,
   BOUNDARY_STEP_ID,
-  CEILING_ADVISORY_PCT,
   LANDFORM_STEP,
   STEP_DEFINITIONS,
   registryProposalFeatures,
   defineStep,
   documentStep,
   stepButton,
-  totalsFor,
 } from './stepDefinitions'
 import {
   COMMITTING,
@@ -854,80 +852,15 @@ describe('7. the three deletions', () => {
 })
 
 /* ===========================================================================
-   8. THE 80% ADVISORY
+   8. (REMOVED) THE 80% ADVISORY
+   ===========================================================================
+   This section asserted landform's ceiling advisory and the "checks that did
+   not run" cautions in the instruction bar. Both went -- with every other
+   check and note the bar carried -- at the user's request, and so did the
+   exports they were computed from. The number is kept so the sections after
+   it keep the numbers other suites and reports cite. What still renders a
+   measured figure in the data face is asserted in style.test.jsx.
    =========================================================================== */
-
-describe('8. the ceiling advisory', () => {
-  it('appears in the instruction bar when the selection trips it, and not before', async () => {
-    // FOUR ZONES OF 2.5 ACRES over a 12-acre parcel: all four is 10 acres,
-    // 83% of the parcel, which is past the advisory. Three is 62.5%, which is
-    // not. The chip the figure used to be printed under is gone; the advisory
-    // is not, because it is the only part of that block that asked the user to
-    // reconsider something.
-    const payload = payloadWith(4, { totalAcres: 12 })
-    installFetch([
-      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
-      route('GET', /\/steps\/landform\/layers$/, { body: payload }),
-    ])
-
-    const ui = await renderShell()
-    await ui.run((a) => a.startSession(RING))
-    await ui.run((a) => a.loadLayers('landform'))
-
-    // The draft seeds with everything selected -- the payload IS the
-    // recommendation -- so it trips immediately.
-    const totals = totalsFor(payload, new Set(['zone-1', 'zone-2', 'zone-3', 'zone-4']), [])
-    expect(totals.pctOfParcel).toBeGreaterThan(CEILING_ADVISORY_PCT)
-    // THE ADVISORY CARRIES THE FIGURE. It said "this much" while a `% of
-    // parcel` column sat above it in the panel column's totals block; the
-    // block is gone, so the sentence names the number and sets it in the data
-    // face. See style.test.jsx for the typography of it.
-    expect(ui.text('notice-ceiling-landform')).toBe(
-      'Selecting 83.3% of the parcel leaves little room for water, roads, and trees.'
-    )
-    expect(ui.find('notice-ceiling-landform').querySelector('.measure').textContent).toBe('83.3')
-
-    // Take one out and it goes: advisory, and live against the current
-    // selection rather than against the recommendation the server sent.
-    await ui.run((a) => a.toggleSelection('landform', 'zone-4'))
-    expect(ui.find('notice-ceiling-landform')).toBeNull()
-
-    // IT IS ADVISORY AND NEVER BLOCKING. The 80% figure was always a design
-    // judgment about leaving room for water, roads and trees; having handed
-    // that judgment to the user, taking it back at the gate would be
-    // incoherent.
-    await ui.run((a) => a.toggleSelection('landform', 'zone-4'))
-    expect(ui.find('notice-ceiling-landform')).not.toBeNull()
-    expect(ui.find('commit-landform').disabled).toBe(false)
-
-    await ui.unmount()
-  })
-
-  it('also carries the checks that did not run, which the caveat used to', async () => {
-    const payload = payloadWith(1)
-    payload.exclusion_layers = [
-      { type: 'hydric', label: 'wet (hydric) soil', data_available: false, geometry_wgs84: null },
-    ]
-    installFetch([
-      route('POST', /^\/api\/sessions$/, { status: 201, body: serverDocument() }),
-      route('GET', /\/steps\/landform\/layers$/, { body: payload }),
-    ])
-
-    const ui = await renderShell()
-    await ui.run((a) => a.startSession(RING))
-    await ui.run((a) => a.loadLayers('landform'))
-
-    // It changes what the eligible highlight MEANS -- ground that was never
-    // tested is drawn exactly like ground that passed -- so losing it with the
-    // panel column would have been losing a safety statement, not a readout.
-    expect(ui.text('notice-unavailable-hydric-landform')).toContain(
-      'wet ground has not been excluded'
-    )
-    expect(ui.text('notice-unavailable-hydric-landform')).toContain('Walk those areas')
-
-    await ui.unmount()
-  })
-})
 
 /* ===========================================================================
    9. A COMMIT IN FLIGHT, AND A COMMIT THAT DID NOT LAND

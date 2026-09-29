@@ -113,6 +113,17 @@ window.fetch = async (rawUrl) => {
   if (REOPEN && url.pathname === '/api/sessions/sess-1') {
     return { ok: true, status: 200, json: async () => REOPEN_DOCUMENT }
   }
+  // The notice cases' session, and the 422 its one commit is answered with.
+  if (SEED_NOTICES && url.pathname === `/api/sessions/${NOTICE_DOCUMENT.session_id}`) {
+    return { ok: true, status: 200, json: async () => NOTICE_DOCUMENT }
+  }
+  if (SEED_NOTICES && url.pathname.endsWith('/steps/landform/commit')) {
+    return {
+      ok: false,
+      status: 422,
+      json: async () => ({ error: 'Some features could not be committed.', rejections: noticesFor(NOTICE_KIND) }),
+    }
+  }
   throw new Error(`layoutHarness makes no request to ${url.pathname}`)
 }
 
@@ -253,34 +264,75 @@ function tab(index) {
 /**
  * The notices a case asks for.
  *
- *   'long'     ONE notice long enough to prove the cap. This is the 80%
- *              advisory's shape -- prose with a measured figure in it -- run
- *              out to a length no single line should ever carry, because the
- *              thing being tested is that the card WRAPS rather than growing.
- *   'stacked'  Several at once, which is the height case: a step can raise its
- *              own advisory while the machine is also reporting two rejections.
+ * THEY ARE REAL 422 REJECTIONS, NOT A DECLARED LIST. Steps used to declare
+ * their own cautions and advisories through `notices(context)` and this page
+ * borrowed that slot; every check and note under the bar was removed, and the
+ * slot with them. What the bar still stacks are the MACHINE's rows -- a step
+ * that cannot start, a request that failed, a commit's per-feature rejections
+ * -- so the geometry is measured on those, delivered the way the app gets
+ * them: a resume, then a commit the stub answers with a 422. See SeedNotices.
+ *
+ *   'long'     ONE rejection long enough to prove the cap -- run out to a
+ *              length no single line should ever carry, because the thing
+ *              being tested is that the card WRAPS rather than growing.
+ *   'stacked'  Three at once, which is the height case.
  */
-const LONG_NOTICE = [
-  'Selecting ',
-  { measure: '83.3%' },
-  ' of the parcel leaves little room for the roads, water lines, tree belts and ',
-  'fencing the later steps of this pipeline have to fit into the ground you have ',
-  'not committed to production, and every one of those has to cross ground this ',
-  'selection would otherwise take. Consider whether the lower-ranked zones are ',
-  'worth their acreage before committing this step.',
-]
+const LONG_REASON =
+  'This block overlaps the mapped floodplain and the soil survey\'s hydric units along most of ' +
+  'its southern edge, and a production block has to stay clear of both; redraw it above the ' +
+  'wet ground or leave it out, and every later step will have to fit around what is committed ' +
+  'here, so consider whether the lower-ranked zones are worth their acreage.'
 
 function noticesFor(kind) {
-  if (kind === 'long') return [{ key: 'ceiling', tone: 'advisory', text: LONG_NOTICE }]
-  if (kind === 'short') return [{ key: 'ceiling', tone: 'advisory', text: 'Two zones overlap.' }]
+  if (kind === 'long') return [{ feature_id: 'zone-1', reason: LONG_REASON }]
+  if (kind === 'short') return [{ feature_id: 'zone-1', reason: 'Two zones overlap.' }]
   if (kind === 'stacked') {
     return [
-      { key: 'ceiling', tone: 'advisory', text: LONG_NOTICE },
-      { key: 'second', tone: 'caution', text: 'The last shape was trimmed to the parcel boundary.' },
-      { key: 'third', tone: 'error', text: 'zone-4 lies partly outside the parcel boundary.' },
+      { feature_id: 'zone-1', reason: LONG_REASON },
+      { feature_id: 'zone-2', reason: 'zone-2 was trimmed to the parcel boundary.' },
+      { feature_id: 'zone-4', reason: 'zone-4 lies partly outside the parcel boundary.' },
     ]
   }
   return []
+}
+
+const NOTICE_KIND = params.get('notice') ?? 'none'
+const SEED_NOTICES = noticesFor(NOTICE_KIND).length > 0
+
+/** The session the notice cases resume, so the commit has somewhere to go. */
+const NOTICE_DOCUMENT = {
+  schema_version: 1,
+  session_id: 'sess-notice',
+  document_revision: 1,
+  created_at: '2026-01-01T00:00:00+00:00',
+  updated_at: '2026-01-01T00:00:00+00:00',
+  boundary: [[-74.01, 40.7], [-74.0, 40.7], [-74.0, 40.71], [-74.01, 40.71]],
+  step_order: ['landform'],
+  steps: { landform: { status: 'not_started' } },
+}
+
+/**
+ * Resume, then commit, ONCE -- and the stub answers the commit with a 422
+ * carrying the case's rejections. The store files them on the step's error
+ * exactly as it would a real one, and the bar reads them off the machine.
+ */
+function SeedNotices() {
+  const { state, actions } = useSession()
+  const stage = useRef('idle')
+  useEffect(() => {
+    if (stage.current === 'idle') {
+      stage.current = 'resuming'
+      actions.resume(NOTICE_DOCUMENT.session_id)
+      return
+    }
+    if (stage.current === 'resuming' && state.sessionId) {
+      stage.current = 'committing'
+      actions.commit('landform').then(() => {
+        document.documentElement.dataset.noticesSeeded = 'true'
+      })
+    }
+  }, [state.sessionId, actions])
+  return null
 }
 
 /**
@@ -323,8 +375,6 @@ const BUTTONS = [
 
 const TAB_COUNT = number('tabs', 0)
 const BUTTON_COUNT = number('buttons', 2)
-const NOTICE_KIND = params.get('notice') ?? 'none'
-
 /**
  * ?instruction=...  --  A SHIPPED DIRECTION IN THE DIRECTION SLOT.
  *
@@ -2235,7 +2285,6 @@ const HARNESS_STEP = documentStep({
   // A REQUEST THAT NEVER ANSWERS, for ?waiting=1 only. Every other case leaves
   // documentStep's own commit in place and never presses it.
   commit: WAITING ? { run: () => new Promise(() => {}) } : undefined,
-  notices: () => noticesFor(NOTICE_KIND),
   tabs: () =>
     SHARED_FORMAT ? FORMAT_TABS : Array.from({ length: TAB_COUNT }, (_, i) => tab(i)),
   detail: (_context, featureId) => {
@@ -2297,6 +2346,7 @@ function Harness() {
     <SessionProvider autoResume={false} proposalFeatures={registryProposalFeatures}>
       <WizardCursorProvider definitions={REOPEN ? STEP_DEFINITIONS : [BOUNDARY_STEP, HARNESS_STEP]}>
         {REOPEN ? <ResumeDocument /> : null}
+        {SEED_NOTICES ? <SeedNotices /> : null}
         <OpenStep stepId="landform" />
         {/* THE SHIPPED STAGE ELEMENT. `.map-stage` is what carries the chrome's
             own measurements (--rail-width, --bar-height) and the height the
@@ -2318,7 +2368,20 @@ createRoot(document.getElementById('root')).render(<Harness />)
 // committed, the catalogue request has settled, and fonts are done loading --
 // a card sized to its content is sized to its content IN A FACE, and measuring
 // mid-swap would read a fallback's metrics.
-Promise.all([document.fonts.ready, new Promise((r) => requestAnimationFrame(() => r()))]).then(
+const noticesSeeded = new Promise((resolve) => {
+  if (!SEED_NOTICES) return resolve()
+  const poll = () =>
+    document.documentElement.dataset.noticesSeeded === 'true'
+      ? requestAnimationFrame(() => resolve())
+      : setTimeout(poll, 10)
+  poll()
+})
+
+Promise.all([
+  document.fonts.ready,
+  new Promise((r) => requestAnimationFrame(() => r())),
+  noticesSeeded,
+]).then(
   () => {
     document.documentElement.dataset.harnessReady = 'true'
   }
