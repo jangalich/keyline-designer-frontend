@@ -25,7 +25,7 @@ import {
 } from '../wizard/stepDefinitions'
 import WizardShell from '../wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from '../wizard/WizardCursor.jsx'
-import { ON_ARRIVAL, ON_GENERATE, anyJobRunning, shouldAutoFire } from './firing.js'
+import { ON_ARM, ON_ARRIVAL, ON_GENERATE, anyJobRunning, shouldAutoFire } from './firing.js'
 import { AUTO_KEY, SEEN_KEY, readPrefs, resetTutorialPrefsForTests } from './prefs.js'
 import { AUTO_LABEL } from './StepCard.jsx'
 import { STEP_CARDS } from './stepCards.js'
@@ -71,6 +71,17 @@ describe('1. the rules, as a function', () => {
     expect(BOUNDARY_STEP.generate == null).toBe(true)
     expect(shouldAutoFire(base)).toBe(true)
     expect(shouldAutoFire({ ...base, trigger: ON_GENERATE })).toBe(false)
+  })
+
+  it('a card that declares firesOn: arm fires on arming and on nothing else -- the shipped roads card does', () => {
+    const armed = { ...pressed, registry: [{ stepId: 'landform', title: 't', body: 'b', firesOn: ON_ARM }], trigger: ON_ARM }
+    expect(shouldAutoFire(armed)).toBe(true)
+    expect(shouldAutoFire({ ...armed, trigger: ON_GENERATE })).toBe(false)
+    expect(shouldAutoFire({ ...armed, trigger: ON_ARRIVAL })).toBe(false)
+    // A card that declares nothing does not fire on arming.
+    expect(shouldAutoFire({ ...pressed, trigger: ON_ARM })).toBe(false)
+    expect(STEP_CARDS.find((card) => card.stepId === 'roads').firesOn).toBe(ON_ARM)
+    expect(STEP_CARDS.filter((card) => card.firesOn != null).map((card) => card.stepId)).toEqual(['roads'])
   })
 
   it('does not fire when seen contains the step id', () => {
@@ -644,9 +655,9 @@ describe('4. the help control opens the active step\'s card', () => {
    5. The shipped registry, pressed
    =========================================================================== */
 
-describe('5. water and roads, through the shipped registry, on their presses', () => {
-  it('roads fires on "Generate network" and not before', async () => {
-    window.localStorage.setItem(SEEN_KEY, JSON.stringify(['orientation', 'boundary', 'landform', 'water']))
+describe('5. roads, through the shipped registry', () => {
+  async function atRoads(seenList = ['orientation', 'boundary', 'landform', 'water']) {
+    window.localStorage.setItem(SEEN_KEY, JSON.stringify(seenList))
     const ui = await renderShell({
       registry: null,
       document: serverDocument({ steps: { landform: { status: COMMITTED }, water: { status: COMMITTED } } }),
@@ -654,12 +665,42 @@ describe('5. water and roads, through the shipped registry, on their presses', (
     await ui.resume()
     expect(ui.cursor.cursorStepId).toBe('roads')
     expect(ui.stepCard()).toBeNull()
+    return ui
+  }
+
+  it('fires on "Add access point", before the point is placed, and marks roads seen', async () => {
+    const ui = await atRoads()
     await ui.click('access-roads')
+    expect(ui.cursor.armed).toBe('draw')
+    expect(ui.stepCard()).not.toBeNull()
+    expect(ui.stepCard().dataset.step).toBe('roads')
+    expect(seen()).toContain('roads')
+    // Dismissed, the tool is still armed: the next click places the point.
+    await ui.click('tutorial-step-close')
     expect(ui.stepCard()).toBeNull()
+    expect(ui.cursor.armed).toBe('draw')
+  })
+
+  it('does not fire again on "Generate network", nor on a second "Add access point"', async () => {
+    const ui = await atRoads()
+    await ui.click('access-roads')
+    await ui.click('tutorial-step-close')
     await ui.run((actions) => actions.setDraftInput('roads', ACCESS_POINT_INPUT, [-74.01, 40.705]))
     await ui.click('generate-roads')
     expect(ui.job.submits).toEqual(['roads'])
-    expect(ui.stepCard()).not.toBeNull()
-    expect(ui.stepCard().dataset.step).toBe('roads')
+    expect(ui.stepCard()).toBeNull()
+  })
+
+  it('does not fire on arming when roads is seen, or when auto is off', async () => {
+    const ui = await atRoads(['orientation', 'boundary', 'landform', 'water', 'roads'])
+    await ui.click('access-roads')
+    expect(ui.cursor.armed).toBe('draw')
+    expect(ui.stepCard()).toBeNull()
+    await ui.unmount()
+
+    window.localStorage.setItem(AUTO_KEY, 'false')
+    const off = await atRoads()
+    await off.click('access-roads')
+    expect(off.stepCard()).toBeNull()
   })
 })

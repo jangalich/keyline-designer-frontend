@@ -8,6 +8,11 @@
  * card in front of a button nobody had pressed yet, and left the wait itself
  * empty.
  *
+ * ON ARMING ITS FIRST TOOL, for a card that declares `firesOn: 'arm'`:
+ * roads, whose card teaches where an access point goes and so must arrive
+ * when "Add access point" is pressed, before the point is placed -- not on
+ * the generate, by which time it has been.
+ *
  * ON ARRIVAL, for a step with NO generate: boundary, which is drawn and
  * committed. Its arrival is the gate's hand-over, straight after the
  * orientation card's start button.
@@ -35,6 +40,12 @@ import { cardFor } from './stepCards.js'
 /** What asked: arriving at the step, or pressing its generate. */
 export const ON_ARRIVAL = 'arrival'
 export const ON_GENERATE = 'generate'
+export const ON_ARM = 'arm'
+
+/** The one moment a step's card may fire: what its card declares, else by whether the step generates. */
+export function firingMoment(card, generates) {
+  return card?.firesOn ?? (generates ? ON_GENERATE : ON_ARRIVAL)
+}
 
 export function shouldAutoFire({
   registry,
@@ -46,10 +57,11 @@ export function shouldAutoFire({
   trigger = ON_ARRIVAL,
   generates = false,
 }) {
-  // A step with a generate fires on the press and only on the press; a step
-  // without one has no press and fires on arrival.
-  if (trigger === ON_GENERATE ? !generates : generates) return false
-  if (cardFor(registry, stepId) == null) return false
+  // One moment per step: the card's declared one, else the generate press
+  // for a step that has one, else arrival.
+  const card = cardFor(registry, stepId)
+  if (card == null) return false
+  if (trigger !== firingMoment(card, generates)) return false
   if (!prefs || prefs.auto !== true) return false
   if (prefs.seen.includes(stepId)) return false
   if (status !== NOT_STARTED) return false

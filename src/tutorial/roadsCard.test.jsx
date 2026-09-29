@@ -38,7 +38,6 @@ import { zoneMark } from '../ProductionHatchPattern.jsx'
 import { COMMITTED, NOT_STARTED, SessionProvider, useSession } from '../session/SessionStore'
 import { resetStepCatalog } from '../wizard/stepCatalog.jsx'
 import {
-  ACCESS_POINT_INPUT,
   MAX_ROAD_NETWORKS,
   ROADS_STEP,
   STEP_DEFINITIONS,
@@ -280,7 +279,7 @@ describe('1. the roads entry registers one card', () => {
     expect(entry.Animation).toBe(RoadsAnimation)
   })
 
-  it('opens by itself on the roads generate press, not on arrival, through the shipped shell and registry', async () => {
+  it('opens by itself on "Add access point", not on arrival, through the shipped shell and registry', async () => {
     window.localStorage.setItem(SEEN_KEY, JSON.stringify(['orientation', 'boundary', 'landform', 'water']))
     const doc = serverDocument({ landform: { status: COMMITTED }, water: { status: COMMITTED } })
     globalThis.fetch = vi.fn(async (rawUrl, init = {}) => {
@@ -321,15 +320,11 @@ describe('1. the roads entry registers one card', () => {
       await session.actions.resume('sess-1')
     })
     expect(cursor.cursorStepId).toBe('roads')
-    // Arrived: nothing -- nor on arming the access point, which is not the
-    // generate -- until "Generate network" is pressed.
+    // Arrived: nothing, until "Add access point" is pressed -- before the
+    // point is placed, since the card is about where it goes.
     expect(find('tutorial-step-card')).toBeNull()
     await React.act(async () => find('access-roads').click())
-    expect(find('tutorial-step-card')).toBeNull()
-    await React.act(async () => {
-      session.actions.setDraftInput('roads', ACCESS_POINT_INPUT, [-74.01, 40.705])
-    })
-    await React.act(async () => find('generate-roads').click())
+    expect(cursor.armed).toBe('draw')
     const card = find('tutorial-step-card')
     expect(card).not.toBeNull()
     expect(card.dataset.step).toBe('roads')

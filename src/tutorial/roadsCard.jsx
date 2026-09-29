@@ -257,4 +257,7 @@ export const ROADS_CARD = Object.freeze({
   body: ROADS_BODY,
   emphasis: ROADS_EMPHASIS,
   Animation: RoadsAnimation,
+  // Fires when "Add access point" arms the draw, before the point is placed
+  // -- the card is about where it goes. See firing.js.
+  firesOn: 'arm',
 })

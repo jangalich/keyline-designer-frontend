@@ -28,6 +28,9 @@
  * once, so the error is not waiting behind a tutorial the person is about
  * to dismiss.
  *
+ * A CARD THAT DECLARES `firesOn: 'arm'` -- roads -- fires instead when the
+ * step's first tool is armed ("Add access point"), under the same rules.
+ *
  * A STEP WITH NO GENERATE -- boundary, drawn and committed -- fires on
  * arrival instead, which for a first-time person is the gate's hand-over.
  * Arrival is evaluated ONCE per arrival: a step reached while something was
@@ -70,7 +73,7 @@ import {
 } from '../session/SessionStore'
 import { JOB_FAILED, JOB_RUNNING } from '../session/jobs'
 import { useWizardCursor } from '../wizard/WizardCursor.jsx'
-import { ON_ARRIVAL, ON_GENERATE, anyJobRunning, shouldAutoFire } from './firing.js'
+import { ON_ARM, ON_ARRIVAL, ON_GENERATE, anyJobRunning, shouldAutoFire } from './firing.js'
 import { markSeen, setAuto, useTutorialPrefs } from './prefs.js'
 import { cardFor } from './stepCards.js'
 import StepCard from './StepCard.jsx'
@@ -118,7 +121,7 @@ const CLOSED = null
 
 export default function TutorialHelp() {
   const { state } = useSession()
-  const { cursorStepId, statuses, definitions } = useWizardCursor()
+  const { cursorStepId, statuses, definitions, armed } = useWizardCursor()
   const registry = useStepCardRegistry()
   const ready = useTutorialReady()
   const prefs = useTutorialPrefs()
@@ -155,29 +158,44 @@ export default function TutorialHelp() {
     if (fire) setOpen({ kind: 'step', stepId: arrival, auto: true })
   }, [arrival, registry, prefs, status, state, generates, open])
 
-  // THE PRESS: this step's job going from not running to running. Seeded with
-  // what is true at mount and on every move of the cursor, so neither reads
-  // as a press. `status` is still the step's status from before the press:
-  // a generate changes the job table, not the document, until it lands.
-  const wasGenerating = useRef({ stepId: cursorStepId, generating })
-  useEffect(() => {
-    const before = wasGenerating.current
-    wasGenerating.current = { stepId: cursorStepId, generating }
-    if (before.stepId !== cursorStepId || before.generating || !generating) return
+  // THE PRESS: a step's generate, or its first tool armed. Each is an edge --
+  // this step's job going from not running to running, or its armed tool
+  // from nothing to something -- seeded with what is true at mount and on
+  // every move of the cursor, so neither reads as a press. `status` is still
+  // the step's status from before the press: a generate changes the job
+  // table, not the document, until it lands. Which press a step's card
+  // answers to is firing.js's question (firingMoment), not this one's.
+  function firePressed(trigger, jobRunning) {
     const fire = shouldAutoFire({
       registry,
       stepId: cursorStepId,
       prefs,
       status,
-      jobRunning: anyJobRunning(state, cursorStepId),
+      jobRunning,
       somethingOpen: somethingOpen(),
-      trigger: ON_GENERATE,
+      trigger,
       generates,
     })
     if (!fire) return
     markSeen(cursorStepId)
     setOpen({ kind: 'step', stepId: cursorStepId, auto: true })
+  }
+
+  const wasGenerating = useRef({ stepId: cursorStepId, generating })
+  useEffect(() => {
+    const before = wasGenerating.current
+    wasGenerating.current = { stepId: cursorStepId, generating }
+    if (before.stepId !== cursorStepId || before.generating || !generating) return
+    firePressed(ON_GENERATE, anyJobRunning(state, cursorStepId))
   }, [cursorStepId, generating])
+
+  const wasArmed = useRef({ stepId: cursorStepId, armed })
+  useEffect(() => {
+    const before = wasArmed.current
+    wasArmed.current = { stepId: cursorStepId, armed }
+    if (before.stepId !== cursorStepId || before.armed != null || armed == null) return
+    firePressed(ON_ARM, anyJobRunning(state))
+  }, [cursorStepId, armed])
 
   // A FAILED GENERATE CLOSES THE STEP'S CARD, on the failure's arrival and
   // not on a failure already standing when the card was opened by hand.
