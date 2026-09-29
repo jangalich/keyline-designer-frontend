@@ -23,14 +23,16 @@
  * a step. A step with no entry never auto-fires, and its help control opens
  * the deck instead.
  *
- * The cards land one branch at a time: boundary, then landform, then water.
+ * The cards land one branch at a time: boundary, then landform, then water,
+ * then roads.
  */
 
 import { BOUNDARY_CARD } from './boundaryCard.jsx'
 import { LANDFORM_CARD } from './landformCards.jsx'
+import { ROADS_CARD } from './roadsCard.jsx'
 import { WATER_CARD } from './waterCard.jsx'
 
-export const STEP_CARDS = Object.freeze([BOUNDARY_CARD, LANDFORM_CARD, WATER_CARD])
+export const STEP_CARDS = Object.freeze([BOUNDARY_CARD, LANDFORM_CARD, WATER_CARD, ROADS_CARD])
 
 /** The card registered for a step, or null. */
 export function cardFor(registry, stepId) {

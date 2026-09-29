@@ -4273,6 +4273,42 @@ rect.tutorial-anim__solid,
   stroke: none;
 }
 
+/* --- The farm's roads (farmScene.jsx) ----------------------------------
+   The roads step's two marks, as the map draws them. A farm track is the
+   `road` row of the mark table: a line in the road's colour and nothing
+   else -- no casing here, where the ground is flat stock and not a
+   photograph. The colour is written as what --road is declared to be,
+   --ink, because this stylesheet may not consume --road itself (roads.test
+   section 15 holds every control off it); roadsCard.test holds the two
+   equal, so a change to --road fails there rather than drifting here. An
+   access point is the map's marker (.access-point-marker): solid --ochre
+   ringed in --halo once a network is generated from it, hollow and dashed
+   in --ochre while it is only placed. Ochre is the access point's own
+   token, not an accent. */
+
+.farm-scene__track {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.farm-scene__access-point {
+  stroke-width: 2;
+}
+
+.farm-scene__access-point--generated {
+  fill: var(--ochre);
+  stroke: var(--halo);
+}
+
+.farm-scene__access-point--pending {
+  fill: var(--paper);
+  stroke: var(--ochre);
+  stroke-dasharray: 2.4 1.6;
+}
+
 /* --- 6. Landform: read a block, then build the set -----------------------
    Two cards on the scene, each on its own --loop. The panel, tabs and
    buttons are the map's chrome drawn at the scene's scale; every numeral is
@@ -4609,6 +4645,245 @@ rect.tutorial-anim__solid,
    frame; the cursor goes by the shared rule. */
 @media (prefers-reduced-motion: reduce) {
   .tutorial-anim--water * {
+    animation: none;
+  }
+}
+
+/* --- 8. Roads: place, generate, place again, generate, choose, commit -----
+   One card on the scene, 16s. Block 1 and the embankment area are settled
+   context, in the order they were decided. The first access point is placed
+   at 17%, the second at 47%; networks are generated at 25% and 55%;
+   Network 1's tab is clicked at 71%; commit is pressed at 81%. Oxide is
+   only the click pulses and the diagram's primary button, both from the
+   shared rules above.
+
+   SHOWING AND HIDING IS A HARD CUT. Every rule that switches something on
+   or off -- a network, a marker, a tab, a tick, a banner -- runs on
+   step-end, so its value jumps at the stop and is never in between: a fade
+   reads as a glitch, not as a switch. The one thing that moves along a
+   path is a track DRAWING, and its dash offset only ever falls.
+
+   THE TICK HAS NO TIMELINE OF ITS OWN. Each network's tick, tab mark and
+   marker ring run the same keyframes -- that network's focus -- because on
+   this step the tick follows focus and nothing else moves it. */
+
+.tutorial-anim--roads {
+  --loop: 16s;
+}
+
+/* The scene's STREAM label sits where the tab strip does. */
+.tutorial-anim--roads .farm-scene__label[data-label='stream'] {
+  display: none;
+}
+
+/* Type at the scene's scale: about 9px at the card's narrowest. */
+.tutorial-anim--roads .tutorial-anim__name,
+.tutorial-anim--roads .tutorial-anim__commit-label,
+.tutorial-anim--roads .tutorial-anim__note {
+  font-size: 11px;
+}
+
+.tutorial-anim__tab-mark--roads-1,
+.tutorial-anim__tab-mark--roads-2 {
+  stroke-width: 2.6;
+}
+
+/* A track draws along its own length: pathLength="1" on every branch. */
+.tutorial-anim--roads .farm-scene__track {
+  stroke-dasharray: 1;
+}
+
+/* The boundary, lit in the access point's own token while the placement
+   tool is armed. A moment, not a mark: it rests hidden. */
+.tutorial-anim__armed {
+  fill: none;
+  stroke: var(--ochre);
+  stroke-width: 4;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+
+/* The generate button before a point is placed, as the real one is when
+   disabled: paper, a --rule edge, its label in --disabled. */
+.tutorial-anim__disabled rect {
+  fill: var(--paper);
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+.tutorial-anim__disabled text {
+  font-family: var(--font-prose);
+  font-weight: 600;
+  font-size: 11px;
+  fill: var(--disabled);
+}
+
+.tutorial-anim__access--pending-1,
+.tutorial-anim__access--pending-2 {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* RESTING FRAME: both markers generated; network 1 drawn and focused, its
+   marker ringed, its tab ticked and marked; network 2 off the map, its tab
+   present, unticked and quiet. The banner rests on the reviewing pair. */
+.tutorial-anim__network--roads-2,
+.tutorial-anim__mark--roads-2,
+.tutorial-anim__tab-mark--roads-2,
+.tutorial-anim__tick--roads-2,
+.tutorial-anim__access--pending-1,
+.tutorial-anim__access--pending-2,
+.tutorial-anim__banner--roads-idle,
+.tutorial-anim__banner--roads-armed,
+.tutorial-anim__banner--roads-working,
+.tutorial-anim__disabled--roads {
+  opacity: 0;
+}
+
+.tutorial-anim__tab--roads-2 {
+  opacity: 0.55;
+}
+
+.tutorial-anim__cursor--roads { animation-name: tutorial-roads-cursor; animation-timing-function: cubic-bezier(0.4, 0, 0.25, 1); }
+.tutorial-anim__pointer--roads { animation-name: tutorial-roads-press; }
+.tutorial-anim__pulse--roads-1 { animation-name: tutorial-roads-pulse-1; }
+.tutorial-anim__pulse--roads-2 { animation-name: tutorial-roads-pulse-2; }
+.tutorial-anim__pulse--roads-3 { animation-name: tutorial-roads-pulse-3; }
+.tutorial-anim__access--pending-1 { animation-name: tutorial-roads-pending-1; }
+.tutorial-anim__access--pending-2 { animation-name: tutorial-roads-pending-2; }
+.tutorial-anim__track--roads-1-main { animation-name: tutorial-roads-draw-1-main; }
+.tutorial-anim__track--roads-1-branch { animation-name: tutorial-roads-draw-1-branch; }
+.tutorial-anim__track--roads-2-main { animation-name: tutorial-roads-draw-2-main; }
+.tutorial-anim__track--roads-2-branch { animation-name: tutorial-roads-draw-2-branch; }
+.tutorial-anim__commit-button--roads-first-add { animation-name: tutorial-roads-press-first-add; }
+.tutorial-anim__commit-button--roads-generate { animation-name: tutorial-roads-press-generate; }
+.tutorial-anim__draw-button--roads-add { animation-name: tutorial-roads-press-add; }
+.tutorial-anim__draw-button--roads-cancel { animation-name: none; }
+.tutorial-anim__commit-button--roads-commit { animation-name: tutorial-roads-press-commit; }
+
+/* The cuts. */
+.tutorial-anim__armed { animation-name: tutorial-roads-armed; animation-timing-function: step-end; }
+.tutorial-anim__disabled--roads { animation-name: tutorial-roads-disabled; animation-timing-function: step-end; }
+.tutorial-anim__banner--roads-idle { animation-name: tutorial-roads-banner-idle; animation-timing-function: step-end; }
+.tutorial-anim__banner--roads-armed { animation-name: tutorial-roads-banner-armed; animation-timing-function: step-end; }
+.tutorial-anim__banner--roads-working { animation-name: tutorial-roads-banner-working; animation-timing-function: step-end; }
+.tutorial-anim__banner--roads-reviewing { animation-name: tutorial-roads-banner-reviewing; animation-timing-function: step-end; }
+.tutorial-anim__access--generated-1 { animation-name: tutorial-roads-generated-1; animation-timing-function: step-end; }
+.tutorial-anim__access--generated-2 { animation-name: tutorial-roads-generated-2; animation-timing-function: step-end; }
+.tutorial-anim__network--roads-1 { animation-name: tutorial-roads-network-1; animation-timing-function: step-end; }
+.tutorial-anim__network--roads-2 { animation-name: tutorial-roads-network-2; animation-timing-function: step-end; }
+.tutorial-anim__mark--roads-1 { animation-name: tutorial-roads-focus-1; animation-timing-function: step-end; }
+.tutorial-anim__tab-mark--roads-1 { animation-name: tutorial-roads-focus-1; animation-timing-function: step-end; }
+.tutorial-anim__tick--roads-1 { animation-name: tutorial-roads-focus-1; animation-timing-function: step-end; }
+.tutorial-anim__mark--roads-2 { animation-name: tutorial-roads-focus-2; animation-timing-function: step-end; }
+.tutorial-anim__tab-mark--roads-2 { animation-name: tutorial-roads-focus-2; animation-timing-function: step-end; }
+.tutorial-anim__tick--roads-2 { animation-name: tutorial-roads-focus-2; animation-timing-function: step-end; }
+.tutorial-anim__tab--roads-1 { animation-name: tutorial-roads-tab-1; animation-timing-function: step-end; }
+.tutorial-anim__tab--roads-2 { animation-name: tutorial-roads-tab-2; animation-timing-function: step-end; }
+
+/* Presses at 9 (Add access point), 17 (the boundary), 25 (Generate), 39
+   (Add access point), 47 (the boundary), 55 (Generate), 71 (Network 1's
+   tab) and 81 (Commit) percent. */
+@keyframes tutorial-roads-cursor {
+  0% { transform: translate(60px, 268px); opacity: 0; }
+  3% { transform: translate(90px, 256px); opacity: 1; }
+  8%, 10% { transform: translate(325px, 236px); }
+  16%, 18% { transform: translate(150px, 57px); }
+  24%, 33% { transform: translate(325px, 236px); }
+  38%, 41% { transform: translate(202px, 236px); }
+  46%, 48% { transform: translate(240px, 60px); }
+  54%, 63% { transform: translate(325px, 236px); }
+  70%, 72% { transform: translate(86px, 276px); }
+  80% { transform: translate(325px, 236px); }
+  94% { transform: translate(325px, 236px); opacity: 1; }
+  97%, 100% { transform: translate(325px, 236px); opacity: 0; }
+}
+
+@keyframes tutorial-roads-press {
+  0%, 9% { transform: scale(1); } 10% { transform: scale(0.82); } 11% { transform: scale(1); }
+  17% { transform: scale(1); } 18% { transform: scale(0.82); } 19% { transform: scale(1); }
+  25% { transform: scale(1); } 26% { transform: scale(0.82); } 27% { transform: scale(1); }
+  39% { transform: scale(1); } 40% { transform: scale(0.82); } 41% { transform: scale(1); }
+  47% { transform: scale(1); } 48% { transform: scale(0.82); } 49% { transform: scale(1); }
+  55% { transform: scale(1); } 56% { transform: scale(0.82); } 57% { transform: scale(1); }
+  71% { transform: scale(1); } 72% { transform: scale(0.82); } 73% { transform: scale(1); }
+  81% { transform: scale(1); } 82% { transform: scale(0.82); } 83%, 100% { transform: scale(1); }
+}
+
+@keyframes tutorial-roads-pulse-1 { 0%, 17% { opacity: 0; transform: scale(0.2); } 20% { opacity: 1; transform: scale(1); } 24%, 100% { opacity: 0; transform: scale(1.2); } }
+@keyframes tutorial-roads-pulse-2 { 0%, 47% { opacity: 0; transform: scale(0.2); } 50% { opacity: 1; transform: scale(1); } 54%, 100% { opacity: 0; transform: scale(1.2); } }
+@keyframes tutorial-roads-pulse-3 { 0%, 71% { opacity: 0; transform: scale(0.2); } 74% { opacity: 1; transform: scale(0.8); } 78%, 100% { opacity: 0; transform: scale(1); } }
+
+/* The buttons take the press, then the banner changes under them. */
+@keyframes tutorial-roads-press-first-add { 0%, 9% { transform: scale(1); } 9.6% { transform: scale(0.94); } 10.2%, 100% { transform: scale(1); } }
+@keyframes tutorial-roads-press-generate {
+  0%, 25% { transform: scale(1); } 25.6% { transform: scale(0.94); } 26.2% { transform: scale(1); }
+  55% { transform: scale(1); } 55.6% { transform: scale(0.94); } 56.2%, 100% { transform: scale(1); }
+}
+@keyframes tutorial-roads-press-add { 0%, 39% { transform: scale(1); } 39.6% { transform: scale(0.94); } 40.2%, 100% { transform: scale(1); } }
+@keyframes tutorial-roads-press-commit { 0%, 81% { transform: scale(1); } 82.5% { transform: scale(0.94); } 84%, 100% { transform: scale(1); } }
+
+/* THE BANNER. Nothing generated: "Add access point", alone and primary.
+   Armed: Cancel beside "Generate network", disabled until a point is down.
+   Generating: the working line and no buttons. Reviewing: "Add access
+   point", now secondary, beside "Commit this network". At 97% the loop
+   cuts back to the start. */
+@keyframes tutorial-roads-banner-idle { 0% { opacity: 1; } 10% { opacity: 0; } 97%, 100% { opacity: 1; } }
+@keyframes tutorial-roads-banner-armed { 0% { opacity: 0; } 10% { opacity: 1; } 26% { opacity: 0; } 40% { opacity: 1; } 56%, 100% { opacity: 0; } }
+@keyframes tutorial-roads-banner-working { 0% { opacity: 0; } 26% { opacity: 1; } 33% { opacity: 0; } 56% { opacity: 1; } 63%, 100% { opacity: 0; } }
+@keyframes tutorial-roads-banner-reviewing { 0% { opacity: 0; } 33% { opacity: 1; } 40% { opacity: 0; } 63% { opacity: 1; } 97%, 100% { opacity: 0; } }
+@keyframes tutorial-roads-disabled { 0% { opacity: 1; } 17.5% { opacity: 0; } 40% { opacity: 1; } 47.5%, 100% { opacity: 0; } }
+@keyframes tutorial-roads-armed { 0% { opacity: 0; } 10% { opacity: 0.55; } 26% { opacity: 0; } 40% { opacity: 0.55; } 56%, 100% { opacity: 0; } }
+
+/* A placed point lands with a small overshoot and stays pending until its
+   network comes back, when the generated marker replaces it on a cut. */
+@keyframes tutorial-roads-pending-1 {
+  0%, 17.4% { opacity: 0; transform: scale(0.3); }
+  17.5% { opacity: 1; transform: scale(0.5); }
+  18.6% { transform: scale(1.3); }
+  19.6%, 32.9% { opacity: 1; transform: scale(1); }
+  33%, 100% { opacity: 0; transform: scale(1); }
+}
+@keyframes tutorial-roads-pending-2 {
+  0%, 47.4% { opacity: 0; transform: scale(0.3); }
+  47.5% { opacity: 1; transform: scale(0.5); }
+  48.6% { transform: scale(1.3); }
+  49.6%, 62.9% { opacity: 1; transform: scale(1); }
+  63%, 100% { opacity: 0; transform: scale(1); }
+}
+
+/* THE GENERATED MARKERS: once placed, drawn whatever is focused. */
+@keyframes tutorial-roads-generated-1 { 0% { opacity: 0; } 33% { opacity: 1; } 97%, 100% { opacity: 0; } }
+@keyframes tutorial-roads-generated-2 { 0% { opacity: 0; } 63% { opacity: 1; } 97%, 100% { opacity: 0; } }
+
+/* THE TRACKS DRAW, and a drawn track stays drawn: each offset falls from 1
+   to 0 once and holds there to the end of the loop. The trunk first, then
+   its spur from the point where it leaves the trunk. */
+@keyframes tutorial-roads-draw-1-main { 0%, 26% { stroke-dashoffset: 1; } 31%, 100% { stroke-dashoffset: 0; } }
+@keyframes tutorial-roads-draw-1-branch { 0%, 28.5% { stroke-dashoffset: 1; } 32.5%, 100% { stroke-dashoffset: 0; } }
+@keyframes tutorial-roads-draw-2-main { 0%, 56% { stroke-dashoffset: 1; } 61%, 100% { stroke-dashoffset: 0; } }
+@keyframes tutorial-roads-draw-2-branch { 0%, 58.5% { stroke-dashoffset: 1; } 62.5%, 100% { stroke-dashoffset: 0; } }
+
+/* THE NETWORKS ON THE MAP: only the focused one. Network 1 shows from its
+   generate, leaves when "Add access point" is pressed -- arming blurs, and
+   on this step the blur takes the selection with it -- and returns when its
+   tab is clicked, in the instant network 2 leaves. */
+@keyframes tutorial-roads-network-1 { 0% { opacity: 0; } 26% { opacity: 1; } 40% { opacity: 0; } 71.5% { opacity: 1; } 97%, 100% { opacity: 0; } }
+@keyframes tutorial-roads-network-2 { 0% { opacity: 0; } 56% { opacity: 1; } 71.5%, 100% { opacity: 0; } }
+
+/* FOCUS, and with it the tick, the tab mark and the marker's ring. */
+@keyframes tutorial-roads-focus-1 { 0% { opacity: 0; } 33% { opacity: 1; } 40% { opacity: 0; } 71.5% { opacity: 1; } 97%, 100% { opacity: 0; } }
+@keyframes tutorial-roads-focus-2 { 0% { opacity: 0; } 63% { opacity: 1; } 71.5%, 100% { opacity: 0; } }
+
+/* A tab arrives with its network, and goes quiet while it is unticked. */
+@keyframes tutorial-roads-tab-1 { 0% { opacity: 0; } 33% { opacity: 1; } 40% { opacity: 0.55; } 71.5% { opacity: 1; } 97%, 100% { opacity: 0; } }
+@keyframes tutorial-roads-tab-2 { 0% { opacity: 0; } 63% { opacity: 1; } 71.5% { opacity: 0.55; } 97%, 100% { opacity: 0; } }
+
+/* REDUCED MOTION, for the roads card: its rules come after the diagrams'
+   own reduced-motion block, so it states it again. It lands on its resting
+   frame; the cursor goes by the shared rule. */
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-anim--roads * {
     animation: none;
   }
 }
