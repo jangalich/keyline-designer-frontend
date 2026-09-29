@@ -4202,19 +4202,27 @@ rect.tutorial-anim__solid,
 /* --- The farm's blocks and settled parcel (farmScene.jsx) ----------------
    Production blocks as the map draws them: two stacked shapes, a --field
    ground wash beneath and the hatch above. The hatch is a <pattern> of
-   diagonal rules at 45 degrees, 7 units apart; its stroke is this rule's
-   token, never the pattern markup's, and each block is handed its own
-   diagram's pattern through --farm-hatch. The hatch is the map's own mark
-   in the map's own accent: oxide here is ground, not a control.
+   diagonal rules at 45 degrees, 8 units apart at weight 1 -- the map's
+   production row, spacing 8, weight 1; it was 7 and 1.5, which broke the
+   pairing with the tree hatch below. Its stroke is this rule's token, never
+   the pattern markup's, and each block is handed its own diagram's pattern
+   through --farm-hatch. The hatch is the map's own mark in the map's own
+   accent: oxide here is ground, not a control.
 
    'settled' is the tone every step after landform gives the block layer:
    present, hatched, quiet, and not a thing to click. Kept beside the plain
    rule so the water and roads cards restyle the same blocks, never redraw
    them. */
 
+/* THE CROPS' ONE WEIGHT: production's rule and the tree rule share it, so
+   the two hatches cannot drift apart in weight any more than in pitch. */
+.farm-scene__hatch-line,
+.farm-scene__tree-line {
+  stroke-width: 1;
+}
+
 .farm-scene__hatch-line {
   stroke: var(--oxide);
-  stroke-width: 1.5;
   stroke-opacity: 0.8;
 }
 
@@ -4307,6 +4315,22 @@ rect.tutorial-anim__solid,
   fill: var(--paper);
   stroke: var(--ochre);
   stroke-dasharray: 2.4 1.6;
+}
+
+/* --- The farm's tree zones (farmScene.jsx) -----------------------------
+   The trees step's mark, as the map draws it (the `tree` row): production's
+   hatch MIRRORED -- the other diagonal, at the same pitch and the weight
+   above, in --tree. One shape, no ground wash under it and no outline: the
+   zone's extent is where the ruling stops. --tree is the mark's own token,
+   not an accent. */
+
+.farm-scene__tree-line {
+  stroke: var(--tree);
+}
+
+.farm-scene__tree-zone {
+  fill: var(--farm-tree-hatch);
+  stroke: none;
 }
 
 /* --- 6. Landform: read a block, then build the set -----------------------
@@ -4884,6 +4908,134 @@ rect.tutorial-anim__solid,
    frame; the cursor goes by the shared rule. */
 @media (prefers-reduced-motion: reduce) {
   .tutorial-anim--roads * {
+    animation: none;
+  }
+}
+
+/* --- 9. Trees: draw a windbreak, untick a zone, commit ------------------
+   One card on the scene, 13s. The block, the water area and the network
+   with its access point are settled context, in the order they were
+   decided. "Draw a zone" is pressed at 9%; the windbreak's corners land at
+   16, 23, 30 and 37, and it closes on the first at 45; Zone 2 is unticked at
+   58; commit is pressed at 78. Oxide is only the click pulse and the
+   commit button, both from the shared rules above.
+
+   A DRAWN EDGE NEVER UNWINDS: each dash offset falls from 1 to 0 once and
+   is pinned at 0 through every later stop, as on roads. */
+
+.tutorial-anim--trees {
+  --loop: 13s;
+}
+
+/* The scene's STREAM label sits where the tab strip does. */
+.tutorial-anim--trees .farm-scene__label[data-label='stream'] {
+  display: none;
+}
+
+/* Type at the scene's scale: about 9px at the card's narrowest. */
+.tutorial-anim--trees .tutorial-anim__name,
+.tutorial-anim--trees .tutorial-anim__commit-label {
+  font-size: 11px;
+}
+
+.tutorial-anim__segment--trees {
+  stroke-width: 2.2;
+}
+
+.tutorial-anim__corner--trees {
+  stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* RESTING FRAME: the windbreak in and ticked; Zone 2 off the map, its tick
+   gone and its tab dimmed. */
+.tutorial-anim__zone--trees-2,
+.tutorial-anim__tick--trees-2 {
+  opacity: 0;
+}
+
+.tutorial-anim__tab--trees-2 {
+  opacity: 0.45;
+}
+
+.tutorial-anim__cursor--trees { animation-name: tutorial-trees-cursor; animation-timing-function: cubic-bezier(0.4, 0, 0.25, 1); }
+.tutorial-anim__pointer--trees { animation-name: tutorial-trees-press; }
+.tutorial-anim__draw-button--trees { animation-name: tutorial-trees-draw-button; }
+.tutorial-anim__commit-button--trees { animation-name: tutorial-trees-commit-button; }
+.tutorial-anim__corner--trees-1 { animation-name: tutorial-trees-corner-1; }
+.tutorial-anim__corner--trees-2 { animation-name: tutorial-trees-corner-2; }
+.tutorial-anim__corner--trees-3 { animation-name: tutorial-trees-corner-3; }
+.tutorial-anim__corner--trees-4 { animation-name: tutorial-trees-corner-4; }
+.tutorial-anim__segment--trees-1 { animation-name: tutorial-trees-segment-1; }
+.tutorial-anim__segment--trees-2 { animation-name: tutorial-trees-segment-2; }
+.tutorial-anim__segment--trees-3 { animation-name: tutorial-trees-segment-3; }
+.tutorial-anim__segment--trees-4 { animation-name: tutorial-trees-segment-4; }
+.tutorial-anim__windbreak { animation-name: tutorial-trees-windbreak; }
+.tutorial-anim__tab--trees-drawn-1 { animation-name: tutorial-trees-new-tab; }
+.tutorial-anim__pulse--trees { animation-name: tutorial-trees-pulse; }
+.tutorial-anim__tick--trees-2 { animation-name: tutorial-trees-untick; }
+.tutorial-anim__zone--trees-2 { animation-name: tutorial-trees-zone-2; animation-timing-function: step-end; }
+.tutorial-anim__tab--trees-2 { animation-name: tutorial-trees-tab-2; }
+
+/* Presses at 9 (Draw a zone), 16, 23, 30, 37 (the corners), 45 (the close),
+   58 (Zone 2's checkbox) and 78 (Commit tree zones) percent. */
+@keyframes tutorial-trees-cursor {
+  0% { transform: translate(60px, 268px); opacity: 0; }
+  3% { transform: translate(96px, 258px); opacity: 1; }
+  8%, 12% { transform: translate(229px, 236px); }
+  16%, 19% { transform: translate(100px, 74px); }
+  23%, 26% { transform: translate(144px, 65px); }
+  30%, 33% { transform: translate(147px, 78px); }
+  37%, 40% { transform: translate(103px, 87px); }
+  45%, 52% { transform: translate(100px, 74px); }
+  57%, 70% { transform: translate(108.5px, 275.5px); }
+  77% { transform: translate(332px, 236px); }
+  94% { transform: translate(332px, 236px); opacity: 1; }
+  97%, 100% { transform: translate(332px, 236px); opacity: 0; }
+}
+
+@keyframes tutorial-trees-press {
+  0%, 9% { transform: scale(1); } 10% { transform: scale(0.82); } 11% { transform: scale(1); }
+  16% { transform: scale(1); } 17% { transform: scale(0.82); } 18% { transform: scale(1); }
+  23% { transform: scale(1); } 24% { transform: scale(0.82); } 25% { transform: scale(1); }
+  30% { transform: scale(1); } 31% { transform: scale(0.82); } 32% { transform: scale(1); }
+  37% { transform: scale(1); } 38% { transform: scale(0.82); } 39% { transform: scale(1); }
+  45% { transform: scale(1); } 46% { transform: scale(0.82); } 47% { transform: scale(1); }
+  58% { transform: scale(1); } 59% { transform: scale(0.82); } 60% { transform: scale(1); }
+  78% { transform: scale(1); } 79% { transform: scale(0.82); } 80%, 100% { transform: scale(1); }
+}
+
+@keyframes tutorial-trees-draw-button { 0%, 9% { opacity: 1; } 11% { opacity: 0.55; } 13%, 100% { opacity: 1; } }
+@keyframes tutorial-trees-commit-button { 0%, 78% { transform: scale(1); } 79.5% { transform: scale(0.94); } 81%, 100% { transform: scale(1); } }
+
+@keyframes tutorial-trees-corner-1 { 0%, 15.9% { opacity: 0; transform: scale(0.2); } 17% { opacity: 1; transform: scale(1.3); } 18.5%, 96% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+@keyframes tutorial-trees-corner-2 { 0%, 22.9% { opacity: 0; transform: scale(0.2); } 24% { opacity: 1; transform: scale(1.3); } 25.5%, 96% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+@keyframes tutorial-trees-corner-3 { 0%, 29.9% { opacity: 0; transform: scale(0.2); } 31% { opacity: 1; transform: scale(1.3); } 32.5%, 96% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+@keyframes tutorial-trees-corner-4 { 0%, 36.9% { opacity: 0; transform: scale(0.2); } 38% { opacity: 1; transform: scale(1.3); } 39.5%, 96% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+
+/* Each edge draws while the cursor travels to its far corner; the fourth is
+   the close, back to the first. Once at 0 the offset stays at 0. */
+@keyframes tutorial-trees-segment-1 { 0%, 19% { stroke-dashoffset: 1; opacity: 1; } 23%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes tutorial-trees-segment-2 { 0%, 26% { stroke-dashoffset: 1; opacity: 1; } 30%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes tutorial-trees-segment-3 { 0%, 33% { stroke-dashoffset: 1; opacity: 1; } 37%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes tutorial-trees-segment-4 { 0%, 40% { stroke-dashoffset: 1; opacity: 1; } 45%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+
+@keyframes tutorial-trees-windbreak { 0%, 45% { opacity: 0; } 48%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-trees-new-tab { 0%, 46% { opacity: 0; } 49%, 96% { opacity: 1; } 100% { opacity: 0; } }
+
+/* The untick: the pulse at the checkbox, the tick goes, the zone leaves the
+   map on a cut and the tab dims. All three are back as the loop opens. */
+@keyframes tutorial-trees-pulse { 0%, 58% { opacity: 0; transform: scale(0.2); } 61% { opacity: 1; transform: scale(1); } 65%, 100% { opacity: 0; transform: scale(1.2); } }
+@keyframes tutorial-trees-untick { 0%, 58% { opacity: 1; } 60%, 100% { opacity: 0; } }
+@keyframes tutorial-trees-zone-2 { 0% { opacity: 1; } 59%, 100% { opacity: 0; } }
+@keyframes tutorial-trees-tab-2 { 0%, 59% { opacity: 1; } 62%, 100% { opacity: 0.45; } }
+
+/* REDUCED MOTION, for the trees card: its rules come after the diagrams'
+   own reduced-motion block, so it states it again. It lands on its resting
+   frame; the cursor goes by the shared rule. */
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-anim--trees * {
     animation: none;
   }
 }
