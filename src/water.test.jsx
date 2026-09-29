@@ -1190,8 +1190,7 @@ describe('8. cross_type_overlaps is a finding about the ground', () => {
     // wire feature id and means nothing on screen. The row still renders,
     // because the two instruments did agree about that ground and which of
     // them is presented is a fact about the presentation rule rather than
-    // about the land; the step's withheld notice is where "not shown" is
-    // explained.
+    // about the land.
     const zone = fixtureZone({
       zone_id: 1,
       survey_type: 'embankment',
@@ -3038,36 +3037,18 @@ describe('water delivery', () => {
    after a generate: checks that did not run (soil, canopy, roads,
    production), nothing clearing the threshold, zones dropped under the
    floor, and survivors withheld by the presentation rule. All five were
-   removed at the user's request. These cases hold that on every payload
-   shape that used to trigger one, so a later branch that re-adds a notice
-   has to delete this first.
+   removed at the user's request -- and later every other step's "check" and
+   "note" lines went the same way, taking the `notices` slot out of the step
+   schema. These cases hold that no definition declares one, and that nothing
+   renders under the bar after a real generate, so a later branch that
+   re-adds a notice has to delete this first.
    =========================================================================== */
 
 describe('notices', () => {
-  const DRAFT = { selectedFeatureIds: [], drawnFeatures: [] }
-
-  it('declares none, on every payload shape that used to produce one', () => {
-    const unchecked = fixtureZone({
-      canopy_overlap_pct: null,
-      road_overlap_pct: null,
-      production_overlap_pct: null,
-    })
-    const shapes = {
-      'no payload': null,
-      'soil and every overlap unchecked': payloadOf([unchecked], { soil_checked: false, zone_count: 1 }),
-      'nothing cleared the threshold': payloadOf([], { zone_count: 0 }),
-      'zones dropped under the floor': payloadOf([fixtureZone({})], { zone_count: 1, dropped_count: 4 }),
-      'survivors withheld by presentation': payloadOf([fixtureZone({})], {
-        zone_count: 8,
-        presentation: {
-          presented_count: 6,
-          withheld_count: 2,
-          rule_applied: '2 embankment + 2 excavated + 2 embankment clear-ground',
-        },
-      }),
-    }
-    for (const [label, proposals] of Object.entries(shapes)) {
-      expect(WATER_STEP.notices({ proposals, draft: DRAFT }), label).toEqual([])
+  it('declares none: no step definition carries a notices slot', () => {
+    expect(WATER_STEP.notices).toBeUndefined()
+    for (const definition of STEP_DEFINITIONS) {
+      expect(definition.notices, definition.id).toBeUndefined()
     }
   })
 
@@ -3075,7 +3056,6 @@ describe('notices', () => {
     const ui = await renderApp()
     await throughWaterGenerate(ui)
 
-    expect(WATER_STEP.notices({ proposals: ui.water, draft: selectDraft(ui.state, 'water') })).toEqual([])
     expect(document.querySelectorAll('[data-testid^="notice-"][data-testid$="-water"]')).toHaveLength(0)
 
     await ui.unmount()
@@ -3363,10 +3343,9 @@ describe('the scales block', () => {
     // NO BAND NAME IS WRITTEN DOWN. The words come out of `scales.bands`.
     expect(code).not.toMatch(/['"`](poor|fair|good|excellent)['"`]/i)
 
-    // NOR ANY OF THE BACKEND CONSTANTS THIS STEP'S NOTICES REFER TO. The
-    // acreage floor and the suitability threshold are the backend's, no key
-    // in the payload carries them, and the notices say what happened rather
-    // than quoting a number they would have had to hardcode.
+    // NOR ANY OF THE BACKEND CONSTANTS. The acreage floor and the
+    // suitability threshold are the backend's, no key in the payload carries
+    // them, and a copy here would be a number hardcoded on the wrong side.
     //
     // CROSS_TYPE_OVERLAP_NOTE_FRACTION JOINS THEM. The backend applies a
     // threshold to cross_type_overlaps for its own narrative line; the panel

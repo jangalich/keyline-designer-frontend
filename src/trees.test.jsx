@@ -450,7 +450,7 @@ describe('1. end to end against the real backend', () => {
       expect(ui.text('detail-name-trees')).toBe(`Zone ${first.rank}`)
 
       // THE FACTOR BREAKDOWN IS GONE FROM THE PANEL, and the weights it read
-      // are still on the wire for the report and for the step's notices.
+      // are still on the wire for the report.
       expect(ui.find('detail-fields-merits')).toBeNull()
       expect(ui.find('detail-value-score floor')).toBeNull()
       expect(ui.trees.summary.selection.factor_weights_pct).toBeTruthy()
@@ -613,8 +613,6 @@ describe('1. end to end against the real backend', () => {
         expect(latest.properties.cautions.find((c) => c.type === type).label).toBe(ground.label)
       }
       expect(drawn).toHaveLength(3)
-      // The canopy notice carries canopy's own copy.
-      expect(ui.find(`notice-canopy-${drawn[2].id}-trees`).textContent).toContain('there are already trees here')
 
       expect(ui.text('commit-trees')).toBe('Commit tree zones')
       await ui.click('commit-trees')
@@ -1077,8 +1075,8 @@ describe('2. cautions record all four grounds where crossed', () => {
     ])
 
     // [test 1] ACROSS THE CANOPY: the caution line carries the gate's own
-    // label, and the step says the one thing about canopy that is a
-    // different kind of statement -- there are already trees here.
+    // label. (The bar's "there are already trees here" canopy notice was
+    // removed at the user's request.)
     await ui.draw(ACROSS_CANOPY)
     drawn = selectDraft(ui.state, 'trees').drawnFeatures
     expect(drawn).toHaveLength(4)
@@ -1089,15 +1087,6 @@ describe('2. cautions record all four grounds where crossed', () => {
     // what the ROW prints is the short noun the percentage wants, composed
     // from the stable key.
     expect(cautionRowParts(ui, 'canopy').label).toBe('existing canopy overlap %')
-    const notice = ui.find(`notice-canopy-${drawn[3].id}-trees`)
-    expect(notice, 'the canopy notice names the drawn zone').not.toBeNull()
-    expect(notice.textContent).toContain('Drawn 4 sits on')
-    expect(notice.textContent).toContain('acres of existing canopy: there are already trees here')
-    expect(notice.textContent).toContain('a caution, not a rule')
-    expect(notice.querySelector('.measure').textContent).toBe(canopy[0].acres.toFixed(1))
-    // The committed-ground crossings carry NO such notice: their line in the
-    // panel already says what was overlapped.
-    expect(ui.find(`notice-canopy-${drawn[1].id}-trees`)).toBeNull()
     expect(ui.all('.caution-marker')).toHaveLength(1)
 
     // THE FEATURE IS WHAT THE COMMIT SENDS: the contract's four properties,
@@ -1461,7 +1450,7 @@ describe('4. no benefit name and no factor-to-benefit mapping exists client-side
   it('spells no factor-to-benefit mapping: no backend factor key reaches the client at all', () => {
     // THE PATCH KEYS marginal_benefits() reads -- the left-hand side of the
     // mapping. The client knows the NARRATIVE keys (`hydric_overlap` under
-    // `factors` and `factor_weights_pct`, which the notices need) and must
+    // `factors` and `factor_weights_pct`) and must
     // never learn the scorer's own, which are what the gate rule is written
     // against.
     const FACTOR_KEYS = [
@@ -1483,10 +1472,9 @@ describe('4. no benefit name and no factor-to-benefit mapping exists client-side
     }
     expect(offenders).toEqual([])
 
-    // AND THE GATE FLAGS ARE READ FOR ONE THING ONLY. They are on the wire and
-    // the step DOES read them -- in `notices`, to say a factor was never
-    // measured -- so their absence cannot be the assertion. What can be is that
-    // no CODE in the trees section carries the neutral fallback the gate rule
+    // AND NO GATE RULE. The gate flags are on the wire and TREE_FACTORS names
+    // them, so their absence cannot be the assertion. What can be is that no
+    // CODE in the trees section carries the neutral fallback the gate rule
     // turns on: a 0.5 compared against, or a threshold of any kind over a
     // factor value. The comments explain the rule at length and are not it.
     const source = readFileSync(path.join(SRC, 'wizard', 'stepDefinitions.js'), 'utf8')
@@ -1533,29 +1521,11 @@ describe('4. no benefit name and no factor-to-benefit mapping exists client-side
     ])
   })
 
-  it('says at the step level which factors were never measured, in consequence terms', () => {
-    // THE ONE PLACE THE FACTORS ARE STILL READ, and the reason the gate flags
-    // are on this side at all: a false flag is a STEP-level fact about every
-    // score, not a per-zone one, and it names the share it cost.
-    const payload = treesPayload({
-      gates: { soil_marginality_data_available: false, hydric_data_available: false, stream_data_available: true },
-    })
-    const notices = TREES_STEP.notices(contextOver(payload))
-    const keys = notices.map((n) => n.key)
-    expect(keys).toContain('unchecked-hydric_data_available')
-    expect(keys).toContain('unchecked-soil_marginality_data_available')
-    expect(keys).not.toContain('unchecked-stream_data_available')
-    const hydric = notices.find((n) => n.key === 'unchecked-hydric_data_available')
-    expect(hydric.tone).toBe('caution')
-    const text = hydric.text.map((part) => part.measure ?? part).join('')
-    expect(text).toMatch(/wet ground/)
-    expect(text).toContain('40% of every score')
-    // The share is a MEASURED part, off the payload, not prose.
-    expect(hydric.text.some((part) => part.measure === '40')).toBe(true)
-    // SLOPE HAS NO GATE and so has no consequence line -- the DEM is
-    // fetch-or-raise and there is no run in which it could be missing.
+  // The step-level "never measured" caution for a false gate flag was
+  // removed at the user's request; what is left of that test is the fact
+  // about the factor list it leaned on.
+  it('gives slope no gate: the DEM is fetch-or-raise, so it can never be missing', () => {
     expect(TREE_FACTORS.find((f) => f.key === 'slope').gate).toBeNull()
-    expect(keys.some((key) => key.startsWith('unchecked-') && key.includes('slope'))).toBe(false)
   })
 })
 
@@ -1724,8 +1694,7 @@ describe('5. a drawn zone is scored', () => {
     expect(second.ui.find('detail-heading-trees')).toBeNull()
     expect(second.ui.all('[data-testid^="detail-term-"]')).toHaveLength(0)
     // The score still prints: the factors were composed, they were just
-    // composed from a value nobody measured, which is what the step-level
-    // notice says in words.
+    // composed from a value nobody measured.
     expect(second.ui.text('detail-value-/100 score')).not.toBe('—')
     await second.ui.unmount()
   })
@@ -2414,19 +2383,8 @@ describe('8. the panel renders through the shared format', () => {
     expect(section).not.toMatch(/\b31(\.0)?\b/)
   })
 
-  it('reads the step-level figures off the payload and says what was scored', () => {
-    const notices = TREES_STEP.notices(contextOver(treesPayload()))
-    const space = notices.find((n) => n.key === 'search-space')
-    expect(space.text.map((p) => p.measure ?? p).join('')).toBe(
-      'After production, water and roads, 26.3 of the parcel’s 40.2 acres were left to score.'
-    )
-    // And a generate that found nothing names the floor it applied -- the
-    // floor left the PANEL, not the payload and not this line.
-    const none = TREES_STEP.notices(contextOver(treesPayload({ candidates: 0 })))
-    const empty = none.find((n) => n.key === 'no-candidates')
-    expect(empty.tone).toBe('caution')
-    expect(empty.text.map((p) => p.measure ?? p).join('')).toContain('scored 31.0 or better')
-  })
+  // (The step-level search-space and no-candidates notes were removed at
+  // the user's request.)
 })
 
 

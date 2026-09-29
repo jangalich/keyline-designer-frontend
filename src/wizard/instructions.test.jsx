@@ -200,15 +200,14 @@ describe('2. roads says four different things', () => {
    ===========================================================================
    The split this asserts: a DIRECTION is what to do with your hands and is the
    same sentence on every parcel; a RESULT is what this run of this pipeline
-   found on THIS parcel, and belongs in a notice where it can carry the
-   payload's own figures in the data face.
+   found on THIS parcel, and never belongs in the direction line.
 
-   THREE STEPS CARRIED RESULT-SPECIFIC NOTES and every one of them was already
-   a notice rather than instruction text -- water's withheld areas and its
-   dropped-below-the-floor count (both since removed, with every other water
-   notice), trees' acreage left to score, structures' road-distance tier and
-   its rough shading proxy. The assertions below keep all of them out of the
-   direction line.
+   THREE STEPS CARRIED RESULT-SPECIFIC NOTES and every one of them was a
+   notice rather than instruction text -- water's withheld areas and its
+   dropped-below-the-floor count, trees' acreage left to score, structures'
+   road-distance tier and its rough shading proxy. Every such check and note
+   has since been removed at the user's request; the assertions below keep
+   all of them out of the direction line so they cannot come back that way.
    =========================================================================== */
 
 describe('3. the instruction line carries no result', () => {
@@ -224,9 +223,8 @@ describe('3. the instruction line carries no result', () => {
   })
 
   it('holds none of the three steps’ result-specific notes', () => {
-    // THE NOTES THEMSELVES, by the phrase each one turns on. Water's no
-    // longer render at all (section 4); the rest still render as notices.
-    // None of them may reappear in a direction.
+    // THE NOTES THEMSELVES, by the phrase each one turns on. None of them
+    // renders any more (section 4); none may reappear in a direction.
     const RESULT_PHRASES = [
       // water: survived the tests and withheld by the presentation rule
       'passed every test',
@@ -419,9 +417,10 @@ describe('7. landform’s noun is block', () => {
     expect(at('detail (drawn)')).toBe('Drawn block')
   })
 
-  it('says block in what a drawn shape calls itself and in what refuses one', () => {
+  it('says block in what a drawn shape calls itself, and refuses an off-parcel one quietly', () => {
     // A ring nowhere near the parcel: the clamp keeps nothing and the gesture
-    // is refused with a sentence rather than discarded.
+    // is refused. (The sentence that used to say so was removed at the user's
+    // request.)
     const refused = LANDFORM_SHAPE.close({
       points: [
         [10, 10],
@@ -432,9 +431,7 @@ describe('7. landform’s noun is block', () => {
       references: {},
     })
     expect(refused.feature).toBeNull()
-    expect(refused.notice).toBe(
-      'That block fell entirely outside the property boundary and was not added.'
-    )
+    expect(refused).not.toHaveProperty('notice')
 
     // A ring inside it: the feature the commit contract receives names itself
     // in the step's own noun.
