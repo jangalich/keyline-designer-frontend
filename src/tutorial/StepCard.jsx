@@ -25,6 +25,15 @@
  * FOCUS moves into the card on open and back to whatever had it on close;
  * Tab is held inside the card. The close stows the card into the help
  * control, as the deck's does.
+ *
+ * THE CARD AND ITS DIM START BELOW THE INSTRUCTION BAR. A step's card opens
+ * on its generate press, into a wait of up to a minute whose only evidence
+ * the app is still working is the waiting line in that bar. So the overlay's
+ * top edge is the bar's bottom edge, measured, and re-measured as the bar or
+ * the stage changes size: the card centres in what is left of the map, and
+ * the bar is neither covered nor dimmed at any width. Where there is no bar
+ * (a harness that renders the card alone) the overlay fills the stage as it
+ * always did.
  */
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
@@ -60,6 +69,7 @@ function Dialogue({ card: entry, auto, onAutoChange, onDismiss, onClose, returnT
   const backdropRef = useRef(null)
   const closing = useRef(false)
   const titleId = useId()
+  const [overlayRef, top] = useClearOfBar()
 
   const close = useCallback(() => {
     if (closing.current) return
@@ -96,7 +106,7 @@ function Dialogue({ card: entry, auto, onAutoChange, onDismiss, onClose, returnT
   const { Animation } = card
 
   return (
-    <div className="tutorial" data-testid="tutorial-step">
+    <div ref={overlayRef} className="tutorial" data-testid="tutorial-step" style={top > 0 ? { top } : undefined}>
       <div ref={backdropRef} className="tutorial__backdrop" data-testid="tutorial-step-backdrop" onClick={close} />
       <div
         ref={cardRef}
@@ -160,6 +170,40 @@ function Dialogue({ card: entry, auto, onAutoChange, onDismiss, onClose, returnT
       </div>
     </div>
   )
+}
+
+/** The instruction bar, which holds the waiting line. */
+const BAR_SELECTOR = '.chrome-bar'
+
+/**
+ * How far down the overlay must start to clear the instruction bar: the
+ * bar's bottom edge, in the overlay's containing block. 0 where there is no
+ * bar. Returns the ref for the overlay and the offset in px.
+ */
+function useClearOfBar() {
+  const ref = useRef(null)
+  const [top, setTop] = useState(0)
+
+  useLayoutEffect(() => {
+    const stage = ref.current?.parentElement
+    const bar = stage?.querySelector(BAR_SELECTOR)
+    if (!stage || !bar) return undefined
+    const measure = () => {
+      const offset = bar.getBoundingClientRect().bottom - stage.getBoundingClientRect().top
+      setTop(Math.max(0, Math.ceil(offset)))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
+    observer?.observe(bar)
+    observer?.observe(stage)
+    return () => {
+      window.removeEventListener('resize', measure)
+      observer?.disconnect()
+    }
+  }, [])
+
+  return [ref, top]
 }
 
 /** The body, with its emphasised clause, if it has one, set in weight. */

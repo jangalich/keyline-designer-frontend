@@ -38,6 +38,7 @@ import { zoneMark } from '../ProductionHatchPattern.jsx'
 import { COMMITTED, NOT_STARTED, SessionProvider, useSession } from '../session/SessionStore'
 import { resetStepCatalog } from '../wizard/stepCatalog.jsx'
 import {
+  ACCESS_POINT_INPUT,
   MAX_ROAD_NETWORKS,
   ROADS_STEP,
   STEP_DEFINITIONS,
@@ -279,7 +280,7 @@ describe('1. the roads entry registers one card', () => {
     expect(entry.Animation).toBe(RoadsAnimation)
   })
 
-  it('opens by itself on arrival at roads, through the shipped shell and registry', async () => {
+  it('opens by itself on the roads generate press, not on arrival, through the shipped shell and registry', async () => {
     window.localStorage.setItem(SEEN_KEY, JSON.stringify(['orientation', 'boundary', 'landform', 'water']))
     const doc = serverDocument({ landform: { status: COMMITTED }, water: { status: COMMITTED } })
     globalThis.fetch = vi.fn(async (rawUrl, init = {}) => {
@@ -290,6 +291,12 @@ describe('1. the roads entry registers one card', () => {
       if (url.pathname.startsWith('/api/sessions/') && (init.method ?? 'GET') === 'GET') {
         return { ok: true, status: 200, json: async () => doc }
       }
+      // THE GENERATE: accepted, and its job held running -- the wait the
+      // card opens into.
+      if (url.pathname.endsWith(`/steps/roads/generate`) && init.method === 'POST') {
+        return { ok: true, status: 202, json: async () => ({ job_id: 'job-1', status: 'running' }) }
+      }
+      if (url.pathname.startsWith('/api/jobs/')) return new Promise(() => {})
       return { ok: false, status: 404, json: async () => ({}) }
     })
     let session = null
@@ -314,6 +321,15 @@ describe('1. the roads entry registers one card', () => {
       await session.actions.resume('sess-1')
     })
     expect(cursor.cursorStepId).toBe('roads')
+    // Arrived: nothing -- nor on arming the access point, which is not the
+    // generate -- until "Generate network" is pressed.
+    expect(find('tutorial-step-card')).toBeNull()
+    await React.act(async () => find('access-roads').click())
+    expect(find('tutorial-step-card')).toBeNull()
+    await React.act(async () => {
+      session.actions.setDraftInput('roads', ACCESS_POINT_INPUT, [-74.01, 40.705])
+    })
+    await React.act(async () => find('generate-roads').click())
     const card = find('tutorial-step-card')
     expect(card).not.toBeNull()
     expect(card.dataset.step).toBe('roads')
