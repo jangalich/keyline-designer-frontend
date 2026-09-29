@@ -402,7 +402,7 @@ describe('2. selection semantics', () => {
    =========================================================================== */
 
 describe('3. a drawn zone is clamped to the boundary before commit', () => {
-  liveIt('trims the off-parcel half and says so, and the server accepts it', async () => {
+  liveIt('trims the off-parcel half, and the server accepts it', async () => {
     const ui = await renderApp()
     await throughGenerate(ui)
 
@@ -415,7 +415,6 @@ describe('3. a drawn zone is clamped to the boundary before commit', () => {
     const asDrawn = clampToBoundary(OFF_PARCEL_RING, BOUNDARY)
     expect(asDrawn.removedAcres).toBeGreaterThan(0)
     expect(drawn[0].properties.acres).toBeCloseTo(asDrawn.acres, 6)
-    expect(ui.text('landform-notice')).toContain('trimmed off')
 
     // AND THE SERVER TAKES IT. The same ring uncla mped is rejected as
     // 'outside_boundary' (section 6); clamped, it commits.
@@ -1572,7 +1571,7 @@ describe('12. the panel, against the shared format', () => {
 
     // NO "Zone" ANYWHERE THE STEP SPEAKS. Every string this definition renders
     // -- tab names, the panel header and its labels, the buttons, the
-    // instructions, the notices -- collected and swept. Lower-case "zone" in a
+    // instructions -- collected and swept. Lower-case "zone" in a
     // sentence ("Draw a zone") is NOT in scope: the rename is of the identity
     // the strip and the panel print, and the wider copy edit is its own change.
     const prose = [
@@ -1582,9 +1581,6 @@ describe('12. the panel, against the shared format', () => {
       ...tabs.map((t) => LANDFORM_STEP.detail(ctx, t.id).name),
       ...Object.values(LANDFORM_STEP.instructions),
       ...Object.values(LANDFORM_STEP.buttons).flat().map((button) => button.label),
-      ...LANDFORM_STEP.notices(ctx).map((notice) =>
-        Array.isArray(notice.text) ? notice.text.map((p) => (typeof p === 'string' ? p : '')).join('') : notice.text
-      ),
     ]
     for (const line of prose) {
       expect(String(line), `"${line}" still says Zone`).not.toMatch(/Zone/)

@@ -33,8 +33,8 @@
  *   2  [2]  NOT ARMED ON ENTRY; "Place a site" arms it.
  *   3  [3]  An off-parcel click is refused and places nothing -- before any
  *           request here, and through the server's own 400 when it answers.
- *   4  [4]  A gate-violating site SCORES and shows its violations -- a tab,
- *           a notice, a panel group -- not a rejection.
+ *   4  [4]  A gate-violating site SCORES and shows its violations -- a tab
+ *           and a panel group -- not a rejection.
  *   5  [5]  Placed and generated tabs are distinguishable at equal rank.
  *   6  [6]  The placed cap of 2 is reflected; a third attempt is refused.
  *   7  [7]  × on placed tabs only; destroying one frees a slot.
@@ -79,7 +79,6 @@ import {
   LAYER_KINDS,
   MAX_PLACED_SITES,
   REOPEN_BUTTON,
-  ROAD_PROXIMITY_CONSEQUENCE,
   ROAD_PROXIMITY_SOURCES,
   SITE_ORIGIN_GENERATED,
   SITE_ORIGIN_PLACED,
@@ -292,18 +291,14 @@ async function renderApp({ center = BOUNDARY[0], zoom = 19 } = {}) {
     },
     /**
      * Place a site through the real gesture: arm, click the spot, wait for
-     * the answer -- a new placed site, or a notice saying why not.
+     * the answer. The tool goes down when the answer lands, placed or not --
+     * there is no note under the bar to wait on any more.
      */
     async place(point) {
-      const before = this.placed.length
       await this.click('place-structures')
       expect(this.cursor.armed).toBe('draw')
       await this.clickMap(point)
-      await this.waitFor(
-        'the placement to settle',
-        () => this.placed.length !== before || this.find('structures-notice') !== null,
-        60000
-      )
+      await this.waitFor('the placement to settle', () => this.cursor.armed == null, 60000)
     },
     async waitFor(what, predicate, timeoutMs = 400000) {
       const deadline = Date.now() + timeoutMs
@@ -393,16 +388,6 @@ async function throughTreesCommit(ui) {
   expect(ui.cursor.cursorStepId).toBe('structures')
   return ui
 }
-
-/**
- * The ruled row a notice's sentence sits in.
- *
- * The instruction bar's notices are rows: a one-word kind label in the data
- * face, then the sentence. The test id is on the SENTENCE -- that is what the
- * assertions in this file compare against a definition's declared copy -- and
- * the tone class, which colours the whole row, is on the row.
- */
-const noticeRow = (el) => el.closest('.chrome-bar__notice')
 
 /** The measurement set every site carries, generated or placed. */
 const MEASUREMENT_FIELDS = [
@@ -535,25 +520,21 @@ describe('1. end to end against the real backend', () => {
       for (const feature of candidates) {
         const values = [...ui.find(`tab-focus-${feature.id}`).querySelectorAll('.chrome-tab__value')]
         expect(values.map((n) => n.textContent)).toEqual([
-          Number(feature.properties.distance_to_road_ft).toFixed(0),
+          `${Number(feature.properties.distance_to_road_ft).toFixed(0)} ft`,
           Number(feature.properties.suitability_score).toFixed(1),
         ])
-        expect(values[0].textContent).not.toBe('0')
+        expect(values[0].textContent).not.toBe('0 ft')
       }
-      // THE TAB'S LABELS: the measurement, then the score, bare -- the
-      // denominator is the panel's.
+      // THE TAB'S LABELS: one short word each, like every other step's -- the
+      // tier's words and the denominator are the panel's.
       expect(
         [...ui.find(`tab-focus-${candidates[0].id}`).querySelectorAll('.chrome-tab__label')].map((n) => n.textContent)
-      ).toEqual(['ft to road', 'score'])
+      ).toEqual(['road', 'score'])
 
       // [9] THE ROAD TIER, LIVE: a road was committed, so the distances are
-      // to it, and the bar says so.
+      // to it. Nothing is said under the bar about it any more.
       expect(roadProximitySource(ui.structures)).toBe('selected_road_corridor')
-      expect(ui.find('notice-road-selected_road_corridor-structures').textContent).toBe(
-        ROAD_PROXIMITY_CONSEQUENCE.selected_road_corridor.text
-      )
-      expect(ui.find('notice-road-real_mapped_road-structures')).toBeNull()
-      expect(ui.find('notice-road-unavailable-structures')).toBeNull()
+      expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
 
       // [2] NOT ARMED ON ENTRY; "Place a site" arms it, and nothing else does.
       expect(ui.cursor.armed).toBeNull()
@@ -590,16 +571,15 @@ describe('1. end to end against the real backend', () => {
       expect(ui.all('.leaflet-structures--structures-placed-pane .site-pin.site-pin--placed')).toHaveLength(1)
       expect(ui.all('.leaflet-structures--structures-candidates-pane .site-pin')).toHaveLength(3)
       expect(ui.all('.leaflet-structures--structures-candidates-pane .site-pin--placed')).toHaveLength(0)
-      // A clean site raises no notice and no caution.
-      expect(ui.find('structures-notice')).toBeNull()
-      expect(ui.find(`notice-violates-${clean.id}-structures`)).toBeNull()
+      // A clean site raises no caution, and nothing is said under the bar.
+      expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
 
       // THE PANEL FOR THE PLACED SITE: the same rows as a generated one,
       // through the shared format, and no caution run -- it breaks nothing.
       await ui.focus(clean.id)
       expect(ui.text('detail-name-structures')).toBe(`Placed 1 · would rank ${clean.properties.rank}`)
       expect(ui.text('detail-value-/100 score')).toBe(clean.properties.suitability_score.toFixed(1))
-      expect(ui.text('detail-value-ft to road')).toBe(Number(clean.properties.distance_to_road_ft).toFixed(0))
+      expect(ui.text('detail-value-to road')).toBe(`${Number(clean.properties.distance_to_road_ft).toFixed(0)} ft`)
       expect(ui.text('detail-value-aspect')).toBe(`${clean.properties.dominant_aspect} facing`)
       expect(clean.properties.aspect_available).toBe(true)
       expect(ui.text('detail-value-position')).toBe(clean.properties.elevation_position)
@@ -614,19 +594,17 @@ describe('1. end to end against the real backend', () => {
       expect(ui.find('detail-fields-merits')).toBeNull()
       await ui.focus(null)
 
-      // [3] OFF THE PARCEL: refused in a sentence, nothing placed, the tool
-      // down. No request went out for it -- the parcel is the one refusal
-      // this side can make with certainty.
+      // [3] OFF THE PARCEL: refused, nothing placed, the tool down, and no
+      // note under the bar. No request went out for it -- the parcel is the
+      // one refusal this side can make with certainty.
       await ui.place(OFF)
       expect(ui.placed).toHaveLength(1)
-      expect(ui.text('structures-notice')).toBe(
-        'That spot is outside the property boundary, so no site was placed there.'
-      )
+      expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
       expect(ui.cursor.armed).toBeNull()
 
       // [4] ON THE CANOPY: SCORED, PLACED, AND TOLD WHAT IT BREAKS. The server
-      // scored it and named the gates; the tab, the bar and the panel say
-      // both facts. This is the divergence from trees, live.
+      // scored it and named the gates; the tab and the panel say both facts.
+      // This is the divergence from trees, live.
       await ui.place(CANOPY)
       expect(ui.placed).toHaveLength(2)
       const canopy = ui.placed[1]
@@ -635,12 +613,7 @@ describe('1. end to end against the real backend', () => {
       await ui.expand()
       expect(ui.text(`tab-focus-${canopy.id}`)).toContain(`Placed 2 · would rank ${canopy.properties.rank}`)
       expect(ui.text(`tab-focus-${canopy.id}`)).toContain(canopy.properties.suitability_score.toFixed(1))
-      const gesture = ui.find('structures-notice')
-      expect(gesture.textContent).toContain('Placed, and scored')
-      expect(gesture.textContent).toContain('placed, not refused')
-      const violates = ui.find(`notice-violates-${canopy.id}-structures`)
-      expect(violates.textContent).toContain('Placed 2 scores')
-      expect(violates.textContent).toContain('sits under existing tree canopy')
+      expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
       await ui.focus(canopy.id)
       // THE CAUTION RUN, LAST: the heading, then one term per broken gate.
       const heading = ui.find('detail-heading-structures')
@@ -656,11 +629,10 @@ describe('1. end to end against the real backend', () => {
       expect(canopy.properties).not.toHaveProperty('cautions')
 
       // [6] THE CAP IS REFLECTED: two placed, the button is disabled with
-      // the reason, the bar says so.
+      // the reason.
       expect(placedSlotsRemaining({ proposals: ui.structures, draft: selectDraft(ui.state, 'structures') })).toBe(0)
       expect(ui.find('place-structures').disabled).toBe(true)
       expect(ui.find('place-structures').getAttribute('title')).toContain('2 sites are placed')
-      expect(ui.find('notice-cap-structures')).not.toBeNull()
 
       // [6] AND THE SERVER OWNS IT. A third placed site pushed into the draft
       // behind the button's back is refused AT COMMIT, by the server, naming
@@ -776,7 +748,7 @@ describe('1. end to end against the real backend', () => {
       await ui.focus(edge.id)
       const edgePanel = [
         ui.text('detail-value-/100 score'),
-        ui.text('detail-value-ft to road'),
+        ui.text('detail-value-to road'),
         ui.text('detail-value-aspect'),
         ui.text('detail-value-position'),
         ui.text('detail-value-avg slope %'),
@@ -797,7 +769,7 @@ describe('1. end to end against the real backend', () => {
       await ui.focus(edge.id)
       expect([
         ui.text('detail-value-/100 score'),
-        ui.text('detail-value-ft to road'),
+        ui.text('detail-value-to road'),
         ui.text('detail-value-aspect'),
         ui.text('detail-value-position'),
         ui.text('detail-value-avg slope %'),
@@ -1291,22 +1263,21 @@ describe('3. an off-parcel click is refused and places nothing', () => {
     expect(pointInRing(INSIDE, [])).toBe(false)
   })
 
-  it('refuses before any request, in a sentence, and the tool goes down', async () => {
+  it('refuses before any request, says nothing under the bar, and the tool goes down', async () => {
     const { ui, calls } = await generatedStructures()
     await ui.place(OUTSIDE)
     expect(ui.placed).toHaveLength(0)
-    expect(ui.text('structures-notice')).toBe(
-      'That spot is outside the property boundary, so no site was placed there.'
-    )
+    // NO NOTE. The refusal used to leave a sentence under the instruction
+    // bar; every check and note there was removed at the user's request.
+    expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
     expect(calls.filter((c) => c.path.endsWith('/score'))).toHaveLength(0)
     expect(ui.cursor.armed).toBeNull()
-    // NOT A STEP ERROR: the bar carries a gesture notice, the step is fine.
+    // NOT A STEP ERROR: the step is fine.
     expect(ui.state.steps.structures.error).toBeNull()
     expect(ui.find('failed-layer-structures')).toBeNull()
-    // And the next placement clears it.
+    // And the next placement goes through.
     await ui.place(INSIDE)
     expect(ui.placed).toHaveLength(1)
-    expect(ui.find('structures-notice')).toBeNull()
     await ui.unmount()
   })
 
@@ -1320,12 +1291,7 @@ describe('3. an off-parcel click is refused and places nothing', () => {
       params: { [STRUCTURE_SITE_INPUT]: pointToGeoJSON(INSIDE) },
     })
     expect(ui.placed).toHaveLength(0)
-    const notice = ui.text('structures-notice')
-    expect(notice).toMatch(/^No site was placed there: placed site \[/)
-    expect(notice).toContain('lies outside the parcel boundary')
-    // The route's own prefix is not printed.
-    expect(notice).not.toContain("step 'structures'")
-    expect(notice).not.toContain('was rejected:')
+    expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
     expect(ui.state.steps.structures.error).toBeNull()
     expect(ui.cursor.armed).toBeNull()
     await ui.unmount()
@@ -1337,8 +1303,8 @@ describe('3. an off-parcel click is refused and places nothing', () => {
     await ui.clickMap(INSIDE)
     await ui.waitFor('the step error', () => ui.state.steps.structures.error != null, 5000)
     expect(ui.placed).toHaveLength(0)
-    // The store reported it; the gesture adds no second sentence.
-    expect(ui.find('structures-notice')).toBeNull()
+    // The store reported it, and that is the only row on the bar.
+    expect(ui.all('.chrome-bar__notice')).toHaveLength(1)
     expect(ui.state.steps.structures.error.kind).toBe('network')
     expect(ui.cursor.armed).toBeNull()
     await ui.unmount()
@@ -1413,7 +1379,7 @@ describe('4. a site that breaks a siting rule is scored, placed, and told what i
     }
   })
 
-  it('places it with a tab, a notice and a panel group -- not a rejection', async () => {
+  it('places it with a tab and a panel group -- not a rejection', async () => {
     const { ui } = await generatedStructures({
       score: (point) => ({ body: { feature: placedSite(point, { rank: 4, score: 59.2, violated: VIOLATED }) } }),
     })
@@ -1428,23 +1394,10 @@ describe('4. a site that breaks a siting rule is scored, placed, and told what i
     expect(ui.text(`tab-focus-${site.id}`)).toContain('59.2')
     expect(ui.find(`tab-${site.id}`).dataset.checked).toBe('true')
 
-    // THE GESTURE NOTICE: placed and scored, and what it breaks, as a count.
-    const gesture = ui.find('structures-notice')
-    expect(gesture.textContent).toContain('Placed, and scored 59.2 where it landed. It breaks 2 of the siting rules')
-    expect(gesture.textContent).toContain('placed, not refused')
-    expect([...gesture.querySelectorAll('.measure')].map((n) => n.textContent)).toEqual(['59.2', '2'])
-
-    // THE STEP NOTICE: the same two facts, per placed site, as a caution.
-    const notice = ui.find(`notice-violates-${site.id}-structures`)
-    // THE TONE IS THE ROW'S, NOT THE SENTENCE'S. A notice is a ruled row now
-    // -- a kind label in the data face, then what it says -- and the test id
-    // names what it says, which is what every reader of it here wants. The
-    // tone decides the whole row's colour, so it is read off the row.
-    expect(noticeRow(notice).className).toContain('chrome-bar__notice--caution')
-    expect(notice.textContent).toBe(
-      'Placed 1 scores 59.2 and breaks 2 siting rules the generated sites clear: it sits under existing ' +
-        'tree canopy; it is farther from a road than the siting rule allows.'
-    )
+    // NOTHING UNDER THE BAR. The placement note and the per-site caution
+    // that used to say this there were removed at the user's request; the
+    // tab and the panel carry it.
+    expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
 
     // THE PANEL: the score AND the rules, stated as facts, the rules LAST.
     await ui.focus(site.id)
@@ -1484,12 +1437,11 @@ describe('4. a site that breaks a siting rule is scored, placed, and told what i
     const one = placedSite(pointToGeoJSON(INSIDE), { violated: ['max_slope<=20pct'], score: 44.0, id: 'p-1' })
     const clean = placedSite(pointToGeoJSON(INSIDE_2), { score: 66.6, id: 'p-2' })
     const context = contextOver(payload, { drawnFeatures: [one, clean], selectedFeatureIds: ['p-1', 'p-2'] })
-    const notices = STRUCTURES_STEP.notices(context)
-    const violates = notices.find((n) => n.key === 'violates-p-1')
-    expect(violates.text.map((p) => p.measure ?? p).join('')).toBe(
-      'Placed 1 scores 44.0 and breaks a siting rule the generated sites clear: it averages more than 20% slope.'
-    )
-    expect(notices.find((n) => n.key === 'violates-p-2')).toBeUndefined()
+    const broken = STRUCTURES_STEP.detail(context, 'p-1')
+    expect(broken.rows.find((row) => isBreak(row) && row.label)?.label).toBe('siting rule broken')
+    expect(broken.rows.filter((row) => row.kind === 'term').map((row) => row.value)).toEqual([
+      'averages more than 20% slope',
+    ])
     // [test 6] A CLEAN PLACED SITE CARRIES NO CAUTION RUN, and neither does a
     // generated candidate -- for two different reasons that render the same.
     // The placed one has `constraints_violated: []`, a real answer; the
@@ -1573,14 +1525,14 @@ describe('5. a placed site and a generated candidate sharing a rank read apart',
     // step's strip takes, and the score's denominator is declared here and
     // printed only by the panel.
     for (const tab of tabs) {
-      expect(tab.rows.map((r) => r.label)).toEqual(['ft to road', 'score'])
+      expect(tab.rows.map((r) => r.label)).toEqual(['road', 'score'])
       expect(tab.rows[1].denominator).toBe(100)
       expect(tab.checkbox).toBe(true)
     }
-    expect(tabs[0].rows[0].value).toBe('46')
+    expect(tabs[0].rows[0].value).toBe('46 ft')
     expect(tabs[0].rows[1].value).toBe('69.0')
     expect(tabs[3].rows).toEqual([
-      { value: '12', label: 'ft to road' },
+      { value: '12 ft', label: 'road', qualifier: 'to' },
       { value: '68.0', label: 'score', denominator: 100 },
     ])
     expect(tabs[3]).toMatchObject({ drawn: true, removable: true, selected: true })
@@ -1617,7 +1569,6 @@ describe('6. the placed cap of 2 is reflected, and a third attempt is refused', 
     const { ui, calls } = await generatedStructures()
     await ui.place(INSIDE)
     expect(ui.find('place-structures').disabled).toBe(false)
-    expect(ui.find('notice-cap-structures')).toBeNull()
     await ui.place(INSIDE_2)
     expect(ui.placed).toHaveLength(2)
     const button = ui.find('place-structures')
@@ -1625,8 +1576,8 @@ describe('6. the placed cap of 2 is reflected, and a third attempt is refused', 
     expect(button.getAttribute('title')).toBe(
       '2 sites are placed, which is the most this step takes. Remove one to place another.'
     )
-    expect(ui.find('notice-cap-structures').textContent).toContain('2 sites are placed')
-    expect(ui.find('notice-cap-structures').querySelector('.measure').textContent).toBe('2')
+    // The button's title says it; nothing is said under the bar.
+    expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
 
     // A THIRD ATTEMPT THROUGH THE GESTURE ITSELF -- the button is disabled,
     // so it is armed through the register directly -- is refused by the
@@ -1635,11 +1586,9 @@ describe('6. the placed cap of 2 is reflected, and a third attempt is refused', 
     const scored = calls.filter((c) => c.path.endsWith('/score')).length
     await ui.run((_, cursor) => cursor.arm('draw'))
     await ui.clickMap(INSIDE_3)
-    await ui.waitFor('the refusal', () => ui.find('structures-notice') !== null, 5000)
+    await ui.waitFor('the refusal', () => ui.cursor.armed == null, 5000)
     expect(ui.placed).toHaveLength(2)
-    expect(ui.text('structures-notice')).toBe(
-      '2 sites are already placed, which is the most this step takes. Remove one to place another.'
-    )
+    expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
     expect(calls.filter((c) => c.path.endsWith('/score'))).toHaveLength(scored)
     await ui.unmount()
   })
@@ -1705,7 +1654,6 @@ describe('7. × on placed tabs only, and destroying one frees a slot', () => {
     expect(selectDraft(ui.state, 'structures').selectedFeatureIds).not.toContain(second.id)
     // THE SLOT IS FREE AGAIN.
     expect(ui.find('place-structures').disabled).toBe(false)
-    expect(ui.find('notice-cap-structures')).toBeNull()
     expect(ui.all('.leaflet-structures--structures-placed-pane .site-pin--placed')).toHaveLength(1)
     // And the way back, for a few seconds.
     expect(ui.find('undo-structures')).not.toBeNull()
@@ -1722,7 +1670,7 @@ describe('7. × on placed tabs only, and destroying one frees a slot', () => {
     // THE SAME SPOT TWICE IS THE SAME SITE, and is refused rather than doubled.
     await ui.place(INSIDE)
     expect(ui.placed).toHaveLength(1)
-    expect(ui.text('structures-notice')).toBe('A site is already placed at that spot.')
+    expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
     // Remove it through the store's own delete (the map's armed delete
     // gesture ends in this call), and place it again.
     await ui.run((a) => a.removeDrawnFeature('structures', site.id))
@@ -1824,10 +1772,16 @@ describe('8. committing several sites succeeds; committing none succeeds', () =>
 })
 
 /* ===========================================================================
-   9. road_proximity_source RENDERS ITS CONSEQUENCE FOR ALL THREE VALUES
+   9. road_proximity_source NAMES ITS ROAD, FOR ALL THREE VALUES
+   ===========================================================================
+   The tier's step-level notice under the instruction bar was removed with
+   every other check and note there, at the user's request. What is left of
+   the tier on screen is the road row's words: `road` on the strip (one short
+   word, like every other step's tab label, so the tab stays two lines), and
+   the tier's own "to road" / "to farm road" in the panel.
    =========================================================================== */
 
-describe('9. road_proximity_source renders its consequence for all three values', () => {
+describe('9. road_proximity_source names its road for all three values', () => {
   it('[test 8] reads the tier off the promoted key, then the run flags, then the gates', () => {
     expect(ROAD_PROXIMITY_SOURCES).toEqual(['selected_road_corridor', 'real_mapped_road', 'unavailable'])
     for (const source of ROAD_PROXIMITY_SOURCES) {
@@ -1838,19 +1792,14 @@ describe('9. road_proximity_source renders its consequence for all three values'
       // And the two places it also still rides, either of which answers alone.
       expect(roadProximitySource({ summary: { run_flags: { road_proximity_source: source } } })).toBe(source)
       expect(roadProximitySource({ summary: { gates: { road_proximity_source: source } } })).toBe(source)
-      // THREE SENTENCES, ONE PER VALUE, each saying what follows for the user.
-      const consequence = ROAD_PROXIMITY_CONSEQUENCE[source]
-      expect(consequence.text.length).toBeGreaterThan(40)
-      expect(['advisory', 'caution']).toContain(consequence.tone)
     }
-    expect(Object.keys(ROAD_PROXIMITY_CONSEQUENCE).sort()).toEqual([...ROAD_PROXIMITY_SOURCES].sort())
     expect(roadProximitySource(null)).toBeNull()
     expect(roadProximitySource({ summary: {} })).toBeNull()
     expect(roadProximitySource({ summary: { run_flags: { road_proximity_source: 'something_else' } } })).toBeNull()
   })
 
   for (const source of ROAD_PROXIMITY_SOURCES) {
-    it(`renders the consequence of ${source} in the bar, the tab and the panel`, async () => {
+    it(`names the road for ${source} on the tab and in the panel, and says nothing under the bar`, async () => {
       const { ui } = await generatedStructures({
         payload: structuresPayload({ source }),
         score: (point) => {
@@ -1860,61 +1809,35 @@ describe('9. road_proximity_source renders its consequence for all three values'
           return { body: { feature: site } }
         },
       })
-      const expected = ROAD_PROXIMITY_CONSEQUENCE[source]
-      const notice = ui.find(`notice-road-${source}-structures`)
-      expect(notice, `${source} says its consequence`).not.toBeNull()
-      expect(notice.textContent).toBe(expected.text)
-      expect(noticeRow(notice).className).toContain(`chrome-bar__notice--${expected.tone}`)
-      for (const other of ROAD_PROXIMITY_SOURCES.filter((s) => s !== source)) {
-        expect(ui.find(`notice-road-${other}-structures`)).toBeNull()
-      }
+      expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
 
       await ui.place(INSIDE)
       const site = ui.placed[0]
       const tab = ui.find(`tab-focus-${site.id}`)
       const labels = [...tab.querySelectorAll('.chrome-tab__label')].map((n) => n.textContent)
       const values = [...tab.querySelectorAll('.chrome-tab__value')].map((n) => n.textContent)
+      // THE STRIP'S WORDS ARE THE SAME FOR EVERY TIER: one short word.
+      expect(labels).toEqual(['road', 'score'])
       await ui.focus(site.id)
       if (source === 'selected_road_corridor') {
-        expect(expected.tone).toBe('advisory')
-        expect(labels).toEqual(['ft to road', 'score'])
-        expect(values[0]).toBe('46')
-        expect(notice.textContent).toContain('the road you committed')
-        expect(notice.textContent).toContain('not a road that has been built yet')
+        expect(values[0]).toBe('46 ft')
+        expect(ui.text('detail-value-to road')).toBe('46 ft')
       } else if (source === 'real_mapped_road') {
-        expect(expected.tone).toBe('caution')
-        expect(notice.textContent).toContain('No road was committed')
-        expect(notice.textContent).toContain('farm roads already mapped')
-        expect(labels).toEqual(['ft to farm road', 'score'])
-        expect(values[0]).toBe('46')
+        expect(values[0]).toBe('46 ft')
+        expect(ui.text('detail-value-to farm road')).toBe('46 ft')
       } else {
-        expect(expected.tone).toBe('caution')
-        expect(notice.textContent).toContain('switched off')
-        expect(notice.textContent).toContain('reads as unmeasured')
-        expect(labels).toEqual(['ft to road', 'score'])
-        // NULL IS AN EM DASH AND NEVER A ZERO.
+        // NULL IS AN EM DASH AND NEVER A ZERO -- and carries no unit.
         expect(values[0]).toBe('—')
-        expect(ui.text('detail-value-ft to road')).toBe('—')
+        expect(ui.text('detail-value-to road')).toBe('—')
       }
-      // THE TIER IS SAID ONCE, AT STEP LEVEL, AND NEVER IN THE PANEL: it is
-      // true of every candidate in the run, and a row repeating it down every
-      // panel is the same sentence as many times as there are sites.
+      // THE TIER IS NEVER A ROW OF ITS OWN IN THE PANEL: it is true of every
+      // candidate in the run, and a row repeating it down every panel is the
+      // same sentence as many times as there are sites.
       expect(ui.find('detail-value-road measured to')).toBeNull()
+      expect(ui.all('.chrome-bar__notice')).toHaveLength(0)
       await ui.unmount()
     })
   }
-
-  it('says the other two run-level caveats too: the tree-zone check, and shading as a proxy', () => {
-    const notices = STRUCTURES_STEP.notices(contextOver(structuresPayload({ treeZones: false })))
-    expect(notices.find((n) => n.key === 'unchecked-tree-zones')).toMatchObject({ tone: 'caution' })
-    expect(STRUCTURES_STEP.notices(contextOver(structuresPayload())).find((n) => n.key === 'unchecked-tree-zones')).toBeUndefined()
-    const shading = STRUCTURES_STEP.notices(contextOver(structuresPayload())).find((n) => n.key === 'shading-proxy')
-    expect(shading.tone).toBe('advisory')
-    expect(shading.text.map((p) => p.measure ?? p).join('')).toContain('25% of every score')
-    // The prime-farmland flag is said once, at step level, as a parcel fact.
-    expect(STRUCTURES_STEP.notices(contextOver(structuresPayload({ prime: true }))).find((n) => n.key === 'prime-farmland').text).toContain('somewhere on this parcel')
-    expect(STRUCTURES_STEP.notices(contextOver(structuresPayload())).find((n) => n.key === 'prime-farmland')).toBeUndefined()
-  })
 })
 
 /* ===========================================================================
@@ -1980,7 +1903,7 @@ describe('11. the panel renders through the shared format', () => {
     const body = bodyFor(structuresPayload())
     // ONE FLAT LIST WITH ONE BREAK IN IT, in the order the panel draws it.
     expect(body.map((row) => (row.panelBreak ? `--- ${row.label ?? ''}` : `${row.value} | ${row.label ?? ''}`))).toEqual([
-      '46 | ft to road',
+      '46 ft | to road',
       '69.0 | /100 score',
       '--- ',
       'northeast facing | aspect',
@@ -2007,14 +1930,14 @@ describe('11. the panel renders through the shared format', () => {
     expect(kinds).toEqual(['measured', 'measured', 'categorical', 'categorical', 'measured', 'categorical'])
   })
 
-  it('[test 2] the tab says "score" and "ft to road"; the panel adds "/100"', () => {
+  it('[test 2] the tab says "score" and "road"; the panel adds "/100" and "to"', () => {
     const context = contextOver(structuresPayload())
     const tab = STRUCTURES_STEP.tabs(context).find((entry) => entry.id === SITE_1)
 
     // TWO MEASURED ROWS, the measurement first and the score second -- the
     // shape every other scored step's strip takes.
-    expect(tab.rows.map((row) => row.label)).toEqual(['ft to road', 'score'])
-    expect(tab.rows.map((row) => row.value)).toEqual(['46', '69.0'])
+    expect(tab.rows.map((row) => row.label)).toEqual(['road', 'score'])
+    expect(tab.rows.map((row) => row.value)).toEqual(['46 ft', '69.0'])
 
     // THE STRIP'S LABEL IS THE BARE WORD; the denominator is declared beside
     // it and rendered only by the panel -- one declaration, two renderings.
@@ -2022,9 +1945,11 @@ describe('11. the panel renders through the shared format', () => {
     expect(scoreRow.denominator).toBe(100)
     expect(denominated(scoreRow.label, scoreRow.denominator)).toBe('/100 score')
     expect(bodyFor(structuresPayload()).find((row) => row.value === '69.0').label).toBe('/100 score')
-    // AND ft to road CARRIES NONE: feet are not out of anything.
+    // AND THE ROAD ROW CARRIES NONE: feet are not out of anything. Its
+    // panel label is the qualifier's -- the tier's words, which the strip
+    // has no room for.
     expect(tab.rows[0].denominator).toBeUndefined()
-    expect(bodyFor(structuresPayload()).find((row) => row.value === '46').label).toBe('ft to road')
+    expect(bodyFor(structuresPayload()).find((row) => row.value === '46 ft').label).toBe('to road')
 
     // THE 100 IS THE PAYLOAD'S, IN LANDFORM'S OWN SPELLING (`scales.range[1]`)
     // AT A DIFFERENT DEPTH -- `summary.scales`, because
@@ -2215,7 +2140,7 @@ describe('11. the panel renders through the shared format', () => {
     // LAST: the run sits under everything the panel says about the ground.
     const body = bodyFor(payload, 'p-breaks', draft)
     expect(body.map((row) => (row.panelBreak ? `--- ${row.label ?? ''}` : `${row.value} | ${row.label ?? ''}`))).toEqual([
-      '46 | ft to road',
+      '46 ft | to road',
       '59.2 | /100 score',
       '--- ',
       'northeast facing | aspect',
@@ -2268,7 +2193,7 @@ describe('11. the panel renders through the shared format', () => {
     expect(rows).not.toBeNull()
     // ONE GRID FOR THE WHOLE BODY -- the tab's rows and the step's together,
     // which is what holds one decimal point down the panel.
-    expect(ui.text('detail-value-ft to road')).toBe('46')
+    expect(ui.text('detail-value-to road')).toBe('46 ft')
     expect(ui.text('detail-value-/100 score')).toBe('69.0')
     // THE WHOLE WORD AND "facing", NEVER THE ABBREVIATION. `aspect` on the
     // wire is "NE"; a panel that printed it showed "ne", and on a due-south
@@ -2645,12 +2570,6 @@ describe('12. what the definition declares, and the sweep', () => {
     // NOR THE SCORE'S OWN SCALE: the denominator is read off the payload.
     expect(section.match(/\b100\b/g) ?? []).toEqual([])
     expect(section).toContain('scoreDenominator(proposals?.summary)')
-    // The weights are still READ -- by the notices, where the share of every
-    // score a rough reading carries is a step-level fact -- off the payload.
-    const shading = STRUCTURES_STEP.notices(
-      contextOver(structuresPayload({ weights: { slope: 10.0, aspect: 50.0, shading: 30.0, production_proximity: 10.0 } }))
-    ).find((n) => n.key === 'shading-proxy')
-    expect(shading.text.map((p) => p.measure ?? p).join('')).toContain('30% of every score')
   })
 
   it('[test 7] keeps rank, prime farmland, the four factors and the signed production distance out of the panel', () => {
@@ -2666,12 +2585,9 @@ describe('12. what the definition declares, and the sweep', () => {
     expect(STRUCTURES_STEP.tabs(contextOver(payload)).find((t) => t.id === SITE_1).name).toBe('Site 1')
 
     // PRIME FARMLAND IS PARCEL-LEVEL SSURGO inherited from the run: every
-    // site carries the same answer, so it is said ONCE, at step level.
+    // site carries the same answer, so it is not a finding about one spot.
     expect(labels).not.toContain('prime farmland')
     expect(body.some((row) => String(row.value).includes('parcel-level flag'))).toBe(false)
-    expect(
-      STRUCTURES_STEP.notices(contextOver(payload)).find((n) => n.key === 'prime-farmland')
-    ).toBeDefined()
 
     // THE FOUR SCORING FACTORS, consistent with the other five steps. Not
     // their labels, not their shares, and not the figures themselves --

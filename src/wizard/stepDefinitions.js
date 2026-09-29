@@ -119,21 +119,6 @@
  *                      GENERATE_BUTTON / REOPEN_BUTTON for the three every
  *                      step can reuse without restating the machine.
  *
- *   notices(context)   The step's own STEP-LEVEL notices for the instruction
- *                      bar: [{key, tone, text}]. Not errors -- the shell reads
- *                      those off the machine for every step alike. This is
- *                      what only THIS step can know is worth saying about the
- *                      decision in hand.
- *
- *                      `text` IS A STRING OR A LIST OF PARTS, and the list is
- *                      how a measured figure gets into the middle of a
- *                      sentence. A part is a string, or `{measure}` for a
- *                      number the pipeline produced -- which the bar sets in
- *                      the data face, because the whole reason this project
- *                      loads three faces is that a reader can tell at a glance
- *                      which half of a line was measured and which was
- *                      written. See measured().
- *
  *   tabs(context)      One tab per feature this step is carrying, as
  *                      [{id, name, rows: [{value, label}], checkbox?,
  *                      removable?, drawn?}]. `rows` is the acreage chip's
@@ -358,7 +343,7 @@
  *      side by side, up to a cap the server enforces. The declaration names
  *      the input a candidate set is keyed by, the document key every tried
  *      value is recorded under, the payload record that lists the candidate
- *      sets, and the cap -- so the buttons, the notices and the discard verb
+ *      sets, and the cap -- so the buttons and the discard verb
  *      read the shape rather than knowing it.
  *
  *  11. `inputs[].commitValue(context)` and `removeTab`, `resetNote`,
@@ -463,12 +448,10 @@
  *      is honest filler, and the schema has no way to say "not this state".
  *
  *  17. AN ABSENCE WITH A REASON. A fence type that produced no tab is a fact
- *      about the STEP -- which of its candidates exist, and why not -- and
- *      the schema's only slot for a step-level statement is `notices`. It
- *      serves; but a notice's tone vocabulary (advisory, caution, error,
- *      blocked) has no word for "absent by design", and `advisory` is the
- *      nearest. The backend's `generated` flag is data, read by the
- *      definition, and needed no schema.
+ *      about the STEP -- which of its candidates exist, and why not. It was
+ *      said as a step-level notice under the instruction bar until every
+ *      step's notices were removed; the backend's `generated` flag and
+ *      reason are still data on the payload, and the report reads them.
  *
  *  18. A STEP MAY DECLARE NO DETAIL PANEL -- `detail: null`. The ONE field
  *      the fencing step added, and it was added by SUBTRACTION: fencing has a
@@ -1192,7 +1175,6 @@ export function defineStep(definition) {
     shape = null,
     instructions = {},
     buttons = {},
-    notices = () => [],
     tabs = () => [],
     /* NO PANEL, OR A PANEL WITH NOTHING TO SAY ABOUT THIS ID -- and the two
        are DIFFERENT DECLARATIONS. See the schema note on `detail`. */
@@ -1365,7 +1347,6 @@ export function defineStep(definition) {
       }
       return Object.freeze([...list])
     }),
-    notices,
     tabs,
     detail,
     Panel,
@@ -1826,15 +1807,9 @@ export const LANDFORM_SHAPE = Object.freeze({
 
   close: ({ points, parcel, references }) => {
     if (points.length < 3) return null
-    const { multi, acres, removedAcres } = clampToBoundary(points, parcel)
-    // The whole ring fell outside the parcel. Nothing to add, and a notice
-    // rather than a silently discarded gesture.
-    if (!multi.length) {
-      return {
-        feature: null,
-        notice: 'That block fell entirely outside the property boundary and was not added.',
-      }
-    }
+    const { multi, acres } = clampToBoundary(points, parcel)
+    // The whole ring fell outside the parcel. Nothing to add.
+    if (!multi.length) return { feature: null }
 
     const cautions = productionCautions(
       cautionsFor(multi, exclusionGrounds(references[LANDFORM_EXCLUSIONS_LAYER]))
@@ -1857,18 +1832,6 @@ export const LANDFORM_SHAPE = Object.freeze({
           cautions,
         },
       },
-      // Said only when the clamp actually took something. A notice on every
-      // drawn block would train the user to ignore the one that matters.
-      //
-      //
-      // PARTS RATHER THAN A SENTENCE, so the acreage the clamp removed is set
-      // in the data face like every other measured value. It was a template
-      // literal, which put a pipeline figure into prose -- the one thing the
-      // three-face rule exists to prevent.
-      notice:
-        removedAcres > 0
-          ? [measured(removedAcres), ' acres outside the property boundary were trimmed off.']
-          : null,
     }
   },
 
@@ -1944,23 +1907,7 @@ function productionCautions(cautions) {
   }))
 }
 
-const UNAVAILABLE_CONSEQUENCE = {
-  hydric: 'Soil survey data was unavailable, so wet ground has not been excluded.',
-  roads: 'Road data was unavailable, so existing farm roads have not been excluded.',
-  canopy: 'Canopy data was unavailable, so wooded ground has not been excluded.',
-  slope: 'Elevation data was unavailable, so steep ground has not been excluded.',
-  setback: 'The boundary setback was not applied.',
-}
 
-/**
- * Past this share of the parcel, the chrome says so. ADVISORY ONLY, never
- * blocking: the 80% figure was always a design judgment about leaving room for
- * water, roads and trees, and having handed that judgment to the user -- the
- * same reasoning that made the parcel boundary the only hard gate -- taking it
- * back at the gate would be incoherent. It is the same number the backend's
- * own ceiling trims toward, named here so the two cannot drift apart silently.
- */
-export const CEILING_ADVISORY_PCT = 80
 
 /**
  * The band name for a score, read out of the payload's own `scales` object.
@@ -2011,38 +1958,6 @@ export function scoreBandName(score, scales) {
   return null
 }
 
-/**
- * The running totals a commit would carry.
- *
- * NOT THE PAYLOAD'S OWN FIGURES. What is SELECTED changes as suggestions are
- * toggled and zones are drawn, so the numbers have to be recomputed from the
- * current selection rather than read off the recommendation the backend sent.
- * `eligible_acres` is the exception -- it describes the ground, not the choice.
- *
- * THE TOTALS CHIP IT WAS WRITTEN FOR IS GONE. What it is still for is the
- * ceiling advisory below, which is a reading of the same arithmetic and was
- * always the only part of that chip that said something the user had to act
- * on. Exported so the test can assert the arithmetic without a map.
- */
-export function totalsFor(payload, selectedIds, drawnFeatures) {
-  const rows = payload?.zones ?? []
-  const parcelAcres = payload?.summary?.total_acres ?? 0
-
-  const selectedAcres = rows
-    .filter((zone) => selectedIds.has(zone.feature_id))
-    .reduce((sum, zone) => sum + (zone.area_acres ?? 0), 0)
-  const drawnAcres = drawnFeatures.reduce(
-    (sum, feature) => sum + (feature.properties?.acres ?? 0),
-    0
-  )
-  const total = selectedAcres + drawnAcres
-
-  return {
-    selectedAcres: total,
-    pctOfParcel: parcelAcres > 0 ? (total / parcelAcres) * 100 : null,
-    zoneCount: rows.filter((zone) => selectedIds.has(zone.feature_id)).length + drawnFeatures.length,
-  }
-}
 
 /**
  * THE SCORE'S DENOMINATOR: the top of the backend's own published scale.
@@ -2387,68 +2302,6 @@ export const LANDFORM_STEP = documentStep({
   },
 
   /**
-   * THE TWO THINGS ONLY THIS STEP KNOWS ARE WORTH SAYING.
-   *
-   * 1. WHICH CHECKS DID NOT RUN. A standing line for the whole time this step
-   *    is open, because it changes what the eligible highlight MEANS: ground
-   *    that was never tested is drawn exactly like ground that passed.
-   *
-   * 2. THE 80% CEILING. It used to be printed under the totals chip, and the
-   *    chip is gone; the advisory is not, because it is the only part of that
-   *    block that asked the user to reconsider something. Advisory, never
-   *    blocking -- see CEILING_ADVISORY_PCT.
-   */
-  notices: ({ proposals, draft }) => {
-    if (!proposals) return []
-    const lines = []
-
-    for (const layer of proposals.exclusion_layers ?? []) {
-      if (layer.data_available) continue
-      lines.push({
-        key: `unavailable-${layer.type}`,
-        tone: 'caution',
-        text:
-          `${UNAVAILABLE_CONSEQUENCE[layer.type] ?? `${layer.label} was unavailable.`} ` +
-          'Walk those areas before committing to them.',
-      })
-    }
-
-    // NOTHING ON THIS PARCEL CLEARS EVERY GATE. A real answer, and one the
-    // panel column used to state plainly; without it the step reads as a
-    // generate that quietly returned nothing.
-    if ((proposals.zones ?? []).length === 0) {
-      lines.push({
-        key: 'no-ground',
-        tone: 'caution',
-        text:
-          'No ground on this parcel clears every check. The highlight shows what is ' +
-          'eligible; nothing in it is large or gentle enough to suggest.',
-      })
-    }
-
-    const totals = totalsFor(proposals, new Set(draft.selectedFeatureIds), draft.drawnFeatures)
-    if (totals.pctOfParcel > CEILING_ADVISORY_PCT) {
-      // THE FIGURE IS THE ADVISORY. It used to sit above this line as a
-      // `% of parcel` column in the totals block, and the advisory read
-      // "this much" because the number was already on screen an inch away.
-      // The block is gone; carrying the number into the sentence is what
-      // keeps the advisory worth reading, and it is the first measured value
-      // in the new shell to land mid-sentence rather than in a value column.
-      lines.push({
-        key: 'ceiling',
-        tone: 'advisory',
-        text: [
-          'Selecting ',
-          measured(totals.pctOfParcel),
-          '% of the parcel leaves little room for water, roads, and trees.',
-        ],
-      })
-    }
-
-    return lines
-  },
-
-  /**
    * ONE TAB PER BLOCK -- the payload's suggestions first, in the rank order it
    * shipped them in, then whatever the user drew.
    *
@@ -2696,9 +2549,8 @@ export function surveyZoneName(properties) {
    the backend's `panel` block now makes, beside the measurements, as data.
    A second table over here would be a second set of words for one set of
    facts, and the one over here is the copy that goes stale silently.
-   (UNAVAILABLE_CONSEQUENCE stays for landform: a STEP-LEVEL notice about
-   checks that did not run, which no per-zone panel row answers. Water no
-   longer carries step-level notices at all -- see WATER_STEP.) */
+   (No step carries step-level notices under the instruction bar any
+   more -- see WATER_STEP, where they were removed first.) */
 
 /**
  * Every zone envelope in a water payload, members dropped.
@@ -3174,8 +3026,8 @@ export const WATER_STEP = documentStep({
      request: the bar carries the instruction and nothing else here. The
      facts they stated are still on the payload (summary.soil_checked, the
      overlap sentinels, dropped_count, presentation.withheld_count) and in the
-     report; `notices` is left undeclared so the shell's default of no
-     notices applies. */
+     report. The other steps followed, and the schema no longer has a slot
+     for step-level notices at all. */
 
   /**
    * ONE TAB PER ZONE ENVELOPE, both types in one strip.
@@ -3871,18 +3723,6 @@ const ROADS_CANCEL = disarmButton({
   },
 })
 
-/**
- * THE CONSTRAINTS A NETWORK WAS ROUTED UNDER, in consequence terms -- the
- * same rule landform's UNAVAILABLE_CONSEQUENCE follows. A constraint that
- * never ran is reported as NOT APPLIED, never as silently satisfied:
- * build_narrative_data() carries `*_available` flags for exactly this.
- */
-const ROADS_UNCHECKED_CONSEQUENCE = {
-  floodplain_data_available:
-    'Floodplain and wet-soil data was unavailable, so these networks were not routed around wet ground.',
-  canopy_data_available:
-    'Canopy data was unavailable, so these networks pay nothing for crossing wooded ground.',
-}
 
 export const ROADS_STEP = documentStep({
   id: 'roads',
@@ -4102,63 +3942,6 @@ export const ROADS_STEP = documentStep({
   },
 
   /**
-   * WHAT ONLY THIS STEP KNOWS IS WORTH SAYING: the cap, a candidate that
-   * routed nothing, and a constraint that did not run.
-   */
-  notices: ({ state, stepId, proposals }) => {
-    const lines = []
-    const networks = roadNetworks(proposals)
-
-    if (networks.length && roadSlotsRemaining(state, stepId) === 0) {
-      lines.push({
-        key: 'cap',
-        tone: 'advisory',
-        text: [
-          measured(MAX_ROAD_NETWORKS, 0),
-          ' access points are placed, which is the most this step compares. Discard one to try another.',
-        ],
-      })
-    }
-
-    // A CANDIDATE THAT ROUTED NOTHING. Rare now and no longer what a FAILED
-    // generate looks like: the server does not record an access point its
-    // router refused, so a fresh one never becomes a candidate at all -- that
-    // failure is reported as `no_candidate` and the bar prints it. What can
-    // still reach here is a candidate recorded when it DID route and rebuilt
-    // later, on a cold cache, into nothing.
-    //
-    // AND THE 'corridor_too_short' BRANCH IS GONE WITH THE FLOOR THAT RAISED
-    // IT. road_corridors.MIN_CORRIDOR_LENGTH_METERS is deleted, so no run
-    // produces that stop_reason and a sentence for it would be a special case
-    // for a value that cannot arrive.
-    networks.forEach((network, index) => {
-      if (network.network_found) return
-      lines.push({
-        key: `no-network-${network.network_id}`,
-        tone: 'caution',
-        // NAMED AS THE TAB NAMES IT. One ordinal, one noun: a notice saying
-        // "Access point 3" beside a tab saying "Road Network 3" would be two
-        // names for one slot.
-        text: `Road Network ${index + 1} routed nothing: the router stopped (${network.stop_reason}).`,
-      })
-    })
-
-    for (const flag of Object.keys(ROADS_UNCHECKED_CONSEQUENCE)) {
-      if (!networks.length) continue
-      if (!networks.every((network) => network.determination?.[flag] === false)) continue
-      lines.push({ key: `unchecked-${flag}`, tone: 'caution', text: ROADS_UNCHECKED_CONSEQUENCE[flag] })
-    }
-    if (networks.length && networks.every((n) => n.determination?.floodplain_data_is_fallback)) {
-      lines.push({
-        key: 'floodplain-fallback',
-        tone: 'caution',
-        text: 'Wet ground was estimated from elevation alone, not from stream or soil survey data.',
-      })
-    }
-    return lines
-  },
-
-  /**
    * ONE TAB PER NETWORK, NEVER PER BRANCH. A network's branches are a tree;
    * a spur without its trunk is incoherent and the backend rejects exactly
    * that. So the tab is the unit of the commit decision and carries every
@@ -4307,7 +4090,7 @@ export const ROADS_STEP = documentStep({
    * makes a longer label a decision about words rather than about layout.
    *
    * AND "WET GROUND" FOR THE FLOODPLAIN, which is roads' own word for it in
-   * every other sentence it prints -- the notice, the determination. The wire
+   * every other sentence it prints -- the determination. The wire
    * key is `crosses_floodplain_ft`; the panel says what a person standing on
    * it would.
    */
@@ -4407,13 +4190,10 @@ export const TREES_GROUNDS_LAYER = 'trees-grounds'
  * the em dash belongs in the factor rows, and only there.
  *
  * `type` is the stable key; `label` is the server's prose, carried verbatim
- * onto the caution and never reworded here. What THIS side adds is one
- * distinction in copy, and it is canopy's: see TREES_STEP's notices.
+ * onto the caution and never reworded here.
  */
 export const TREE_CROSSING_GROUND_TYPES = Object.freeze(['production', 'water', 'road', 'canopy'])
 
-/** The type whose crossing means "there are already trees here", not "you committed this". */
-export const CANOPY_GROUND = 'canopy'
 
 /** The payload's grounds, off the reference layer the stack carried. */
 export function treeCrossingGrounds(references) {
@@ -4457,13 +4237,8 @@ export const TREES_SHAPE = Object.freeze({
 
   close: ({ points, parcel, references }) => {
     if (points.length < 3) return null
-    const { multi, acres, removedAcres } = clampToBoundary(points, parcel)
-    if (!multi.length) {
-      return {
-        feature: null,
-        notice: 'That zone fell entirely outside the property boundary and was not added.',
-      }
-    }
+    const { multi, acres } = clampToBoundary(points, parcel)
+    if (!multi.length) return { feature: null }
 
     const cautions = treeCautions(cautionsFor(multi, treeCrossingGrounds(references)))
     return {
@@ -4484,10 +4259,6 @@ export const TREES_SHAPE = Object.freeze({
           cautions,
         },
       },
-      notice:
-        removedAcres > 0
-          ? [measured(removedAcres), ' acres outside the property boundary were trimmed off.']
-          : null,
     }
   },
 
@@ -4689,8 +4460,6 @@ export const TREE_FACTORS = Object.freeze([
   Object.freeze({ key: 'stream_proximity', gate: 'stream_data_available', label: 'near a stream' }),
 ])
 
-/** A weight is a whole share of the score; the payload rounds it to one place. */
-const WEIGHT_DP = 0
 const COUNT_DP_TREES = 0
 
 /**
@@ -4738,35 +4507,6 @@ export function marginalBenefitRows(benefits) {
   ]
 }
 
-/**
- * WHICH FACTORS WERE NOT MEASURED, in consequence terms, keyed on the stable
- * flag -- production's UNAVAILABLE_CONSEQUENCE, over a flag surface that is
- * three booleans under `summary.gates`. Each names the factor's share of the
- * score off the payload, because "the row reads as unmeasured" matters in
- * proportion to how much of every score that row would have carried.
- */
-const TREES_UNCHECKED_CONSEQUENCE = {
-  hydric_data_available: (share) => [
-    'Soil survey data was unavailable, so no zone was credited for wet ground — ',
-    share,
-    '% of every score — and that row reads as unmeasured.',
-  ],
-  soil_marginality_data_available: (share) => [
-    'Farmland classification data was unavailable, so no zone was credited for poor farmland — ',
-    share,
-    '% of every score — and that row reads as unmeasured.',
-  ],
-  stream_data_available: (share) => [
-    'Stream data was unavailable, so no zone was credited for being near a stream — ',
-    share,
-    '% of every score — and that row reads as unmeasured.',
-  ],
-}
-
-/** The gate a flag guards, by flag. */
-const FACTOR_BY_GATE = Object.fromEntries(
-  TREE_FACTORS.filter((factor) => factor.gate).map((factor) => [factor.gate, factor])
-)
 
 /** Start drawing a zone of your own. */
 const TREES_DRAW = armButton({ key: 'draw', tool: 'draw', label: 'Draw a zone' })
@@ -4854,91 +4594,6 @@ export const TREES_STEP = documentStep({
     [EDITING]: [TREES_CANCEL],
     [COMMITTING]: [],
     [STEP_COMMITTED]: [REOPEN_BUTTON],
-  },
-
-  /**
-   * WHAT ONLY THIS STEP KNOWS IS WORTH SAYING: which factors were not
-   * measured, what ground the generate actually scored, a drawn zone on
-   * existing canopy, and a generate that found nothing.
-   */
-  notices: ({ proposals, draft }) => {
-    if (!proposals) return []
-    const summary = proposals.summary ?? {}
-    const weights = summary.selection?.factor_weights_pct ?? {}
-    const lines = []
-
-    // THE THREE GATES, keyed on the flag. A false flag means every zone's row
-    // for that factor is an em dash, and the score was composed without it.
-    for (const flag of Object.keys(TREES_UNCHECKED_CONSEQUENCE)) {
-      if (summary.gates?.[flag] !== false) continue
-      const factor = FACTOR_BY_GATE[flag]
-      lines.push({
-        key: `unchecked-${flag}`,
-        tone: 'caution',
-        text: TREES_UNCHECKED_CONSEQUENCE[flag](measured(weights[factor.key], WEIGHT_DP)),
-      })
-    }
-
-    // WHAT WAS SCORED. The search space is the parcel less what the three
-    // steps before this one claimed; the figures are the payload's own, and
-    // they are what makes "no candidates" or "three candidates" legible --
-    // the same number of zones means something different on two acres left
-    // than on twenty.
-    const space = summary.search_space ?? {}
-    if (space.search_space_acres != null && space.parcel_acres != null) {
-      lines.push({
-        key: 'search-space',
-        tone: 'advisory',
-        text: [
-          'After production, water and roads, ',
-          measured(space.search_space_acres),
-          ' of the parcel’s ',
-          measured(space.parcel_acres),
-          ' acres were left to score.',
-        ],
-      })
-    }
-
-    // CANOPY IS A DIFFERENT KIND OF STATEMENT. A production, water or road
-    // crossing means "this overlaps something you committed"; the caution
-    // line in the panel says so in the server's words. A canopy crossing
-    // means "there are already trees here" -- and these are tree CROPS, a
-    // different thing from standing canopy. Planting into occupied ground
-    // is worth flagging, so it is said, per drawn zone, as a caution and
-    // not a rule. The acreage is the caution's own, in the data face.
-    draft.drawnFeatures.forEach((feature, index) => {
-      const canopy = (feature.properties?.cautions ?? []).find((c) => c.type === CANOPY_GROUND)
-      if (!canopy) return
-      lines.push({
-        key: `canopy-${feature.id}`,
-        tone: 'caution',
-        text: [
-          `Drawn ${index + 1} sits on `,
-          measured(canopy.acres),
-          ' acres of existing canopy: there are already trees here. A tree crop is a different ' +
-            'thing from standing canopy, so this is a caution, not a rule.',
-        ],
-      })
-    })
-
-    // NOTHING CLEARED THE FLOOR. The floor is the payload's, so it is named.
-    if (summary.candidate_count === 0) {
-      const floor = summary.selection?.min_suitability_score
-      lines.push({
-        key: 'no-candidates',
-        tone: 'caution',
-        text:
-          floor == null
-            ? ['No leftover ground scored high enough to suggest as a tree crop. Draw a zone, or commit none.']
-            : [
-                'No leftover ground scored ',
-                measured(floor),
-                ' or better, the floor a tree zone has to clear. Draw a zone, or commit none.',
-              ],
-      })
-    }
-
-    return lines
   },
 
   /**
@@ -5080,11 +4735,7 @@ export const TREES_STEP = documentStep({
    * ALL OF IT STAYS ON THE WIRE for the report, which has the room: the factor
    * values under each zone's `factors`, the weights under
    * `selection.factor_weights_pct`, the floor under
-   * `selection.min_suitability_score`. Nothing was withdrawn, and the weights
-   * are still read HERE -- by notices(), where a factor whose data never
-   * arrived is named with the share of every score it would have carried. That
-   * is the one thing the decomposition was really buying and it is a
-   * step-level fact, not a per-zone one.
+   * `selection.min_suitability_score`. Nothing was withdrawn.
    *
    * AND THE SENTINEL PATH WENT WITH THE ROWS. A factor whose gate was false
    * used to print an em dash here rather than its neutral 0.5; there is no
@@ -5304,63 +4955,31 @@ export const ROAD_PROXIMITY_SOURCES = Object.freeze([
   'unavailable',
 ])
 
+
 /**
- * THE CONSEQUENCE OF EACH TIER, IN THE USER'S TERMS, keyed on the stable
- * value -- production's UNAVAILABLE_CONSEQUENCE, over a flag that is a word
- * rather than a boolean. All three are said, because all three change what
- * "close to a road" meant when these sites were scored:
+ * THE ROAD ROW'S WORDS, SPLIT ACROSS THE STRIP AND THE PANEL.
  *
- *   selected_road_corridor  the road they committed -- which is a ROUTE, not
- *                           a road that exists on the ground yet. The plain
- *                           case, said once so the other two read as
- *                           departures from it.
- *   real_mapped_road        THEY COMMITTED NO ROAD, and the step did not
- *                           silently drop the constraint -- it fell back to
- *                           the farm roads already on the map. A site "near a
- *                           road" is near one of those, which may not be the
- *                           road they meant.
- *   unavailable             no road at all, so the constraint was DISABLED:
- *                           no site was checked for road access, and the
- *                           road distance reads as unmeasured everywhere.
- *                           The bigger caveat, and it is said as one.
- *
- * ALL THREE SAY WHICH ROAD, AND THAT IS THE WHOLE POINT OF THE LINE. `ft to
- * road` is the TAB'S headline figure now (see tabs()), and a figure's meaning
- * is not in the figure: 240 ft to a corridor nobody has built is a different
- * fact from 240 ft to the driveway that is there today, and under
- * `unavailable` it is not a fact at all. The panel used to carry a per-site
- * `road measured to` row saying this; it is true of EVERY candidate in the
- * run, so it belongs here, once, and not repeated down every panel.
+ * THE STRIP GETS ONE SHORT WORD, like every other step's tab. A tab's label
+ * slot holds about five characters at the strip's squeezed widths -- "acres",
+ * "score", "feet" -- and "ft to road" was ten: it wrapped to a second line
+ * (a third for "ft to farm road") and made this step's tabs taller than any
+ * other step's. So the unit rides the figure ("18 ft", inside the value
+ * column's own 6ch floor, costing no width), the strip's label is `road`, and
+ * the tier's words go in the qualifier, which only the panel prints (see
+ * panelFormat's qualified()): "18 ft  to road" / "18 ft  to farm road".
  */
-export const ROAD_PROXIMITY_CONSEQUENCE = Object.freeze({
-  selected_road_corridor: Object.freeze({
-    tone: 'advisory',
-    text:
-      'Distances to a road are measured to the road you committed — a route chosen on this ' +
-      'parcel, not a road that has been built yet.',
-  }),
-  real_mapped_road: Object.freeze({
-    tone: 'caution',
-    text:
-      'No road was committed, so these sites were measured against the farm roads already ' +
-      'mapped on this parcel instead — “close to a road” means close to one of those, not ' +
-      'to a road of your design.',
-  }),
-  unavailable: Object.freeze({
-    tone: 'caution',
-    text:
-      'No road was committed and none is mapped on this parcel, so the road-access rule was ' +
-      'switched off: no site here was checked for road access, and the road distance reads ' +
-      'as unmeasured.',
-  }),
+const ROAD_TAB_LABEL = 'road'
+const ROAD_TAB_QUALIFIER = Object.freeze({
+  selected_road_corridor: 'to',
+  real_mapped_road: 'to farm',
+  unavailable: 'to',
 })
 
-/** The tab's label for the same figure, in the words the tier allows. */
-const ROAD_TAB_LABEL = Object.freeze({
-  selected_road_corridor: 'ft to road',
-  real_mapped_road: 'ft to farm road',
-  unavailable: 'ft to road',
-})
+/** Whole feet with the unit on the figure, or the dash with none. */
+function roadFeet(value) {
+  const figure = measure(value, DISTANCE_DP)
+  return figure === EM_DASH ? figure : `${figure} ft`
+}
 
 /*
  * THE FOUR SCORING FACTORS ARE NOT IN THIS FILE, and their absence is the
@@ -5373,18 +4992,13 @@ const ROAD_TAB_LABEL = Object.freeze({
  * percentages is eight numbers that need a sentence to mean anything, and a
  * panel 15rem wide has room for neither the sentence nor the eight. Five
  * steps had already stopped showing them; this is the sixth, and the panel
- * says what the spot IS rather than how its number was arrived at.
- *
- * THE WEIGHTS ARE STILL READ HERE, by notices() -- `shading_is_rough_proxy`
- * names the share of every score that a rough reading carries, which is a
- * step-level fact and the one thing the decomposition was really buying. And
- * all of it stays on the wire for the report, which has the room.
+ * says what the spot IS rather than how its number was arrived at. All of it
+ * stays on the wire for the report, which has the room.
  */
 
 /** Whole feet: the distance to a road. */
 const DISTANCE_DP = 0
 const COUNT_DP_STRUCTURES = 0
-const WEIGHT_DP_STRUCTURES = 0
 
 /**
  * THE SITING RULES, IN THE USER'S TERMS. `constraints_violated` names the
@@ -5523,11 +5137,10 @@ export function placeSiteBlocked(context) {
 }
 
 /** The cap, as a sentence: what is placed, and that one has to go first. */
-function capSentence(cap, already = false) {
-  const placed = already ? 'already placed' : 'placed'
+function capSentence(cap) {
   return cap === 1
-    ? `1 site is ${placed}, which is the most this step takes. Remove it to place another.`
-    : `${cap} sites are ${placed}, which is the most this step takes. Remove one to place another.`
+    ? `1 site is placed, which is the most this step takes. Remove it to place another.`
+    : `${cap} sites are placed, which is the most this step takes. Remove one to place another.`
 }
 
 /**
@@ -5544,9 +5157,8 @@ function capSentence(cap, already = false) {
  * own author put the value.
  *
  * null when the payload carries none of the three, and null for a word that
- * is not one of the three: an unknown tier is a tier this side cannot state
- * the consequence of, and a notice is worth nothing if it cannot say what
- * follows.
+ * is not one of the three: an unknown tier is a tier this side cannot name
+ * on the tab.
  */
 export function roadProximitySource(proposals) {
   const summary = proposals?.summary ?? {}
@@ -5586,13 +5198,13 @@ export function structureSiteName(feature, placedIndex = null) {
  * WHAT A CLICK MEANS ON THIS STEP -- the placement's reading of one point,
  * and the one place a site's fate is decided client-side.
  *
- *   OFF THE PARCEL     refused here, before any request, in a sentence. The
+ *   OFF THE PARCEL     refused here, before any request. The
  *                      parcel is the one hard gate and the server would say
  *                      the same (a 400 naming the input); saying it first
  *                      is landform's own posture for a ring drawn off the
  *                      parcel, and it saves a round trip for the one refusal
  *                      this side can make with certainty.
- *   NO SLOT LEFT       refused with the cap's sentence. The button is already
+ *   NO SLOT LEFT       refused. The button is already
  *                      disabled at the cap; this is the tool's own guard for
  *                      a click that reaches it anyway.
  *   OTHERWISE          SCORED, by the server, against the run the generated
@@ -5606,68 +5218,43 @@ export function structureSiteName(feature, placedIndex = null) {
  *                      feature and buildCommitBody sends it as user_added.
  *
  * A SITE THAT BREAKS A SITING RULE IS STILL PLACED. The server scored it and
- * named what it breaks (`constraints_violated`); the notice says both, and
- * the panel says which rules. That is the divergence from trees, delivered.
+ * named what it breaks (`constraints_violated`); the panel says which rules.
+ * That is the divergence from trees, delivered.
  *
  * A REFUSAL FROM THE SERVER after the parcel check passed can only be a pad
  * it could not measure -- one that keeps too little of itself inside the
- * boundary, or covers no DEM cell. Its sentence is the server's, with the
- * route's own prefix taken off so the bar prints the reason rather than the
- * plumbing.
+ * boundary, or covers no DEM cell. Nothing is placed.
+ *
+ * NONE OF THESE OUTCOMES IS SAID UNDER THE INSTRUCTION BAR. The placement
+ * used to hand back a sentence for each; those notes were removed with every
+ * other check and note on the bar. The site appearing (or not) on the map and
+ * in the strip is the answer.
  */
 async function placeStructureSite({ point, parcel, placed, proposals = null, actions, stepId }) {
-  if (!pointInRing(point, parcel)) {
-    return {
-      feature: null,
-      notice: 'That spot is outside the property boundary, so no site was placed there.',
-    }
-  }
+  if (!pointInRing(point, parcel)) return { feature: null }
   // THE PAYLOAD'S CAP, the same one the button reads, with the mirrored
   // constant behind it for a payload that carries none.
   const cap = placedCap(proposals)
   if (placed.length >= cap) {
-    return { feature: null, notice: capSentence(cap, true) }
+    return { feature: null }
   }
 
   const answer = await actions.scorePlacedFeature(stepId, {
     [STRUCTURE_SITE_INPUT]: pointToGeoJSON(point),
   })
   // A failure the store has already reported (a 409, a transport failure):
-  // the bar carries it, and a second sentence here would say it twice.
-  if (!answer) return { feature: null, notice: null }
-  if (answer.refused) {
-    return {
-      feature: null,
-      notice: `No site was placed there: ${refusalReason(answer.refused)}`,
-    }
-  }
+  // the bar carries it as an error.
+  if (!answer) return { feature: null }
+  if (answer.refused) return { feature: null }
 
   const feature = answer.feature
   if (placed.some((existing) => existing.id === feature.id)) {
-    return { feature: null, notice: 'A site is already placed at that spot.' }
+    return { feature: null }
   }
 
-  const violated = violatedGates(feature)
-  const notice = violated.length
-    ? [
-        'Placed, and scored ',
-        measured(feature.properties?.suitability_score),
-        ' where it landed. It breaks ',
-        measured(violated.length, COUNT_DP_STRUCTURES),
-        ` of the siting rules the generated sites clear — placed, not refused; its panel says which.`,
-      ]
-    : null
-  return { feature, notice }
+  return { feature }
 }
 
-/** The server's reason for a refused placement, without the route's prefix. */
-function refusalReason(message) {
-  const text = String(message ?? '').trim()
-  const marker = 'was rejected: '
-  const at = text.indexOf(marker)
-  const reason = at >= 0 ? text.slice(at + marker.length) : text
-  return reason || 'the server refused that spot.'
-}
 
 /** Start placing a site. NEVER AUTO-ARMED: roads' "Add access point" posture. */
 const STRUCTURES_PLACE = stepButton({
@@ -5795,110 +5382,6 @@ export const STRUCTURES_STEP = documentStep({
   },
 
   /**
-   * WHAT ONLY THIS STEP KNOWS IS WORTH SAYING: which road the distances are
-   * to, what the run could not check, a placed site that breaks a siting
-   * rule, the cap, and a generate that found no clean spot. NO CAUTION PATH:
-   * this step records no crossings.
-   */
-  notices: ({ proposals, draft }) => {
-    if (!proposals) return []
-    const summary = proposals.summary ?? {}
-    const flags = summary.run_flags ?? {}
-    const lines = []
-
-    // WHICH ROAD. Said for every tier, because every tier changes what
-    // "close to a road" meant; the fallback tiers are cautions.
-    const source = roadProximitySource(proposals)
-    if (source) {
-      lines.push({ key: `road-${source}`, ...ROAD_PROXIMITY_CONSEQUENCE[source] })
-    }
-
-    // THE TREE-ZONE EXCLUSION COULD NOT RUN: a false flag means no site was
-    // kept clear of the committed tree zones, and the rule reads as absent.
-    if (flags.tree_zone_exclusion_available === false) {
-      lines.push({
-        key: 'unchecked-tree-zones',
-        tone: 'caution',
-        text:
-          'The committed tree zones could not be checked, so no site here was kept clear of them.',
-      })
-    }
-
-    // SHADING IS A ROUGH READING on every run this pipeline can make today
-    // -- a terrain horizon, not canopy or buildings -- and the flag says so.
-    if (flags.shading_is_rough_proxy === true) {
-      const share = summary.factor_weights_pct?.shading
-      lines.push({
-        key: 'shading-proxy',
-        tone: 'advisory',
-        text:
-          share == null
-            ? ['Shading was estimated from the terrain horizon alone, not from canopy or buildings, so that factor is a rough reading.']
-            : [
-                'Shading was estimated from the terrain horizon alone, not from canopy or buildings, so that factor — ',
-                measured(share, WEIGHT_DP_STRUCTURES),
-                '% of every score — is a rough reading.',
-              ],
-      })
-    }
-
-    // PRIME FARMLAND IS A PARCEL-LEVEL FLAG. Said once, at step level, so it
-    // does not read as a finding about any one spot.
-    const first = structureSites(proposals)[0]
-    if (first?.properties?.prime_farmland_conflict === true) {
-      lines.push({
-        key: 'prime-farmland',
-        tone: 'advisory',
-        text:
-          'The soil survey found prime farmland somewhere on this parcel, so every site here ' +
-          'carries that flag — it is a tension to weigh, not a rule about any one spot.',
-      })
-    }
-
-    // A PLACED SITE THAT BREAKS A RULE IS SCORED AND SAYS SO. The score and
-    // the rules are both the answer the user asked for; neither is an error.
-    draft.drawnFeatures.forEach((feature, index) => {
-      const violated = violatedGates(feature)
-      if (!violated.length) return
-      lines.push({
-        key: `violates-${feature.id}`,
-        tone: 'caution',
-        text: [
-          `Placed ${index + 1} scores `,
-          measured(feature.properties?.suitability_score),
-          ` and breaks ${violated.length === 1 ? 'a siting rule' : `${violated.length} siting rules`} ` +
-            `the generated sites clear: it ${violated.map(gateStatement).join('; it ')}.`,
-        ],
-      })
-    })
-
-    // THE CAP, when it is reached.
-    if (draft.drawnFeatures.length >= placedCap(proposals)) {
-      lines.push({
-        key: 'cap',
-        tone: 'advisory',
-        text: [
-          measured(placedCap(proposals), COUNT_DP_STRUCTURES),
-          ' sites are placed, which is the most this step takes. Remove one to place another.',
-        ],
-      })
-    }
-
-    // NO SPOT CLEARED EVERY RULE.
-    if (summary.candidate_count === 0) {
-      lines.push({
-        key: 'no-candidates',
-        tone: 'caution',
-        text:
-          'No spot on the parcel cleared every siting rule, so nothing was suggested. Place a ' +
-          'site of your own — it is scored and told what it breaks — or commit none.',
-      })
-    }
-
-    return lines
-  },
-
-  /**
    * ONE TAB PER SITE -- the generated candidates in rank order, then the
    * placed sites in the order placed. THREE ROWS: the identity, the distance
    * to the road, and the composite score.
@@ -5909,9 +5392,10 @@ export const STRUCTURES_STEP = documentStep({
    * the score (a factor), and every pad is the same tenth of an acre unless
    * the boundary clipped it. Road access is the one siting fact the score does
    * not carry -- it is a GATE, not a factor -- and the one whose meaning the
-   * tier caveat changes, so it earns the row. Whole feet; the label says
-   * which road the tier allows it to (ROAD_TAB_LABEL), and it prints an em
-   * dash under the `unavailable` tier, where the pipeline sent null.
+   * tier caveat changes, so it earns the row. Whole feet, the unit on the
+   * figure; the strip says `road` and the panel says which road the tier
+   * allows (ROAD_TAB_QUALIFIER), and it prints an em dash under the
+   * `unavailable` tier, where the pipeline sent null.
    *
    * AND IT ONLY BECAME A MEASUREMENT IN THE BACKEND'S LAST BRANCH. This row
    * read 0.0 on nine of eleven clearing footprints on the reference parcel,
@@ -5949,10 +5433,10 @@ export const STRUCTURES_STEP = documentStep({
   tabs: ({ proposals, draft }) => {
     const selected = new Set(draft.selectedFeatureIds)
     const source = roadProximitySource(proposals)
-    const roadLabel = ROAD_TAB_LABEL[source] ?? 'ft to road'
+    const qualifier = ROAD_TAB_QUALIFIER[source] ?? 'to'
     const denominator = scoreDenominator(proposals?.summary)
     const rows = (properties) => [
-      { value: measure(properties?.distance_to_road_ft, DISTANCE_DP), label: roadLabel },
+      { value: roadFeet(properties?.distance_to_road_ft), label: ROAD_TAB_LABEL, qualifier },
       { value: measure(properties?.suitability_score), label: 'score', denominator },
     ]
 
@@ -5990,7 +5474,7 @@ export const STRUCTURES_STEP = documentStep({
    * anywhere in the build.
    *
    *     Site 1
-   *      240                        ft to road
+   *      240 ft                     to road
    *       89                        /100 score
    *     ────────────────────────────────
    *     south                       aspect
@@ -6087,8 +5571,8 @@ export const STRUCTURES_STEP = documentStep({
    *     ("Site 2", "Placed 1 · would rank 2"), and saying it twice in two
    *     wordings is how two spellings of one fact come apart. Prime farmland
    *     is parcel-level SSURGO inherited from the run: every site on the
-   *     parcel carries the same answer, so it is said ONCE at step level
-   *     (see notices) where it cannot read as a finding about one spot.
+   *     parcel carries the same answer, so it is not a finding about any
+   *     one spot; the report carries it.
    *
    *   THE FOUR SCORING FACTORS, consistent with the other five steps -- see
    *     the note where they used to be read from.
@@ -6107,9 +5591,9 @@ export const STRUCTURES_STEP = documentStep({
    *     absence is not mistaken for an oversight.
    *
    *   `road measured to` -- which tier the road distance was measured
-   *     against. True of every candidate in the run, so it is a step-level
-   *     notice now (ROAD_PROXIMITY_CONSEQUENCE) rather than a row repeated
-   *     down every panel.
+   *     against. True of every candidate in the run, so it is not a row
+   *     repeated down every panel; the tab's road label names the tier
+   *     (ROAD_TAB_LABEL).
    *
    *
    * AND LAST, ONLY WHEN THERE IS ONE: THE SITING RULES THIS SITE BREAKS. A
@@ -6318,51 +5802,6 @@ export const FENCING_STEP = documentStep({
     [COMMITTING]: [],
     // THE WAY BACK IN, AND NOTHING FORWARD. There is no next step.
     [STEP_COMMITTED]: [REOPEN_BUTTON],
-  },
-
-  /**
-   * WHAT ONLY THIS STEP KNOWS IS WORTH SAYING: which types have NO tab and
-   * why -- in the backend's own words.
-   *
-   * THE NOTICE NAMES THE TYPE AND THE REASON SAYS THE REST, and that split is
-   * the whole of the wording rule. This side owns ONE fact the reason does
-   * not carry: which candidate is missing from the strip. Everything after it
-   * is the backend's sentence, verbatim.
-   *
-   * IT USED TO STATE THE ABSENCE AS WELL, and for `generated_nothing` that
-   * was the reason said twice: "Water area fencing was generated and produced
-   * no fence loop. The water zone pass ran and produced no fence loop." One
-   * of those two sentences was written here about a flag, the other arrived
-   * from the pipeline that set the flag, and the second is the one worth
-   * reading -- boundary's says what the clip actually found. So the sentence
-   * written here is gone and the reason carries the explanation alone.
-   *
-   * THE TWO ABSENCES ARE STILL TOLD APART, in the `key` -- which is what the
-   * bar renders them under and what a test can address -- and in the reason,
-   * which is different prose for the two cases because they are different
-   * findings ("the step was committed with no zone" is an upstream decision
-   * the reader can go and change; "the pass ran and produced no loop" is not).
-   * They are not told apart by a stem this file writes, because a stem this
-   * file writes cannot know which of those two a reader is looking at without
-   * saying what the reason already says.
-   */
-  notices: ({ proposals }) => {
-    if (!proposals) return []
-    const lines = []
-    for (const block of fenceTypeBlocks(proposals)) {
-      const absence = fenceTypeAbsence(block)
-      if (!absence) continue
-      const label = String(block.label ?? block.fence_type)
-      lines.push({
-        key: `${absence}-${block.fence_type}`,
-        tone: 'advisory',
-        // LOWER CASE AFTER "No", because the label is a name in title case
-        // and the sentence it is in is this file's. The REASON is not
-        // touched, in case or in anything else.
-        text: `No ${label.toLowerCase()}. ${block.reason ?? ''}`.trim(),
-      })
-    }
-    return lines
   },
 
   /**

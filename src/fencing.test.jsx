@@ -593,7 +593,7 @@ describe('1. end to end against the real backend', () => {
    =========================================================================== */
 
 describe('2. boundary fencing alone, against the real backend', () => {
-  liveIt('renders exactly one tab when water, trees and structures are committed empty, and names the two absences', async () => {
+  liveIt('renders exactly one tab when water, trees and structures are committed empty, and flags the two absences', async () => {
     const ui = await renderApp()
     await throughStructuresCommit(ui, { water: 0, trees: false, structures: false })
     await generateAndWait(ui, 'fencing')
@@ -608,20 +608,10 @@ describe('2. boundary fencing alone, against the real backend', () => {
     expect(fenceTypeAbsence(blocks.water_zone_exclusion)).toBe('nothing_to_fence')
     expect(fenceTypeAbsence(blocks.tree_zone_exclusion)).toBe('nothing_to_fence')
 
-    // ONE TAB, and it is the boundary; the bar names the two types that have
-    // none, in the backend's own words.
+    // ONE TAB, and it is the boundary. (The bar used to name the two absent
+    // types as notes; those notices were removed at the user's request.)
     expect(ui.all('[data-tab-id]').map((li) => li.dataset.tabId)).toEqual(['boundary'])
     expect(ui.find('tab-boundary').dataset.checked).toBe('true')
-    for (const type of ['water_zone_exclusion', 'tree_zone_exclusion']) {
-      const notice = ui.find(`notice-nothing_to_fence-${type}-fencing`)
-      expect(notice, `${type} absence is named`).not.toBeNull()
-      // THE TYPE'S NAME, THEN THE BACKEND'S REASON, and nothing this side
-      // wrote about the flag -- see FENCING_STEP.notices.
-      expect(notice.textContent).toBe(
-        `No ${String(blocks[type].label).toLowerCase()}. ${blocks[type].reason}`
-      )
-      expect(ui.find(`notice-generated_nothing-${type}-fencing`)).toBeNull()
-    }
     const boundaryFeatures = registryProposalFeatures(ui.fencing, 'fencing')
     expect(boundaryFeatures.every((f) => fenceTypeOf(f) === 'boundary')).toBe(true)
     expect(boundaryFeatures).toHaveLength(blocks.boundary.feature_count)
@@ -796,41 +786,16 @@ describe('3. a type with nothing to fence renders no tab, distinguishable from o
       expect(tabs.find((t) => t.id === 'water_zone_exclusion')).toBeUndefined()
     }
 
-    // DISTINGUISHABLE: the two absences are two different notices, each in
-    // the backend's own words, and a candidate raises none.
-    const absentNotices = FENCING_STEP.notices(contextOver(absent))
-    const emptyNotices = FENCING_STEP.notices(contextOver(empty))
-    expect(absentNotices.map((n) => n.key)).toEqual(['nothing_to_fence-water_zone_exclusion'])
-    expect(emptyNotices.map((n) => n.key)).toEqual(['generated_nothing-water_zone_exclusion'])
-    // THE NOTICE NAMES THE TYPE AND THE REASON SAYS THE REST, VERBATIM. That
-    // is the whole of the wording: this side owns the one fact the reason
-    // cannot carry -- which candidate is missing from the strip -- and adds
-    // no sentence of its own about the flag.
-    expect(absentNotices[0].text).toBe(`No water area fencing. ${absentWater.reason}`)
-    expect(emptyNotices[0].text).toBe(`No water area fencing. ${emptyWater.reason}`)
-    // AND NOTHING IS SAID TWICE. The old generated_nothing line was "Water
-    // area fencing was generated and produced no fence loop." in front of a
-    // reason reading "The water zone pass ran and produced no fence loop" --
-    // one finding, stated by this file and then again by the pipeline that
-    // found it. The notice may not restate its own reason.
-    for (const notice of [absentNotices[0], emptyNotices[0]]) {
-      const lead = notice.text.slice(0, notice.text.indexOf('.') + 1)
-      expect(lead).toBe('No water area fencing.')
-      expect(notice.text.slice(lead.length).trim()).toBe(
-        notice.text.includes(absentWater.reason) ? absentWater.reason : emptyWater.reason
-      )
-    }
-    expect(absentNotices[0].text).not.toBe(emptyNotices[0].text)
-    expect(FENCING_STEP.notices(contextOver(fencingPayload()))).toEqual([])
+    // DISTINGUISHABLE by fenceTypeAbsence above. (The bar notices that
+    // named each absence were removed at the user's request.)
     // AND A CANDIDATE IS NEVER AN ABSENCE, whatever its length.
     expect(fenceTypeAbsence(fenceTypeBlocks(absent).find((b) => b.fence_type === 'boundary'))).toBeNull()
   })
 
-  it('renders the strip that way: two tabs, and the absence on the bar', async () => {
+  it('renders the strip that way: two tabs, and none for the absent type', async () => {
     const ui = await renderStrip(fencingPayload({ water: 'nothing_to_fence' }))
     expect(ui.all('[data-tab-id]').map((li) => li.dataset.tabId)).toEqual(['boundary', 'tree_zone_exclusion'])
     expect(ui.find('tab-water_zone_exclusion')).toBeNull()
-    expect(ui.find('notice-nothing_to_fence-water_zone_exclusion-fencing')).not.toBeNull()
     await ui.unmount()
   })
 })
@@ -840,16 +805,12 @@ describe('3. a type with nothing to fence renders no tab, distinguishable from o
    =========================================================================== */
 
 describe('4. boundary fencing renders with everything else absent', () => {
-  it('offers the one tab, checked, and names both absences', async () => {
+  it('offers the one tab, checked', async () => {
     const payload = fencingPayload({ water: 'nothing_to_fence', trees: 'nothing_to_fence' })
     expect(payload.candidate_fence_types).toEqual(['boundary'])
     const tabs = FENCING_STEP.tabs(contextOver(payload))
     expect(tabs).toHaveLength(1)
     expect(tabs[0]).toMatchObject({ id: 'boundary', name: 'Boundary fencing', checkbox: true, selected: true })
-    expect(FENCING_STEP.notices(contextOver(payload)).map((n) => n.key)).toEqual([
-      'nothing_to_fence-water_zone_exclusion',
-      'nothing_to_fence-tree_zone_exclusion',
-    ])
     const ui = await renderStrip(payload)
     expect(ui.all('[data-tab-id]').map((li) => li.dataset.tabId)).toEqual(['boundary'])
     expect(ui.find('tab-boundary').dataset.checked).toBe('true')

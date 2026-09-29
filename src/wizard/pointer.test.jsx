@@ -1611,20 +1611,19 @@ describeIf('the structures checkbox and ×', () => {
       () =>
         window.__probe.selectDraft(window.__probe.state, 'structures').drawnFeatures.length === 1 ||
         window.__probe.state.steps.structures?.error != null ||
-        document.querySelector('[data-testid="structures-notice"]') != null,
+        window.__probe.cursor.armed == null,
       null,
       { timeout: 60_000 }
     )
     const outcome = await evaluate(() => ({
       placed: window.__probe.selectDraft(window.__probe.state, 'structures').drawnFeatures.length,
       error: window.__probe.state.steps.structures?.error ?? null,
-      notice: document.querySelector('[data-testid="structures-notice"]')?.textContent ?? null,
+      notes: document.querySelectorAll('.chrome-bar__notice').length,
     }))
-    // THE PRESS PLACED A SITE. A notice may stand beside it -- the spot is
-    // near a committed tree zone's clearance, and a site that breaks a rule
-    // is placed AND told so -- but never a refusal, and never a step error.
-    expect(outcome, `the press placed a site: ${JSON.stringify(outcome)}`).toMatchObject({ placed: 1, error: null })
-    if (outcome.notice != null) expect(outcome.notice).toMatch(/^Placed, and scored/)
+    // THE PRESS PLACED A SITE -- never a refusal, never a step error, and no
+    // note under the bar: a site that breaks a rule is placed and its panel
+    // says which, and the placement note was removed at the user's request.
+    expect(outcome, `the press placed a site: ${JSON.stringify(outcome)}`).toMatchObject({ placed: 1, error: null, notes: 0 })
     const [placed] = await placedIds()
     expect(placed).toMatch(/^structure-site-placed-/)
     expect(await evaluate(() => window.__probe.cursor.armed), 'the tool went down').toBeNull()

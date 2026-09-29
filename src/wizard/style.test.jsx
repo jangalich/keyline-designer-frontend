@@ -393,31 +393,57 @@ describe('2. measured values', () => {
   })
 
   it('sets a measured figure mid-sentence in the data face, not as prose', async () => {
-    // THE ADVISORY IS THE FIRST CONSUMER OF `.measure` IN THE NEW SHELL, and
-    // it is the reason the utility had to come back at all. It used to read
-    // "Selecting this much leaves little room", because a `% of parcel` column
-    // sat an inch above it in the totals block. The block went with the panel
-    // column; the sentence now carries the figure, and the figure is set like
-    // every other measured value rather than dissolving into the prose.
-    const payload = structuredClone(PAYLOAD)
-    payload.summary.total_acres = 4 // 3.7 selected acres over 4 -> past the 80%
+    // THE REOPEN CONFIRMATION'S PER-STEP NOTE IS WHERE A FIGURE SITS INSIDE A
+    // SENTENCE NOW. The landform ceiling advisory -- "Selecting 83.3% of the
+    // parcel leaves little room" -- was the first consumer of `.measure` in the
+    // new shell and this test used to read it; it went, with every other check
+    // and note under the instruction bar, at the user's request. MeasuredText
+    // did not go, because the reset list still needs the same distinction for
+    // the same reason: "Water — 2 committed survey areas" is a written line
+    // with a counted figure in it, and the count is set like every other
+    // measured value rather than dissolving into the prose around it.
+    const collection = (...ids) => ({
+      type: 'FeatureCollection',
+      features: ids.map((id) => ({
+        type: 'Feature',
+        id,
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[[-74.01, 40.7], [-74.0, 40.7], [-74.0, 40.71], [-74.01, 40.7]]],
+        },
+      })),
+    })
+    const committed = (features) => ({
+      status: 'committed',
+      revision: 1,
+      features,
+      provenance: Object.fromEntries(features.features.map((f) => [f.id, 'generated'])),
+    })
+    const resumed = serverDocument()
+    resumed.steps.landform = committed(collection('zone-1'))
+    resumed.steps.water = committed(collection('pond-1', 'pond-2'))
     installFetch([
       { method: 'POST', pattern: /^\/api\/sessions$/, status: 201, body: serverDocument() },
-      { method: 'GET', pattern: /\/steps\/landform\/layers$/, body: payload },
+      { method: 'GET', pattern: /^\/api\/sessions\/sess-1$/, body: resumed },
     ])
     const ui = await renderShell()
     await ui.run((a) => a.startSession(RING))
-    await ui.run((a) => a.loadLayers('landform'))
+    await ui.run((a) => a.resume('sess-1'))
+    await ui.run((_, cursor) => cursor.open('landform'))
+    await ui.click('edit-landform')
 
-    const advisory = ui.find('notice-ceiling-landform')
-    expect(advisory).not.toBeNull()
-    expect(advisory.textContent).toContain('% of the parcel leaves little room')
+    const note = ui.find('reopen-reset-note-water')
+    expect(note).not.toBeNull()
+    expect(note.textContent).toBe(' — 2 committed survey areas')
 
-    // The number is inside .measure; the words around it are not.
-    const figure = advisory.querySelector('.measure')
+    // The number is inside .measure; the words on either side of it are not.
+    const figure = note.querySelector('.measure')
     expect(figure).not.toBeNull()
-    expect(figure.textContent).toMatch(/^\d+\.\d$/)
-    expect(advisory.textContent).toContain(figure.textContent)
+    expect(figure.textContent).toBe('2')
+    expect(note.querySelectorAll('.measure')).toHaveLength(1)
+    const prose = [...note.querySelectorAll('span:not(.measure)')].map((el) => el.textContent)
+    expect(prose.join('')).toBe(' committed survey areas')
 
     await ui.unmount()
   })
@@ -1017,7 +1043,7 @@ describe('5b. the instruction bar and the zoom control', () => {
     )
   })
 
-  it('rules the notices into a list and leads each row with its kind, in the data face', () => {
+  it('rules the notices into a list and leads each row with its kind, in the data face', async () => {
     // A LIST, NOT A WRAPPED ROW. `flex-wrap` put two short notices on one line,
     // which reads as one sentence somebody wrote.
     const notices = propsOf(ruleFor(COMPONENTS, '.chrome-bar__notices'))
@@ -1047,15 +1073,47 @@ describe('5b. the instruction bar and the zoom control', () => {
     )
 
     // AND THE WORD IS NOT DECORATION: it is the signal that was carried by
-    // COLOUR ALONE. Every tone the shell can raise has one, and the set is
-    // closed -- a tone with no entry renders no label rather than an invented
-    // one.
+    // COLOUR ALONE. Every tone the shell can raise has one -- blocked, failed,
+    // and the undo's note -- and the set is closed: a tone with no entry
+    // renders no label rather than an invented one.
     const source = readFileSync(path.join(HERE, 'shell', 'InstructionBar.jsx'), 'utf8')
     const table = source.slice(source.indexOf('const NOTICE_KIND'))
-    for (const tone of ['blocked', 'error', 'caution', 'advisory']) {
-      expect(table.slice(0, table.indexOf('})'))).toContain(`${tone}:`)
+    const entries = table.slice(0, table.indexOf('})'))
+    for (const tone of ['blocked', 'error', 'advisory']) {
+      expect(entries).toContain(`${tone}:`)
     }
+    // NO 'check' ANY MORE. The cautions that wore it -- every step-level
+    // check and the gesture notes -- were removed from the bar at the user's
+    // request, and a label for a tone nothing raises is an invented one.
+    expect(entries).not.toContain('caution:')
+    expect(entries).not.toContain("'check'")
     expect(source).toContain('NOTICE_KIND[notice.tone]')
+
+    // AND THE COMPONENT EMITS WHAT THE RULES KEY ON, through a notice that
+    // still exists: a step that cannot start yet. Water, opened before
+    // landform is committed, is blocked -- and its row is a list item under
+    // the rule, led by the word, with the sentence after it in its own body.
+    installFetch([
+      { method: 'POST', pattern: /^\/api\/sessions$/, status: 201, body: serverDocument() },
+    ])
+    const ui = await renderShell()
+    await ui.run((a) => a.startSession(RING))
+    await ui.run((_, cursor) => cursor.open('water'))
+
+    const list = ui.find('notices-water')
+    expect(list).not.toBeNull()
+    expect(list.tagName).toBe('UL')
+    expect(list.classList.contains('chrome-bar__notices')).toBe(true)
+    const row = list.querySelector('.chrome-bar__notice')
+    expect(row.tagName).toBe('LI')
+    expect(row.dataset.noticeTone).toBe('blocked')
+    const label = row.firstElementChild
+    expect(label.classList.contains('chrome-bar__notice-kind')).toBe(true)
+    expect(label.textContent).toBe('blocked')
+    expect(row.querySelector('.chrome-bar__notice-body')).toBe(ui.find('blocked-water'))
+    expect(ui.find('blocked-water').textContent).toContain('before starting this step')
+
+    await ui.unmount()
   })
 
   it('gives the zoom control the shared surface and a hairline between its buttons', () => {

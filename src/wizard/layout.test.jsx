@@ -353,7 +353,7 @@ describeIf('5. the instruction card', () => {
     const long = await openHarness({ notice: 'long' })
     const longCard = await long.box(REGIONS.instruction)
 
-    // THE CAP HOLDS. The 80% advisory here is ~400 characters; unwrapped it
+    // THE CAP HOLDS. The long rejection here is ~400 characters; unwrapped it
     // would be several thousand pixels of line.
     expect(longCard.width).toBeLessThanOrEqual(READING_MEASURE)
 
@@ -415,8 +415,8 @@ describeIf('5. the instruction card', () => {
    third face -- a one-word kind label leading each row.
 
    EVERY ONE OF THOSE COSTS HEIGHT, AND THE STACKED CASE IS WHERE THAT IS PAID.
-   Three notices at once is a real arrangement -- a step raising its own
-   advisory while the machine reports a trimmed shape and a rejection -- and the
+   Three notices at once is a real arrangement -- a commit whose 422 names
+   three features -- and the
    claim is that the additions survive it: the cap still holds, the card is
    still centred, and it has not grown down into the map. style.test.jsx can
    read that the rules were written; only an engine can say what they did to the
@@ -497,9 +497,10 @@ describeIf('5a. the instruction card’s structure', () => {
         }
       })
     )
-    // The harness's stacked case raises one of each of three tones, on
-    // purpose: an advisory, a caution and a failure.
-    expect(kinds.map((k) => k.word)).toEqual(['note', 'check', 'failed'])
+    // The harness's stacked case is three 422 rejections -- the machine's own
+    // rows, and the kind the bar still stacks now that no step raises a check
+    // or a note of its own.
+    expect(kinds.map((k) => k.word)).toEqual(['failed', 'failed', 'failed'])
     for (const kind of kinds) {
       expect(kind.face).toContain('IBM Plex Mono')
       // TWO FACES IN ONE ROW, which is the whole point of the label: the

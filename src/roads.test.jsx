@@ -612,12 +612,11 @@ describe('3 & 4. the cap, and the discard', () => {
       expect(ui.networks.map((n) => n.network_id)).toEqual([a.network_id, b.network_id, c.network_id])
       expect(recordedAccessPoints(ui.state, 'roads')).toHaveLength(MAX_ROAD_NETWORKS)
 
-      // THE UI REFLECTS THE CAP: the button is refused with the reason, and
-      // the bar says so.
+      // THE UI REFLECTS THE CAP: the button is refused with the reason. (The
+      // bar's cap notice was removed at the user's request.)
       const add = ui.find('access-roads')
       expect(add.disabled).toBe(true)
       expect(add.getAttribute('title')).toContain(`${MAX_ROAD_NETWORKS} access points are placed`)
-      expect(ui.find('notice-cap-roads')).not.toBeNull()
 
       // THE SERVER OWNS IT: a fourth generate sent anyway is a 409 naming the
       // three held, surfaced as the step's error.
@@ -643,7 +642,6 @@ describe('3 & 4. the cap, and the discard', () => {
       expect(recordedAccessPoints(ui.state, 'roads')).toEqual([a.access_point, c.access_point])
       expect(ui.all('[data-tab-id]')).toHaveLength(2)
       expect(ui.find('access-roads').disabled).toBe(false)
-      expect(ui.find('notice-cap-roads')).toBeNull()
       // The freed slot takes D.
       const d = await placeAndGenerate(ui, ACCESS_D)
       expect(ui.networks.map((n) => n.network_id)).toEqual([a.network_id, c.network_id, d.network_id])
@@ -1931,10 +1929,9 @@ describe('13. the panel renders through the shared format', () => {
     expect(body.find((r) => r.label === 'crosses production block ft').value).toBe('—')
   })
 
-  /* A CONSTRAINT THAT NEVER RAN IS STILL REPORTED -- in the notices, which is
-     where it was always the honest place for it. The panel's crossing rows
-     say the same thing in figures (an em dash for a ground never measured);
-     the notice says it in words, once for the whole strip. */
+  /* A CONSTRAINT THAT NEVER RAN IS STILL REPORTED -- by the panel's crossing
+     rows, in figures (an em dash for a ground never measured). The bar notice
+     that said it in words was removed at the user's request. */
   it('reports a constraint that never ran as not applied, never as satisfied', () => {
     const payload = roadsPayload()
     for (const network of payload.networks) {
@@ -1943,15 +1940,7 @@ describe('13. the panel renders through the shared format', () => {
       network.crossings.crosses_canopy_ft = null
       network.crossings.crosses_floodplain_ft = null
     }
-    const notices = ROADS_STEP.notices({
-      state: { steps: { roads: { inputs: { [ACCESS_POINTS_LIST]: [AP_A, AP_B] } } } },
-      stepId: 'roads',
-      proposals: payload,
-    })
-    const text = notices.map((line) => String(line.text)).join(' ')
-    expect(text).toContain('Floodplain and wet-soil data was unavailable')
-    expect(text).toContain('Canopy data was unavailable')
-    // AND THE PANEL AGREES rather than printing a measured zero for either.
+    // THE PANEL prints an em dash rather than a measured zero for either.
     const rows = bodyOf(payload, NET_A).filter((r) => !isBreak(r))
     expect(rows.find((r) => r.label === 'crosses canopy ft').value).toBe('—')
     expect(rows.find((r) => r.label === 'crosses wet ground ft').value).toBe('—')
