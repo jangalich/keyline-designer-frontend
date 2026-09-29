@@ -37,7 +37,6 @@ import {
   LONG_WAIT_MS,
   PHRASE,
   PHRASE_INTERVAL_MS,
-  REPORTING,
   WAIT_PHRASES,
   useWaitingLine,
 } from './shell/WaitingLine.jsx'
@@ -617,49 +616,36 @@ describe('6. the phrases claim nothing', () => {
     // GET, `idle`, `reviewing`, `editing` and `committed` are not waits at
     // all, and a set declared for any of them would put phrases over a screen
     // the user is working on.
-    expect(Object.keys(WAIT_PHRASES).sort()).toEqual([COMMITTING, GENERATING, REPORTING].sort())
+    expect(Object.keys(WAIT_PHRASES).sort()).toEqual([COMMITTING, GENERATING].sort())
     expect(Object.keys(LONG_WAIT_MS).sort()).toEqual(Object.keys(WAIT_PHRASES).sort())
     expect(Object.keys(LONG_WAIT_LINE).sort()).toEqual(Object.keys(WAIT_PHRASES).sort())
     for (const state of Object.keys(WAIT_PHRASES)) {
       expect(WAIT_PHRASES[state].length).toBeGreaterThanOrEqual(4)
     }
 
-    // TWO OF THE THREE ARE MACHINE STATES AND THE THIRD IS DELIBERATELY NOT.
-    // A commit and a generate are things a STEP does, so their keys are the
-    // step machine's. A report is not a step -- it has no candidates, nothing
-    // to select and nothing to commit, and appears in no document's
-    // `step_order` -- so REPORTING is WaitingLine's own constant. Adding it
-    // to MACHINE_STATES would give the step machine a state no step can ever
-    // be in, which is the first line of treating the report as a seventh
-    // step. This assertion is the pair: the two that are, are; the one that
-    // is not, is not.
+    // BOTH ARE MACHINE STATES. A commit and a generate are things a STEP
+    // does, so their keys are the step machine's.
     expect([COMMITTING, GENERATING].every((state) => MACHINE_STATES.includes(state))).toBe(true)
-    expect(MACHINE_STATES).not.toContain(REPORTING)
+
+    // AND THE REPORT HAS NO SET. Its job reports progress, so its overlay
+    // draws a bar from that (ReportProgress.jsx) -- phrases beside it would be
+    // a second explanation of the same wait, the one claiming nothing.
+    expect(Object.keys(WAIT_PHRASES)).not.toContain('reporting')
+    expect(Object.keys(LONG_WAIT_MS)).not.toContain('reporting')
 
     // THE THRESHOLDS DIFFER BECAUSE THE WAITS DO, and they are ordered. A
     // generate is a compute pass measured in tens of seconds by jobs.js's own
     // note, so the commit's threshold would fire in the middle of every
-    // ordinary one; a report is a generate's cost class PLUS a language model
-    // writing eight sections, so the generate's would fire in the middle of
-    // every ordinary report.
+    // ordinary one.
     expect(LONG_WAIT_MS[GENERATING]).toBeGreaterThan(LONG_WAIT_MS[COMMITTING])
-    expect(LONG_WAIT_MS[REPORTING]).toBeGreaterThan(LONG_WAIT_MS[GENERATING])
 
-    // THE FOUR NUMBERS, PINNED. They are judgements about measured waits --
+    // THE THREE NUMBERS, PINNED. They are judgements about measured waits --
     // commits at eight to ten seconds and one at thirty-five, generates at
     // thirty to sixty -- so they are written down where a change to one has to
     // be argued for rather than noticed later on a slow afternoon.
-    //
-    // THE REPORT'S IS THE ONE STILL SET AGAINST AN UNMEASURED TERM, and it is
-    // pinned here for exactly that reason. Everything the report does locally
-    // measured at 1.9s on the reference parcel (2.9s end to end through the
-    // route); what is NOT in that figure is the basemap imagery and the
-    // Claude call, and the second of those is the whole wait. See
-    // LONG_WAIT_MS's own note, which says where to re-measure it.
     expect(PHRASE_INTERVAL_MS).toBe(2000)
     expect(LONG_WAIT_MS[COMMITTING]).toBe(25000)
     expect(LONG_WAIT_MS[GENERATING]).toBe(75000)
-    expect(LONG_WAIT_MS[REPORTING]).toBe(150000)
   })
 })
 

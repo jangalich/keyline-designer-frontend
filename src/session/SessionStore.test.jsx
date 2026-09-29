@@ -43,6 +43,7 @@ import {
   NOT_STARTED,
   REPORT_DISMISSED,
   REPORT_FAILED,
+  REPORT_PROGRESSED,
   REPORT_READY,
   REPORT_STARTED,
   RESUME_ABSENT,
@@ -985,10 +986,15 @@ describe('9. no derived design content', () => {
       [JOB_FORGOTTEN]: { type: JOB_FORGOTTEN, jobId: 'job-1' },
       // THE REPORT, WHICH IS SESSION-SCOPED AND TOUCHES NO STEP. Listed here
       // for the same reason everything else is: a new action has to be
-      // considered against rule 2, and the answer for these four is that
+      // considered against rule 2, and the answer for these five is that
       // none of them can reach steps[].features at all -- they write one
-      // slice that holds a status, a link and a failure.
+      // slice that holds a status, a link, a failure and the job's progress.
       [REPORT_STARTED]: { type: REPORT_STARTED },
+      [REPORT_PROGRESSED]: {
+        type: REPORT_PROGRESSED,
+        progress: { fraction: 0.2286, percent: 22, completed: 6, total: 39,
+          fetches: { completed: 6, total: 21 }, stage: 'records', detail: 'flood', failed: false },
+      },
       [REPORT_READY]: {
         type: REPORT_READY,
         download: { url: 'http://api.test/api/reports/r1', filename: 'r.pdf', sizeBytes: 4 },

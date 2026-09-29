@@ -21,7 +21,7 @@
  *   POST   /api/sessions/{id}/steps/{step}/score      -> 200 {feature}
  *   POST   /api/sessions/{id}/report                  -> 202 {job_id, status}
  *   GET    /api/reports/{id}                          -> 200 application/pdf
- *   GET    /api/jobs/{id}                             -> 200 {status, result|error}
+ *   GET    /api/jobs/{id}                             -> 200 {status, result|error, progress?}
  *                                                        (result: {payload, document}
  *                                                         for a generate; {report_id,
  *                                                         download_url, filename,

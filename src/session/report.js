@@ -17,13 +17,13 @@
  * section 3.1's note that an SSE upgrade "should change only the client" is as
  * true here as it is there. One poller, so the upgrade is one change.
  *
- * THE BACKOFF IS THE GENERATE'S, UNCHANGED, AND IT IS IF ANYTHING TOO EAGER.
- * A report is the longest operation in the product — the report-time public
- * data fetched for the parcel, every map and chart drawn, twenty-three pages
- * laid out; a minute, warm — so easing out to a five-second interval costs a
- * handful of extra polls over a wait that is mostly spent asleep. Tuning it
- * would be tuning a number nobody is waiting on; the number a person IS
- * waiting on is the long-wait threshold, which is WaitingLine.jsx's.
+ * THE PACE IS THE REPORT'S OWN, BECAUSE THE REPORT REPORTS PROGRESS. Every
+ * snapshot carries `progress` -- completed work over total work, and what is
+ * being worked on (report_progress.py in the backend) -- and a bar drawn from
+ * it is only as current as the last poll. So the report polls every second
+ * while the completed count advances and eases to three once it stops
+ * (jobs.js's progressPace). The generate keeps its backoff: it reports no
+ * progress, and there is nothing to keep current.
  *
  * THE FAILURES ARE NOT TOLD APART HERE. A failed job resolves with its error
  * payload exactly as a failed generate does; which KIND of failure it is — an
@@ -34,7 +34,7 @@
  */
 
 import { generateReport as apiGenerateReport } from './apiClient'
-import { pollJob } from './jobs'
+import { pollJob, progressPace } from './jobs'
 
 /**
  * Submit a report and drive it to a terminal answer.
@@ -58,5 +58,5 @@ import { pollJob } from './jobs'
 export async function runReport(sessionId, { propertyLabel, onSubmit, onUpdate, signal } = {}) {
   const accepted = await apiGenerateReport(sessionId, { propertyLabel }, { signal })
   onSubmit?.(accepted)
-  return pollJob(accepted.job_id, { onUpdate, signal })
+  return pollJob(accepted.job_id, { onUpdate, signal, pace: progressPace() })
 }

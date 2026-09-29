@@ -125,6 +125,7 @@ export const JOB_OBSERVED = 'job/observed'
 export const JOB_STARTED = 'job/started'
 export const JOB_FORGOTTEN = 'job/forgotten'
 export const REPORT_STARTED = 'report/started'
+export const REPORT_PROGRESSED = 'report/progressed'
 export const REPORT_READY = 'report/ready'
 export const REPORT_FAILED = 'report/failed'
 export const REPORT_DISMISSED = 'report/dismissed'
@@ -168,6 +169,7 @@ export const ALL_ACTIONS = Object.freeze([
   JOB_STARTED,
   JOB_FORGOTTEN,
   REPORT_STARTED,
+  REPORT_PROGRESSED,
   REPORT_READY,
   REPORT_FAILED,
   REPORT_DISMISSED,
@@ -183,6 +185,14 @@ export const ALL_ACTIONS = Object.freeze([
  *   status    idle | working | ready | failed
  *   download  {url, filename, sizeBytes} once one exists, null otherwise
  *   failure   {kind, message} once one has happened, null otherwise
+ *   progress  the job's own {fraction, percent, completed, total, fetches,
+ *             stage, detail, failed} (report_progress.py), null before the
+ *             first poll carries one
+ *
+ * PROGRESS OUTLIVES A FAILURE. A report that fails keeps the progress it
+ * failed at, so the bar stays where the run stopped beside the notice --
+ * neither cleared to nothing nor filled to a completion that did not happen.
+ * It is cleared by the next REPORT_STARTED, with everything else.
  *
  * IT DOES NOT SAY WHETHER A REPORT CAN BE ASKED FOR. That is every step
  * reading committed, which the document already says, and the button is
@@ -217,7 +227,24 @@ const NO_REPORT = Object.freeze({
   status: REPORT_IDLE,
   download: null,
   failure: null,
+  progress: null,
 })
+
+/**
+ * THE LATER OF TWO PROGRESS SNAPSHOTS, BY THE WORK THEY COUNT.
+ *
+ * The server's fraction only grows (report_progress.py: completion is
+ * membership in a set, the total is fixed before the first unit), and polls
+ * are sequential, so this should never have anything to refuse. It is here so
+ * the slice cannot be the thing that moves a bar backwards if either of those
+ * ever stops being true -- a retried request answering late, a transport that
+ * delivers out of order.
+ */
+function laterProgress(previous, next) {
+  if (!next) return previous
+  if (!previous) return next
+  return next.fraction >= previous.fraction ? next : { ...previous, failed: Boolean(next.failed) }
+}
 
 
 export const initialState = Object.freeze({
@@ -910,18 +937,44 @@ function reduce(state, action) {
        new one is being made -- a file that is still downloadable and no
        longer the answer to the question on screen. */
     case REPORT_STARTED:
-      return { ...state, report: { status: REPORT_WORKING, download: null, failure: null } }
+      return {
+        ...state,
+        report: { status: REPORT_WORKING, download: null, failure: null, progress: null },
+      }
+
+    /* ONLY WHILE WORKING. A snapshot that lands after the slice has moved on
+       -- a superseded poll, a dismissal -- describes a request nobody is
+       waiting on. */
+    case REPORT_PROGRESSED:
+      if (state.report.status !== REPORT_WORKING) return state
+      return {
+        ...state,
+        report: { ...state.report, progress: laterProgress(state.report.progress, action.progress) },
+      }
 
     case REPORT_READY:
       return {
         ...state,
-        report: { status: REPORT_READY_STATUS, download: action.download, failure: null },
+        report: {
+          status: REPORT_READY_STATUS,
+          download: action.download,
+          failure: null,
+          progress: laterProgress(state.report.progress, action.progress),
+        },
       }
 
+    /* THE PROGRESS STAYS WHERE THE RUN STOPPED: the failed job's own
+       snapshot when it carried one, else the last one a poll saw (a
+       transport failure carries none). */
     case REPORT_FAILED:
       return {
         ...state,
-        report: { status: REPORT_FAILED_STATUS, download: null, failure: action.failure },
+        report: {
+          status: REPORT_FAILED_STATUS,
+          download: null,
+          failure: action.failure,
+          progress: laterProgress(state.report.progress, action.progress),
+        },
       }
 
     /* BACK TO IDLE, WITH NOTHING REMEMBERED. What dismissing a notice does,
@@ -2038,12 +2091,20 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
         const terminal = await runReport(sessionId, {
           propertyLabel,
           signal: controller.signal,
+          // EVERY RUNNING SNAPSHOT'S PROGRESS INTO THE SLICE, so the overlay
+          // -- open, or reopened mid-wait -- draws what the job last said.
+          onUpdate: (snapshot) => {
+            if (snapshot?.status === JOB_RUNNING && snapshot.progress) {
+              dispatchIfMounted({ type: REPORT_PROGRESSED, progress: snapshot.progress })
+            }
+          },
         })
 
         if (terminal.status === JOB_DONE) {
           const result = terminal.result ?? {}
           dispatchIfMounted({
             type: REPORT_READY,
+            progress: terminal.progress ?? null,
             download: {
               // ABSOLUTE, HERE, ONCE. The server sends a path because it
               // does not know what origin it is reached on, and the app is
@@ -2062,7 +2123,11 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
         // finished one, and the download URL was the only handle on the
         // file. So it is a failure of the kind that asks for nothing, which
         // is exactly what it is.
-        dispatchIfMounted({ type: REPORT_FAILED, failure: reportFailure(terminal.error) })
+        dispatchIfMounted({
+          type: REPORT_FAILED,
+          failure: reportFailure(terminal.error),
+          progress: terminal.progress ?? null,
+        })
         return false
       } catch (error) {
         if (error?.name === 'AbortError') return false
