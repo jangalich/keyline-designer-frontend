@@ -3,7 +3,7 @@
  *
  * One entry per step that has a card, in one of two shapes:
  *
- *   { stepId: 'boundary', title: …, body: …, Animation: … }
+ *   { stepId: 'boundary', title: …, body: …, emphasis?, Animation: … }
  *   { stepId: 'landform', cards: [{ id, title, body, emphasis?, Animation }, …] }
  *
  * The first is one card; the second is a step that needs more than one, and
@@ -23,13 +23,14 @@
  * a step. A step with no entry never auto-fires, and its help control opens
  * the deck instead.
  *
- * The cards land one branch at a time: boundary, then landform.
+ * The cards land one branch at a time: boundary, then landform, then water.
  */
 
 import { BOUNDARY_CARD } from './boundaryCard.jsx'
 import { LANDFORM_CARD } from './landformCards.jsx'
+import { WATER_CARD } from './waterCard.jsx'
 
-export const STEP_CARDS = Object.freeze([BOUNDARY_CARD, LANDFORM_CARD])
+export const STEP_CARDS = Object.freeze([BOUNDARY_CARD, LANDFORM_CARD, WATER_CARD])
 
 /** The card registered for a step, or null. */
 export function cardFor(registry, stepId) {

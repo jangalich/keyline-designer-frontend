@@ -347,3 +347,102 @@ export function SceneBlocks({ hatch, blocks = SUGGESTED_BLOCKS, ...props }) {
     </Layer>
   )
 }
+
+/* ===========================================================================
+   SURVEY AREAS -- the water step's two marks, as the map draws them
+   =========================================================================== */
+
+/**
+ * TWO KINDS OF MARK, NOT ONE MARK IN TWO VALUES. The map's own decision
+ * (ProductionHatchPattern.jsx, zoneMark()): embankment is a `tint`, excavated
+ * a `stipple`. The two types sit on the same ground on purpose --
+ * `cross_type_overlaps` is the payload's record of it -- and two washes at
+ * different values stack into a third, darker one that reads as its own zone,
+ * where a dot field over a wash still reads as two. Each mark carries an
+ * outline in its own colour, and that is all: no casing, no second value.
+ *
+ * `mark` on each layer is the map's kind for it, so a card and a test can
+ * hold the scene to the map rather than to itself.
+ *
+ * The two areas overlap deliberately and sit clear of the stream and the
+ * woodlot. Do not move them onto the stream: the overlap is the thing a card
+ * showing them has to keep legible.
+ */
+export const SURVEY_AREAS = Object.freeze({
+  embankment: Object.freeze({
+    treatment: 'survey-embankment',
+    mark: 'tint',
+    d: 'M 138 172 C 152 160, 178 162, 188 174 C 198 185, 191 201, 172 205 C 152 209, 136 200, 133 187 C 131 179, 132 175, 138 172 Z',
+  }),
+  excavated: Object.freeze({
+    treatment: 'survey-excavated',
+    mark: 'stipple',
+    d: 'M 172 156 C 188 146, 212 150, 220 164 C 228 178, 219 192, 200 195 C 181 198, 167 188, 164 175 C 162 166, 166 159, 172 156 Z',
+  }),
+})
+
+/**
+ * The dot field's lattice, in scene units: one dot per cell at its centre, a
+ * REGULAR grid as stippleTile() lays the map's. The pitch and radius are the
+ * scene's own -- a card is a small figure, not a map at zoom -- chosen so a
+ * dot is about the map's two pixels across at the card's desktop width and
+ * still a dot, not a smudge, at 380px.
+ */
+export const STIPPLE_PITCH = 3.2
+export const STIPPLE_RADIUS = 0.8
+
+/** A dot-field pattern id for one diagram; see useHatchId. */
+export function useStippleId() {
+  return `farm-stipple-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
+}
+
+/**
+ * THE DOT FIELD: one dot per tile, centred, so the lattice is regular. Its
+ * fill is the dot's class, read from --survey-excavated in App.css -- the
+ * pattern markup names no colour -- and there is no ring round a dot: the
+ * per-dot casing is what killed the map's previous stipple. Goes in the
+ * diagram's <defs>, once, before the excavated layer uses it.
+ */
+export function SurveyStipple({ id }) {
+  const centre = STIPPLE_PITCH / 2
+  return (
+    <pattern
+      id={id}
+      className="farm-scene__stipple"
+      width={STIPPLE_PITCH}
+      height={STIPPLE_PITCH}
+      patternUnits="userSpaceOnUse"
+    >
+      <circle className="farm-scene__stipple-dot" cx={centre} cy={centre} r={STIPPLE_RADIUS} />
+    </pattern>
+  )
+}
+
+/** Embankment: a flat tint in --survey-embankment, outlined in the same. */
+export function SceneSurveyEmbankment(props) {
+  const { d, mark } = SURVEY_AREAS.embankment
+  return (
+    <Layer id="survey-embankment" {...props}>
+      <path className="farm-scene__survey farm-scene__survey--embankment" data-mark={mark} d={d} />
+    </Layer>
+  )
+}
+
+/**
+ * Excavated: the dot field in --survey-excavated, outlined in the same. The
+ * pattern is handed to the fill through a custom property, as the hatch is,
+ * so the stylesheet stays the one place a fill is set.
+ */
+export function SceneSurveyExcavated({ stipple, ...props }) {
+  const { d, mark } = SURVEY_AREAS.excavated
+  return (
+    <Layer id="survey-excavated" {...props}>
+      <path
+        className="farm-scene__survey farm-scene__survey--excavated"
+        data-mark={mark}
+        d={d}
+        style={{ '--farm-stipple': `url(#${stipple})` }}
+      />
+    </Layer>
+  )
+}
