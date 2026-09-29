@@ -1,0 +1,25 @@
+<!doctype html>
+<!--
+  The page landformCards.test.jsx drives, and the one the cards are
+  screenshotted on. See cardsHarness.jsx for the query string it reads.
+
+  NOT part of the built application: Vite's dev server serves any HTML file
+  under the project root on request, and only index.html is a build input.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Step card harness</title>
+    <style>
+      /* The stage's backdrop stands in for the map, as in layout-harness.html. */
+      html, body { margin: 0; height: 100%; }
+      #root { height: 100%; }
+      .map-stage { position: relative; height: 100%; background: var(--field); }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/tutorial/cardsHarness.jsx"></script>
+  </body>
+</html>

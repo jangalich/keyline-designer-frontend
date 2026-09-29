@@ -22,9 +22,15 @@
  * exactly, and farmScene.test.jsx holds the parcel to its table so a later
  * card cannot quietly move a corner.
  *
+ * BLOCKS ARE A LAYER TOO (SceneBlocks), drawn over the land: every step from
+ * water on shows them as settled context, so they live here with the rest
+ * of the ground rather than in the landform cards.
+ *
  * NO COLOUR LIVES HERE. Every fill and stroke is a class in App.css's
  * tutorial section, read from index.css's tokens.
  */
+
+import { useId } from 'react'
 
 /** The frame every step card's scene is drawn in. */
 export const SCENE_VIEWBOX = '0 0 400 300'
@@ -84,6 +90,14 @@ export const CANOPIES = Object.freeze(
     [128, 124, 5.5],
   ].map(([cx, cy, r]) => Object.freeze({ cx, cy, r }))
 )
+
+/**
+ * The three canopies of the west stand: the last three of CANOPIES, split out
+ * so a card whose own marks cover that corner -- landform's Block 1 sits on
+ * it -- can leave the stand out without the woodlot being redrawn.
+ */
+export const WEST_STAND = Object.freeze(CANOPIES.slice(7))
+const WOODLOT_CANOPIES = CANOPIES.slice(0, 7)
 
 /** A small building by the road. */
 export const BUILDING = Object.freeze({ x: 158, y: 76, width: 18, height: 12 })
@@ -153,14 +167,28 @@ export function SceneStream(props) {
   )
 }
 
-/** The woodlot: its mass and its canopies. */
-export function SceneWoodlot(props) {
+function Canopy({ cx, cy, r }) {
+  return <circle className="farm-scene__canopy" cx={cx} cy={cy} r={r} />
+}
+
+/**
+ * The woodlot: its mass and its canopies, the west stand in a group of its
+ * own. `stand={false}` leaves the stand out; nothing else moves.
+ */
+export function SceneWoodlot({ stand = true, ...props }) {
   return (
     <Layer id="woodlot" {...props}>
       <path className="farm-scene__woodmass" d={WOODLOT_PATH} />
-      {CANOPIES.map(({ cx, cy, r }) => (
-        <circle key={`${cx},${cy}`} className="farm-scene__canopy" cx={cx} cy={cy} r={r} />
+      {WOODLOT_CANOPIES.map((canopy) => (
+        <Canopy key={`${canopy.cx},${canopy.cy}`} {...canopy} />
       ))}
+      {stand ? (
+        <g className="farm-scene__stand">
+          {WEST_STAND.map((canopy) => (
+            <Canopy key={`${canopy.cx},${canopy.cy}`} {...canopy} />
+          ))}
+        </g>
+      ) : null}
     </Layer>
   )
 }
@@ -204,14 +232,118 @@ export const LAND_LAYERS = Object.freeze([
 /**
  * The whole land, every layer in order. `tones` maps a layer id to its
  * tone -- `{ stream: 'prominent', woodlot: 'subdued' }` -- and a layer it
- * does not name is drawn plain.
+ * does not name is drawn plain. `stand={false}` leaves the west stand out.
  */
-export function FarmScene({ tones = {} }) {
+export function FarmScene({ tones = {}, stand = true }) {
   return (
     <g className="farm-scene">
       {LAND_LAYERS.map(({ id, Layer: LandLayer }) => (
-        <LandLayer key={id} tone={tones[id]} />
+        <LandLayer key={id} tone={tones[id]} {...(id === 'woodlot' ? { stand } : {})} />
       ))}
     </g>
+  )
+}
+
+/**
+ * THE PARCEL, SETTLED: the committed boundary as every step after boundary
+ * shows it -- an ink ring and nothing more. The boundary card draws its own
+ * ring, corner by corner; this is what that ring becomes once it is agreed.
+ * Not among LAND_LAYERS: the land is there before anyone traces it.
+ */
+export function SceneParcel(props) {
+  return (
+    <Layer id="parcel" {...props}>
+      <path className="farm-scene__parcel" d={PARCEL_PATH} />
+    </Layer>
+  )
+}
+
+/* ===========================================================================
+   BLOCKS -- production blocks, as the map draws them
+   =========================================================================== */
+
+/**
+ * The three suggested blocks, as the landform step generates them: organic,
+ * because a raster produced them. They sit on open ground west and north of
+ * the stream, clear of the woodlot. Geometry only -- a block's acreage and
+ * score are what a card says about it, and live with the card.
+ */
+export const SUGGESTED_BLOCKS = Object.freeze(
+  [
+    ['1', 'M 112 104 C 114 86, 140 78, 162 84 C 182 90, 187 118, 178 134 C 170 150, 136 153, 122 142 C 112 134, 110 120, 112 104 Z'],
+    ['2', 'M 190 102 C 194 86, 221 83, 237 93 C 251 101, 249 129, 239 141 C 227 155, 199 149, 191 135 C 185 125, 187 112, 190 102 Z'],
+    ['3', 'M 122 172 C 124 158, 152 150, 170 158 C 184 164, 185 190, 177 200 C 167 212, 136 211, 126 199 C 120 191, 120 180, 122 172 Z'],
+  ].map(([id, d]) => Object.freeze({ id, d }))
+)
+
+/** The hatch's pitch, in scene units, and its angle. */
+export const HATCH_PITCH = 7
+export const HATCH_ANGLE = 45
+
+/**
+ * A pattern id for one diagram. Every card is its own <svg>, and a url(#id)
+ * resolves document-wide, so two diagrams on one page must not share one;
+ * useId's colons are not safe inside url(), so they go.
+ */
+export function useHatchId() {
+  return `farm-hatch-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
+}
+
+/**
+ * THE HATCH: diagonal rules at 45 degrees, HATCH_PITCH apart. Its stroke is
+ * the rule's class, read from a token in App.css -- the pattern markup names
+ * no colour. Goes in the diagram's <defs>, once, before any block uses it.
+ */
+export function BlockHatch({ id }) {
+  return (
+    <pattern
+      id={id}
+      className="farm-scene__hatch"
+      width={HATCH_PITCH}
+      height={HATCH_PITCH}
+      patternUnits="userSpaceOnUse"
+      patternTransform={`rotate(${HATCH_ANGLE})`}
+    >
+      <line className="farm-scene__hatch-line" x1="0" y1="0" x2="0" y2={HATCH_PITCH} />
+    </pattern>
+  )
+}
+
+/**
+ * ONE BLOCK: two stacked shapes, a green ground wash beneath and the hatch
+ * above, as blocks read on the real map. Takes a path (`d`, the organic
+ * blocks a raster produced) or corners (`points`, the angular ones a person
+ * clicked) and draws whichever it is given without smoothing either.
+ *
+ * The hatch is handed to the fill through a custom property rather than a
+ * fill attribute, so the stylesheet stays the one place a fill is set.
+ */
+export function Block({ hatch, id, d, points, className }) {
+  const Shape = points ? 'polygon' : 'path'
+  const geometry = points ? { points } : { d }
+  const classes = ['farm-scene__block']
+  if (className) classes.push(className)
+  return (
+    <g className={classes.join(' ')} data-block={id} style={{ '--farm-hatch': `url(#${hatch})` }}>
+      <Shape className="farm-scene__block-base" {...geometry} />
+      <Shape className="farm-scene__block-hatch" {...geometry} />
+    </g>
+  )
+}
+
+/**
+ * THE BLOCK LAYER. The suggested set by default, each block tagged with its
+ * id (`data-block`) so a card can move one. `tone` as on every layer:
+ * nothing for the step's own treatment, 'settled' for blocks shown as
+ * upstream context -- present and hatched but quiet, and not interactive --
+ * which is how every later step's card draws them.
+ */
+export function SceneBlocks({ hatch, blocks = SUGGESTED_BLOCKS, ...props }) {
+  return (
+    <Layer id="blocks" {...props}>
+      {blocks.map((block) => (
+        <Block key={block.id} hatch={hatch} {...block} />
+      ))}
+    </Layer>
   )
 }

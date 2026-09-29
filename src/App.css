@@ -4214,3 +4214,286 @@ rect.tutorial-anim__solid,
     display: none;
   }
 }
+
+/* --- The farm's blocks and settled parcel (farmScene.jsx) ----------------
+   Production blocks as the map draws them: two stacked shapes, a --field
+   ground wash beneath and the hatch above. The hatch is a <pattern> of
+   diagonal rules at 45 degrees, 7 units apart; its stroke is this rule's
+   token, never the pattern markup's, and each block is handed its own
+   diagram's pattern through --farm-hatch. The hatch is the map's own mark
+   in the map's own accent: oxide here is ground, not a control.
+
+   'settled' is the tone every step after landform gives the block layer:
+   present, hatched, quiet, and not a thing to click. Kept beside the plain
+   rule so the water and roads cards restyle the same blocks, never redraw
+   them. */
+
+.farm-scene__hatch-line {
+  stroke: var(--oxide);
+  stroke-width: 1.5;
+  stroke-opacity: 0.8;
+}
+
+.farm-scene__block-base {
+  fill: var(--field);
+  fill-opacity: 0.2;
+  stroke: var(--field);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+
+.farm-scene__block-hatch {
+  fill: var(--farm-hatch);
+  stroke: none;
+}
+
+.farm-scene__layer--settled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* The committed boundary, as context: an ink ring. */
+.farm-scene__parcel {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+/* --- 6. Landform: read a block, then build the set -----------------------
+   Two cards on the scene, each on its own --loop. The panel, tabs and
+   buttons are the map's chrome drawn at the scene's scale; every numeral is
+   .tutorial-anim__value, which is the data face, and only that. Oxide is
+   the hatch above, the click pulses and the commit button. */
+
+.tutorial-anim--landform-read {
+  --loop: 11s;
+}
+
+.tutorial-anim--landform-set {
+  --loop: 14s;
+}
+
+/* The scene's STREAM label sits where the tab strip does. */
+.tutorial-anim--landform .farm-scene__label[data-label='stream'] {
+  display: none;
+}
+
+/* Type at the scene's scale: about 9px at the card's narrowest. */
+.tutorial-anim--landform .tutorial-anim__value,
+.tutorial-anim--landform .tutorial-anim__label,
+.tutorial-anim--landform .tutorial-anim__name,
+.tutorial-anim--landform .tutorial-anim__commit-label,
+.tutorial-anim__button-label {
+  font-size: 11px;
+}
+
+.tutorial-anim__button-label {
+  font-family: var(--font-prose);
+  fill: var(--ink);
+}
+
+.tutorial-anim__mark--landform-1,
+.tutorial-anim__mark--landform-3 {
+  stroke-width: 2.6;
+}
+
+/* The click: an oxide ring that opens out from the point and goes. A
+   moment, not a mark, so it rests hidden. */
+.tutorial-anim__pulse {
+  fill: none;
+  stroke: var(--oxide);
+  stroke-width: 1.5;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.tutorial-anim__draw-button rect {
+  fill: var(--paper);
+  stroke: var(--ink-muted);
+  stroke-width: 1;
+}
+
+.tutorial-anim__commit-button rect {
+  fill: var(--oxide);
+  stroke: none;
+}
+
+.tutorial-anim__draw-button,
+.tutorial-anim__commit-button {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.tutorial-anim__segment--landform {
+  stroke-width: 2.2;
+}
+
+.tutorial-anim__corner--landform {
+  stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* RESTING FRAMES. Card one: Block 3 read, its tab marked, the panel open
+   on it -- so Block 1's mark and figures rest hidden. Card two: the drawn
+   block in, Block 2 out with its tab dimmed and unticked, the total at its
+   last reading. */
+.tutorial-anim__mark--landform-1,
+.tutorial-anim__tab-mark--landform-1,
+.tutorial-anim__panel-body--1 {
+  opacity: 0;
+}
+
+.tutorial-anim--landform-set .farm-scene__block[data-block='2'],
+.tutorial-anim__tick--set-2,
+.tutorial-anim__total--1,
+.tutorial-anim__total--2 {
+  opacity: 0;
+}
+
+.tutorial-anim__tab--set-2 {
+  opacity: 0.45;
+}
+
+/* Card one, 11s. Block 1 clicked at 9%, open ground at 47%, Block 3's tab
+   at 66%; everything fades over the last 4% and the loop opens bare. */
+.tutorial-anim__cursor--landform-read { animation-name: tutorial-landform-read-cursor; animation-timing-function: cubic-bezier(0.4, 0, 0.25, 1); }
+.tutorial-anim__pointer--landform-read { animation-name: tutorial-landform-read-press; }
+.tutorial-anim__pulse--read-1 { animation-name: tutorial-landform-read-pulse-1; }
+.tutorial-anim__pulse--read-2 { animation-name: tutorial-landform-read-pulse-2; }
+.tutorial-anim__pulse--read-3 { animation-name: tutorial-landform-read-pulse-3; }
+.tutorial-anim__mark--landform-1,
+.tutorial-anim__tab-mark--landform-1 { animation-name: tutorial-landform-read-mark-1; }
+.tutorial-anim__mark--landform-3,
+.tutorial-anim__tab-mark--landform-3 { animation-name: tutorial-landform-read-mark-3; }
+.tutorial-anim__panel--landform { animation-name: tutorial-landform-read-panel; }
+.tutorial-anim__panel-body--1 { animation-name: tutorial-landform-read-body-1; }
+.tutorial-anim__panel-body--3 { animation-name: tutorial-landform-read-body-3; }
+
+@keyframes tutorial-landform-read-cursor {
+  0% { transform: translate(60px, 268px); opacity: 0; }
+  3% { transform: translate(72px, 250px); opacity: 1; }
+  9% { transform: translate(146px, 116px); }
+  40% { transform: translate(146px, 116px); }
+  47% { transform: translate(150px, 228px); }
+  60% { transform: translate(150px, 228px); }
+  66% { transform: translate(268px, 277px); }
+  94% { transform: translate(268px, 277px); opacity: 1; }
+  97%, 100% { transform: translate(268px, 277px); opacity: 0; }
+}
+
+@keyframes tutorial-landform-read-press {
+  0%, 9% { transform: scale(1); } 10% { transform: scale(0.82); } 11% { transform: scale(1); }
+  47% { transform: scale(1); } 48% { transform: scale(0.82); } 49% { transform: scale(1); }
+  66% { transform: scale(1); } 67% { transform: scale(0.82); } 68%, 100% { transform: scale(1); }
+}
+
+@keyframes tutorial-landform-read-pulse-1 { 0%, 9% { opacity: 0; transform: scale(0.2); } 12% { opacity: 1; transform: scale(1); } 16%, 100% { opacity: 0; transform: scale(1.2); } }
+@keyframes tutorial-landform-read-pulse-2 { 0%, 47% { opacity: 0; transform: scale(0.2); } 50% { opacity: 1; transform: scale(0.9); } 54%, 100% { opacity: 0; transform: scale(1.1); } }
+@keyframes tutorial-landform-read-pulse-3 { 0%, 66% { opacity: 0; transform: scale(0.2); } 69% { opacity: 1; transform: scale(0.8); } 73%, 100% { opacity: 0; transform: scale(1); } }
+
+@keyframes tutorial-landform-read-mark-1 { 0%, 10% { opacity: 0; } 13%, 49% { opacity: 1; } 51%, 100% { opacity: 0; } }
+@keyframes tutorial-landform-read-mark-3 { 0%, 67% { opacity: 0; } 70%, 96% { opacity: 1; } 100% { opacity: 0; } }
+
+/* The panel opens on the first click, EMPTIES on the clear, and opens again
+   on the tab: out and back once, never a swap. */
+@keyframes tutorial-landform-read-panel {
+  0%, 12% { opacity: 0; transform: translateX(10px); }
+  17%, 49% { opacity: 1; transform: translateX(0); }
+  53%, 68% { opacity: 0; transform: translateX(10px); }
+  73%, 96% { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(0); }
+}
+
+@keyframes tutorial-landform-read-body-1 { 0%, 15% { opacity: 0; } 19%, 49% { opacity: 1; } 51%, 100% { opacity: 0; } }
+@keyframes tutorial-landform-read-body-3 { 0%, 70% { opacity: 0; } 74%, 96% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Card two, 14s. Draw a block at 9%; corners at 17, 24, 31 and 38; the
+   close on the first at 45; the new block, tab and total land by 49; Block 2
+   unticked at 58; commit at 77. The running total goes up at 48, down at
+   62. */
+.tutorial-anim__cursor--landform-set { animation-name: tutorial-landform-set-cursor; animation-timing-function: cubic-bezier(0.4, 0, 0.25, 1); }
+.tutorial-anim__pointer--landform-set { animation-name: tutorial-landform-set-press; }
+.tutorial-anim__draw-button { animation-name: tutorial-landform-set-draw-button; }
+.tutorial-anim__commit-button { animation-name: tutorial-landform-set-commit-button; }
+.tutorial-anim__corner--set-1 { animation-name: tutorial-landform-set-corner-1; }
+.tutorial-anim__corner--set-2 { animation-name: tutorial-landform-set-corner-2; }
+.tutorial-anim__corner--set-3 { animation-name: tutorial-landform-set-corner-3; }
+.tutorial-anim__corner--set-4 { animation-name: tutorial-landform-set-corner-4; }
+.tutorial-anim__segment--set-1 { animation-name: tutorial-landform-set-segment-1; }
+.tutorial-anim__segment--set-2 { animation-name: tutorial-landform-set-segment-2; }
+.tutorial-anim__segment--set-3 { animation-name: tutorial-landform-set-segment-3; }
+.tutorial-anim__segment--set-4 { animation-name: tutorial-landform-set-segment-4; }
+.tutorial-anim__drawn { animation-name: tutorial-landform-set-drawn; }
+.tutorial-anim__tab--set-4 { animation-name: tutorial-landform-set-new-tab; }
+.tutorial-anim--landform-set .farm-scene__block[data-block='2'] { animation-name: tutorial-landform-set-block-2; }
+.tutorial-anim__tick--set-2 { animation-name: tutorial-landform-set-untick; }
+.tutorial-anim__tab--set-2 { animation-name: tutorial-landform-set-tab-2; }
+.tutorial-anim__total--1 { animation-name: tutorial-landform-set-total-1; }
+.tutorial-anim__total--2 { animation-name: tutorial-landform-set-total-2; }
+.tutorial-anim__total--3 { animation-name: tutorial-landform-set-total-3; }
+
+@keyframes tutorial-landform-set-cursor {
+  0% { transform: translate(60px, 268px); opacity: 0; }
+  3% { transform: translate(90px, 258px); opacity: 1; }
+  9%, 13% { transform: translate(242px, 236px); }
+  17%, 20% { transform: translate(186px, 158px); }
+  24%, 27% { transform: translate(226px, 152px); }
+  31%, 34% { transform: translate(228px, 180px); }
+  38%, 41% { transform: translate(190px, 186px); }
+  45%, 52% { transform: translate(186px, 158px); }
+  58%, 70% { transform: translate(105px, 277px); }
+  77% { transform: translate(342px, 236px); }
+  94% { transform: translate(342px, 236px); opacity: 1; }
+  97%, 100% { transform: translate(342px, 236px); opacity: 0; }
+}
+
+@keyframes tutorial-landform-set-press {
+  0%, 10% { transform: scale(1); } 11% { transform: scale(0.82); } 12% { transform: scale(1); }
+  17% { transform: scale(1); } 18% { transform: scale(0.82); } 19% { transform: scale(1); }
+  24% { transform: scale(1); } 25% { transform: scale(0.82); } 26% { transform: scale(1); }
+  31% { transform: scale(1); } 32% { transform: scale(0.82); } 33% { transform: scale(1); }
+  38% { transform: scale(1); } 39% { transform: scale(0.82); } 40% { transform: scale(1); }
+  45% { transform: scale(1); } 46% { transform: scale(0.82); } 47% { transform: scale(1); }
+  58% { transform: scale(1); } 59% { transform: scale(0.82); } 60% { transform: scale(1); }
+  79% { transform: scale(1); } 80% { transform: scale(0.82); } 81%, 100% { transform: scale(1); }
+}
+
+@keyframes tutorial-landform-set-draw-button { 0%, 10% { opacity: 1; } 12% { opacity: 0.55; } 14%, 100% { opacity: 1; } }
+@keyframes tutorial-landform-set-commit-button { 0%, 79% { transform: scale(1); } 80.5% { transform: scale(0.94); } 82%, 100% { transform: scale(1); } }
+
+@keyframes tutorial-landform-set-corner-1 { 0%, 16.9% { opacity: 0; transform: scale(0.2); } 18% { opacity: 1; transform: scale(1.3); } 19.5%, 96% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+@keyframes tutorial-landform-set-corner-2 { 0%, 23.9% { opacity: 0; transform: scale(0.2); } 25% { opacity: 1; transform: scale(1.3); } 26.5%, 96% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+@keyframes tutorial-landform-set-corner-3 { 0%, 30.9% { opacity: 0; transform: scale(0.2); } 32% { opacity: 1; transform: scale(1.3); } 33.5%, 96% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+@keyframes tutorial-landform-set-corner-4 { 0%, 37.9% { opacity: 0; transform: scale(0.2); } 39% { opacity: 1; transform: scale(1.3); } 40.5%, 96% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+
+/* Each edge draws while the cursor travels to its far corner; the fourth
+   is the close, back to the first. */
+@keyframes tutorial-landform-set-segment-1 { 0%, 20% { stroke-dashoffset: 1; opacity: 1; } 24%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes tutorial-landform-set-segment-2 { 0%, 27% { stroke-dashoffset: 1; opacity: 1; } 31%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes tutorial-landform-set-segment-3 { 0%, 34% { stroke-dashoffset: 1; opacity: 1; } 38%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes tutorial-landform-set-segment-4 { 0%, 41% { stroke-dashoffset: 1; opacity: 1; } 45%, 96% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+
+@keyframes tutorial-landform-set-drawn { 0%, 45% { opacity: 0; } 48%, 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tutorial-landform-set-new-tab { 0%, 46% { opacity: 0; } 49%, 96% { opacity: 1; } 100% { opacity: 0; } }
+
+/* The untick: the tick goes, the block leaves the map, the tab dims. */
+@keyframes tutorial-landform-set-untick { 0%, 59% { opacity: 1; } 61%, 100% { opacity: 0; } }
+@keyframes tutorial-landform-set-block-2 { 0%, 59% { opacity: 1; } 62%, 100% { opacity: 0; } }
+@keyframes tutorial-landform-set-tab-2 { 0%, 60% { opacity: 1; } 63%, 100% { opacity: 0.45; } }
+
+@keyframes tutorial-landform-set-total-1 { 0%, 46% { opacity: 1; } 48%, 100% { opacity: 0; } }
+@keyframes tutorial-landform-set-total-2 { 0%, 47% { opacity: 0; } 49%, 60% { opacity: 1; } 62%, 100% { opacity: 0; } }
+@keyframes tutorial-landform-set-total-3 { 0%, 61% { opacity: 0; } 63%, 96% { opacity: 1; } 100% { opacity: 0; } }
+
+/* REDUCED MOTION, for the landform cards: their rules come after the
+   diagrams' own reduced-motion block, so they state it again, block 2's
+   selector at its own weight. Each card lands on its resting frame. */
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-anim--landform *,
+  .tutorial-anim--landform-set .farm-scene__block[data-block='2'] {
+    animation: none;
+  }
+}

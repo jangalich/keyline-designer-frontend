@@ -570,7 +570,12 @@ describe('5. reduced motion', () => {
     // WHAT MAKES A CARD LEGIBLE WITHOUT MOTION is that the base rule for
     // every animated element is the finished state. The only base rules
     // allowed to hide anything are the cursor's, the transient leaders' and
-    // the boundary card's snap ring, a pulse at the close.
+    // the boundary card's snap ring, a pulse at the close. The landform
+    // cards add their own resting frames: card one rests on Block 3, so
+    // Block 1's mark, tab mark and figures rest hidden; card two rests with
+    // Block 2 out, its tick gone and the total at its last reading; the
+    // click pulse is a moment; and the scene's STREAM label sits under the
+    // tab strip.
     const hidden = rulesOf(TUTORIAL_CSS)
       .filter(([selector]) => !selector.startsWith('@') && !/^\d/.test(selector))
       .filter(([, body]) => /(^|;)\s*opacity:\s*0\s*(;|$)/.test(body) || /display:\s*none/.test(body))
@@ -578,7 +583,15 @@ describe('5. reduced motion', () => {
     // (The cursor's selector appears twice: once resting hidden, once under
     // reduced motion; the claim is about WHICH selectors, not how often.)
     expect([...new Set(hidden)].sort()).toEqual(
-      ['.tutorial-anim__cursor', '.tutorial-anim__leader', '.tutorial-anim__snap'].sort()
+      [
+        '.tutorial-anim__cursor',
+        '.tutorial-anim__leader',
+        '.tutorial-anim__snap',
+        ".tutorial-anim--landform .farm-scene__label[data-label='stream']",
+        '.tutorial-anim__pulse',
+        '.tutorial-anim__mark--landform-1,\n.tutorial-anim__tab-mark--landform-1,\n.tutorial-anim__panel-body--1',
+        ".tutorial-anim--landform-set .farm-scene__block[data-block='2'],\n.tutorial-anim__tick--set-2,\n.tutorial-anim__total--1,\n.tutorial-anim__total--2",
+      ].sort()
     )
 
     // AND THE RESTING CONTENT IS IN THE DOM of every card, which is what a
@@ -713,7 +726,17 @@ describe('6. the treatment', () => {
     // way. It is a mark on ground inside the diagram, never a control.
     // AND THE SNAP RING, the boundary card's one transient oxide mark: the
     // map's own snap cue, pulsing once as the ring closes.
-    const mapMarks = ['.tutorial-anim__hatch--production', '.tutorial-anim__block--production', '.tutorial-anim__snap']
+    // AND THE LANDFORM CARDS' THREE, which their spec names: the scene's
+    // block hatch (the same map mark), the click pulses, and the diagram's
+    // Commit blocks button.
+    const mapMarks = [
+      '.tutorial-anim__hatch--production',
+      '.tutorial-anim__block--production',
+      '.tutorial-anim__snap',
+      '.farm-scene__hatch-line',
+      '.tutorial-anim__pulse',
+      '.tutorial-anim__commit-button rect',
+    ]
     for (const selector of oxide) {
       if (mapMarks.includes(selector)) continue
       expect(selector).toMatch(/^\.tutorial__button--primary/)
