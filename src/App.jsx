@@ -153,11 +153,13 @@ function Designer() {
 
         <main>
           <section className="hero shell shell--wide">
-            <h1>Conceptual farm planning, in the order the land decides.</h1>
+            <p className="eyebrow">Keyline design for small farms</p>
+            <h1>Lay out your farm, starting with what&apos;s hardest to change.</h1>
             <p className="hero__subhead">
-              Trace your property. Keyline Designer reads LiDAR elevation, soil survey,
-              and hydrography, then works the Scale of Permanence in order — climate
-              through soil.
+              Trace your property, and Keyline Designer reads it from a deep stack of
+              public datasets, led by a LiDAR-derived DEM that maps its ridges, valleys,
+              keypoints, and how water moves between them. Then you make the decisions
+              one at a time, and each choice sets up the next.
             </p>
             <AddressSearch
               onLocationSelected={setMapCenter}
@@ -277,64 +279,45 @@ function Designer() {
           </section>
 
           <section className="section shell shell--prose">
-            <h2>What you get</h2>
+            <h2>The report</h2>
             <p className="section__lede">
               A PDF you can print, mark up, and take out onto the land with you.
             </p>
             <p>
-              The report is a written analysis of the property alongside a full-page
-              layout map with the recommended elements drawn on it — production areas,
-              water storage candidates, road corridors, tree lines, and the keypoints
-              the design is built around.
+              Once your layout is complete, you can generate the report. It pulls data
+              from the public sources listed further down this page and sets it out
+              section by section: climate, landform, water, access, trees, and soils.
+              Every figure is specific to your property or its region, laid out in maps,
+              charts, and tables, ready to hand to a contractor or consultant. The report
+              closes with your layout drawn over an aerial photograph, and the figures
+              behind each decision you made.
             </p>
-            <p className="sample-slot">[ sample report page — image to come ]</p>
+            <div className="sample-row">
+              <figure className="sample">
+                <p className="sample-slot">[ sample page — image to come ]</p>
+                <figcaption className="eyebrow">I · Site overview</figcaption>
+              </figure>
+              <figure className="sample">
+                <p className="sample-slot">[ sample page — image to come ]</p>
+                <figcaption className="eyebrow">III · Landform</figcaption>
+              </figure>
+              <figure className="sample">
+                <p className="sample-slot">[ sample page — image to come ]</p>
+                <figcaption className="eyebrow">VIII · The layout</figcaption>
+              </figure>
+            </div>
+            <p className="sample-note">[ sample property caption — to come ]</p>
           </section>
 
           <section className="section shell shell--prose">
             <h2>The Scale of Permanence</h2>
             <p className="section__lede">
-              P. A. Yeomans&apos; ordering of the eight factors that shape a property,
-              from the ones you cannot change to the ones you can. The analysis works
-              them in order, because a decision made out of order has to be unmade.
+              Australian farmer P. A. Yeomans ranked the eight things that shape a farm
+              by how hard they are to change, from climate, which you can&apos;t, to soil,
+              which you can build. You work through them in that order, so each decision
+              rests on the ones that are harder to change.
             </p>
-            <ol className="scale-list">
-              <li>
-                <h3>Climate</h3>
-                <p>Rainfall, frost, growing season. Fixed — everything else answers to it.</p>
-              </li>
-              <li>
-                <h3>Land shape</h3>
-                <p>Ridges, valleys, and the keypoints where a valley&apos;s grade breaks.</p>
-              </li>
-              <li>
-                <h3>Water supply</h3>
-                <p>Where water already collects, and where it could be held.</p>
-              </li>
-              <li>
-                <h3>Farm roads</h3>
-                <p>Access that follows the ridges and keylines rather than cutting across them.</p>
-              </li>
-              <li>
-                <h3>Trees</h3>
-                <p>Shelter, shade, and the lines that hold soil on a slope.</p>
-              </li>
-              <li>
-                <h3>Permanent buildings</h3>
-                <p>Sited once water and access are settled, not before.</p>
-              </li>
-              <li>
-                <h3>Subdivision fencing</h3>
-                <p>Paddock divisions that follow the pattern the land already has.</p>
-              </li>
-              <li>
-                <h3>Soil</h3>
-                <p>
-                  Last, and deliberately so. Soil is the most improvable factor on the
-                  list — poor soil today is a starting condition, not a constraint, and
-                  letting it drive the design would lock in a layout you will outgrow.
-                </p>
-              </li>
-            </ol>
+            <p className="sample-slot">[ Scale of Permanence graphic — to come ]</p>
           </section>
 
           <section className="section shell shell--prose">
@@ -372,20 +355,26 @@ function Designer() {
           </section>
 
           <section className="section shell shell--prose">
-            <h2>What this isn&apos;t</h2>
+            <h2>What it isn&apos;t</h2>
             <p>
-              It is built for small properties — roughly a few acres up to thirty. Larger
-              ground has different problems and wants a different tool.
+              It&apos;s built for small properties, from a few acres up to about 100.
+              Larger ground has different problems and wants a different tool.
             </p>
             <p>
-              United States only, because every data source above is a US federal
-              dataset.
+              It works in the lower 48 states only, because that&apos;s where the public
+              data it reads is complete.
             </p>
             <p>
-              And it is a starting point for real decisions, not a replacement for
-              walking the land with someone who knows it. The analysis sees terrain and
-              soil classes; it does not see the wet corner that never dries out, or the
-              neighbour&apos;s tile drain, or where the deer come through.
+              It isn&apos;t a survey or an engineering design. The boundary is the one you
+              draw, and a water survey area marks ground worth investigating, not a place
+              to dig. Anything you build still calls for the usual site work, permits, and
+              professionals.
+            </p>
+            <p>
+              And it&apos;s a starting point for real decisions, not a replacement for
+              walking the land with someone who knows it. Public data shows the terrain,
+              soils, and water; it doesn&apos;t show the seep that only runs in March, the
+              neighbor&apos;s tile drain, or where the deer come through.
             </p>
           </section>
         </main>
