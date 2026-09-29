@@ -577,6 +577,11 @@ describe('5. reduced motion', () => {
     // click pulse is a moment; and the scene's STREAM label sits under the
     // tab strip. The water card rests with the excavated area off the map
     // and its tick gone, and hides the STREAM label for the same reason.
+    // The roads card rests with network 2 off the map and everything that
+    // follows its focus hidden, the pending markers replaced, the banner on
+    // its reviewing pair (the other three states hidden, with the generate
+    // button's disabled face), the armed boundary unlit, and the STREAM
+    // label hidden for the same reason again.
     const hidden = rulesOf(TUTORIAL_CSS)
       .filter(([selector]) => !selector.startsWith('@') && !/^\d/.test(selector))
       .filter(([, body]) => /(^|;)\s*opacity:\s*0\s*(;|$)/.test(body) || /display:\s*none/.test(body))
@@ -594,6 +599,20 @@ describe('5. reduced motion', () => {
         ".tutorial-anim--landform-set .farm-scene__block[data-block='2'],\n.tutorial-anim__tick--set-2,\n.tutorial-anim__total--1,\n.tutorial-anim__total--2",
         ".tutorial-anim--water .farm-scene__label[data-label='stream']",
         '.tutorial-anim__survey--water-excavated,\n.tutorial-anim__tick--water-excavated',
+        ".tutorial-anim--roads .farm-scene__label[data-label='stream']",
+        '.tutorial-anim__armed',
+        [
+          '.tutorial-anim__network--roads-2',
+          '.tutorial-anim__mark--roads-2',
+          '.tutorial-anim__tab-mark--roads-2',
+          '.tutorial-anim__tick--roads-2',
+          '.tutorial-anim__access--pending-1',
+          '.tutorial-anim__access--pending-2',
+          '.tutorial-anim__banner--roads-idle',
+          '.tutorial-anim__banner--roads-armed',
+          '.tutorial-anim__banner--roads-working',
+          '.tutorial-anim__disabled--roads',
+        ].join(',\n'),
       ].sort()
     )
 
