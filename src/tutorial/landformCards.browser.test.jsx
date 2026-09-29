@@ -85,7 +85,18 @@ describeIf('the landform cards, in a real engine', () => {
           const svg = document.querySelector('.tutorial-anim--landform')
           const opacity = (sel) => Number(getComputedStyle(svg.querySelector(sel)).opacity)
           return {
-            running: svg.getAnimations({ subtree: true }).length,
+            // The cards' timelines are CSS animations. A CSS transition can
+            // also be in flight for a frame after load, collapsed to 0.01ms by
+            // the foundation's reduced-motion rule (index.css): not motion,
+            // but held to that ceiling below.
+            running: svg.getAnimations({ subtree: true }).filter((a) => a instanceof CSSAnimation).length,
+            longestTransition: Math.max(
+              0,
+              ...svg
+                .getAnimations({ subtree: true })
+                .filter((a) => a instanceof CSSTransition)
+                .map((a) => Number(a.effect.getTiming().duration))
+            ),
             cursor: getComputedStyle(svg.querySelector('.tutorial-anim__cursor')).display,
             read: svg.classList.contains('tutorial-anim--landform-read')
               ? {
@@ -108,6 +119,7 @@ describeIf('the landform cards, in a real engine', () => {
           }
         })
         expect(read.running, `page ${page2 ? 2 : 1}`).toBe(0)
+        expect(read.longestTransition).toBeLessThanOrEqual(0.01)
         expect(read.cursor).toBe('none')
         if (!page2) expect(read.read).toEqual({ mark3: 1, mark1: 0, panel: 1, body3: 1, body1: 0 })
         else expect(read.set).toEqual({ drawn: 1, block2: 0, total: ['3 blocks · 7.4 ac'] })

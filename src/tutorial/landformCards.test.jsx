@@ -368,6 +368,9 @@ describe('4. the hatch pattern', () => {
   it("strokes the rule with the oxide token, and fills the hatch shape with the pattern", () => {
     expect(baseFor('.farm-scene__hatch-line').stroke).toBe('var(--oxide)')
     expect(baseFor('.farm-scene__block-hatch').fill).toBe('var(--farm-hatch)')
+    // No outline on either shape, as on the map, for suggested and drawn blocks alike.
+    expect(baseFor('.farm-scene__block-base').stroke).toBe('none')
+    expect(baseFor('.farm-scene__block-hatch').stroke).toBe('none')
     expect(INDEX_CSS).toMatch(/--oxide:\s*#[0-9a-f]{6}/i)
   })
 

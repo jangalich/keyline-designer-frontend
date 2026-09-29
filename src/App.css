@@ -4234,12 +4234,12 @@ rect.tutorial-anim__solid,
   stroke-opacity: 0.8;
 }
 
+/* NO OUTLINE, as on the map: a block's extent is where the hatch stops.
+   The same for a drawn block, which shares these two rules. */
 .farm-scene__block-base {
   fill: var(--field);
   fill-opacity: 0.2;
-  stroke: var(--field);
-  stroke-width: 1.4;
-  stroke-linejoin: round;
+  stroke: none;
 }
 
 .farm-scene__block-hatch {
