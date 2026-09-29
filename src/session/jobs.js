@@ -43,6 +43,65 @@ export const INITIAL_POLL_DELAY_MS = 1000
 export const MAX_POLL_DELAY_MS = 5000
 export const POLL_BACKOFF_FACTOR = 1.5
 
+/**
+ * The generate's pace: a second, easing out by 1.5x to five. The default for
+ * any job that reports no progress -- there is nothing to watch move, so the
+ * only question the interval answers is how soon a finished job is noticed.
+ */
+export function backoffPace() {
+  let delay = INITIAL_POLL_DELAY_MS
+  return () => {
+    const current = delay
+    delay = Math.min(Math.round(delay * POLL_BACKOFF_FACTOR), MAX_POLL_DELAY_MS)
+    return current
+  }
+}
+
+/**
+ * A PACE FOR A JOB THAT REPORTS PROGRESS -- the report's, and only the
+ * report's.
+ *
+ * WHILE THE COMPLETED COUNT ADVANCES, ONE SECOND. The bar moves when work
+ * completes, and the report's fetches complete about every two seconds; the
+ * generate's five-second ceiling would jump it two or three fetches at a
+ * time. A poll is a dict read on the server, so this costs about sixty cheap
+ * requests over a minute's report.
+ *
+ * AFTER FIVE POLLS WITH NO CHANGE, IT EASES OUT TO THREE SECONDS. A stalled
+ * service can hold one fetch for forty seconds; polling every second through
+ * that learns nothing a poll every three would not.
+ *
+ * AND IT SNAPS BACK the moment the count changes, so the first completion
+ * after a stall is on screen within a second of the server knowing it.
+ *
+ * IT READS THE COUNT, NOT THE CLOCK. Nothing here decides the job is slow
+ * because time has passed -- only because the server has said the same thing
+ * five times.
+ */
+export const PROGRESS_POLL_DELAY_MS = 1000
+export const PROGRESS_STALLED_POLL_DELAY_MS = 3000
+export const PROGRESS_STALL_POLLS = 5
+
+export function progressPace() {
+  let lastCompleted = null
+  let unchanged = 0
+  let delay = PROGRESS_POLL_DELAY_MS
+  return (snapshot) => {
+    const completed = snapshot?.progress?.completed ?? null
+    if (completed !== lastCompleted) {
+      lastCompleted = completed
+      unchanged = 0
+      delay = PROGRESS_POLL_DELAY_MS
+    } else {
+      unchanged += 1
+      if (unchanged >= PROGRESS_STALL_POLLS) {
+        delay = Math.min(Math.round(delay * POLL_BACKOFF_FACTOR), PROGRESS_STALLED_POLL_DELAY_MS)
+      }
+    }
+    return delay
+  }
+}
+
 /** Resolves after `ms`, or rejects the moment `signal` aborts. */
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
@@ -88,15 +147,17 @@ function abortError() {
  * caller that only wants to mirror state into a store never has to look at the
  * resolved value.
  *
+ * `pace` returns the wait before the next poll, given the last snapshot:
+ * backoffPace() unless the caller says otherwise. The report passes
+ * progressPace(); see there.
+ *
  * IT DOES NOT THROW ON A FAILED JOB. An HTTP 200 whose body says `failed` is a
  * successful poll — the question was "did the job finish", and it did. The
  * failure is data, carrying the step's own `failed_layer {type, label}`, and
  * turning it into a thrown error here would put it on the same path as the
  * network being down, which is the one distinction the panel needs to keep.
  */
-export async function pollJob(jobId, { onUpdate, signal } = {}) {
-  let delay = INITIAL_POLL_DELAY_MS
-
+export async function pollJob(jobId, { onUpdate, signal, pace = backoffPace() } = {}) {
   for (;;) {
     let snapshot
     try {
@@ -116,8 +177,9 @@ export async function pollJob(jobId, { onUpdate, signal } = {}) {
     onUpdate?.(snapshot)
     if (snapshot.status !== JOB_RUNNING) return snapshot
 
-    await sleep(delay, signal)
-    delay = Math.min(Math.round(delay * POLL_BACKOFF_FACTOR), MAX_POLL_DELAY_MS)
+    // `pace` is asked for the next interval with the snapshot in hand, so a
+    // pace can read progress; the default ignores it.
+    await sleep(pace(snapshot), signal)
   }
 }
 

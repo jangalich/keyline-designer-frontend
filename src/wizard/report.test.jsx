@@ -32,7 +32,10 @@
  *   1. The delivery card renders only when EVERY step is committed.
  *   2. Reopening a MID-CHAIN step removes it -- the cascade is what does it.
  *   3. Generating from the overlay submits, polls, and produces a PDF link.
- *   4. The wait cycles phrases; past the threshold, the long-wait copy.
+ *   4. The wait is a progress bar drawn from the job's own count: it moves
+ *      only when a snapshot says work completed, holds on a stall with its
+ *      label, never goes backwards, and stays where it stopped on failure.
+ *      No cycling phrases, no pulse, no long-wait line.
  *   5. An expired session's message says reopen and recommit.
  *   6. A source failure's message does not suggest retrying differently;
  *      a NAMED source (`failed_layer`) is named.
@@ -64,7 +67,13 @@ import { resetStepCatalog } from './stepCatalog.jsx'
 import { BOUNDARY_STEP_ID, STEP_DEFINITIONS, registryProposalFeatures } from './stepDefinitions'
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
-import { LONG_WAIT_MS, PHRASE_INTERVAL_MS, REPORTING, WAIT_PHRASES } from './shell/WaitingLine.jsx'
+import { DETAIL_COPY, STAGE_COPY, STARTING_COPY } from './shell/ReportProgress.jsx'
+import {
+  PROGRESS_POLL_DELAY_MS,
+  PROGRESS_STALLED_POLL_DELAY_MS,
+  PROGRESS_STALL_POLLS,
+  progressPace,
+} from '../session/jobs'
 import {
   CLOSE_LABEL,
   OVERLAY_TITLE,
@@ -186,6 +195,9 @@ function installFetch({
     },
   },
   jobPolls = 1,
+  // THE PROGRESS EACH `running` POLL CARRIES, in order, the last repeating --
+  // the job's own count, as report_progress.py sends it. Empty: none.
+  jobSnapshots = [],
   reportAccepted = { job_id: 'job-r1', status: 'running' },
   reportStatus = 202,
 } = {}) {
@@ -196,7 +208,12 @@ function installFetch({
   globalThis.fetch = vi.fn(async (rawUrl, init = {}) => {
     const url = new URL(rawUrl, API)
     const method = init.method ?? 'GET'
-    calls.push({ method, path: url.pathname, body: init.body ? JSON.parse(init.body) : null })
+    calls.push({
+      method,
+      path: url.pathname,
+      body: init.body ? JSON.parse(init.body) : null,
+      at: Date.now(),
+    })
 
     if (url.pathname === '/api/steps') {
       return { ok: true, status: 200, json: async () => ({ step_order: [...STEP_ORDER] }) }
@@ -218,7 +235,11 @@ function installFetch({
     if (method === 'GET' && url.pathname === '/api/jobs/job-r1') {
       polls += 1
       if (polls <= jobPolls) {
-        return { ok: true, status: 200, json: async () => ({ job_id: 'job-r1', status: 'running' }) }
+        const progress = jobSnapshots.length
+          ? jobSnapshots[Math.min(polls - 1, jobSnapshots.length - 1)]
+          : undefined
+        const body = { job_id: 'job-r1', status: 'running', ...(progress ? { progress } : {}) }
+        return { ok: true, status: 200, json: async () => body }
       }
       return { ok: true, status: 200, json: async () => reportTerminal }
     }
@@ -538,69 +559,195 @@ describe('3. generating from the overlay submits, polls, and produces a download
 })
 
 /* ===========================================================================
-   4. THE WAIT
+   4. THE WAIT IS THE JOB'S OWN COUNT
    =========================================================================== */
 
-describe('4. the wait shows cycling phrases, then the long-wait copy', () => {
-  it('cycles the report phrases and crosses its own threshold', async () => {
+/**
+ * SNAPSHOTS FROM A REAL RUN. Each is a `progress` object exactly as GET
+ * /api/jobs returned it on a live warm report of the reference parcel
+ * (diagnose_report_progress.py in the backend) -- so what these tests feed
+ * the overlay is what the backend sends, not a shape written to suit them.
+ */
+const P = Object.freeze({
+  unplanned: { fraction: 0.0, percent: 0, completed: 0, total: 0, fetches: { completed: 0, total: 0 }, stage: null, detail: null, failed: false },
+  climate: { fraction: 0.0, percent: 0, completed: 0, total: 39, fetches: { completed: 0, total: 21 }, stage: 'records', detail: 'climate', failed: false },
+  one: { fraction: 0.0381, percent: 3, completed: 1, total: 39, fetches: { completed: 1, total: 21 }, stage: 'records', detail: null, failed: false },
+  wetlands: { fraction: 0.1905, percent: 19, completed: 5, total: 39, fetches: { completed: 5, total: 21 }, stage: 'records', detail: 'wetlands', failed: false },
+  flood: { fraction: 0.2286, percent: 22, completed: 6, total: 39, fetches: { completed: 6, total: 21 }, stage: 'records', detail: 'flood', failed: false },
+  maps: { fraction: 0.8867, percent: 88, completed: 34, total: 39, fetches: { completed: 21, total: 21 }, stage: 'maps', detail: null, failed: false },
+  terrain: { fraction: 0.8933, percent: 89, completed: 35, total: 39, fetches: { completed: 21, total: 21 }, stage: 'terrain', detail: null, failed: false },
+})
+
+/** What the overlay's bar says right now. */
+function readBar(ui) {
+  const fill = ui.q('report-progress-fill')
+  const bar = ui.q('report-progress-bar')
+  const match = /scaleX\(([\d.]+)\)/.exec(fill?.style.transform ?? '')
+  return {
+    fraction: match ? Number(match[1]) : null,
+    percent: bar ? Number(bar.getAttribute('aria-valuenow')) : null,
+    label: ui.q('report-progress-label')?.textContent ?? null,
+    detail: ui.q('report-progress-detail')?.textContent ?? null,
+  }
+}
+
+async function tick(ms) {
+  await React.act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+  })
+}
+
+describe('4. the wait is a progress bar drawn from the job\'s own count', () => {
+  it('follows the job through a real run, stage by stage, and never goes backwards', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false })
-    // A JOB THAT NEVER FINISHES, so the wait can be driven past its
-    // threshold without the answer arriving first.
-    installFetch({ document: allCommitted(), jobPolls: Number.MAX_SAFE_INTEGER })
+    const sequence = [P.unplanned, P.climate, P.one, P.wetlands, P.flood, P.maps, P.terrain]
+    installFetch({ document: allCommitted(), jobPolls: Number.MAX_SAFE_INTEGER, jobSnapshots: sequence })
     const ui = await renderShell()
     await ui.generate()
 
-    // NOTHING BEFORE THE FIRST INTERVAL. A wait earns its phrases by lasting;
-    // the declared line stands until then.
+    // THE FIRST POLL: the job exists and has not counted its work yet.
+    expect(readBar(ui)).toMatchObject({ fraction: 0, percent: 0, label: STARTING_COPY })
+
     const seen = []
-    expect(ui.q('waiting-phrase-report')).toBeNull()
-
-    for (let tick = 1; tick <= WAIT_PHRASES[REPORTING].length + 1; tick += 1) {
-      await React.act(async () => {
-        await vi.advanceTimersByTimeAsync(PHRASE_INTERVAL_MS)
-      })
-      seen.push(ui.q('waiting-phrase-report')?.textContent)
+    for (const expected of sequence.slice(1)) {
+      // The count advances every poll here, so the pace stays at a second.
+      await tick(PROGRESS_POLL_DELAY_MS)
+      const bar = readBar(ui)
+      seen.push(bar.fraction)
+      expect(bar.fraction).toBeCloseTo(expected.fraction, 4)
+      expect(bar.percent).toBe(expected.percent)
+      expect(bar.label).toBe(STAGE_COPY[expected.stage])
+      if (expected.stage === 'records') {
+        // THE KIND OF DATA AND THE COUNT, never a layer's module name.
+        expect(bar.detail).toContain(`${expected.fetches.completed} of 21 records`)
+        if (expected.detail) expect(bar.detail).toContain(DETAIL_COPY[expected.detail])
+        expect(bar.detail).not.toMatch(/nhd|nfhl|ssurgo|naip|daymet|_/i)
+      }
     }
+    expect([...seen].sort((a, b) => a - b)).toEqual(seen)
+    expect(readBar(ui).label).toBe('Measuring the terrain')
 
-    // EVERY PHRASE IN THE SET, AND IT LOOPS. The fifth tick is the first
-    // again, which is what makes it order-neutral rather than a sequence.
-    expect(new Set(seen.slice(0, WAIT_PHRASES[REPORTING].length))).toEqual(
-      new Set(WAIT_PHRASES[REPORTING])
-    )
-    expect(seen[WAIT_PHRASES[REPORTING].length]).toBe(seen[0])
-    // AND IT IS THE REPORT'S OWN SET, not the generate's.
-    expect(WAIT_PHRASES[REPORTING]).not.toEqual(WAIT_PHRASES.generating)
-    expect(ui.q('waiting-long-report'), 'not long yet').toBeNull()
-
-    // PAST THE THRESHOLD: the cycling stops and the copy says so.
-    await React.act(async () => {
-      await vi.advanceTimersByTimeAsync(LONG_WAIT_MS[REPORTING])
-    })
-    const long = ui.q('waiting-long-report')
-    expect(long, 'the long-wait line arrives').not.toBeNull()
-    expect(long.textContent).toContain('Still working.')
-    expect(ui.q('waiting-phrase-report'), 'the phrases stop').toBeNull()
-
-    // IT IS NOT AN ERROR AND DOES NOT PRETEND TO BE ONE.
-    expect(ui.failureNote()).toBeNull()
-    expect(ui.session.state.report.status).toBe('working')
+    // NOTHING ELSE EXPLAINS THE WAIT: no cycling phrase, no pulse.
+    expect(ui.q('waiting-phrase-report')).toBeNull()
+    expect(ui.overlay().querySelector('.chrome-banner__pulse')).toBeNull()
     await ui.unmount()
   })
 
-  it("does not trip the GENERATE's threshold on the way", async () => {
-    // THE WHOLE REASON THE REPORT HAS A NUMBER OF ITS OWN. At 75s a report is
-    // an ordinary report; a shared threshold would put "still working" over
-    // every one of them, and a line that always appears says nothing.
+  it('holds still on a stall, keeps naming it, eases its polls to three seconds, and snaps back', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false })
-    installFetch({ document: allCommitted(), jobPolls: Number.MAX_SAFE_INTEGER })
+    // THE FLOOD MAPS OUTSTANDING, poll after poll: the same count every time.
+    const snapshots = [P.flood]
+    const wire = installFetch({
+      document: allCommitted(),
+      jobPolls: Number.MAX_SAFE_INTEGER,
+      jobSnapshots: snapshots,
+    })
     const ui = await renderShell()
     await ui.generate()
-    await React.act(async () => {
-      await vi.advanceTimersByTimeAsync(LONG_WAIT_MS.generating + 1000)
-    })
-    expect(ui.q('waiting-long-report'), 'a report at 76s is still an ordinary one').toBeNull()
-    expect(ui.q('waiting-phrase-report'), 'and is still cycling').not.toBeNull()
+    await tick(0)
+    const held = readBar(ui)
+    expect(held).toMatchObject({ percent: 22, label: STAGE_COPY.records })
+    expect(held.detail).toContain('Flood maps')
+
+    // FORTY SECONDS OF NOTHING COMPLETING. Checked every second: the bar and
+    // the label are exactly what they were.
+    for (let second = 0; second < 40; second += 1) {
+      await tick(1000)
+      expect(readBar(ui)).toEqual(held)
+    }
+
+    // THE PACE READ THE COUNT: a second while nothing had yet repeated five
+    // times, then easing out, and never past three.
+    const polls = wire.calls.filter((c) => c.path === '/api/jobs/job-r1').map((c) => c.at)
+    const gaps = polls.slice(1).map((at, i) => at - polls[i])
+    expect(gaps.slice(0, PROGRESS_STALL_POLLS - 1).every((gap) => gap === PROGRESS_POLL_DELAY_MS)).toBe(true)
+    expect(Math.max(...gaps)).toBe(PROGRESS_STALLED_POLL_DELAY_MS)
+    expect(gaps.at(-1)).toBe(PROGRESS_STALLED_POLL_DELAY_MS)
+    expect(polls.length).toBeLessThan(20)
+
+    // THE FLOOD MAPS ANSWER. The first poll that sees it moves the bar, and
+    // the next poll is a second after it -- the pace snaps back.
+    snapshots.splice(0, snapshots.length, { ...P.flood, fraction: 0.2667, percent: 26, completed: 7,
+      fetches: { completed: 7, total: 21 }, detail: 'land_cover' })
+    await tick(PROGRESS_STALLED_POLL_DELAY_MS)
+    expect(readBar(ui).percent).toBe(26)
+    expect(readBar(ui).detail).toContain('Land cover')
+    const before = wire.calls.filter((c) => c.path === '/api/jobs/job-r1').length
+    await tick(PROGRESS_POLL_DELAY_MS)
+    expect(wire.calls.filter((c) => c.path === '/api/jobs/job-r1').length).toBe(before + 1)
+
+    // AND PAST THE OLD 150 s THRESHOLD, NO LONG-WAIT LINE: the bar and its
+    // label are the whole of what the wait says.
+    await tick(160000)
+    expect(ui.q('waiting-long-report')).toBeNull()
+    expect(ui.q('waiting-phrase-report')).toBeNull()
+    expect(readBar(ui).percent).toBe(26)
     await ui.unmount()
+  })
+
+  it('never draws a lower fraction than one it has already drawn', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false })
+    // A SNAPSHOT THAT WOULD GO BACKWARDS. The backend cannot send one; the
+    // store refuses it anyway, so the bar cannot be the thing that lies.
+    installFetch({
+      document: allCommitted(),
+      jobPolls: Number.MAX_SAFE_INTEGER,
+      jobSnapshots: [P.flood, P.wetlands],
+    })
+    const ui = await renderShell()
+    await ui.generate()
+    await tick(0)
+    expect(readBar(ui).percent).toBe(22)
+    await tick(PROGRESS_POLL_DELAY_MS * 3)
+    expect(readBar(ui).percent).toBe(22)
+    expect(readBar(ui).fraction).toBeCloseTo(P.flood.fraction, 4)
+    await ui.unmount()
+  })
+
+  it('stays where the run stopped when it fails, beside the notice -- not cleared, not completed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    installFetch({
+      document: allCommitted(),
+      jobPolls: 2,
+      jobSnapshots: [P.wetlands, P.flood],
+      reportTerminal: {
+        job_id: 'job-r1',
+        status: 'failed',
+        error: {
+          error: 'The report could not be generated: the Daily climate records could not be retrieved.',
+          failed_layer: { type: 'daymet', label: 'Daily climate records', reason: 'source_unavailable' },
+          report_failed: { actionable: true },
+        },
+        progress: { ...P.flood, failed: true },
+      },
+    })
+    const ui = await renderShell()
+    await ui.generate()
+    await tick(5000)
+
+    expect(ui.session.state.report.status).toBe('failed')
+    const stopped = ui.q('report-stopped')
+    expect(stopped, 'the bar is still there').not.toBeNull()
+    expect(stopped.querySelector('[data-testid="report-progress"]').getAttribute('data-state')).toBe('failed')
+    expect(readBar(ui).fraction).toBeCloseTo(P.flood.fraction, 4)
+    expect(readBar(ui).percent).toBe(22)
+    expect(readBar(ui).label).toBe('Stopped at 22%')
+    expect(ui.failureNote(), 'and the failure says what happened').not.toBeNull()
+    expect(ui.downloadLink()).toBeNull()
+    expect(ui.waitingNote()).toBeNull()
+    await ui.unmount()
+  })
+})
+
+describe("4. the report's poll pace reads the count, not the clock", () => {
+  it('is a second while the count advances, eases to three after five repeats, and snaps back', () => {
+    const pace = progressPace()
+    const at = (completed) => ({ status: 'running', progress: { completed } })
+    expect([1, 2, 3].map((n) => pace(at(n)))).toEqual([1000, 1000, 1000])
+    // Four repeats: still a second. The fifth and on: easing, capped at three.
+    expect([3, 3, 3, 3].map((n) => pace(at(n)))).toEqual([1000, 1000, 1000, 1000])
+    expect([3, 3, 3, 3].map((n) => pace(at(n)))).toEqual([1500, 2250, 3000, 3000])
+    expect(pace(at(4))).toBe(1000)
   })
 })
 
@@ -1015,7 +1162,12 @@ describe('8. the overlay', () => {
 
   it('does not cancel a report when closed mid-wait, and the card says it is under way', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false })
-    installFetch({ document: allCommitted(), jobPolls: Number.MAX_SAFE_INTEGER })
+    // THE JOB KEEPS COUNTING WHILE THE OVERLAY IS SHUT.
+    installFetch({
+      document: allCommitted(),
+      jobPolls: Number.MAX_SAFE_INTEGER,
+      jobSnapshots: [P.wetlands, P.wetlands, P.flood],
+    })
     const ui = await renderShell()
     await ui.generate()
     // THE PRESS DISABLED THE BUTTON; FOCUS STAYED IN THE DIALOGUE.
@@ -1024,10 +1176,14 @@ describe('8. the overlay', () => {
     expect(ui.overlay()).toBeNull()
     expect(ui.session.state.report.status).toBe('working')
     expect(ui.q('delivery-state').textContent).toBe('Your report is being made.')
-    // AND OPENING IT AGAIN SHOWS THE SAME WAIT.
+    // THE POLLS GO ON WITH NOBODY LOOKING.
+    await tick(PROGRESS_POLL_DELAY_MS * 3)
+    // AND OPENING IT AGAIN SHOWS WHERE THE JOB IS NOW, not where it was.
     await ui.press('report-open')
     expect(ui.generateButton().disabled).toBe(true)
     expect(ui.waitingNote()).not.toBeNull()
+    expect(readBar(ui).percent).toBe(22)
+    expect(readBar(ui).detail).toContain('Flood maps')
     await ui.unmount()
   })
 })

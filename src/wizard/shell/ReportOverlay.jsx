@@ -46,8 +46,16 @@
  * says the report is under way while they are gone.
  *
  *
- * THE WAIT -- the cycling phrases every long wait in this shell gets, from
- * the same hook, with the report's own set (WaitingLine.jsx's REPORTING).
+ * THE WAIT IS A PROGRESS BAR, AND IT NEVER LIES (ReportProgress.jsx). The
+ * job counts its own completed work -- the public records read, the terrain
+ * measured, the pages laid out -- and the bar is that count and nothing else,
+ * with a line saying what is being worked on now. It holds still when a
+ * service stalls. It replaced the cycling phrases this overlay used to share
+ * with commits and generates; those still have them, because they still
+ * report nothing.
+ *
+ * A FAILURE LEAVES THE BAR WHERE THE RUN STOPPED, muted, above the notice --
+ * not cleared, and not filled to a completion that did not happen.
  *
  *
  * THE FAILURES ARE TOLD APART BY THE KEY THE PAYLOAD CARRIES
@@ -91,7 +99,7 @@ import {
   useSession,
 } from '../../session/SessionStore'
 import { trapTab } from '../../tutorial/TutorialOverlay.jsx'
-import WaitingLine, { REPORTING, useWaitingLine } from './WaitingLine.jsx'
+import ReportProgress from './ReportProgress.jsx'
 
 export const OVERLAY_TITLE = 'Your site data report'
 
@@ -242,10 +250,6 @@ export default function ReportOverlay({ onClose, returnTo }) {
   const cardRef = useRef(null)
   const titleId = useId()
   const ledeId = useId()
-  // Called unconditionally, because it holds timers; it answers null for any
-  // key it has no phrases for, so a report that is not working costs nothing.
-  const waiting = useWaitingLine(report.status === REPORT_WORKING ? REPORTING : null)
-
   const working = report.status === REPORT_WORKING
   const failed = report.status === REPORT_FAILED_STATUS
   const ready = report.status === REPORT_READY_STATUS && report.download?.url
@@ -337,20 +341,17 @@ export default function ReportOverlay({ onClose, returnTo }) {
           {/* THE LEADING EDGE: one line of state, or nothing. */}
           <div className="report-overlay__state">
             {working ? (
-              /* `role="status"` so the fact is announced once when the wait
-                 begins; the cycling phrases inside are aria-hidden by
-                 WaitingLine itself. */
-              <p className="report-overlay__note" role="status" data-testid="report-waiting">
-                <span className="chrome-banner__pulse" aria-hidden="true" />
-                <span>
-                  {waiting ? (
-                    <WaitingLine waiting={waiting} stepId="report" />
-                  ) : (
-                    /* No duration: nothing here knows how long is left. */
-                    'This is the longest wait in the app.'
-                  )}
-                </span>
-              </p>
+              /* THE JOB'S OWN COUNT. Reopened mid-wait, this draws the last
+                 snapshot the store holds -- the report is the store's, not
+                 this component's. */
+              <div className="report-overlay__progress" data-testid="report-waiting">
+                <ReportProgress progress={report.progress} />
+              </div>
+            ) : null}
+            {failed && report.progress?.total ? (
+              <div className="report-overlay__progress" data-testid="report-stopped">
+                <ReportProgress progress={report.progress} failed />
+              </div>
             ) : null}
             {ready ? (
               <p className="report-overlay__note" data-testid="report-ready-note">
