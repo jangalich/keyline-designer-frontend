@@ -574,21 +574,17 @@ describe('6. the geometry, on the same parcel', () => {
     expect(unwrapped).toBe(main)
   })
 
-  // THE HATCH IS THE ONE THING THAT MOVED: each card is main's markup with
-  // the production pattern at 8 where it was 7, and nothing else.
+  // THE HATCH IS THE ONE THING THAT MOVED: the fixtures were regenerated
+  // with the production pattern at 8 where it was 7, and nothing else.
   it.each([
     ['landform-read-card.svg', LandformReadAnimation],
     ['landform-set-card.svg', LandformSetAnimation],
     ['water-card.svg', WaterAnimation],
-  ])('renders %s as main does, but for the production pitch', (fixture, Animation) => {
+  ])('renders %s as its fixture does, at the corrected pitch', (fixture, Animation) => {
     const main = readFileSync(path.join(FIXTURES, fixture), 'utf8').trim()
-    const now = renderToStaticMarkup(<Animation />)
-    const corrected = main.replace(
-      /(<pattern [^>]*class="farm-scene__hatch" )width="7" height="7"([^>]*><line class="farm-scene__hatch-line" x1="0" y1="0" x2="0" )y2="7"/,
-      '$1width="8" height="8"$2y2="8"'
-    )
-    expect(corrected).not.toBe(main)
-    expect(now).toBe(corrected)
+    expect(main).toMatch(/class="farm-scene__hatch" width="8" height="8"/)
+    expect(main).not.toMatch(/width="7"/)
+    expect(renderToStaticMarkup(<Animation />)).toBe(main)
   })
 
   it('draws the roads card on the same land, its network and markers where roads put them', async () => {

@@ -117,10 +117,10 @@ describe('1. the rules, as a function', () => {
     expect(shouldAutoFire({ ...pressed, somethingOpen: true })).toBe(false)
   })
 
-  it('does not fire for a step with no card -- and the shipped registry carries boundary, landform, water and roads', () => {
-    expect(shouldAutoFire({ ...pressed, stepId: 'trees' })).toBe(false)
-    expect(STEP_CARDS.map((card) => card.stepId)).toEqual(['boundary', 'landform', 'water', 'roads'])
-    expect(shouldAutoFire({ ...pressed, registry: STEP_CARDS, stepId: 'trees' })).toBe(false)
+  it('does not fire for a step with no card -- and the shipped registry carries boundary, landform, water, roads and trees', () => {
+    expect(shouldAutoFire({ ...pressed, stepId: 'structures' })).toBe(false)
+    expect(STEP_CARDS.map((card) => card.stepId)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees'])
+    expect(shouldAutoFire({ ...pressed, registry: STEP_CARDS, stepId: 'structures' })).toBe(false)
   })
 })
 
@@ -614,6 +614,14 @@ describe('4. the help control opens the active step\'s card', () => {
     trees: {
       steps: { landform: { status: COMMITTED }, water: { status: COMMITTED }, roads: { status: COMMITTED } },
     },
+    structures: {
+      steps: {
+        landform: { status: COMMITTED },
+        water: { status: COMMITTED },
+        roads: { status: COMMITTED },
+        trees: { status: COMMITTED },
+      },
+    },
   }
 
   async function at(stepId) {
@@ -627,7 +635,7 @@ describe('4. the help control opens the active step\'s card', () => {
     return ui
   }
 
-  for (const stepId of ['boundary', 'landform', 'water', 'roads']) {
+  for (const stepId of ['boundary', 'landform', 'water', 'roads', 'trees']) {
     it(`on ${stepId}: its own card, not the deck -- and the step is not marked seen`, async () => {
       const ui = await at(stepId)
       const before = seen()
@@ -643,8 +651,8 @@ describe('4. the help control opens the active step\'s card', () => {
     })
   }
 
-  it('on trees, which has no card: the deck', async () => {
-    const ui = await at('trees')
+  it('on structures, which has no card: the deck', async () => {
+    const ui = await at('structures')
     await ui.click('tutorial-help')
     expect(ui.stepCard()).toBeNull()
     expect(ui.deck()).not.toBeNull()

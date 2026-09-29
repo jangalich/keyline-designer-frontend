@@ -346,13 +346,13 @@ describe('3. the scene still holds boundary where it was', () => {
    =========================================================================== */
 
 describe('4. the hatch pattern', () => {
-  it('renders: diagonal at 45 degrees, a 7-unit pitch, one rule with a class and no colour', async () => {
+  it('renders: diagonal at 45 degrees, an 8-unit pitch, one rule with a class and no colour', async () => {
     await renderCard()
     const pattern = find('tutorial-step-figure').querySelector('pattern')
     expect(pattern).not.toBeNull()
-    expect(HATCH_PITCH).toBe(7)
-    expect(pattern.getAttribute('width')).toBe('7')
-    expect(pattern.getAttribute('height')).toBe('7')
+    expect(HATCH_PITCH).toBe(8)
+    expect(pattern.getAttribute('width')).toBe('8')
+    expect(pattern.getAttribute('height')).toBe('8')
     expect(pattern.getAttribute('patternUnits')).toBe('userSpaceOnUse')
     expect(pattern.getAttribute('patternTransform')).toBe('rotate(45)')
     const lines = pattern.querySelectorAll('line')
