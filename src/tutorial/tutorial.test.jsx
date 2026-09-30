@@ -614,6 +614,7 @@ describe('5. reduced motion', () => {
         ].join(',\n'),
         ".tutorial-anim--trees .farm-scene__label[data-label='stream']",
         '.tutorial-anim__zone--trees-2,\n.tutorial-anim__tick--trees-2',
+        ".tutorial-anim--fencing .farm-scene__label[data-label='stream']",
       ].sort()
     )
 
