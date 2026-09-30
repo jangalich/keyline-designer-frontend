@@ -25,16 +25,22 @@
  * SceneFences for why each of those is wrong.
  *
  * THE SETTLED STACK IS THE WHOLE DESIGN: the block (landform), the water
- * area (water), the network and its marker (roads), and the two tree zones
- * the trees card committed -- Zone 1 and the drawn windbreak, Zone 2 having
- * been unticked there -- each on the scene's 'settled' tone, in the order
- * they were decided. This is the busiest scene in the set, and should be:
+ * area (water), the network and its marker (roads), and one tree zone --
+ * Zone 1, the one the tree fence goes around -- each on the scene's
+ * 'settled' tone, in the order they were decided. One tree zone is enough
+ * to show a tree fence, and a second with no fence of its own would read
+ * as a zone the step forgot. This is the busiest scene in the set, and should be:
  * fencing is where the design is seen whole.
  *
- * THE TABS AND THE BUTTON SAY WHAT THE REAL STEP DOES. The tab names are the
- * backend's (fencing.py, FENCE_TYPE_LABELS), and the reviewing state's one
- * button is FENCING_STEP's commit, whose label is "Commit fencing" while
- * anything is committable.
+ * WHERE A ZONE MEETS THE PERIMETER THERE IS ONE FENCE, NOT TWO: the
+ * perimeter carries the shared stretch and the zone fence draws only its
+ * inner arc, as the map's display line does (see FENCES in farmScene.jsx).
+ *
+ * THE TABS AND THE BUTTON SAY WHAT THE REAL STEP DOES. The tab names are
+ * the backend's (fencing.py, FENCE_TYPE_LABELS) -- "Perimeter fencing", not
+ * "Boundary fencing": the fence is not the boundary -- and the reviewing
+ * state's one button is FENCING_STEP's commit, whose label is "Commit
+ * fencing" while anything is committable.
  *
  * THE MARKUP IS THE RESTING FRAME: all three fences drawn, all three tabs
  * present and ticked. Under reduced motion that is all there is.
@@ -68,7 +74,6 @@ import {
   useHatchId,
   useTreeHatchId,
 } from './farmScene.jsx'
-import { WINDBREAK_POINTS } from './treesCard.jsx'
 
 export const FENCING_TITLE = 'Fencing to protect committed features'
 export const FENCING_EMPHASIS = 'Recommended to commit all three types'
@@ -84,11 +89,8 @@ export const FENCING_LABELS = Object.freeze({
 export const FENCING_BLOCKS = Object.freeze(SUGGESTED_BLOCKS.filter((block) => block.id === '1'))
 export const FENCING_NETWORKS = Object.freeze(ROAD_NETWORKS.filter((network) => network.id === '1'))
 export const FENCING_ACCESS_POINTS = Object.freeze(ACCESS_POINTS.filter((point) => point.id === '1'))
-/** The trees card's commit: Zone 1, and the windbreak drawn there; Zone 2 was unticked. */
-export const FENCING_TREE_ZONES = Object.freeze([
-  ...TREE_ZONES.filter((zone) => zone.id === '1'),
-  Object.freeze({ id: 'drawn-1', points: WINDBREAK_POINTS }),
-])
+/** One tree zone, the one the tree fence goes around. */
+export const FENCING_TREE_ZONES = Object.freeze(TREE_ZONES.filter((zone) => zone.id === '1'))
 
 /**
  * The tabs, one per fence type, named as the backend labels them. Three
@@ -97,7 +99,7 @@ export const FENCING_TREE_ZONES = Object.freeze([
  */
 export const FENCING_TABS = Object.freeze(
   [
-    ['boundary', 'Boundary fencing'],
+    ['boundary', 'Perimeter fencing'],
     ['water', 'Water area fencing'],
     ['tree', 'Tree zone fencing'],
   ].map(([id, name], index) => Object.freeze({ id, name, x: 6 + index * 130, width: 128 }))

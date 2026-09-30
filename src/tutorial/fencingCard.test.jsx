@@ -42,7 +42,7 @@ import { REVIEWING } from '../wizard/useStepMachine'
 import WizardShell from '../wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from '../wizard/WizardCursor.jsx'
 import { CARDS } from './cards.jsx'
-import { FENCES, PARCEL, PARCEL_PATH, SCENE_VIEWBOX, SceneFences } from './farmScene.jsx'
+import { FENCES, FENCE_COINCIDENCE, PARCEL, PARCEL_PATH, SCENE_VIEWBOX, SceneFences } from './farmScene.jsx'
 import {
   BANNER,
   FENCING_BLOCKS,
@@ -80,7 +80,7 @@ const SPEC_PARCEL = [
 
 /** The backend's tab labels (fencing.py, FENCE_TYPE_LABELS), by wire key. */
 const BACKEND_LABELS = {
-  boundary: 'Boundary fencing',
+  boundary: 'Perimeter fencing',
   water_zone_exclusion: 'Water area fencing',
   tree_zone_exclusion: 'Tree zone fencing',
 }
@@ -428,7 +428,7 @@ describe('3. the button and the tabs are the real step', () => {
     }
     const real = FENCING_STEP.tabs({ proposals, draft: { selectedFeatureIds: [] } }).map((tab) => tab.name)
     expect(FENCING_TABS.map((tab) => tab.name)).toEqual(real)
-    expect(real).toEqual(['Boundary fencing', 'Water area fencing', 'Tree zone fencing'])
+    expect(real).toEqual(['Perimeter fencing', 'Water area fencing', 'Tree zone fencing'])
     const handle = await mount(<FencingAnimation />)
     const tabs = [...handle.container.querySelectorAll('.tutorial-anim__tab')]
     expect(tabs.map((tab) => tab.querySelector('text').textContent)).toEqual(real)
@@ -504,7 +504,8 @@ describe('4. the fence layer is the map’s fence mark: dashed, uncased', () => 
     expect([...svg.querySelectorAll('[data-layer="tree-zones"] [data-zone]')].map((z) => z.dataset.zone)).toEqual(
       FENCING_TREE_ZONES.map((z) => z.id)
     )
-    expect(FENCING_TREE_ZONES.map((z) => z.id)).toEqual(['1', 'drawn-1'])
+    expect(FENCING_TREE_ZONES.map((z) => z.id)).toEqual(['1'])
+    expect(svg.querySelectorAll('[data-layer="tree-zones"] polygon')).toHaveLength(0)
     expect(svg.querySelectorAll('[data-layer="fences"] .farm-scene__fence')).toHaveLength(3)
   })
 })
@@ -587,12 +588,12 @@ describe('5. the reveal paints nothing over the map', () => {
 
 describe('6. the perimeter fence is a hull inside the parcel, not the parcel', () => {
   const perimeter = FENCES.find((fence) => fence.id === 'boundary')
-  const vertices = pairsOf(perimeter.d)
+  const vertices = pairsOf(perimeter.drawn)
 
   it('is its own geometry: not the parcel path, and none of its corners is a parcel corner', () => {
     expect(PARCEL.map(({ id, x, y }) => [id, x, y])).toEqual(SPEC_PARCEL)
-    expect(perimeter.d).not.toBe(PARCEL_PATH)
-    expect(perimeter.d).not.toContain(PARCEL_PATH.slice(2, 12))
+    expect(perimeter.drawn).not.toBe(PARCEL_PATH)
+    expect(perimeter.drawn).not.toContain(PARCEL_PATH.slice(2, 12))
     for (const [x, y] of vertices) {
       for (const corner of PARCEL) expect(Math.hypot(x - corner.x, y - corner.y), `${x},${y} vs ${corner.id}`).toBeGreaterThan(4)
     }
@@ -618,17 +619,135 @@ describe('6. the perimeter fence is a hull inside the parcel, not the parcel', (
     expect(shoelace(vertices) / parcelArea).toBeLessThan(0.7)
   })
 
-  it('keeps the spec’s south and east verbatim; only the north was pulled in off the boundary', () => {
-    expect(perimeter.d).toContain('L 302 108 L 226 174 L 198 196 L 170 212 L 130 194 L 106 112 Z')
-  })
-
-  it('draws the water and tree fences on the spec’s geometry', () => {
-    expect(FENCES.find((fence) => fence.id === 'water').d).toBe(
+  it('keeps the water and tree fences’ own rings on the spec’s geometry', () => {
+    expect(FENCES.find((fence) => fence.id === 'water').ring).toBe(
       'M 130 168 C 146 152, 182 154, 194 170 C 206 186, 196 208, 172 212 C 148 216, 128 204, 126 188 C 125 178, 126 172, 130 168 Z'
     )
-    expect(FENCES.find((fence) => fence.id === 'tree').d).toBe(
+    expect(FENCES.find((fence) => fence.id === 'tree').ring).toBe(
       'M 210 70 C 240 60, 276 71, 296 89 C 310 101, 300 120, 278 122 C 255 125, 236 116, 220 109 C 204 102, 200 82, 210 70 Z'
     )
+  })
+})
+
+/* ===========================================================================
+   6b. One fence where two would run side by side
+   =========================================================================== */
+
+/** Points along a path of M, L and C commands, every unit or so; Z closes it. */
+function alongPath(d) {
+  const tokens = d.match(/[MLCZ]|-?\d+(\.\d+)?/g)
+  const out = []
+  let cur = null
+  let start = null
+  let cmd = null
+  const line = (to) => {
+    const n = Math.max(1, Math.ceil(Math.hypot(to[0] - cur[0], to[1] - cur[1])))
+    for (let k = 1; k <= n; k++) out.push([cur[0] + ((to[0] - cur[0]) * k) / n, cur[1] + ((to[1] - cur[1]) * k) / n])
+    cur = to
+  }
+  for (let i = 0; i < tokens.length; ) {
+    if (/[MLCZ]/.test(tokens[i])) {
+      cmd = tokens[i++]
+      if (cmd === 'Z') line(start)
+      continue
+    }
+    const n = (k) => Number(tokens[i + k])
+    if (cmd === 'M') {
+      cur = start = [n(0), n(1)]
+      out.push(cur)
+      i += 2
+      cmd = 'L'
+    } else if (cmd === 'L') {
+      line([n(0), n(1)])
+      i += 2
+    } else {
+      const [c1, c2, to] = [[n(0), n(1)], [n(2), n(3)], [n(4), n(5)]]
+      for (let k = 1; k <= 80; k++) {
+        const t = k / 80
+        const [a, b, c, e] = [(1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t * t, t ** 3]
+        out.push([a * cur[0] + b * c1[0] + c * c2[0] + e * to[0], a * cur[1] + b * c1[1] + c * c2[1] + e * to[1]])
+      }
+      cur = to
+      i += 6
+    }
+  }
+  return out
+}
+
+/** Distance from a point to a polyline given as points along it. */
+function toLine([x, y], points) {
+  let best = Infinity
+  for (let i = 1; i < points.length; i++) {
+    const [ax, ay] = points[i - 1]
+    const [bx, by] = points[i]
+    const dx = bx - ax
+    const dy = by - ay
+    const len = dx * dx + dy * dy
+    const t = len ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len)) : 0
+    best = Math.min(best, Math.hypot(x - ax - t * dx, y - ay - t * dy))
+  }
+  return best
+}
+
+describe('6b. where a zone meets the perimeter there is one fence, not two', () => {
+  const perimeter = FENCES.find((fence) => fence.id === 'boundary')
+  const zones = FENCES.filter((fence) => fence.id !== 'boundary')
+  const perimeterLine = alongPath(perimeter.drawn)
+
+  it('draws the perimeter whole: its drawn line is its ring, closed', () => {
+    expect(perimeter.drawn).toBe(perimeter.ring)
+    expect(perimeter.drawn.trim().endsWith('Z')).toBe(true)
+  })
+
+  it('runs the perimeter along each zone’s own fence where the zone sits at the edge', () => {
+    for (const zone of zones) {
+      const ring = alongPath(zone.ring)
+      const shared = ring.filter((p) => toLine(p, perimeterLine) <= 1.5)
+      // At least 30 units of the zone's ring are the perimeter's line.
+      expect(shared.length, zone.id).toBeGreaterThanOrEqual(30)
+    }
+  })
+
+  it('draws each zone fence only where no other fence already runs: one open line, its inner arc', () => {
+    for (const zone of zones) {
+      expect(zone.drawn.match(/M/g), zone.id).toHaveLength(1)
+      expect(zone.drawn, zone.id).not.toMatch(/Z/)
+      const drawn = alongPath(zone.drawn)
+      const others = FENCES.filter((f) => f !== zone).map((f) => alongPath(f.drawn))
+      for (const p of drawn) {
+        for (const other of others) {
+          expect(toLine(p, other), `${zone.id} at ${p}`).toBeGreaterThanOrEqual(FENCE_COINCIDENCE - 0.75)
+        }
+      }
+    }
+  })
+
+  it('trims exactly the shared stretch: the rest of the ring is drawn, and what is not drawn the perimeter draws', () => {
+    for (const zone of zones) {
+      const ring = alongPath(zone.ring)
+      const drawn = alongPath(zone.drawn)
+      let trimmed = 0
+      for (const p of ring) {
+        const nearPerimeter = toLine(p, perimeterLine) < FENCE_COINCIDENCE
+        if (nearPerimeter) trimmed++
+        // Kept stretch: on the drawn line. Trimmed stretch: within the tolerance of the perimeter.
+        else expect(toLine(p, drawn), `${zone.id} ring at ${p} is drawn`).toBeLessThan(0.75)
+      }
+      expect(trimmed / ring.length, zone.id).toBeGreaterThan(0.3)
+      expect(trimmed / ring.length, zone.id).toBeLessThan(0.7)
+    }
+  })
+
+  it('leaves no two fence lines running side by side anywhere on the card', () => {
+    const lines = FENCES.map((f) => [f.id, alongPath(f.drawn)])
+    for (const [a, pa] of lines) {
+      for (const [b, pb] of lines) {
+        if (a >= b) continue
+        // Points of one line within the tolerance of another, away from the zone lines' own ends.
+        const close = pa.filter((p) => toLine(p, pb) < FENCE_COINCIDENCE - 0.75)
+        expect(close, `${a} beside ${b}`).toEqual([])
+      }
+    }
   })
 })
 

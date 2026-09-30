@@ -37,7 +37,7 @@
  *           committed empty -> exactly one tab, and two absences named.
  *   3  [2]  A type with nothing to fence renders NO tab, distinguishable
  *           from one that generated nothing -- off the flag, not a key.
- *   4  [3]  Boundary fencing renders with everything else absent (offline).
+ *   4  [3]  Perimeter fencing renders with everything else absent (offline).
  *   5  [4]  Tabs are TWO lines.
  *   6  [5]  Fence lines draw the display geometry; lengths come from the
  *           real geometry; the commit sends the real geometry.
@@ -698,7 +698,7 @@ function fencingPayload({ water = 'candidate', trees = 'candidate' } = {}) {
 
   const features = [boundary]
   const total = (...fs) => Math.round(fs.reduce((sum, f) => sum + f.properties.length_ft, 0) * 10) / 10
-  const types = [block('boundary', 'Boundary fencing', { total_length_ft: total(boundary), feature_ids: [boundary.id] })]
+  const types = [block('boundary', 'Perimeter fencing', { total_length_ft: total(boundary), feature_ids: [boundary.id] })]
   if (water === 'candidate') {
     features.push(waterFeature)
     types.push(block('water_zone_exclusion', 'Water area fencing', { total_length_ft: total(waterFeature), feature_ids: [waterFeature.id] }))
@@ -810,7 +810,7 @@ describe('4. boundary fencing renders with everything else absent', () => {
     expect(payload.candidate_fence_types).toEqual(['boundary'])
     const tabs = FENCING_STEP.tabs(contextOver(payload))
     expect(tabs).toHaveLength(1)
-    expect(tabs[0]).toMatchObject({ id: 'boundary', name: 'Boundary fencing', checkbox: true, selected: true })
+    expect(tabs[0]).toMatchObject({ id: 'boundary', name: 'Perimeter fencing', checkbox: true, selected: true })
     const ui = await renderStrip(payload)
     expect(ui.all('[data-tab-id]').map((li) => li.dataset.tabId)).toEqual(['boundary'])
     expect(ui.find('tab-boundary').dataset.checked).toBe('true')

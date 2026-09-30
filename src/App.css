@@ -5224,7 +5224,7 @@ rect.tutorial-anim__solid,
 /* --- 10. Fencing: three fence lines draw in, then commit ----------------
    One card on the scene, 12s, and the last step card. Everything committed
    so far is settled context: the block, the water area, the network and its
-   access point, and the two tree zones. The perimeter draws from 8 to 28%,
+   access point, and Zone 1. The perimeter draws from 8 to 28%,
    its tab lands at 28; the water fence 36 to 50, its tab at 50; the tree
    fence 58 to 72, its tab at 72. The cursor stays off the frame until 76,
    presses "Commit fencing" at 86 and is gone by 96. Oxide is the commit

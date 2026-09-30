@@ -175,7 +175,7 @@ describeIf('the fencing card, in Chromium', () => {
     expect(read.reveals).toEqual(['0px', '0px', '0px'])
     expect(read.fences).toEqual([1, 1, 1])
     expect(read.tabs).toEqual([
-      ['Boundary fencing', 1, 1],
+      ['Perimeter fencing', 1, 1],
       ['Water area fencing', 1, 1],
       ['Tree zone fencing', 1, 1],
     ])
@@ -224,7 +224,7 @@ describeIf('the fencing card, in Chromium', () => {
     // line's width, has to leave clear ground between the two lines.
     const scale = read.svg[2] / 400
     let nearest = Infinity
-    const perimeter = FENCES.find((fence) => fence.id === 'boundary').d.match(/-?\d+(\.\d+)?/g).map(Number)
+    const perimeter = FENCES.find((fence) => fence.id === 'boundary').drawn.match(/-?\d+(\.\d+)?/g).map(Number)
     const corners = []
     for (let i = 0; i < perimeter.length; i += 2) corners.push([perimeter[i], perimeter[i + 1]])
     for (let i = 0; i < corners.length; i++) {
