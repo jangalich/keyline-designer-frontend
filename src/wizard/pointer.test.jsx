@@ -578,7 +578,7 @@ function topAtSelector(selector) {
 }
 
 describeIf('0. the four floating components', () => {
-  it('renders no card behind a single button, and leaves the gap to the map', async () => {
+  liveIt('renders no card behind a single button, and leaves the gap to the map', async () => {
     // THE STATE: the boundary step with no session, which is the one state in
     // the build that offers exactly one button.
     const buttons = await page.evaluate(() =>
@@ -613,7 +613,7 @@ describeIf('0. the four floating components', () => {
     expect(button.shadow.split(',').length).toBeGreaterThan(1)
   })
 
-  it('leaves every control in all four components topmost at its own centre, at both widths', async () => {
+  liveIt('leaves every control in all four components topmost at its own centre, at both widths', async () => {
     for (const [where, viewport] of STAGES) {
       await resize(viewport)
 
@@ -672,7 +672,7 @@ describeIf('0. the four floating components', () => {
     await resize(ROOMY)
   })
 
-  it('gives the zoom control the shared surface, a hairline between its buttons, and a ring', async () => {
+  liveIt('gives the zoom control the shared surface, a hairline between its buttons, and a ring', async () => {
     // THE CASCADE, NOT THE STYLESHEET. Leaflet's own rules outrank a bare
     // class -- `.leaflet-bar a`, `.leaflet-touch .leaflet-bar` -- so the only
     // way to know the default is gone is to read what the engine resolved.

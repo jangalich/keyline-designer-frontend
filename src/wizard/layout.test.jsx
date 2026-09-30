@@ -1963,6 +1963,14 @@ describeIf('the attribution, at four viewport heights', () => {
   /** The app's own page, with the basemap's tiles refused. */
   async function openApp(height) {
     const page = await browser.newPage({ viewport: { width: 1280, height } })
+    // A RETURNING PERSON. On a first arrival the orientation gate
+    // (TutorialGate.jsx) mounts no chrome -- no rail, no bar -- until its
+    // start button, so the gap under test does not exist yet. The gate's own
+    // record, and step cards off so none opens over the corner.
+    await page.addInitScript(() => {
+      window.localStorage.setItem('kd.tutorial.seen', JSON.stringify(['orientation']))
+      window.localStorage.setItem('kd.tutorial.auto', JSON.stringify(false))
+    })
     await page.route('**/server.arcgisonline.com/**', (route) => route.abort())
     await page.goto(server.resolvedUrls.local[0], { waitUntil: 'load' })
     await page.waitForSelector('.leaflet-control-attribution')

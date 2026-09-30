@@ -212,16 +212,20 @@ afterEach(async () => {
    =========================================================================== */
 
 describe('1. auto-open', () => {
-  it('opens once, with no dismissal on record, after the tiles paint and not before', async () => {
+  it('never opens by itself: the tiles paint and the deck stays shut until the help control', async () => {
+    // THE DECK STOPPED AUTO-OPENING WITH THE ORIENTATION GATE (TutorialGate).
+    // A first arrival meets the gate's card, and after it the step's own card;
+    // the deck is what the help control opens where a step has none. So a
+    // paint with no dismissal on record opens nothing here.
     const ui = await renderShell()
-
-    // NOT ON MOUNT. Nothing has painted; there is nothing to teach over.
+    expect(ui.dialog()).toBeNull()
+    await ui.paintTiles()
     expect(ui.dialog()).toBeNull()
 
-    // AND NOT BY SCROLLING THE PAGE TO ITSELF. Taking focus must not drag a
-    // reader at the top of the page down to the map.
+    // AND NOT BY SCROLLING THE PAGE TO ITSELF. Opened by hand, it takes focus
+    // without dragging a reader at the top of the page down to the map.
     const focus = vi.spyOn(window.HTMLElement.prototype, 'focus')
-    await ui.paintTiles()
+    await ui.click('tutorial-help')
     expect(ui.dialog()).not.toBeNull()
     expect(focus).toHaveBeenCalled()
     for (const call of focus.mock.calls) expect(call[0]).toEqual({ preventScroll: true })
@@ -229,22 +233,16 @@ describe('1. auto-open', () => {
     // At card 1.
     expect(ui.title()).toBe(COPY[0].title)
 
-    // Closing writes the preference, beside the session id's key.
+    // Closing still writes the old key, which nothing reads as a reason now.
     await ui.click('tutorial-close')
     expect(ui.dialog()).toBeNull()
     expect(TUTORIAL_DISMISSED_KEY).toBe('keyline.tutorial.dismissed')
     expect(window.localStorage.getItem(TUTORIAL_DISMISSED_KEY)).not.toBeNull()
 
-    // ONCE. Another paint in the same page does not bring it back.
+    // Another paint in the same page does not bring it back.
     await ui.paintTiles()
     expect(ui.dialog()).toBeNull()
     await ui.unmount()
-
-    // Nor a fresh mount on a later visit: the key is the memory.
-    const again = await renderShell()
-    await again.paintTiles()
-    expect(again.dialog()).toBeNull()
-    await again.unmount()
   })
 
   it('does not auto-open when the dismissal key is set', async () => {
