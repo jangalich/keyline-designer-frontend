@@ -10,6 +10,7 @@ import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider } from './wizard/WizardCursor.jsx'
 import { TutorialReady } from './tutorial/TutorialContext.jsx'
 import { GATED_ADDRESS_PLACEHOLDER, OrientationCard, useTutorialGate } from './tutorial/TutorialGate.jsx'
+import ReportSamples from './ReportSamples.jsx'
 // ?react is vite-plugin-svgr: the asset becomes a React component and lands
 // inline in the DOM. It has to be inline — the file draws with
 // stroke="currentColor", which resolves against .contour-bg's own colour only
@@ -292,21 +293,10 @@ function Designer() {
               closes with your layout drawn over an aerial photograph, and the figures
               behind each decision you made.
             </p>
-            <div className="sample-row">
-              <figure className="sample">
-                <p className="sample-slot">[ sample page — image to come ]</p>
-                <figcaption className="eyebrow">I · Site overview</figcaption>
-              </figure>
-              <figure className="sample">
-                <p className="sample-slot">[ sample page — image to come ]</p>
-                <figcaption className="eyebrow">III · Landform</figcaption>
-              </figure>
-              <figure className="sample">
-                <p className="sample-slot">[ sample page — image to come ]</p>
-                <figcaption className="eyebrow">VIII · The layout</figcaption>
-              </figure>
-            </div>
-            <p className="sample-note">[ sample property caption — to come ]</p>
+            {/* THREE PAGES FROM A REAL REPORT, and the maximised view a press
+                on one opens. The pages, their captions and the note under
+                them are ReportSamples' own; see its docblock. */}
+            <ReportSamples />
           </section>
 
           <section className="section shell shell--prose">

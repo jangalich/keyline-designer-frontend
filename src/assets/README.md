@@ -53,3 +53,63 @@ python3 scripts/generate_contour_background.py  # fully offline; writes the SVG
 The generator emits 10/20/40 ft at several tolerances plus previews at real
 background conditions. 40 ft at 5 m was chosen by looking at those previews;
 the intermediate files are not committed.
+
+## `report/` — sample pages for the "The report" section
+
+Three pages of a real report, rendered once from the PDF and committed. Not
+regenerated at build time and not produced by the app.
+
+| | |
+| --- | --- |
+| Source | `site-data-report__6_.pdf`, 25 pages, generated 30 September 2026 for the author's own property in Allegheny County, Pennsylvania, with every data source answering |
+| Pages | 3 (II · Climate), 11 (IV · Water & hydrology, continued), 19 (VIII · Design: the layout) |
+| Full render | 1275 × 1650 px — 150 dpi of a US Letter page |
+| Thumbnail | 480 × 621 px, Lanczos from the full render |
+| Renderer | PyMuPDF (MuPDF 1.28), RGB, no alpha |
+
+**Use that file; do not regenerate the report to refresh these.** Earlier
+renders had failed sources showing "Unavailable" in the figures.
+
+### Encoding
+
+WebP throughout. The two line-art pages are smaller lossless than lossy at
+any quality that keeps their type crisp; the photograph page is lossy.
+
+| File | Encoding | Size |
+| --- | --- | ---: |
+| `page-03-climate.webp` | lossless | 60 KB |
+| `page-11-water.webp` | lossless | 88 KB |
+| `page-19-layout.webp` | lossy, q90 | 247 KB |
+| `page-03-climate-thumb.webp` | lossy, q85 | 16 KB |
+| `page-11-water-thumb.webp` | lossy, q85 | 29 KB |
+| `page-19-layout-thumb.webp` | lossy, q85 | 37 KB |
+
+Only the thumbnails load with the section (82 KB, lazily); a full page loads
+when it is maximised.
+
+### Why these three
+
+They show different things, which matters more than three good-looking
+pages: a chart, a dense data page, and the photographic deliverable. Three
+table pages would argue much less. See `src/ReportSamples.jsx`.
+
+### Regenerating
+
+```python
+import pymupdf
+from PIL import Image
+doc = pymupdf.open('site-data-report__6_.pdf')
+for n, name, kw in [(3, 'climate', dict(lossless=True)), (11, 'water', dict(lossless=True)), (19, 'layout', dict(quality=90))]:
+    page = doc[n - 1]
+    z = 1275 / page.rect.width
+    pix = page.get_pixmap(matrix=pymupdf.Matrix(z, z), alpha=False, colorspace=pymupdf.csRGB)
+    full = Image.frombytes('RGB', (pix.width, pix.height), pix.samples)
+    full.save(f'page-{n:02d}-{name}.webp', 'WEBP', method=6, **kw)
+    full.resize((480, 621), Image.LANCZOS).save(f'page-{n:02d}-{name}-thumb.webp', 'WEBP', quality=85, method=6)
+```
+
+### The footers
+
+Each page's footer carries the parcel's centroid coordinates, because the
+frontend sends no property label. That is locatable, and it was kept
+deliberately when these were cut; the caption already says whose land it is.
