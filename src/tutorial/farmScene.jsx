@@ -32,7 +32,8 @@
  * points) and the first LINE layer (farm tracks); the later steps' cards are
  * expected to draw on these rather than add their own. Trees adds the tree
  * zones, on the second crop's hatch: production's, mirrored, at the same
- * pitch and weight (see CROP_HATCHES), over three settled commitments.
+ * pitch and weight (see CROP_HATCHES), over three settled commitments. Fencing
+ * adds the fence lines, the only geometry its card brings, over all of them.
  *
  * NO COLOUR LIVES HERE. Every fill and stroke is a class in App.css's
  * tutorial section, read from index.css's tokens.
@@ -702,6 +703,141 @@ export function SceneTreeZones({ hatch, zones = TREE_ZONES, ...props }) {
     <Layer id="tree-zones" {...props}>
       {zones.map((zone) => (
         <TreeZone key={zone.id} hatch={hatch} {...zone} />
+      ))}
+    </Layer>
+  )
+}
+
+/* ===========================================================================
+   FENCES -- the fencing step's mark, as the map draws it
+   =========================================================================== */
+
+/**
+ * THE THREE FENCE LINES, one per candidate type the fencing step tabs, in
+ * the order the backend lists them (fencing.py, CANDIDATE_FENCE_TYPES).
+ * `fenceType` is the wire key; `treatment` is the map's for all three -- the
+ * `fence` row of the mark table, a dashed --fence line -- so a card and a
+ * test can hold the scene to the map rather than to itself.
+ *
+ * EACH FENCE HAS TWO GEOMETRIES, AS ON THE MAP: `ring`, the fence itself --
+ * a closed loop -- and `drawn`, the line that is drawn for it. The backend
+ * ships the second as a display-only line (fence_display_geometry.py), and
+ * the rule it follows is the one this data follows:
+ *
+ *   THE PERIMETER IS THE HULL OF WHAT IS COMMITTED, THE ZONE FENCES
+ *   INCLUDED. find_boundary_fencing() unions each zone's fence polygon into
+ *   the developed footprint, takes the convex hull and clips it to the
+ *   parcel. So where a zone sits at the outer edge -- the water area on the
+ *   south-west, Zone 1 on the north-east -- the perimeter runs along that
+ *   zone's own fence. Here it is clipped 4.25 units inside the parcel rather
+ *   than to it, so the fence reads apart from the boundary at 380px.
+ *
+ *   ONE LINE WHERE TWO WOULD RUN SIDE BY SIDE. The perimeter is drawn whole
+ *   and never trimmed. Each zone fence is drawn only where it is farther
+ *   than FENCE_COINCIDENCE from every other fence: the stretch the perimeter
+ *   already draws is not drawn twice. What is left of each zone is its
+ *   inner arc, one open line. The ends stop short of the perimeter by the
+ *   tolerance, as the map's do.
+ *
+ * `drawn` was computed from `ring` by exactly that rule (shapely: the
+ * hull, the inset clip, a 0.3 simplify on the perimeter, then each zone's
+ * difference against the buffered others), and fencingCard.test.jsx holds
+ * the result to the rule, so an edit to one without the other fails.
+ *
+ * THE PERIMETER IS NOT THE PARCEL. On the south and east it cuts well
+ * inside, leaving open ground between fence and property line. THAT GAP IS
+ * WHAT THE FENCING CARD TEACHES. Never compute it from PARCEL.
+ */
+export const FENCE_COINCIDENCE = 6
+
+const PERIMETER =
+  'M 100 71 L 106 112 L 127 192.5 L 130.5 199 L 133.5 202 L 137 205 L 145 209.5 L 154 212 L 162.5 213 L 172 212 ' +
+  'L 180 210 L 187 206 L 226 174 L 295.5 115 L 302 108 L 287 82 L 278.5 77 L 268.5 72.5 L 243 65 L 148 61 Z'
+
+export const FENCES = Object.freeze(
+  [
+    ['boundary', 'boundary', PERIMETER, PERIMETER],
+    [
+      'water',
+      'water_zone_exclusion',
+      'M 130 168 C 146 152, 182 154, 194 170 C 206 186, 196 208, 172 212 C 148 216, 128 204, 126 188 C 125 178, 126 172, 130 168 Z',
+      'M 127.5 171 L 130.5 167.5 L 135.5 163.5 L 140.5 161 L 147 159 L 153.5 157.5 L 160.5 157 L 168 157.5 L 174.5 158.5 ' +
+        'L 180 160.5 L 185.5 162.5 L 189.5 165.5 L 193.5 169 L 196.5 173.5 L 198 178.5 L 199 183.5 L 199 188.5',
+    ],
+    [
+      'tree',
+      'tree_zone_exclusion',
+      'M 210 70 C 240 60, 276 71, 296 89 C 310 101, 300 120, 278 122 C 255 125, 236 116, 220 109 C 204 102, 200 82, 210 70 Z',
+      'M 278 122 L 270.5 122.5 L 263.5 122.5 L 256.5 121.5 L 249 120 L 240 117.5 L 231 113.5 L 219 108.5 L 214 105.5 ' +
+        'L 210.5 102 L 207.5 98 L 205.5 93 L 204.5 87.5 L 205 82 L 206 77 L 209 71.5 L 210 70 L 211 69.5',
+    ],
+  ].map(([id, fenceType, ring, drawn]) => Object.freeze({ id, fenceType, treatment: 'fence', mark: 'line', ring, drawn }))
+)
+
+/** A reveal-mask id prefix for one diagram; see useHatchId. */
+export function useFenceRevealId() {
+  return useHatchId('farm-fence-reveal')
+}
+
+/**
+ * THE FENCE LAYER: one dashed line per fence -- its `drawn` line -- and
+ * nothing else is painted.
+ * No casing -- the map's committed band drops it, and on flat stock there is
+ * no photograph for a casing to lift the line off.
+ *
+ * `reveal`, when given, is an id prefix, and each fence is then drawn through
+ * a MASK of its own: a solid stroke along the fence's drawn line, wide enough
+ * to clear the dashed line, normalised to `pathLength="1"`. A card uncovers a
+ * fence by running that stroke's dash offset from 1 to 0. The mask is never
+ * painted, so before a fence is uncovered the ground under it -- stock, a
+ * hatch, the field wash, canopy -- shows through exactly as it was, and the
+ * visible line's own dash pattern never moves.
+ *
+ * WHY A MASK, AND NOT THE TWO OBVIOUS WAYS. The visible line's dash offset is
+ * taken: its dasharray is the fence's dash, so running the offset slides the
+ * dashes along a line already drawn in full. And a ground-coloured stroke
+ * laid over the line and slid away works on bare stock only; over a hatch or
+ * the wash it reads as a pale band that arrives before the fence.
+ *
+ * A fence may carry a `className`, and a `revealClassName` for its mask's
+ * stroke, so a card can time each one without a compound selector.
+ */
+export function SceneFences({ fences = FENCES, reveal, ...props }) {
+  return (
+    <Layer id="fences" {...props}>
+      {reveal ? (
+        <defs>
+          {fences.map(({ id, drawn, revealClassName }) => (
+            <mask
+              key={id}
+              id={`${reveal}-${id}`}
+              className="farm-scene__fence-mask"
+              maskUnits="userSpaceOnUse"
+              x="0"
+              y="0"
+              width={SCENE_WIDTH}
+              height={SCENE_HEIGHT}
+            >
+              <path
+                className={['farm-scene__fence-reveal', revealClassName].filter(Boolean).join(' ')}
+                d={drawn}
+                pathLength="1"
+              />
+            </mask>
+          ))}
+        </defs>
+      ) : null}
+      {fences.map(({ id, fenceType, treatment, mark, drawn, className }) => (
+        <path
+          key={id}
+          className={['farm-scene__fence', className].filter(Boolean).join(' ')}
+          data-fence={id}
+          data-fence-type={fenceType}
+          data-treatment={treatment}
+          data-mark={mark}
+          d={drawn}
+          mask={reveal ? `url(#${reveal}-${id})` : undefined}
+        />
       ))}
     </Layer>
   )

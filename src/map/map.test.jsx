@@ -55,6 +55,7 @@ import {
   definitionMap,
   registryProposalFeatures,
 } from '../wizard/stepDefinitions'
+import { AUTO_KEY, ORIENTATION_ID, SEEN_KEY } from '../tutorial/prefs.js'
 import { resetStepCatalog } from '../wizard/stepCatalog.jsx'
 import WizardShell from '../wizard/WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from '../wizard/WizardCursor.jsx'
@@ -1190,6 +1191,13 @@ describe('8. the production-zone spike', () => {
       // page reaches that endpoint; installFetch throws on an unrouted
       // request, so a survivor would fail here rather than pass quietly.
     ])
+
+    // A RETURNING PERSON: the orientation gate is behind them and the step
+    // cards are off. On a first arrival App.jsx mounts no wizard chrome at all
+    // until the gate's start button (TutorialGate.jsx), and this test is about
+    // the wizard, not the entry -- gate.test.jsx owns that.
+    window.localStorage.setItem(SEEN_KEY, JSON.stringify([ORIENTATION_ID]))
+    window.localStorage.setItem(AUTO_KEY, JSON.stringify(false))
 
     const App = (await import('../App.jsx')).default
     globalThis.IS_REACT_ACT_ENVIRONMENT = true

@@ -117,9 +117,9 @@ describe('1. the rules, as a function', () => {
     expect(shouldAutoFire({ ...pressed, somethingOpen: true })).toBe(false)
   })
 
-  it('does not fire for a step with no card -- and the shipped registry carries boundary, landform, water, roads and trees', () => {
+  it('does not fire for a step with no card -- and the shipped registry carries boundary, landform, water, roads, trees and fencing', () => {
     expect(shouldAutoFire({ ...pressed, stepId: 'structures' })).toBe(false)
-    expect(STEP_CARDS.map((card) => card.stepId)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees'])
+    expect(STEP_CARDS.map((card) => card.stepId)).toEqual(['boundary', 'landform', 'water', 'roads', 'trees', 'fencing'])
     expect(shouldAutoFire({ ...pressed, registry: STEP_CARDS, stepId: 'structures' })).toBe(false)
   })
 })
