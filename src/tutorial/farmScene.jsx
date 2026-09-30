@@ -32,7 +32,8 @@
  * points) and the first LINE layer (farm tracks); the later steps' cards are
  * expected to draw on these rather than add their own. Trees adds the tree
  * zones, on the second crop's hatch: production's, mirrored, at the same
- * pitch and weight (see CROP_HATCHES), over three settled commitments.
+ * pitch and weight (see CROP_HATCHES), over three settled commitments. Fencing
+ * adds the fence lines, the only geometry its card brings, over all of them.
  *
  * NO COLOUR LIVES HERE. Every fill and stroke is a class in App.css's
  * tutorial section, read from index.css's tokens.
@@ -702,6 +703,104 @@ export function SceneTreeZones({ hatch, zones = TREE_ZONES, ...props }) {
     <Layer id="tree-zones" {...props}>
       {zones.map((zone) => (
         <TreeZone key={zone.id} hatch={hatch} {...zone} />
+      ))}
+    </Layer>
+  )
+}
+
+/* ===========================================================================
+   FENCES -- the fencing step's mark, as the map draws it
+   =========================================================================== */
+
+/**
+ * THE THREE FENCE LINES, one per candidate type the fencing step tabs, in
+ * the order the backend lists them (fencing.py, CANDIDATE_FENCE_TYPES).
+ * `fenceType` is the wire key; `treatment` is the map's for all three -- the
+ * `fence` row of the mark table, a dashed --fence line -- so a card and a
+ * test can hold the scene to the map rather than to itself.
+ *
+ * THE PERIMETER IS A HULL AROUND WHAT IS COMMITTED, NOT THE PARCEL. It is
+ * the backend's boundary fence: the developed footprint, hulled and clipped
+ * to the parcel. On the north it runs close under the boundary, where the
+ * road and its access point reach it; on the south and east it cuts well
+ * inside, leaving open ground between fence and property line. THAT GAP IS
+ * WHAT THE FENCING CARD TEACHES. Do not move it out to the parcel's edge,
+ * and never compute it from PARCEL: fencingCard.test.jsx holds it apart.
+ *
+ * The water fence rings the committed embankment area; the tree fence rings
+ * Zone 1. Each is a closed loop, as the backend's are.
+ */
+export const FENCES = Object.freeze(
+  [
+    ['boundary', 'boundary', 'M 100 71 L 148 61 L 244 65 L 294 94 L 302 108 L 226 174 L 198 196 L 170 212 L 130 194 L 106 112 Z'],
+    ['water', 'water_zone_exclusion', 'M 130 168 C 146 152, 182 154, 194 170 C 206 186, 196 208, 172 212 C 148 216, 128 204, 126 188 C 125 178, 126 172, 130 168 Z'],
+    ['tree', 'tree_zone_exclusion', 'M 210 70 C 240 60, 276 71, 296 89 C 310 101, 300 120, 278 122 C 255 125, 236 116, 220 109 C 204 102, 200 82, 210 70 Z'],
+  ].map(([id, fenceType, d]) => Object.freeze({ id, fenceType, treatment: 'fence', mark: 'line', d }))
+)
+
+/** A reveal-mask id prefix for one diagram; see useHatchId. */
+export function useFenceRevealId() {
+  return useHatchId('farm-fence-reveal')
+}
+
+/**
+ * THE FENCE LAYER: one dashed line per fence, and nothing else is painted.
+ * No casing -- the map's committed band drops it, and on flat stock there is
+ * no photograph for a casing to lift the line off.
+ *
+ * `reveal`, when given, is an id prefix, and each fence is then drawn through
+ * a MASK of its own: a solid stroke along the fence's own path, wide enough
+ * to clear the dashed line, normalised to `pathLength="1"`. A card uncovers a
+ * fence by running that stroke's dash offset from 1 to 0. The mask is never
+ * painted, so before a fence is uncovered the ground under it -- stock, a
+ * hatch, the field wash, canopy -- shows through exactly as it was, and the
+ * visible line's own dash pattern never moves.
+ *
+ * WHY A MASK, AND NOT THE TWO OBVIOUS WAYS. The visible line's dash offset is
+ * taken: its dasharray is the fence's dash, so running the offset slides the
+ * dashes along a line already drawn in full. And a ground-coloured stroke
+ * laid over the line and slid away works on bare stock only; over a hatch or
+ * the wash it reads as a pale band that arrives before the fence.
+ *
+ * A fence may carry a `className`, and a `revealClassName` for its mask's
+ * stroke, so a card can time each one without a compound selector.
+ */
+export function SceneFences({ fences = FENCES, reveal, ...props }) {
+  return (
+    <Layer id="fences" {...props}>
+      {reveal ? (
+        <defs>
+          {fences.map(({ id, d, revealClassName }) => (
+            <mask
+              key={id}
+              id={`${reveal}-${id}`}
+              className="farm-scene__fence-mask"
+              maskUnits="userSpaceOnUse"
+              x="0"
+              y="0"
+              width={SCENE_WIDTH}
+              height={SCENE_HEIGHT}
+            >
+              <path
+                className={['farm-scene__fence-reveal', revealClassName].filter(Boolean).join(' ')}
+                d={d}
+                pathLength="1"
+              />
+            </mask>
+          ))}
+        </defs>
+      ) : null}
+      {fences.map(({ id, fenceType, treatment, mark, d, className }) => (
+        <path
+          key={id}
+          className={['farm-scene__fence', className].filter(Boolean).join(' ')}
+          data-fence={id}
+          data-fence-type={fenceType}
+          data-treatment={treatment}
+          data-mark={mark}
+          d={d}
+          mask={reveal ? `url(#${reveal}-${id})` : undefined}
+        />
       ))}
     </Layer>
   )
