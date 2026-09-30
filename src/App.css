@@ -341,13 +341,158 @@
   margin: 0;
 }
 
-.sample .sample-slot {
+/* A SLOT FILLED: the page's thumbnail, in a button, because a press on it
+   opens the page at full size (ReportSamples.jsx). The hairline and the paper
+   are the page's own edge against stock; the hover darkens the edge and the
+   cursor says what the press does. No transform: a page is not a card. */
+.sample__open {
+  display: block;
+  width: 100%;
   margin: 0 0 var(--space-2);
+  padding: 0;
+  overflow: hidden;
+  border: var(--hairline);
+  border-radius: var(--radius);
+  background: var(--paper);
+  cursor: zoom-in;
+  transition: border-color 120ms ease;
+}
+
+.sample__open:hover {
+  border-color: var(--ink-muted);
+}
+
+/* The thumbnail fills the button. The aspect ratio is US Letter's, stated so
+   the slot holds its height before the (lazily loaded) image arrives. */
+.sample__thumb {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 612 / 792;
 }
 
 .section .sample-note {
   color: var(--ink-muted);
   font-size: var(--text-sm);
+}
+
+/* --- The maximised page --------------------------------------------------
+   The report overlay's arrangement over the whole viewport rather than the
+   map stage: a dim, and a paper panel with a hairline. The panel is a column
+   of a head and a scroller; the scroller is what shrinks, so the head and its
+   × stay put while the page moves under them.
+
+   THE PANEL'S WIDTH IS THE PAGE'S, AND IT IS SET FOR LEGIBILITY. Three
+   terms:
+
+     100%                     never wider than the screen -- a phone gets a
+                              full-width render that scrolls;
+     max(48rem, fit-height)   on a larger screen, the page fits the screen's
+                              height where that leaves it at least 48rem
+                              wide, and holds 48rem otherwise. 48rem is where
+                              the water page's table figures (8.75pt in the
+                              PDF, the smallest type that has to be read)
+                              render at 11px. 0.7727 is Letter's 8.5/11; the
+                              6rem is the view's padding and the head.
+     80rem                    the render is 1275px wide, and it is not scaled
+                              up past its own pixels on a very large screen.
+
+   NOTHING BELOW NAMES A COLOUR. The dim is --scrim at an opacity. */
+.sample-view {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.sample-view__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  opacity: 0.55;
+}
+
+.sample-view__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, max(48rem, calc((100dvh - 6rem) * 0.7727)), 80rem);
+  max-height: 100%;
+  background: var(--paper);
+  border: var(--hairline);
+  border-radius: var(--radius);
+}
+
+.sample-view__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-bottom: var(--hairline);
+}
+
+.sample-view__title {
+  margin: 0;
+}
+
+/* The way out. The report overlay's ×, in the head's flow rather than
+   absolutely placed, so the title's measure ends before it. */
+.sample-view__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-prose);
+  font-size: var(--text-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sample-view__close:hover {
+  background: var(--stock);
+  color: var(--ink);
+}
+
+/* min-height: 0 is what lets a flex child shrink below its content and
+   scroll; without it the panel grows past the screen instead. The ring is
+   the foundation's, inset so the panel's overflow does not clip it. */
+.sample-view__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.sample-view__scroll:focus-visible {
+  outline-offset: -3px;
+}
+
+/* The page. width/height attributes hold Letter's ratio before the render
+   arrives; the thumbnail (inline, from the component) shows under it, scaled
+   to the same box, until it does. */
+.sample-view__page {
+  display: block;
+  width: 100%;
+  height: auto;
+  background-color: var(--paper);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+@media (max-width: 40rem) {
+  .sample-view {
+    padding: var(--space-2);
+  }
 }
 
 .source-list {
