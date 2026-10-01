@@ -11,6 +11,7 @@ import { WizardCursorProvider } from './wizard/WizardCursor.jsx'
 import { TutorialReady } from './tutorial/TutorialContext.jsx'
 import { GATED_ADDRESS_PLACEHOLDER, OrientationCard, useTutorialGate } from './tutorial/TutorialGate.jsx'
 import ReportSamples from './ReportSamples.jsx'
+import ScaleOfPermanence from './ScaleOfPermanence.jsx'
 // ?react is vite-plugin-svgr: the asset becomes a React component and lands
 // inline in the DOM. It has to be inline — the file draws with
 // stroke="currentColor", which resolves against .contour-bg's own colour only
@@ -307,7 +308,10 @@ function Designer() {
               which you can build. You work through them in that order, so each decision
               rests on the ones that are harder to change.
             </p>
-            <p className="sample-slot">[ Scale of Permanence graphic — to come ]</p>
+            {/* THE EIGHT FACTORS AS A LADDER, each opening to its paragraph.
+                The rungs and their copy are ScaleOfPermanence's own; see its
+                docblock. */}
+            <ScaleOfPermanence />
           </section>
 
           <section className="section shell shell--prose">

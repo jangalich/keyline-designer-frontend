@@ -685,6 +685,14 @@
   --tint-active: 0.22;
   --tint-focused: 0.4;
 
+  /* NEW, AND CARRIED OVER RATHER THAN CHOSEN: the report's terrain colour
+     (site_report.py's TOKENS["terrain"], where it draws the report map's
+     contour lines and slope tints), under the same name and value. On this
+     page it is the Scale of Permanence's tint column, at an opacity that
+     steps down the ladder -- so it is only ever seen as a wash, and the
+     page and the report keep one brown for the ground. */
+  --terrain: #7a5c3a;
+
   /* Pure white, and the only pure white in the system. Map marker halos need
      maximum luminance to stay legible against arbitrary satellite imagery —
      that is a legibility problem, not a palette one, so it does not use
