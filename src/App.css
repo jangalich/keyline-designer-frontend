@@ -635,6 +635,15 @@
   font-size: var(--text-sm);
 }
 
+/* Stands in for the report's vintage table: the claim, without the apparatus. */
+.source-note {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: var(--hairline);
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
+}
+
 /* --- Footer ----------------------------------------------------------------- */
 
 .footer {

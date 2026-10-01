@@ -322,30 +322,61 @@ function Designer() {
             </p>
             <ul className="source-list">
               <li>
-                <strong>USGS 3DEP</strong>
-                <span>LiDAR-derived elevation — slope, flow accumulation, keypoints.</span>
+                <strong>Terrain</strong>
+                <span>
+                  Slope, the way water runs and gathers, and the keypoints, from USGS 3DEP
+                  elevation; existing tree cover from 3DEP lidar canopy height, so standing
+                  woodland is not designed over.
+                </span>
               </li>
               <li>
-                <strong>SSURGO soil survey</strong>
-                <span>USDA soil mapping — drainage class, erodibility, hydric soils.</span>
+                <strong>Soil</strong>
+                <span>
+                  How each soil drains, how easily it erodes, and where it stays wet, from the
+                  USDA NRCS SSURGO soil survey.
+                </span>
               </li>
               <li>
-                <strong>NHD hydrography</strong>
-                <span>Mapped streams, water bodies, and floodplain extents.</span>
+                <strong>Water</strong>
+                <span>
+                  The streams and ponds on and around the land and how much ground drains to
+                  them, from USGS NHD and NHDPlus; mapped wetlands from the USFWS National
+                  Wetlands Inventory; and where floods reach, from FEMA flood maps.
+                </span>
               </li>
               <li>
-                <strong>Climate reanalysis</strong>
-                <span>Rainfall, temperature, and growing season for the location.</span>
+                <strong>Climate</strong>
+                <span>
+                  Rainfall, temperature, and growing season from Daymet, corrected against NOAA
+                  climate normals from nearby stations; the heavy storms that size swales and
+                  spillways from NOAA Atlas 14; wind and evaporation from NASA POWER; and the
+                  local record of hail, damaging wind, and tornadoes from NOAA storm reports.
+                </span>
               </li>
               <li>
-                <strong>Canopy height</strong>
-                <span>Existing tree cover, so standing woodland is not designed over.</span>
+                <strong>Land cover and trees</strong>
+                <span>
+                  What covers the ground now — field, pasture, woods, pavement — from USGS
+                  NLCD, and which kinds of forest grow there from USFS forest type mapping.
+                </span>
               </li>
               <li>
-                <strong>Satellite imagery</strong>
-                <span>Current ground conditions under the drawn boundary.</span>
+                <strong>Geology</strong>
+                <span>
+                  The bedrock beneath the soil, from the USGS State Geologic Map Compilation.
+                </span>
+              </li>
+              <li>
+                <strong>Imagery and roads</strong>
+                <span>
+                  Aerial photographs of the land as it looks today from USDA NAIP, and the
+                  roads that reach it from Census TIGER/Line.
+                </span>
               </li>
             </ul>
+            <p className="source-note">
+              Every report lists the version and retrieval date of each source it used.
+            </p>
           </section>
 
           <section className="section shell shell--prose">
@@ -374,7 +405,7 @@ function Designer() {
         </main>
 
         <footer className="footer shell shell--wide">
-          <p>Keyline Designer — conceptual planning from public data.</p>
+          <p>Keyline Designer — a layout planning tool for small farms</p>
         </footer>
       </div>
     </>
