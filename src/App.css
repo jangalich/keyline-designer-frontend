@@ -311,22 +311,10 @@
 
 /* Body copy, not a caption — same reasoning as .hero__subhead. Size carries
    the lede's prominence. --ink-muted stays only for genuinely secondary
-   text: the footer, the sample slots and their captions. */
+   text: the footer and the sample pages' captions. */
 .section__lede {
   font-size: var(--text-lg);
   color: var(--ink);
-}
-
-/* A marked slot, not a placeholder image — an <img> with no src is a broken
-   image, and a grey box pretending to be a photo reads as finished work. */
-.sample-slot {
-  border: 1px dashed var(--rule);
-  border-radius: var(--radius);
-  padding: var(--space-8) var(--space-5);
-  text-align: center;
-  color: var(--ink-muted);
-  font-size: var(--text-sm);
-  background: var(--paper);
 }
 
 /* Three report pages side by side, each captioned with its section. */
@@ -374,6 +362,132 @@
 .section .sample-note {
   color: var(--ink-muted);
   font-size: var(--text-sm);
+}
+
+/* --- The Scale of Permanence ---------------------------------------------
+   An expandable ladder (ScaleOfPermanence.jsx). Each rung's header row is a
+   button: a tint, the number, the name and the spine. The paragraph opens
+   under it, indented to the name's edge.
+
+   THE TINT IS --terrain AT AN OPACITY, set per rung from the component (0.92
+   down to 0.13), so the column darkens toward the permanent end. It lives
+   INSIDE the button and stretches to the button's height and no further: an
+   open rung's paragraph grows below it, and the column stays eight even
+   steps however many rungs are open. permanence.browser.test.jsx measures it
+   with three open.
+
+   NO ANIMATION. A rung opens in one frame, so there is nothing for
+   prefers-reduced-motion to switch off; the hover's colour change is the
+   only transition, and the foundation's reduced-motion rule covers it. */
+.permanence {
+  --permanence-tint: var(--space-3);
+  --permanence-number: 1.5rem;
+  --permanence-gap: var(--space-4);
+}
+
+/* The axis labels. Specific enough to beat `.section p`'s margins. */
+.permanence > .permanence__axis {
+  margin: 0;
+  padding-block: var(--space-2);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  letter-spacing: 0.12em;
+  color: var(--ink-muted);
+}
+
+.permanence__ladder {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-bottom: var(--hairline);
+}
+
+.permanence__rung {
+  border-top: var(--hairline);
+}
+
+/* The heading only carries the button into the outline; the type is the
+   spans' own. */
+.permanence__heading {
+  font: inherit;
+}
+
+.permanence__head {
+  display: grid;
+  grid-template-columns: var(--permanence-tint) var(--permanence-number) 1fr;
+  column-gap: var(--permanence-gap);
+  align-items: baseline;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Inset so the ring is not clipped by the hairlines either side. */
+.permanence__head:focus-visible {
+  outline-offset: -2px;
+}
+
+.permanence__tint {
+  align-self: stretch;
+  background: var(--terrain);
+}
+
+.permanence__number {
+  padding-block: var(--space-3);
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.permanence__label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-block: var(--space-3);
+}
+
+.permanence__name {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  color: var(--ink);
+  transition: color 120ms ease;
+}
+
+.permanence__head:hover .permanence__name {
+  color: var(--oxide);
+}
+
+.permanence__spine {
+  font-family: var(--font-prose);
+  font-size: var(--text-base);
+  line-height: 1.45;
+  color: var(--ink-muted);
+}
+
+/* Indented to the name's edge, so the tint column stays clear under an open
+   rung.
+
+   NO VERTICAL PADDING ON THE BODY ITSELF. A closed body is
+   `hidden="until-found"`, which Chromium lays out as content-visibility:
+   hidden -- the contents take no space but the box's own padding still does,
+   and a bottom pad here left a band under every closed rung's tint. The
+   space under an open paragraph is the paragraph's margin, which goes with
+   it. */
+.permanence__body {
+  padding-left: calc(var(--permanence-tint) + var(--permanence-number) + 2 * var(--permanence-gap));
+}
+
+.section .permanence__body p {
+  max-width: var(--measure);
+  margin: 0 0 var(--space-4);
+  font-family: var(--font-prose);
+  color: var(--ink);
 }
 
 /* --- The maximised page --------------------------------------------------
