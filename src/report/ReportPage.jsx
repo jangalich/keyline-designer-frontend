@@ -136,7 +136,8 @@ export const KEY_FIGURES = Object.freeze([
   }),
 ])
 
-export const FIGURES_HEADING = 'Four figures you will not find on the map'
+export const FIGURES_HEADING = 'What the report adds to what you have already designed'
+export const FIGURES_SUBHEAD = 'Some examples:'
 
 /** 3. THE USER'S OWN PAGES. Said plainly: three of twenty-four, theirs, free. */
 export const OWN_PAGES_HEADING = 'Three of its pages, from your land'
@@ -413,11 +414,14 @@ export default function ReportPage() {
           </p>
         ))}
 
-        {/* 2. Four named figures. */}
+        {/* 2. What the report adds: four named figures as examples. */}
         <section className="report-page__section" aria-labelledby={`${titleId}-figures`}>
           <h2 className="report-page__heading" id={`${titleId}-figures`}>
             {FIGURES_HEADING}
           </h2>
+          <p className="report-page__subhead" data-testid="report-figures-subhead">
+            {FIGURES_SUBHEAD}
+          </p>
           <ul className="report-page__figures" data-testid="report-figures">
             {KEY_FIGURES.map((figure) => (
               <li key={figure.id} className="report-page__figure" data-figure={figure.id}>

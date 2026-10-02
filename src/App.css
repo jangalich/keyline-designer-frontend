@@ -2856,6 +2856,14 @@
    there. The pending frames hold Letter's ratio at the slot's width so the
    page below does not jump when the images land; the line under them is the
    whole of the wait's apparatus. */
+.report-page__subhead {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-prose);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
 .report-page__own-body {
   margin: 0 0 var(--space-4);
   font-family: var(--font-prose);
