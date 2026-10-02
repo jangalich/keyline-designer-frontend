@@ -2024,7 +2024,7 @@ export function SessionProvider({ children, proposalFeatures, autoResume = true 
    * THE SERVER'S SENTENCE IS CARRIED BUT IS NOT WHAT THE CHROME RENDERS.
    * session_design.WORKING_DATA_EXPIRED is written for a person and is the
    * right thing to keep; the copy on screen is this client's, because the
-   * wording of its own UI is its own. See ReportOverlay.jsx.
+   * wording of its own UI is its own. See report/ReportPage.jsx.
    */
   const reportFailure = useCallback((error) => {
     const expired = error?.session_expired

@@ -1858,10 +1858,15 @@ describeIf('the delivery state', () => {
 
   liveIt('takes a real press and starts the wait', async () => {
     // HIT-TESTABLE IS NOT THE SAME CLAIM AS WIRED -- this file's own
-    // argument, applied to its own new control. The card opens the overlay;
-    // generation is the overlay's action, hit-tested in its turn.
+    // argument, applied to its own new control. The card navigates to the
+    // report page (a layer over the shell, as in App.jsx); generation is
+    // that page's action, hit-tested in its turn.
     await press('report-open')
-    expect(await topAt('report-generate'), 'the overlay action is topmost').toMatchObject({ hits: true })
+    await page.waitForSelector('[data-testid="report-generate"]')
+    // The action is the foot of a page that scrolls; a person reads down to
+    // it. Brought into view, as reading does, before it is hit-tested.
+    await page.$eval('[data-testid="report-generate"]', (el) => el.scrollIntoView({ block: 'center' }))
+    expect(await topAt('report-generate'), 'the report page\'s action is topmost').toMatchObject({ hits: true })
     await press('report-generate')
     await page.waitForFunction(
       () => window.__probe.state.report.status !== 'idle',
@@ -1876,7 +1881,7 @@ describeIf('the delivery state', () => {
     expect(['working', 'ready', 'failed']).toContain(report.status)
     expect(
       await evaluate(() => Boolean(document.querySelector('[data-testid="report-action"]'))),
-      'and the overlay action is still on screen whatever happened'
+      'and the page\'s action row is still on screen whatever happened'
     ).toBe(true)
   })
 })

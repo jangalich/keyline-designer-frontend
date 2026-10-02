@@ -20,6 +20,8 @@
  *   GET    /api/sessions/{id}/steps/{step}/layers     -> 200 step payload
  *   POST   /api/sessions/{id}/steps/{step}/score      -> 200 {feature}
  *   POST   /api/sessions/{id}/report                  -> 202 {job_id, status}
+ *   GET    /api/sessions/{id}/landform-pages          -> 200 {pages: [...]} (the user's own
+ *                                                        Landform pages, rendered on first call)
  *   GET    /api/reports/{id}                          -> 200 application/pdf
  *   GET    /api/jobs/{id}                             -> 200 {status, result|error, progress?}
  *                                                        (result: {payload, document}
@@ -488,6 +490,25 @@ export function generateReport(sessionId, { propertyLabel } = {}, { signal } = {
 }
 
 /**
+ * The user's own Landform pages: section III of the report, generated for
+ * this session from the data it already holds, as a manifest of page images
+ * (landform_pages.py). Synchronous -- the server renders on the first call,
+ * about two seconds, and serves from memory after -- so there is no job to
+ * poll and nothing here knows about one.
+ *
+ * NO REPORT-LAYER FETCH BEHIND IT, which is the property that makes it fast
+ * and unfailable on arrival; the one way it can fail is a session the server
+ * has let go whose elevation data must be fetched again, which comes back as
+ * a 502 (ApiError) with one sentence, and the page shows its own.
+ *
+ * Each page's `url` and `thumb_url` arrive RELATIVE, like a report's
+ * download_url; landformPageUrl() below joins them.
+ */
+export function getLandformPages(sessionId, { signal } = {}) {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}/landform-pages`, { signal })
+}
+
+/**
  * The absolute URL for a report's `download_url`, which arrives RELATIVE.
  *
  * WHY THE JOIN IS HERE AND NOT AT THE LINK. The backend serves
@@ -507,6 +528,9 @@ export function reportDownloadUrl(downloadUrl) {
   if (/^https?:\/\//i.test(downloadUrl)) return downloadUrl
   return `${API_URL}${downloadUrl}`
 }
+
+/** A Landform page's `url` / `thumb_url`, joined the way a download URL is. */
+export const landformPageUrl = reportDownloadUrl
 
 /**
  * A document's boundary as Leaflet [lat, lng] points.

@@ -1,7 +1,7 @@
 /**
  * report.test.jsx
  *
- * THE DELIVERY STATE AND THE REPORT OVERLAY: WHEN THEY EXIST, WHAT PRESSING
+ * THE DELIVERY STATE AND THE REPORT PAGE: WHEN THEY EXIST, WHAT PRESSING
  * THEM DOES, AND WHAT THEY SAY WHEN THE REPORT CANNOT BE MADE.
  *
  * The report is the one action in this app that is about the SESSION rather
@@ -22,16 +22,18 @@
  *
  * WHAT IS MOCKED IS THE WIRE, AND ONLY THE WIRE. rail.test.jsx's arrangement:
  * a `globalThis.fetch` that answers the routes the store calls, a real
- * SessionProvider, the real WizardShell, the real step definitions. Every
- * document below comes INTO the store through its own resume path, so what is
- * asserted is what the rail renders from a document the store actually
- * hydrated -- not from a state a test reached in and wrote.
+ * SessionProvider, the real WizardShell, the real step definitions, and the
+ * real report page mounted the way App.jsx mounts it -- as a layer over the
+ * shell whenever the location is /report. Every document below comes INTO
+ * the store through its own resume path, so what is asserted is what the
+ * rail renders from a document the store actually hydrated -- not from a
+ * state a test reached in and wrote.
  *
  * THE CASES:
  *
  *   1. The delivery card renders only when EVERY step is committed.
  *   2. Reopening a MID-CHAIN step removes it -- the cascade is what does it.
- *   3. Generating from the overlay submits, polls, and produces a PDF link.
+ *   3. Generating from the report page submits, polls, and produces a PDF link.
  *   4. The wait is a progress bar drawn from the job's own count: it moves
  *      only when a snapshot says work completed, holds on a stall with its
  *      label, never goes backwards, and stays where it stopped on failure.
@@ -40,13 +42,12 @@
  *   6. A source failure's message does not suggest retrying differently;
  *      a NAMED source (`failed_layer`) is named.
  *   7. The rail's SEVEN ROWS are unchanged, and nothing hangs below them.
- *   8. The overlay: its contents, and its keyboard -- focus in, Tab held,
- *      Escape out, focus back to the button -- and dismissing it generates
- *      nothing.
- *
- * THE OVERLAY IS PORTALLED into the map stage, or <body> where there is no
- * stage -- which is the case here -- so the queries below read the document
- * rather than the shell's own container.
+ *   8. The report page: the delivery card navigates to it; what it says, in
+ *      what order; the user's own Landform pages come with NO report POST
+ *      and no job; going back is the browser's back, with focus returned;
+ *      a report under way keeps running while the person is back on the
+ *      map. The route's own resume path and the layering over the map are
+ *      report/route.test.jsx's, over the whole App.
  */
 
 import React from 'react'
@@ -74,13 +75,21 @@ import {
   PROGRESS_STALL_POLLS,
   progressPace,
 } from '../session/jobs'
-import {
-  CLOSE_LABEL,
-  OVERLAY_TITLE,
+import ReportPage, {
+  BACK_LABEL,
+  CONTENTS_HEADING,
+  FIGURES_HEADING,
+  KEY_FIGURES,
+  OWN_PAGES_BODY,
+  OWN_PAGES_HEADING,
+  OWN_PAGES_WAITING,
+  PAGE_TITLE,
   REPORT_CONTENTS,
   REPORT_FAILURE_COPY,
   REPORT_LABEL,
-} from './shell/ReportOverlay.jsx'
+} from '../report/ReportPage.jsx'
+import { resetLandformPages } from '../report/landformPages.js'
+import { REPORT_PATH, isReportPath, useLocation } from '../router.jsx'
 import { DELIVERY_LABEL, DELIVERY_TITLE } from './shell/DeliveryPanel.jsx'
 import { AUTO_KEY } from '../tutorial/prefs.js'
 
@@ -100,6 +109,27 @@ const API = API_URL
 const SESSION_ID = 'sess-report'
 const REPORT_ID = 'rpt-1'
 const DOWNLOAD_PATH = `/api/reports/${REPORT_ID}`
+const PAGES_PATH = `/api/sessions/${SESSION_ID}/landform-pages`
+
+/** The manifest GET .../landform-pages answers (landform_pages.py). */
+function pagesManifest() {
+  return {
+    session_id: SESSION_ID,
+    generated_on: '2026-10-02',
+    section: { number: 'III', name: 'Landform' },
+    pages: [1, 2, 3].map((number) => ({
+      number,
+      label: number === 1 ? 'III · Landform' : 'III · Landform, continued',
+      alt: `Landform, page ${number}`,
+      url: `${PAGES_PATH}/${number}`,
+      thumb_url: `${PAGES_PATH}/${number}?size=thumb`,
+      width: 1275,
+      height: 1650,
+      thumb_width: 480,
+      thumb_height: 621,
+    })),
+  }
+}
 
 function featureCollection(...ids) {
   return {
@@ -200,6 +230,8 @@ function installFetch({
   jobSnapshots = [],
   reportAccepted = { job_id: 'job-r1', status: 'running' },
   reportStatus = 202,
+  // THE FREE PAGES' ROUTE: the manifest, or a status to fail with.
+  pagesStatus = 200,
 } = {}) {
   const calls = []
   let polls = 0
@@ -225,6 +257,12 @@ function installFetch({
       const stepId = url.pathname.split('/').at(-2)
       state.document = afterReopen(stepId)
       return { ok: true, status: 200, json: async () => state.document }
+    }
+    if (method === 'GET' && url.pathname === PAGES_PATH) {
+      if (pagesStatus !== 200) {
+        return { ok: false, status: pagesStatus, json: async () => ({ error: 'could not be made right now' }) }
+      }
+      return { ok: true, status: 200, json: async () => pagesManifest() }
     }
     if (method === 'POST' && url.pathname === `/api/sessions/${SESSION_ID}/report`) {
       if (reportStatus !== 202) {
@@ -257,6 +295,17 @@ function installFetch({
    The render
    =========================================================================== */
 
+/**
+ * THE REPORT PAGE, MOUNTED AS App.jsx MOUNTS IT: a layer over the shell
+ * whenever the location is /report, under the same providers. The shell is
+ * not unmounted by it -- which is the arrangement the whole route rests on,
+ * and route.test.jsx proves over the real App with the map.
+ */
+function RouteLayer() {
+  const { pathname } = useLocation()
+  return isReportPath(pathname) ? <ReportPage /> : null
+}
+
 async function renderShell() {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   const container = window.document.createElement('div')
@@ -277,6 +326,7 @@ async function renderShell() {
         <WizardCursorProvider definitions={STEP_DEFINITIONS}>
           <Probe />
           <WizardShell />
+          <RouteLayer />
         </WizardCursorProvider>
       </SessionProvider>
     )
@@ -290,7 +340,6 @@ async function renderShell() {
     await session.actions.resume(SESSION_ID)
   })
 
-  // THE DOCUMENT, NOT THE CONTAINER: the overlay is portalled out of it.
   const q = (testid) => window.document.querySelector(`[data-testid="${testid}"]`)
 
   return {
@@ -305,7 +354,7 @@ async function renderShell() {
     rows: () => [...container.querySelectorAll('[data-testid="wizard-order"] > li')],
     reportAction: () => q('delivery'),
     openButton: () => q('report-open'),
-    overlay: () => q('report-dialog'),
+    page: () => q('report-page'),
     generateButton: () => q('report-generate'),
     downloadLink: () => q('report-download'),
     failureNote: () => q('report-failure'),
@@ -315,9 +364,9 @@ async function renderShell() {
         q(testid).click()
       })
     },
-    /** Open the overlay from the delivery card, then press generate in it. */
+    /** Go to the report page from the delivery card, then press generate there. */
     async generate() {
-      if (!q('report-dialog')) {
+      if (!q('report-page')) {
         await React.act(async () => {
           q('report-open').click()
         })
@@ -325,6 +374,21 @@ async function renderShell() {
       await React.act(async () => {
         q('report-generate').click()
       })
+    },
+    /** The page's own way back: its link, which is the browser's back. */
+    async back() {
+      await React.act(async () => {
+        q('report-back').click()
+      })
+      // jsdom traverses its session history on a timer of its own, a few
+      // milliseconds later; the popstate that follows is what the router
+      // listens for. Waited for, under real or fake timers.
+      for (let i = 0; i < 20 && window.location.pathname === REPORT_PATH; i += 1) {
+        await React.act(async () => {
+          if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(5)
+          else await new Promise((resolve) => setTimeout(resolve, 5))
+        })
+      }
     },
     /** A key, dispatched where focus is, as a keyboard would. */
     async key(key, init = {}) {
@@ -349,6 +413,7 @@ async function renderShell() {
 
 beforeEach(() => {
   resetStepCatalog()
+  resetLandformPages()
   window.localStorage.clear()
   window.history.replaceState({}, '', '/')
 })
@@ -388,8 +453,8 @@ describe('1. the delivery card renders only when every step is committed', () =>
     expect(done.reportAction(), 'the report is offered on a finished design').not.toBeNull()
     expect(done.openButton().textContent).toBe(DELIVERY_LABEL)
     expect(done.reportAction().textContent).toContain(DELIVERY_TITLE)
-    // ONE ACTION, AND IT OPENS; IT DOES NOT GENERATE. Generation runs from
-    // the overlay, one deliberate press further on.
+    // ONE ACTION, AND IT NAVIGATES; IT DOES NOT GENERATE. Generation runs
+    // from the report page, one deliberate press further on.
     expect(done.reportAction().querySelectorAll('button, a')).toHaveLength(1)
     expect(done.generateButton(), 'nothing generates from the card').toBeNull()
     expect(selectDesignIsComplete(done.session.state)).toBe(true)
@@ -512,7 +577,7 @@ describe('2. reopening any step removes it, because the cascade does', () => {
    3. PRESS, POLL, DOWNLOAD
    =========================================================================== */
 
-describe('3. generating from the overlay submits, polls, and produces a downloadable PDF', () => {
+describe('3. generating from the report page submits, polls, and produces a downloadable PDF', () => {
   it('POSTs the session report route, polls the job, and offers the link', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     // TWO `running` SNAPSHOTS BEFORE THE ANSWER, so the real poll loop in
@@ -566,7 +631,7 @@ describe('3. generating from the overlay submits, polls, and produces a download
  * SNAPSHOTS FROM A REAL RUN. Each is a `progress` object exactly as GET
  * /api/jobs returned it on a live warm report of the reference parcel
  * (diagnose_report_progress.py in the backend) -- so what these tests feed
- * the overlay is what the backend sends, not a shape written to suit them.
+ * the page is what the backend sends, not a shape written to suit them.
  */
 const P = Object.freeze({
   unplanned: { fraction: 0.0, percent: 0, completed: 0, total: 0, fetches: { completed: 0, total: 0 }, stage: null, detail: null, failed: false },
@@ -578,7 +643,7 @@ const P = Object.freeze({
   terrain: { fraction: 0.8933, percent: 89, completed: 35, total: 39, fetches: { completed: 21, total: 21 }, stage: 'terrain', detail: null, failed: false },
 })
 
-/** What the overlay's bar says right now. */
+/** What the page's bar says right now. */
 function readBar(ui) {
   const fill = ui.q('report-progress-fill')
   const bar = ui.q('report-progress-bar')
@@ -629,7 +694,7 @@ describe('4. the wait is a progress bar drawn from the job\'s own count', () => 
 
     // NOTHING ELSE EXPLAINS THE WAIT: no cycling phrase, no pulse.
     expect(ui.q('waiting-phrase-report')).toBeNull()
-    expect(ui.overlay().querySelector('.chrome-banner__pulse')).toBeNull()
+    expect(ui.page().querySelector('.chrome-banner__pulse')).toBeNull()
     await ui.unmount()
   })
 
@@ -1056,113 +1121,232 @@ describe('7. the rail is unchanged -- no eighth row, and nothing below the rows'
 })
 
 /* ===========================================================================
-   8. THE OVERLAY: WHAT IT SAYS, AND THE KEYBOARD
+   8. THE REPORT PAGE: WHERE IT IS, WHAT IT SAYS, AND THE WAY BACK
    =========================================================================== */
 
-describe('8. the overlay', () => {
+describe('8. the report page', () => {
   // NO STEP CARD. A first visit's tutorial card auto-opens on arrival and is
-  // a dialogue of its own, with its own hold on Tab; what is under test here
-  // is this dialogue's. A returning user has the auto-open off.
+  // a dialogue of its own; what is under test here is the page. A returning
+  // user has the auto-open off.
   beforeEach(() => {
     window.localStorage.setItem(AUTO_KEY, JSON.stringify(false))
   })
 
-  it('lists the sections, ends on the design, and names no back matter', async () => {
+  it('is a route the delivery card navigates to, with the session in the query', async () => {
+    const wire = installFetch({ document: allCommitted() })
+    const ui = await renderShell()
+    expect(ui.page(), 'no page until it is asked for').toBeNull()
+    const depth = window.history.length
+
+    await ui.press('report-open')
+
+    // THE URL CHANGED, AND IT CARRIES THE SESSION -- the same query resume
+    // reads, so the page is linkable, survives a refresh and has somewhere
+    // for a payment provider to return to.
+    expect(window.location.pathname).toBe(REPORT_PATH)
+    expect(new URLSearchParams(window.location.search).get('session')).toBe(SESSION_ID)
+    expect(window.history.length, 'a pushed entry, so back works').toBe(depth + 1)
+    expect(window.history.state).toEqual({ from: 'wizard' })
+    expect(ui.page(), 'the page is up').not.toBeNull()
+    expect(window.document.title).toContain(PAGE_TITLE)
+
+    // THE SHELL IS STILL MOUNTED UNDER IT: the card is still in the tree.
+    expect(ui.reportAction(), 'the wizard chrome was not unmounted').not.toBeNull()
+
+    // NOTHING GENERATED, AND NO JOB: the arrival asked for the free pages
+    // and nothing else of the session.
+    expect(wire.calls.filter((c) => c.method === 'POST')).toHaveLength(0)
+    expect(wire.calls.filter((c) => c.path.startsWith('/api/jobs'))).toHaveLength(0)
+    expect(wire.calls.filter((c) => c.path === PAGES_PATH)).toHaveLength(1)
+    expect(ui.session.state.report.status).toBe('idle')
+    await ui.unmount()
+  })
+
+  it('says what the report is, then four figures, then the user\'s own pages, then the contents, then the action', async () => {
     installFetch({ document: allCommitted() })
     const ui = await renderShell()
     await ui.press('report-open')
+    const page = ui.page()
 
-    const dialog = ui.overlay()
-    expect(dialog, 'the overlay opens').not.toBeNull()
-    expect(dialog.getAttribute('role')).toBe('dialog')
-    expect(dialog.getAttribute('aria-modal')).toBe('true')
-    const title = window.document.getElementById(dialog.getAttribute('aria-labelledby'))
-    expect(title.textContent).toBe(OVERLAY_TITLE)
+    // THE HEADING FIRST, AND FOCUS ON IT.
+    const h1 = page.querySelector('h1')
+    expect(h1.textContent).toBe(PAGE_TITLE)
+    expect(window.document.activeElement, 'focus moves to the page heading').toBe(h1)
 
-    const names = [...dialog.querySelectorAll('dt')].map((dt) => dt.textContent)
-    expect(names).toEqual(REPORT_CONTENTS.map((section) => section.name))
-    // ENDS ON THE DESIGN. The sources-and-methods pages are not listed.
-    expect(names.at(-1)).toBe('The design')
-    const text = dialog.textContent.toLowerCase()
-    for (const absent of ['sources', 'methods', 'references', 'bibliography']) {
-      expect(text, `the overlay does not list "${absent}"`).not.toContain(absent)
+    // THE ORDER, read off the document: lede, figures, own pages, contents, foot.
+    const order = ['report-lede', 'report-figures', 'own-pages', 'report-contents', 'report-action'].map(
+      (id) => ui.q(id)
+    )
+    for (const element of order) expect(element).not.toBeNull()
+    for (let i = 1; i < order.length; i += 1) {
+      expect(
+        order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING,
+        `${order[i].dataset.testid} follows ${order[i - 1].dataset.testid}`
+      ).toBeTruthy()
     }
-    // NO EXCLUSIVITY CLAIMED: it says the data is public.
+
+    // 1. WHAT IT IS: the desk study, the day's work, under a minute. Public
+    // data, no exclusivity claimed.
+    const lede = ui.q('report-lede').textContent.toLowerCase()
+    expect(lede).toContain('desk study')
+    expect(lede).toContain('site visit')
+    expect(lede).toContain('under a minute')
+    const text = page.textContent.toLowerCase()
     expect(text).toContain('public survey data')
     for (const claim of ['exclusive', 'proprietary', 'only we', 'nowhere else']) {
       expect(text).not.toContain(claim)
     }
 
-    // THE THREE LINES THAT DO THE MOST WORK, and they are the emphasised ones.
-    const keys = [...dialog.querySelectorAll('[data-testid="report-key-line"]')].map(
-      (el) => el.textContent
+    // 2. FOUR NAMED FIGURES, not eight summaries, and they are the four.
+    const headings = [...page.querySelectorAll('h2')].map((h) => h.textContent)
+    expect(headings).toEqual([FIGURES_HEADING, OWN_PAGES_HEADING, CONTENTS_HEADING])
+    const figures = [...ui.q('report-figures').querySelectorAll('li')]
+    expect(figures).toHaveLength(4)
+    expect(figures.map((li) => li.dataset.figure)).toEqual(KEY_FIGURES.map((f) => f.id))
+    const names = figures.map((li) => li.querySelector('strong').textContent.toLowerCase())
+    expect(names[0]).toContain('seasonal water table')
+    expect(names[0]).toContain('month by month')
+    expect(names[1]).toContain('road-construction ratings')
+    expect(names[2]).toContain('site index by species')
+    expect(names[3]).toContain('design storm depths')
+
+    // 3. THE USER'S OWN PAGES: three, theirs, free, and said so.
+    const own = page.textContent
+    expect(own).toContain(OWN_PAGES_BODY)
+    expect(OWN_PAGES_BODY.toLowerCase()).toContain('three')
+    expect(OWN_PAGES_BODY.toLowerCase()).toContain('twenty-four')
+    expect(OWN_PAGES_BODY.toLowerCase()).toContain('your own land')
+    expect(OWN_PAGES_BODY.toLowerCase()).toContain('free')
+    const images = [...ui.q('own-pages').querySelectorAll('img')]
+    expect(images, 'three page images').toHaveLength(3)
+    expect(images.map((img) => img.getAttribute('src'))).toEqual(
+      [1, 2, 3].map((n) => `${API}${PAGES_PATH}/${n}?size=thumb`)
     )
+    expect(images.map((img) => img.getAttribute('width'))).toEqual(['480', '480', '480'])
+    expect([...ui.q('own-pages').querySelectorAll('figcaption')].map((c) => c.textContent)).toEqual([
+      'III · Landform',
+      'III · Landform, continued',
+      'III · Landform, continued',
+    ])
+    // NO PROGRESS BAR FOR THEM, landed or not.
+    expect(ui.q('own-pages-waiting')).toBeNull()
+    expect(page.querySelector('[data-testid="own-pages"] .report-progress')).toBeNull()
+
+    // 4. THE CONTENTS, as they read: eight sections ending on the design, no
+    // back matter, the three phrases in weight.
+    const contents = ui.q('report-contents')
+    const sectionNames = [...contents.querySelectorAll('dt')].map((dt) => dt.textContent)
+    expect(sectionNames).toEqual(REPORT_CONTENTS.map((section) => section.name))
+    expect(sectionNames.at(-1)).toBe('The design')
+    for (const absent of ['sources and methods', 'references', 'bibliography']) {
+      expect(text, `the page does not list "${absent}"`).not.toContain(absent)
+    }
+    const keys = [...contents.querySelectorAll('[data-testid="report-key-line"]')].map((el) => el.textContent)
     expect(keys).toEqual([
       'the seasonal water table month by month',
       'what the soil survey says about building a lane',
       'what each species yields on this soil',
     ])
 
-    // NO PREVIEW, NO PLACEHOLDER, NO PRICE: no image, no frame, no currency.
-    expect(dialog.querySelector('img, figure, iframe')).toBeNull()
-    expect(dialog.textContent).not.toMatch(/[$£€]|\bprice\b|\bbuy\b|\bpurchase\b/i)
-
-    // ONE ACTION, and it generates as it always has.
+    // 5. THE ACTION, LAST -- and nothing that implies a price.
     expect(ui.generateButton().textContent).toBe(REPORT_LABEL)
+    expect(ui.q('report-action').textContent).not.toMatch(/[$£€]|\bprice\b|\bbuy\b|\bpurchase\b/i)
     await ui.unmount()
   })
 
-  it('takes focus, holds Tab inside, closes on Escape, and returns focus to the button', async () => {
+  it('opens one of its pages at full size, and the view is titled by the page, not a count', async () => {
+    installFetch({ document: allCommitted() })
+    const ui = await renderShell()
+    await ui.press('report-open')
+    await ui.press('own-page-open-2')
+    const view = ui.q('sample-view')
+    expect(view, 'the maximised view opens').not.toBeNull()
+    const titleId = view.querySelector('[role="dialog"]').getAttribute('aria-labelledby')
+    expect(window.document.getElementById(titleId).textContent).toBe('III · Landform, continued')
+    expect(view.querySelector('img').getAttribute('src')).toBe(`${API}${PAGES_PATH}/2`)
+    await ui.key('Escape')
+    expect(ui.q('sample-view')).toBeNull()
+    expect(window.document.activeElement).toBe(ui.q('own-page-open-2'))
+    await ui.unmount()
+  })
+
+  it('shows the page while the free pages come, and says so once; a failure says so and leaves the page readable', async () => {
+    // HELD: the manifest never answers during this test.
+    let release
+    const held = new Promise((resolve) => (release = resolve))
+    installFetch({ document: allCommitted() })
+    const inner = globalThis.fetch
+    globalThis.fetch = vi.fn(async (rawUrl, init) => {
+      if (new URL(rawUrl, API).pathname === PAGES_PATH) await held
+      return inner(rawUrl, init)
+    })
+    const ui = await renderShell()
+    await ui.press('report-open')
+    // READABLE WHILE IT WORKS: the lede, the figures, the contents and the
+    // action are all there; the slots hold their place with one line.
+    for (const id of ['report-lede', 'report-figures', 'report-contents', 'report-generate']) {
+      expect(ui.q(id), `${id} is on screen during the wait`).not.toBeNull()
+    }
+    expect(ui.q('own-pages').dataset.status).toBe('pending')
+    expect(ui.q('own-pages-waiting').textContent).toBe(OWN_PAGES_WAITING)
+    expect(ui.page().querySelector('.report-progress'), 'no bar for a two-second wait').toBeNull()
+    await React.act(async () => {
+      release()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(ui.q('own-pages').dataset.status).toBe('ready')
+    expect(ui.q('own-pages-waiting')).toBeNull()
+    await ui.unmount()
+
+    // THE ONE FAILURE: a 502 from a rebuild that could not refetch. The
+    // cache forgotten first -- the pages above would otherwise be served.
+    resetLandformPages()
+    installFetch({ document: allCommitted(), pagesStatus: 502 })
+    const failed = await renderShell()
+    await failed.press('report-open')
+    await React.act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    const note = failed.q('own-pages-failed')
+    expect(note, 'the failure is said').not.toBeNull()
+    expect(note.textContent.toLowerCase()).toContain('nothing about your design has changed')
+    expect(note.textContent.toLowerCase()).not.toContain('error')
+    expect(failed.generateButton(), 'the report itself is still offered').not.toBeNull()
+    expect(failed.q('report-contents')).not.toBeNull()
+    await failed.unmount()
+  })
+
+  it('goes back with the browser\'s own back, returns focus to the card\'s button, and asks the server for nothing', async () => {
     const wire = installFetch({ document: allCommitted() })
     const ui = await renderShell()
-
     ui.openButton().focus()
     await ui.press('report-open')
-    const dialog = ui.overlay()
-    expect(window.document.activeElement, 'focus moves into the dialog').toBe(dialog)
-    expect(ui.openButton().getAttribute('aria-expanded')).toBe('true')
+    expect(ui.page()).not.toBeNull()
+    const link = ui.q('report-back')
+    expect(link.textContent).toContain(BACK_LABEL)
+    expect(link.getAttribute('href')).toBe(`/?session=${SESSION_ID}`)
+    const before = wire.calls.length
 
-    // TAB IS HELD. From the dialog itself forward is the first control (the
-    // close), shift+Tab off the first is the last (the action), and Tab off
-    // the last wraps to the first.
-    const close = dialog.querySelector(`[aria-label="${CLOSE_LABEL}"]`)
-    const action = ui.generateButton()
-    await ui.key('Tab')
-    expect(window.document.activeElement).toBe(close)
-    await ui.key('Tab', { shiftKey: true })
-    expect(window.document.activeElement).toBe(action)
-    await ui.key('Tab')
-    expect(window.document.activeElement).toBe(close)
+    await ui.back()
 
-    // ESCAPE CLOSES, AND FOCUS GOES BACK TO WHAT OPENED IT.
-    await ui.key('Escape')
-    expect(ui.overlay(), 'Escape closes the overlay').toBeNull()
+    expect(window.location.pathname, 'back is the wizard').toBe('/')
+    expect(new URLSearchParams(window.location.search).get('session'), 'with the session along').toBe(SESSION_ID)
+    expect(ui.page(), 'the page is gone').toBeNull()
     expect(window.document.activeElement, 'focus returns to the button').toBe(ui.openButton())
-    expect(ui.openButton().getAttribute('aria-expanded')).toBe('false')
+    expect(window.document.title).not.toContain(PAGE_TITLE)
+    // NO HYDRATION, NO FETCH OF ANY KIND: going back is the layer leaving.
+    expect(wire.calls.length).toBe(before)
 
-    // DISMISSED WITHOUT GENERATING: nothing was asked of the server.
-    expect(wire.calls.filter((c) => c.path.endsWith('/report'))).toHaveLength(0)
-    expect(ui.session.state.report.status).toBe('idle')
+    // AND FORWARD AGAIN IS INSTANT: the pages were kept, nothing is refetched.
+    await ui.press('report-open')
+    expect(ui.q('own-pages').dataset.status).toBe('ready')
+    expect(wire.calls.filter((c) => c.path === PAGES_PATH)).toHaveLength(1)
     await ui.unmount()
   })
 
-  it('closes from the × and from the dim, without generating', async () => {
-    const wire = installFetch({ document: allCommitted() })
-    const ui = await renderShell()
-    await ui.press('report-open')
-    await ui.press('report-close')
-    expect(ui.overlay()).toBeNull()
-    expect(window.document.activeElement).toBe(ui.openButton())
-    await ui.press('report-open')
-    await ui.press('report-backdrop')
-    expect(ui.overlay()).toBeNull()
-    expect(wire.calls.filter((c) => c.path.endsWith('/report'))).toHaveLength(0)
-    await ui.unmount()
-  })
-
-  it('does not cancel a report when closed mid-wait, and the card says it is under way', async () => {
+  it('does not cancel a report when the person goes back mid-wait, and the card says it is under way', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false })
-    // THE JOB KEEPS COUNTING WHILE THE OVERLAY IS SHUT.
+    // THE JOB KEEPS COUNTING WHILE THE PAGE IS NOT UP.
     installFetch({
       document: allCommitted(),
       jobPolls: Number.MAX_SAFE_INTEGER,
@@ -1170,10 +1354,9 @@ describe('8. the overlay', () => {
     })
     const ui = await renderShell()
     await ui.generate()
-    // THE PRESS DISABLED THE BUTTON; FOCUS STAYED IN THE DIALOGUE.
-    expect(window.document.activeElement).toBe(ui.overlay())
-    await ui.key('Escape')
-    expect(ui.overlay()).toBeNull()
+    expect(ui.generateButton().disabled).toBe(true)
+    await ui.back()
+    expect(ui.page()).toBeNull()
     expect(ui.session.state.report.status).toBe('working')
     expect(ui.q('delivery-state').textContent).toBe('Your report is being made.')
     // THE POLLS GO ON WITH NOBODY LOOKING.

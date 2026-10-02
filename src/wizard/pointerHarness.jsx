@@ -67,6 +67,8 @@ import MapLayerStack from '../map/MapLayerStack.jsx'
 import { DrawingProgressProvider } from '../map/DrawingProgress.jsx'
 import WizardShell from './WizardShell.jsx'
 import { WizardCursorProvider, useWizardCursor } from './WizardCursor.jsx'
+import ReportPage from '../report/ReportPage.jsx'
+import { isReportPath, useLocation } from '../router.jsx'
 import rings from '../fixtures/rings.json'
 import { StepCardRegistry } from '../tutorial/TutorialContext.jsx'
 
@@ -134,6 +136,17 @@ function MapProbe() {
   return null
 }
 
+/**
+ * THE REPORT ROUTE, AS App.jsx MOUNTS IT: a layer over the shell whenever
+ * the location is /report. The delivery card navigates there now, and the
+ * generate action is on that page, so the live report case hit-tests it
+ * where it is.
+ */
+function RouteLayer() {
+  const { pathname } = useLocation()
+  return isReportPath(pathname) ? <ReportPage /> : null
+}
+
 function Harness() {
   // NO STEP CARDS. The boundary's card opens on arrival and its dim would
   // sit over every control this file hit-tests. The cards have their own
@@ -182,6 +195,7 @@ function Harness() {
             </MapContainer>
             <WizardShell />
           </div>
+          <RouteLayer />
         </DrawingProgressProvider>
       </WizardCursorProvider>
     </SessionProvider>

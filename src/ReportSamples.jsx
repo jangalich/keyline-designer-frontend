@@ -108,8 +108,14 @@ export const SAMPLE_CAPTION =
 /** The visually hidden tail of each thumbnail's name: what pressing it does. */
 export const OPEN_HINT = 'View at full size.'
 
-/** The maximised view's title: the section, and where the page sits in the report. */
+/**
+ * The maximised view's title: the section, and where the page sits in the
+ * report. A page that carries its own `title` -- the report page's generated
+ * Landform pages, whose place in the user's own report is not a number this
+ * client knows -- is titled by it instead.
+ */
 export function viewTitle(sample) {
+  if (sample.title) return sample.title
   return `${sample.label} · page ${sample.page} of ${REPORT_PAGE_COUNT}`
 }
 
