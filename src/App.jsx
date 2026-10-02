@@ -5,6 +5,7 @@ import AddressSearch from './AddressSearch.jsx'
 import { SessionProvider } from './session/SessionStore'
 import { registryProposalFeatures } from './wizard/stepDefinitions'
 import MapLayerStack from './map/MapLayerStack.jsx'
+import ResumeFit from './map/ResumeFit.jsx'
 import { DrawingProgressProvider } from './map/DrawingProgress.jsx'
 import WizardShell from './wizard/WizardShell.jsx'
 import { WizardCursorProvider } from './wizard/WizardCursor.jsx'
@@ -256,6 +257,11 @@ function Designer() {
                 <AttributionControl position="topleft" prefix={false} />
                 <TileLayer url={BASEMAP.url} attribution={BASEMAP.attribution} maxZoom={19} />
                 <MapRecenter center={mapCenter} zoom={18} />
+                {/* A RESUMED SESSION OPENS ON ITS PARCEL: one instant fit to
+                    the committed boundary when the resume lands, forfeited if
+                    the user has searched or moved the map first. Never again
+                    after that -- see ResumeFit. */}
+                <ResumeFit searched={mapCenter != null} />
                 {/* THE LAYER STACK. It composes basemap → context → committed
                     → active editable from the store and the step definitions,
                     and mounts the active step's declared tools. */}
