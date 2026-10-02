@@ -29,6 +29,7 @@ vi.mock('react-leaflet', () => ({
 }))
 vi.mock('../MapRecenter.jsx', () => ({ default: () => null }))
 vi.mock('../map/MapLayerStack.jsx', () => ({ default: () => null }))
+vi.mock('../map/ResumeFit.jsx', () => ({ default: () => null }))
 
 import App, { DEFAULT_VIEW } from '../App.jsx'
 import { ADDRESS_PLACEHOLDER } from '../AddressSearch.jsx'
