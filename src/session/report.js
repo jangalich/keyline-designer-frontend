@@ -30,7 +30,7 @@
  * expired session the user can act on, a named source (`failed_layer`) that
  * did not answer, or an outage with nothing to ask for — is read off the keys
  * the payload carries, and that reading belongs where the copy is. See
- * reportFailure() in the store and ReportOverlay.jsx.
+ * reportFailure() in the store and report/ReportPage.jsx.
  */
 
 import { generateReport as apiGenerateReport } from './apiClient'

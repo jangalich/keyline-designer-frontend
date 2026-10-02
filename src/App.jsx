@@ -12,6 +12,8 @@ import { WizardCursorProvider } from './wizard/WizardCursor.jsx'
 import { TutorialReady } from './tutorial/TutorialContext.jsx'
 import { GATED_ADDRESS_PLACEHOLDER, OrientationCard, useTutorialGate } from './tutorial/TutorialGate.jsx'
 import ReportSamples from './ReportSamples.jsx'
+import ReportPage from './report/ReportPage.jsx'
+import { isReportPath, useLocation } from './router.jsx'
 import ScaleOfPermanence from './ScaleOfPermanence.jsx'
 // ?react is vite-plugin-svgr: the asset becomes a React component and lands
 // inline in the DOM. It has to be inline — the file draws with
@@ -82,10 +84,46 @@ function App() {
     <SessionProvider proposalFeatures={registryProposalFeatures}>
       <WizardCursorProvider>
         <DrawingProgressProvider>
-          <Designer />
+          <Routes />
         </DrawingProgressProvider>
       </WizardCursorProvider>
     </SessionProvider>
+  )
+}
+
+/**
+ * THE TWO ROUTES, AND HOW THE SECOND SITS ON THE FIRST.
+ *
+ * The wizard page is ALWAYS MOUNTED. The report page (/report) is a layer
+ * rendered over it, not a component swapped in for it -- and the difference
+ * is the whole point. Swapping would unmount the map: coming back would
+ * remount Leaflet at DEFAULT_VIEW with the design off screen, because
+ * ResumeFit fires once, on the resume landing, and a remount is not one. A
+ * layer leaving is instant and changes nothing underneath: no hydration
+ * (the session provider is above both pages), no fit, no tiles refetched,
+ * and the document's scroll position still where it was.
+ *
+ * WHILE THE REPORT PAGE IS UP the wizard page is `inert` -- out of the tab
+ * order, unclickable, hidden from assistive tech -- so the two pages cannot
+ * be interacted with at once; and the report page locks the document
+ * scroll (its own body scrolls). The attribute is set as '' and removed as
+ * undefined rather than toggled as a boolean: React 18 renders
+ * inert={false} as inert="false", which inerts.
+ *
+ * ONE PROVIDER TREE FOR BOTH. The report page reads the same store the
+ * wizard does -- the same session, the same report request in flight -- so
+ * a report started on one page is still under way on the other.
+ */
+function Routes() {
+  const { pathname } = useLocation()
+  const onReport = isReportPath(pathname)
+  return (
+    <>
+      <div inert={onReport ? '' : undefined} aria-hidden={onReport ? 'true' : undefined} data-testid="wizard-page">
+        <Designer />
+      </div>
+      {onReport ? <ReportPage /> : null}
+    </>
   )
 }
 

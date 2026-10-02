@@ -2697,92 +2697,107 @@
   color: var(--ink);
 }
 
-/* --- THE REPORT OVERLAY ------------------------------------------------------
-   What the site data report contains, and where it is made. A modal card over
-   the map's stage, on the tutorial's arrangement: the dim covers the map and
-   its chrome and nothing beyond, above the chrome's 400.
+/* --- THE REPORT PAGE (report/ReportPage.jsx) ---------------------------------
+   The route /report: what the site data report is, three pages of the
+   user's own, the contents, and the row the price and the purchase will
+   take. It replaced the report overlay -- a modal card over the map stage --
+   because a transaction wants its own URL (docs/frontend-design-guide.md,
+   "Pages and routes").
 
-   A CONTENTS LIST, NOT A SALES PAGE. The sections are a definition list --
-   the section's name in the titling voice, what it holds in prose -- ruled
-   like the rail's rows. Three phrases carry weight and nothing else carries
-   emphasis: they are the ones the interactive map does not give.
+   A LAYER OVER THE WIZARD PAGE, NOT A PAGE IN THE DOCUMENT'S FLOW. Fixed to
+   the viewport and scrolling inside itself, so the wizard page and its map
+   stay exactly where they were and going back is this leaving. The
+   document scroll is locked while it is up (the component does that).
 
-   THE FOOT IS A ROW WITH TWO ENDS, and it stays in view. The trailing end is
-   the action; the leading end is one line of state. A price and a purchase
-   would take those two ends without the layout moving, and nothing here
-   draws a slot for them. Sticky to the card's foot, so on a short screen the
-   contents scroll and the action does not.
+   ITS Z-INDEX IS READ AGAINST THE ROOT STACKING CONTEXT, where only two
+   things live: .page (z-index 1, and a context of its own -- everything
+   inside it, the chrome's 400 and the tutorial's 1000 included, is confined
+   under that 1) and the maximised page view (.sample-view, 1000, portalled
+   to <body>). So 900: above the whole wizard page, and BELOW the maximised
+   view, which this page opens too and which must open over it.
 
-   NOTHING BELOW NAMES A COLOUR. The dim is --scrim at an opacity. */
-.report-overlay {
-  position: absolute;
+   IT IS A PROSE PAGE, in the marketing page's measure and voice: the
+   prose shell's width, the section heading sizes, the sample slots for the
+   pages. It is the same product's second page, not a second product. The
+   one thing from the overlay that stays is the foot: a row with two ends,
+   the state leading and the action trailing, so a price and a purchase
+   take those two ends without the layout moving.
+
+   NOTHING BELOW NAMES A COLOUR. */
+.report-page {
+  position: fixed;
   inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
-}
-
-.report-overlay__backdrop {
-  position: absolute;
-  inset: 0;
-  background: var(--scrim);
-  opacity: 0.55;
-}
-
-.report-overlay__card {
-  position: relative;
-  width: min(100%, 38rem);
-  max-height: 100%;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  /* No bottom padding: the foot carries it, so the sticky foot sits flush
-     with the card's edge and nothing scrolls visibly beneath it. */
-  padding: var(--space-5) var(--space-5) 0;
-  background: var(--paper);
-  border: var(--hairline);
-  border-radius: var(--radius);
-}
-
-/* The way out that is not the action. Quiet, top right -- the tutorial's. */
-.report-overlay__close {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
-  display: grid;
-  place-items: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--ink-muted);
-  font-family: var(--font-prose);
-  font-size: var(--text-lg);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.report-overlay__close:hover {
+  z-index: 900;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--stock);
   color: var(--ink);
 }
 
-.report-overlay__title {
-  margin: 0;
-  padding-right: var(--space-6);
+/* The way back, and the mark: a bar across the top that stays while the
+   page scrolls, on paper so the text beneath does not run through it. */
+.report-page__nav {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-block: var(--space-3);
+  background: var(--paper);
+  border-bottom: var(--hairline);
+}
+
+.report-page__back {
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--rule);
+}
+
+.report-page__back:hover,
+.report-page__back:focus-visible {
+  border-bottom-color: var(--ink);
+}
+
+.report-page__mark {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: var(--text-xl);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.report-page__body {
+  padding-block: var(--space-7) var(--space-8);
+}
+
+/* The heading takes focus on arrival (tabindex -1). The ring it shows is
+   the foundation's focus-visible ring, as on every control: a programmatic
+   focus after a press is not focus-visible in any current browser, so a
+   mouse arrival shows nothing and a keyboard arrival shows the ring. No
+   rule here overrides that -- the guide allows no `outline: none`. */
+.report-page__title {
+  margin: 0 0 var(--space-5);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-2xl);
   line-height: var(--leading-tight);
   color: var(--ink);
 }
 
-.report-overlay__lede {
+/* 1. WHAT IT IS. The first sentence at the lede size, the second at body:
+   the frame carries the weight, the scope follows it. */
+.report-page__lede {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-prose);
+  font-size: var(--text-lg);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+.report-page__lede-tail {
   margin: 0;
   font-family: var(--font-prose);
   font-size: var(--text-base);
@@ -2790,28 +2805,77 @@
   color: var(--ink);
 }
 
-.report-overlay__contents {
+.report-page__section {
+  margin-top: var(--space-7);
+}
+
+.report-page__heading {
+  margin: 0 0 var(--space-4);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+  color: var(--ink);
+}
+
+/* 2. THE FOUR FIGURES. Four names, each with one line under it, ruled like
+   the source list -- the name in the display face at the body size, where
+   the overlay's three phrases were a weight inside muted prose. These are
+   the argument, so they are set as one. */
+.report-page__figures {
   margin: 0;
+  padding: 0;
+  list-style: none;
   border-top: var(--hairline);
 }
 
-.report-overlay__section {
+.report-page__figure {
   display: grid;
-  grid-template-columns: 7.5rem minmax(0, 1fr);
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
+  gap: var(--space-1);
+  padding-block: var(--space-3);
   border-bottom: var(--hairline);
 }
 
-.report-overlay__section-name {
+.report-page__figure-name {
   font-family: var(--font-display);
   font-weight: 600;
+  font-size: var(--text-base);
+  line-height: var(--leading-tight);
+  color: var(--ink);
+}
+
+.report-page__figure-body {
+  font-family: var(--font-prose);
   font-size: var(--text-sm);
   line-height: var(--leading-body);
   color: var(--ink);
 }
 
-.report-overlay__section-body {
+/* 3. THE USER'S OWN PAGES. The marketing page's sample slots (.sample-row,
+   .sample, .sample__open, .sample__thumb), so a page here reads as a page
+   there. The pending frames hold Letter's ratio at the slot's width so the
+   page below does not jump when the images land; the line under them is the
+   whole of the wait's apparatus. */
+.report-page__own-body {
+  margin: 0 0 var(--space-4);
+  font-family: var(--font-prose);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+.report-page__pages {
+  margin-bottom: var(--space-3);
+}
+
+.report-page__slot {
+  aspect-ratio: 612 / 792;
+  border: var(--hairline);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+.report-page__pages-note {
   margin: 0;
   font-family: var(--font-prose);
   font-size: var(--text-sm);
@@ -2819,31 +2883,68 @@
   color: var(--ink-muted);
 }
 
-/* THE THREE LINES THAT DO THE MOST WORK. Weight and full ink against the
-   muted description around them -- not colour, which the action owns. */
-.report-overlay__key {
+/* A FAILURE IS NOT AN ALARM: full ink so it is read, nothing else. */
+.report-page__pages-note--failed {
+  color: var(--ink);
+}
+
+/* 4. THE CONTENTS. The overlay's definition list, as it read: the section's
+   name in the titling voice, what it holds in muted prose, ruled like the
+   rail's rows; three phrases in weight. Supporting detail now. */
+.report-page__contents {
+  margin: 0;
+  border-top: var(--hairline);
+}
+
+.report-page__contents-row {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: var(--hairline);
+}
+
+.report-page__section-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+.report-page__section-body {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+}
+
+.report-page__key {
   font-weight: 600;
   color: var(--ink);
 }
 
-.report-overlay__foot {
-  position: sticky;
-  bottom: 0;
+/* 5. THE FOOT: THE PRICE'S ROW. Two ends; the state leads, the action
+   trails. A rule above it marks it as the page's close. Not sticky: on a
+   page, the action is where the reading ends, and a person who has read
+   the page is where it is. */
+.report-page__foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  margin-top: auto;
-  padding: var(--space-4) 0 var(--space-5);
-  background: var(--paper);
+  margin-top: var(--space-7);
+  padding-top: var(--space-5);
+  border-top: var(--hairline);
 }
 
-.report-overlay__state {
+.report-page__state {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.report-overlay__note {
+.report-page__note {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -2854,6 +2955,67 @@
   color: var(--ink-muted);
 }
 
+.report-page__note--failed {
+  color: var(--ink);
+}
+
+.report-page__progress {
+  min-width: 0;
+}
+
+.report-page__action {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+}
+
+/* THE ANCHOR HAS TO BE TOLD IT IS A BUTTON. .chrome-banner__button is written
+   for <button>; the download is a link to a file on another origin, which is
+   what an anchor is for, so it keeps its element and takes the box here. */
+a.report-page__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+/* NO DESIGN ON THIS LINK, or no answer: a card at the top of the page, on
+   paper, saying so in two lines with the one action that helps. The page's
+   description still reads under it -- it is about the report, which exists
+   whatever the link held. */
+.report-page__notice {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin: 0 0 var(--space-6);
+  padding: var(--space-4);
+  background: var(--paper);
+  border: var(--hairline);
+  border-radius: var(--radius);
+}
+
+.report-page__notice-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-lg);
+  line-height: var(--leading-tight);
+  color: var(--ink);
+}
+
+.report-page__notice-body {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+.report-page__notice .report-page__action {
+  margin-top: var(--space-2);
+}
+
 /* --- The report's progress (ReportProgress.jsx) ----------------------------
    A bar that is the job's own count of completed work, a sentence saying what
    is being worked on, and under it -- while public records are read -- the
@@ -2861,10 +3023,6 @@
    no shimmer, no pulse. The fill steps when a completion arrives and is still
    otherwise, so a stalled service reads as a still bar with its name beside
    it. */
-.report-overlay__progress {
-  min-width: 0;
-}
-
 .report-progress {
   display: grid;
   gap: var(--space-1);
@@ -2954,50 +3112,30 @@
   }
 }
 
-/* A FAILURE IS NOT AN ALARM. Full ink so it is read, and no fill, icon or
-   border: none of the three things that can go wrong is about the design. */
-.report-overlay__note--failed {
-  color: var(--ink);
-}
-
-.report-overlay__action {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-/* THE ANCHOR HAS TO BE TOLD IT IS A BUTTON. .chrome-banner__button is written
-   for <button>; the download is a link to a file on another origin, which is
-   what an anchor is for, so it keeps its element and takes the box here. */
-a.report-overlay__action {
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-}
-
-/* NARROW: the section names go above their lines, and the foot stacks -- the
-   state over a full-width action. */
+/* NARROW: the contents' section names go above their lines, the figures
+   keep their rows, and the foot stacks -- the state over a full-width
+   action. The sample row already stacks its slots at this width. */
 @media (max-width: 40rem) {
-  .report-overlay {
-    padding: var(--space-3);
+  .report-page__body {
+    padding-block: var(--space-6) var(--space-7);
   }
 
-  .report-overlay__card {
-    padding: var(--space-4) var(--space-4) 0;
+  .report-page__title {
+    font-size: var(--text-xl);
   }
 
-  .report-overlay__section {
+  .report-page__contents-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
   }
 
-  .report-overlay__foot {
+  .report-page__foot {
     flex-direction: column;
     align-items: stretch;
     gap: var(--space-3);
-    padding-bottom: var(--space-4);
   }
 
-  .report-overlay__action {
+  .report-page__action {
     justify-content: center;
     white-space: normal;
   }

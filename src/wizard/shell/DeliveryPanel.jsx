@@ -45,12 +45,18 @@
  *
  *
  * THE WORDING. "See your site data report" names the artifact rather than
- * the machinery, and "see" is honestly what the next step does: it opens a
- * description of the document, and generation is a second, deliberate press
- * inside it.
+ * the machinery, and "see" is honestly what the next step does: it opens
+ * the report page, and generation is a second, deliberate press there.
+ *
+ * IT NAVIGATES. The press goes to /report with the session along in the
+ * query (router.jsx), where the report overlay this card used to open was
+ * retired at the route's branch -- report/ReportPage.jsx says why. The
+ * history entry is marked as having come from the wizard, so the page's
+ * own "back" can be the browser's back, and the design map is exactly as
+ * it was left: the wizard page stays mounted under the route (App.jsx).
  */
 
-import { useCallback, useId, useRef, useState } from 'react'
+import { useId, useRef } from 'react'
 
 import {
   REPORT_FAILED_STATUS,
@@ -60,16 +66,17 @@ import {
   selectReportIsOffered,
   useSession,
 } from '../../session/SessionStore'
-import ReportOverlay from './ReportOverlay.jsx'
+import { REPORT_PATH, navigate, withCurrentSearch } from '../../router.jsx'
 
 export const DELIVERY_TITLE = 'Your design is complete.'
 export const DELIVERY_BODY = 'Every step is committed. The map shows the finished layout.'
 export const DELIVERY_LABEL = 'See your site data report'
 
 /**
- * WHAT THE CARD SAYS ABOUT A REPORT ALREADY ASKED FOR, while the overlay is
- * closed. One line, in the data face -- machine state, like the banner's
- * working line -- and the detail is in the overlay, one press away.
+ * WHAT THE CARD SAYS ABOUT A REPORT ALREADY ASKED FOR, while the person is
+ * back on the map. One line, in the data face -- machine state, like the
+ * banner's working line -- and the detail is on the report page, one press
+ * away.
  */
 const REPORT_STATE_LINE = Object.freeze({
   [REPORT_WORKING]: 'Your report is being made.',
@@ -81,10 +88,8 @@ export default function DeliveryPanel() {
   const { state } = useSession()
   const offered = selectReportIsOffered(state)
   const report = selectReport(state)
-  const [open, setOpen] = useState(false)
   const button = useRef(null)
   const titleId = useId()
-  const close = useCallback(() => setOpen(false), [])
 
   if (!offered) return null
 
@@ -115,13 +120,10 @@ export default function DeliveryPanel() {
         className="chrome-banner__button chrome-banner__button--primary chrome-delivery__action"
         data-tone="primary"
         data-testid="report-open"
-        aria-haspopup="dialog"
-        aria-expanded={open ? 'true' : 'false'}
-        onClick={() => setOpen(true)}
+        onClick={() => navigate(withCurrentSearch(REPORT_PATH), { state: { from: 'wizard' } })}
       >
         {DELIVERY_LABEL}
       </button>
-      {open ? <ReportOverlay onClose={close} returnTo={button} /> : null}
     </section>
   )
 }
