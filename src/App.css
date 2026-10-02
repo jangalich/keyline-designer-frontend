@@ -3654,8 +3654,13 @@ a.report-overlay__action {
 }
 
 /* The diagram's frame. --stock rather than --paper so the map reads as
-   ground against the card, with the same hairline every card takes. */
+   ground against the card, with the same hairline every card takes.
+   Never shrinks: it is a flex item with overflow hidden, so its minimum
+   height is 0, and when the card meets its max-height the column would
+   squeeze it and crop the foot of the diagram -- the tab strip -- rather
+   than let the card scroll. */
 .tutorial__figure {
+  flex-shrink: 0;
   margin: 0;
   overflow: hidden;
   border: var(--hairline);
